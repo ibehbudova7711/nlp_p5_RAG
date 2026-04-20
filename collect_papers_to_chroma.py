@@ -7,10 +7,11 @@ import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import chromadb
 import requests
+import tabula
 from pypdf import PdfReader
 from requests.adapters import HTTPAdapter
 from sentence_transformers import SentenceTransformer
@@ -256,34 +257,6 @@ class ArxivCollector:
         return all_papers[:max_results]
 
 
-class PDFTextExtractor:
-    def __init__(self, session: requests.Session, pdf_dir: Path) -> None:
-        self.session = session
-        self.pdf_dir = pdf_dir
-        self.pdf_dir.mkdir(parents=True, exist_ok=True)
-
-    def _download_pdf(self, paper: Paper) -> Path:
-        pdf_path = self.pdf_dir / f"{paper.arxiv_id.replace('/', '_')}.pdf"
-        if pdf_path.exists():
-            return pdf_path
-
-        response = self.session.get(paper.pdf_url, timeout=120)
-        response.raise_for_status()
-        pdf_path.write_bytes(response.content)
-        return pdf_path
-
-    def extract_text(self, paper: Paper) -> str:
-        pdf_path = self._download_pdf(paper)
-        reader = PdfReader(str(pdf_path))
-        pages = []
-        for page in reader.pages:
-            try:
-                pages.append(page.extract_text() or "")
-            except Exception:
-                pages.append("")
-        return "\n".join(pages)
-
-
 class TextPreprocessor:
     @staticmethod
     def remove_invalid_unicode(text: str) -> str:
@@ -316,11 +289,165 @@ class TextPreprocessor:
         return text.strip()
 
     @staticmethod
+    def clean_cell(value: object) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        text = TextPreprocessor.remove_invalid_unicode(text)
+        text = re.sub(r"\s+", " ", text)
+        return text
+
+    @staticmethod
     def word_count(text: str) -> int:
         return len(re.findall(r"\b\w+\b", text))
 
 
+class PDFStructuredExtractor:
+    def __init__(
+        self,
+        session: requests.Session,
+        pdf_dir: Path,
+        use_tabula: bool = True,
+        tabula_pages: str = "all",
+        tabula_lattice: bool = False,
+        tabula_stream: bool = True,
+    ) -> None:
+        self.session = session
+        self.pdf_dir = pdf_dir
+        self.pdf_dir.mkdir(parents=True, exist_ok=True)
+        self.use_tabula = use_tabula
+        self.tabula_pages = tabula_pages
+        self.tabula_lattice = tabula_lattice
+        self.tabula_stream = tabula_stream
+
+    def _download_pdf(self, paper: Paper) -> Path:
+        pdf_path = self.pdf_dir / f"{paper.arxiv_id.replace('/', '_')}.pdf"
+        if pdf_path.exists():
+            return pdf_path
+
+        response = self.session.get(paper.pdf_url, timeout=120)
+        response.raise_for_status()
+        pdf_path.write_bytes(response.content)
+        return pdf_path
+
+    def _extract_page_texts(self, pdf_path: Path) -> List[str]:
+        reader = PdfReader(str(pdf_path))
+        page_texts: List[str] = []
+
+        for page in reader.pages:
+            try:
+                page_texts.append(page.extract_text() or "")
+            except Exception:
+                page_texts.append("")
+
+        return page_texts
+
+    def _extract_tables_by_page(self, pdf_path: Path) -> Dict[int, List[str]]:
+        if not self.use_tabula:
+            return {}
+
+        tables_by_page: Dict[int, List[str]] = {}
+
+        try:
+            reader = PdfReader(str(pdf_path))
+            num_pages = len(reader.pages)
+        except Exception:
+            return {}
+
+        for page_num in range(1, num_pages + 1):
+            try:
+                dfs = tabula.read_pdf(
+                    str(pdf_path),
+                    pages=page_num,
+                    multiple_tables=True,
+                    lattice=self.tabula_lattice,
+                    stream=self.tabula_stream,
+                    guess=True,
+                    silent=True,
+                )
+            except Exception as e:
+                print(f"[warn] Tabula failed on page {page_num} of {pdf_path.name}: {e}")
+                continue
+
+            if not dfs:
+                continue
+
+            page_tables: List[str] = []
+            for table_idx, df in enumerate(dfs, start=1):
+                table_text = self._dataframe_to_table_block(df, page_num=page_num, table_idx=table_idx)
+                if table_text:
+                    page_tables.append(table_text)
+
+            if page_tables:
+                tables_by_page[page_num] = page_tables
+
+        return tables_by_page
+
+    def _dataframe_to_table_block(self, df, page_num: int, table_idx: int) -> str:
+        try:
+            if df is None or df.empty:
+                return ""
+        except Exception:
+            return ""
+
+        df = df.fillna("")
+
+        headers = [TextPreprocessor.clean_cell(col) for col in df.columns.tolist()]
+        headers = [h if h else f"column_{i+1}" for i, h in enumerate(headers)]
+
+        rows: List[str] = []
+        for row_idx, row in enumerate(df.values.tolist(), start=1):
+            cleaned_cells = [TextPreprocessor.clean_cell(cell) for cell in row]
+            if not any(cleaned_cells):
+                continue
+
+            pairs = [f"{headers[i]}: {cleaned_cells[i]}" for i in range(min(len(headers), len(cleaned_cells)))]
+            row_text = " | ".join(pairs).strip()
+            if row_text:
+                rows.append(f"Row {row_idx}: {row_text}")
+
+        if not rows:
+            return ""
+
+        header_line = " | ".join(headers)
+
+        return (
+            f"\n[TABLE page={page_num} index={table_idx}]\n"
+            f"Columns: {header_line}\n"
+            + "\n".join(rows)
+            + f"\n[/TABLE]\n"
+        )
+
+    def extract_text_with_tables(self, paper: Paper) -> Tuple[str, Dict[str, int], Path]:
+        pdf_path = self._download_pdf(paper)
+        page_texts = self._extract_page_texts(pdf_path)
+        tables_by_page = self._extract_tables_by_page(pdf_path)
+
+        merged_pages: List[str] = []
+        total_tables = 0
+
+        for page_idx, page_text in enumerate(page_texts, start=1):
+            page_text = page_text or ""
+            table_blocks = tables_by_page.get(page_idx, [])
+            total_tables += len(table_blocks)
+
+            merged = f"[PAGE {page_idx}]\n{page_text.strip()}\n"
+            if table_blocks:
+                merged += "\n" + "\n".join(table_blocks)
+            merged_pages.append(merged.strip())
+
+        full_text = "\n\n".join(merged_pages)
+
+        stats = {
+            "page_count": len(page_texts),
+            "table_count": total_tables,
+        }
+        return full_text, stats, pdf_path
+
+
 class RecursiveTokenChunker:
+    TABLE_BLOCK_PATTERN = re.compile(r"(\[TABLE.*?\].*?\[/TABLE\])", re.DOTALL)
+
     def __init__(
         self,
         model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
@@ -356,8 +483,20 @@ class RecursiveTokenChunker:
         if not text:
             return []
 
-        coarse_chunks = self._recursive_split_by_structure(text)
-        merged_chunks = self._merge_small_chunks(coarse_chunks)
+        blocks = self._split_preserving_tables(text)
+        coarse_chunks: List[str] = []
+
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+
+            if self._is_table_block(block):
+                coarse_chunks.append(block)
+            else:
+                coarse_chunks.extend(self._recursive_split_by_structure(block))
+
+        merged_chunks = self._merge_small_chunks_table_aware(coarse_chunks)
 
         final_chunks: List[str] = []
         for chunk in merged_chunks:
@@ -368,14 +507,26 @@ class RecursiveTokenChunker:
             est = self.safe_token_count(chunk)
 
             if est < self.min_chunk_tokens:
+                if self._is_table_block(chunk):
+                    final_chunks.append(chunk)
                 continue
 
             if est > self.max_chunk_tokens:
-                final_chunks.extend(self._split_large_chunk(chunk))
+                if self._is_table_block(chunk):
+                    final_chunks.extend(self._split_large_table_block(chunk))
+                else:
+                    final_chunks.extend(self._split_large_chunk(chunk))
             else:
                 final_chunks.append(chunk)
 
         return self._add_overlap(final_chunks)
+
+    def _split_preserving_tables(self, text: str) -> List[str]:
+        parts = self.TABLE_BLOCK_PATTERN.split(text)
+        return [p for p in parts if p and p.strip()]
+
+    def _is_table_block(self, text: str) -> bool:
+        return text.strip().startswith("[TABLE") and text.strip().endswith("[/TABLE]")
 
     def _recursive_split_by_structure(self, text: str) -> List[str]:
         separators = ["\n\n", "\n", ". ", " "]
@@ -420,7 +571,7 @@ class RecursiveTokenChunker:
 
         return results
 
-    def _merge_small_chunks(self, pieces: List[str]) -> List[str]:
+    def _merge_small_chunks_table_aware(self, pieces: List[str]) -> List[str]:
         if not pieces:
             return []
 
@@ -430,6 +581,19 @@ class RecursiveTokenChunker:
         for nxt in pieces[1:]:
             nxt = nxt.strip()
             if not nxt:
+                continue
+
+            if self._is_table_block(current) or self._is_table_block(nxt):
+                if self.estimate_tokens(current) < self.min_chunk_tokens:
+                    candidate = current + "\n\n" + nxt
+                    if self.estimate_tokens(candidate) <= self.max_chunk_tokens:
+                        current = candidate
+                    else:
+                        merged.append(current)
+                        current = nxt
+                else:
+                    merged.append(current)
+                    current = nxt
                 continue
 
             if self.estimate_tokens(current) < self.min_chunk_tokens:
@@ -472,6 +636,40 @@ class RecursiveTokenChunker:
 
         return chunks
 
+    def _split_large_table_block(self, table_block: str) -> List[str]:
+        lines = [line.strip() for line in table_block.splitlines() if line.strip()]
+        if len(lines) <= 4:
+            return [table_block]
+
+        open_line = lines[0]
+        close_line = lines[-1]
+        middle = lines[1:-1]
+
+        columns_line = middle[0] if middle and middle[0].startswith("Columns:") else "Columns:"
+        row_lines = middle[1:] if middle else []
+
+        chunks: List[str] = []
+        current_rows: List[str] = []
+        current_text = f"{open_line}\n{columns_line}\n{close_line}"
+
+        for row in row_lines:
+            candidate_rows = current_rows + [row]
+            candidate = f"{open_line}\n{columns_line}\n" + "\n".join(candidate_rows) + f"\n{close_line}"
+
+            if self.estimate_tokens(candidate) <= self.max_chunk_tokens:
+                current_rows.append(row)
+                current_text = candidate
+            else:
+                if current_rows:
+                    chunks.append(current_text)
+                current_rows = [row]
+                current_text = f"{open_line}\n{columns_line}\n{row}\n{close_line}"
+
+        if current_rows:
+            chunks.append(current_text)
+
+        return chunks
+
     def _add_overlap(self, chunks: List[str]) -> List[str]:
         if not chunks or self.chunk_overlap <= 0:
             return chunks
@@ -480,8 +678,15 @@ class RecursiveTokenChunker:
         approx_words_overlap = max(10, int(self.chunk_overlap / 1.3))
 
         for i in range(1, len(chunks)):
-            prev_words = chunks[i - 1].split()
-            curr_words = chunks[i].split()
+            prev = chunks[i - 1]
+            curr = chunks[i]
+
+            if self._is_table_block(curr):
+                overlapped.append(curr)
+                continue
+
+            prev_words = prev.split()
+            curr_words = curr.split()
 
             overlap_words = prev_words[-approx_words_overlap:] if len(prev_words) > approx_words_overlap else prev_words
             combined = " ".join(overlap_words + curr_words).strip()
@@ -582,7 +787,7 @@ def save_metadata(output_path: Path, papers: List[Paper], preprocessor: TextPrep
 
 def iter_chunks(
     papers: List[Paper],
-    extractor: PDFTextExtractor,
+    extractor: PDFStructuredExtractor,
     preprocessor: TextPreprocessor,
     chunker: RecursiveTokenChunker,
     raw_text_dir: Path,
@@ -591,13 +796,13 @@ def iter_chunks(
         print(f"[info] processing paper {idx}/{len(papers)}: {paper.arxiv_id} | {paper.title}")
 
         try:
-            raw_text = extractor.extract_text(paper)
+            raw_text_with_tables, extract_stats, pdf_path = extractor.extract_text_with_tables(paper)
         except Exception as e:
             print(f"[warn] failed to extract {paper.arxiv_id}: {e}")
             continue
 
         try:
-            cleaned_text = preprocessor.clean_text(raw_text)
+            cleaned_text = preprocessor.clean_text(raw_text_with_tables)
         except Exception as e:
             print(f"[warn] cleaning failed for {paper.arxiv_id}: {e}")
             continue
@@ -633,6 +838,7 @@ def iter_chunks(
             try:
                 chunk_text = preprocessor.remove_invalid_unicode(chunk_text)
                 token_count = chunker.safe_token_count(chunk_text)
+                has_table = "[TABLE" in chunk_text and "[/TABLE]" in chunk_text
             except Exception as e:
                 print(f"[warn] skipping chunk {chunk_index} of {paper.arxiv_id}: {e}")
                 continue
@@ -647,6 +853,7 @@ def iter_chunks(
                     "published": paper.published,
                     "updated": paper.updated,
                     "pdf_url": paper.pdf_url,
+                    "pdf_local_path": str(pdf_path),
                     "categories": preprocessor.remove_invalid_unicode(", ".join(paper.categories)),
                     "primary_category": preprocessor.remove_invalid_unicode(paper.primary_category),
                     "authors": preprocessor.remove_invalid_unicode(", ".join(paper.authors)),
@@ -654,6 +861,9 @@ def iter_chunks(
                     "token_count": token_count,
                     "word_count": preprocessor.word_count(chunk_text),
                     "source_text_path": str(raw_path),
+                    "has_table": has_table,
+                    "paper_table_count": int(extract_stats.get("table_count", 0)),
+                    "paper_page_count": int(extract_stats.get("page_count", 0)),
                 },
             }
 
@@ -761,12 +971,13 @@ def load_chunks_from_raw_text(
                     "token_count": chunker.safe_token_count(chunk_text),
                     "word_count": preprocessor.word_count(chunk_text),
                     "source_text_path": str(txt_path),
+                    "has_table": "[TABLE" in chunk_text and "[/TABLE]" in chunk_text,
                 },
             }
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Collect arXiv papers and index chunks into local Chroma DB.")
+    parser = argparse.ArgumentParser(description="Collect arXiv papers and index chunks into local Chroma DB with Tabula table injection.")
     parser.add_argument("--max-papers", type=int, default=100, help="Target number of papers to collect")
     parser.add_argument("--start-year", type=int, default=2020, help="Start year filter")
     parser.add_argument("--end-year", type=int, default=2026, help="End year filter")
@@ -789,6 +1000,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-overlap", type=int, default=60, help="Chunk overlap in estimated tokens")
     parser.add_argument("--min-chunk-tokens", type=int, default=200, help="Minimum allowed chunk size")
     parser.add_argument("--max-chunk-tokens", type=int, default=500, help="Maximum allowed chunk size")
+    parser.add_argument("--disable-tabula", action="store_true", help="Disable Tabula table extraction")
+    parser.add_argument("--tabula-lattice", action="store_true", help="Use lattice mode for Tabula")
+    parser.add_argument("--tabula-stream", action="store_true", help="Use stream mode for Tabula")
     parser.add_argument(
         "--ingest-only",
         action="store_true",
@@ -868,7 +1082,13 @@ def main() -> None:
     else:
         session = build_session()
         collector = ArxivCollector(session=session, delay_seconds=3.0)
-        extractor = PDFTextExtractor(session=session, pdf_dir=pdf_dir)
+        extractor = PDFStructuredExtractor(
+            session=session,
+            pdf_dir=pdf_dir,
+            use_tabula=not args.disable_tabula,
+            tabula_lattice=args.tabula_lattice,
+            tabula_stream=args.tabula_stream or not args.tabula_lattice,
+        )
 
         papers = collector.search(
             queries=queries,
