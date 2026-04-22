@@ -1,0 +1,1313 @@
+[PAGE 1]
+Evaluating Retrieval-Augmented Generation vs. Long-Context Input for
+Clinical Reasoning over EHRs
+Skatje Myers1, Dmitriy Dligach 2, Timothy A. Miller 3,4, Samantha Barr 1,
+Yanjun Gao5, Matthew Churpek1, Anoop Mayampurath1, Majid Afshar1,
+1University of Wisconsin-Madison, 2Loyola University Chicago, 3Boston Children’s Hospital,
+4Harvard Medical School, 5University of Colorado-Anschutz
+Correspondence: skatje.myers@wisc.edu
+Abstract
+Electronic health records (EHRs) are long,
+noisy, and often redundant, posing a major
+challenge for the clinicians who must navigate them. Large language models (LLMs)
+offer a promising solution for extracting and
+reasoning over this unstructured text, but the
+length of clinical notes often exceeds even stateof-the-art models’ extended context windows.
+Retrieval-augmented generation (RAG) offers
+an alternative by retrieving task-relevant passages from across the entire EHR, potentially
+reducing the amount of required input tokens.
+In this work, we propose three clinical tasks
+designed to be replicable across health systems
+with minimal effort: 1) extracting imaging procedures, 2) generating timelines of antibiotic
+use, and 3) identifying key diagnoses. Using
+EHRs from actual hospitalized patients, we
+test three state-of-the-art LLMs with varying
+amounts of provided context, using either targeted text retrieval or the most recent clinical
+notes. We find that RAG closely matches or
+exceeds the performance of using recent notes,
+and approaches the performance of using the
+models’ full context while requiring drastically
+fewer input tokens. Our results suggest that
+RAG remains a competitive and efficient approach even as newer models become capable of handling increasingly longer amounts of
+text.
+1 Introduction
+Electronic health records (EHRs) contain comprehensive documentation of patient care, including
+critical information for diagnosis and treatment
+planning. However, the volume of clinical notes
+has exploded in recent years, driven in part by copypaste practices, templated documentation, and regulatory pressures—a phenomenon often referred to
+as “note bloat”. For example, nearly 1 in 5 patients
+arrive at the emergency department with a chart the
+size of Moby Dick (over 200K words) (Patterson
+et al., 2024). As a result of this, clinicians must navigate increasingly lengthy and redundant records
+to locate key information. Large language models
+(LLMs) can potentially alleviate this burden by assisting clinicians in quickly extracting information
+and reasoning over EHR, and have demonstrated
+promising capabilities in clinical summarization
+(Van Veen et al., 2024) and question answering
+(Singhal et al., 2025). However, the sheer volume
+of clinical documentation can exceed most LLMs’
+context window size. A practical approach is to
+provide the most recent notes, which may suffice
+for some tasks but risks omitting crucial information buried in earlier documentation.
+Retrieval-augmented generation (RAG) has
+emerged as a prominent solution to using LLMs
+on long documents by retrieving only the most relevant text passages for a given task. Rather than
+processing entire patient charts, RAG systems can
+selectively extract pertinent clinical information
+to answer specific questions. This approach can
+potentially reduce computational costs, improve accuracy through elimination of noise, and mitigate
+the “lost-in-the-middle” effect (Liu et al., 2024),
+where model performance degrades when relevant
+information is buried within lengthy contexts.
+However, there has been limited empirical evaluation on the accuracy and token efficiency of this retrieval approach for tasks that require longitudinal
+reasoning over real-world EHR data. One barrier
+is the scarcity of large, annotated clinical datasets
+due to legal and ethical constraints regarding patient privacy. While the MIMIC datasets (Johnson
+et al., 2016) have been further annotated for benchmarking a variety of natural language processing
+tasks, including question-answering, this data is
+restricted to the patients’ ICU stay, as opposed to
+the full hospital course, limiting their potential for
+testing realistic use cases that stretch the token limitations of LLMs’ processing abilities.
+To address these gaps, we define three tasks that
+arXiv:2508.14817v1 [cs.CL] 20 Aug 2025
+
+[TABLE page=1 index=1]
+Columns: Unnamed: 0 | Electronic health records | (EHRs) | are long, | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | to locate key information. Large language models
+Row 1: Unnamed: 0: | Electronic health records: noisy, and often redundant, | (EHRs): | are long,: posing a major | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: (LLMs) can potentially alleviate this burden by asRow 2: Unnamed: 0: | Electronic health records: challenge for the clinicians | (EHRs): | are long,: who must navi- | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 3: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: sisting clinicians in quickly extracting information
+Row 4: Unnamed: 0: | Electronic health records: gate them. Large language | (EHRs): | are long,: models (LLMs) | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 5: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: and reasoning over EHR, and have demonstrated
+Row 6: Unnamed: 0: | Electronic health records: offer a promising solution for extracting and | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 7: Unnamed: 0: | Electronic health records: reasoning over this unstructured text, but the | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: promising capabilities in clinical summarization
+Row 8: Unnamed: 0: | Electronic health records: length of clinical notes often exceeds even state- | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: (Van Veen et al., 2024) and question answering
+Row 9: Unnamed: 0: | Electronic health records: of-the-art models’ extended context windows. | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: (Singhal et al., 2025). However, the sheer volume
+Row 10: Unnamed: 0: | Electronic health records: Retrieval-augmented generation (RAG) offers | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: of clinical documentation can exceed most LLMs’
+Row 11: Unnamed: 0: | Electronic health records: an alternative by retrieving task-relevant pas- | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: context window size. A practical approach is to
+Row 12: Unnamed: 0: | Electronic health records: sages from across the entire EHR, potentially | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 13: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: provide the most recent notes, which may suffice
+Row 14: Unnamed: 0: | Electronic health records: reducing the amount of required input tokens. | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 15: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: for some tasks but risks omitting crucial informaRow 16: Unnamed: 0: | Electronic health records: In this work, we propose three clinical tasks | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 17: Unnamed: 0: | Electronic health records: designed to be replicable across health systems | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: tion buried in earlier documentation.
+Row 18: Unnamed: 0: | Electronic health records: with minimal effort: 1) extracting imaging pro- | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: Retrieval-augmented generation (RAG) has
+Row 19: Unnamed: 0: | Electronic health records: cedures, 2) generating timelines of antibiotic | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: emerged as a prominent solution to using LLMs
+Row 20: Unnamed: 0: | Electronic health records: use, and 3) identifying key diagnoses. | (EHRs): | are long,: Using | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: on long documents by retrieving only the most relRow 21: Unnamed: 0: | Electronic health records: EHRs from actual hospitalized | (EHRs): | are long,: patients, we | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: evant text passages for a given task. Rather than
+Row 22: Unnamed: 0: | Electronic health records: test three state-of-the-art LLMs with varying | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: processing entire patient charts, RAG systems can
+Row 23: Unnamed: 0: | Electronic health records: amounts of provided context, using either tar- | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 24: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: selectively extract pertinent clinical information
+Row 25: Unnamed: 0: | Electronic health records: geted text retrieval or the most recent clinical | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 26: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: to answer specific questions. This approach can
+Row 27: Unnamed: 0: | Electronic health records: notes. We find that RAG closely matches or | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 28: Unnamed: 0: | Electronic health records: exceeds the performance of using recent notes, | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: potentially reduce computational costs, improve acRow 29: Unnamed: 0: | Electronic health records: and approaches the performance of using the | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: curacy through elimination of noise, and mitigate
+Row 30: Unnamed: 0: | Electronic health records: models’ full context while requiring drastically | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: the “lost-in-the-middle” effect (Liu et al., 2024),
+Row 31: Unnamed: 0: | Electronic health records: fewer input tokens. Our results suggest that | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: where model performance degrades when relevant
+Row 32: Unnamed: 0: | Electronic health records: RAG remains a competitive and efficient ap- | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: information is buried within lengthy contexts.
+Row 33: Unnamed: 0: | Electronic health records: proach even as newer models | (EHRs): | are long,: become capa- | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 34: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: However, there has been limited empirical evaluRow 35: Unnamed: 0: | Electronic health records: ble of handling increasingly longer amounts of | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 36: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: ation on the accuracy and token efficiency of this reRow 37: Unnamed: 0: | Electronic health records: text. | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models:
+Row 38: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: trieval approach for tasks that require longitudinal
+Row 39: Unnamed: 0: 1 | Electronic health records: Introduction | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: reasoning over real-world EHR data. One barrier
+Row 40: Unnamed: 0: | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: is the scarcity of large, annotated clinical datasets
+Row 41: Unnamed: 0: Electronic health records (EHRs) contain compre- | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: due to legal and ethical constraints regarding paRow 42: Unnamed: 0: hensive documentation of patient care, including | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: tient privacy. While the MIMIC datasets (Johnson
+Row 43: Unnamed: 0: critical | Electronic health records: information for diagnosis | (EHRs): | are long,: and treatment | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: et al., 2016) have been further annotated for benchRow 44: Unnamed: 0: planning. | Electronic health records: However, the volume of clinical notes | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: marking a variety of natural language processing
+Row 45: Unnamed: 0: has exploded in recent years, driven in part by copy- | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: tasks, including question-answering, this data is
+Row 46: Unnamed: 0: paste practices, templated documentation, and reg- | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: restricted to the patients’ ICU stay, as opposed to
+Row 47: Unnamed: 0: ulatory pressures—a phenomenon often referred to | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: the full hospital course, limiting their potential for
+Row 48: Unnamed: 0: as “note bloat”. For example, nearly 1 in 5 patients | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: testing realistic use cases that stretch the token limRow 49: Unnamed: 0: arrive at the emergency department with a chart the | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: itations of LLMs’ processing abilities.
+Row 50: Unnamed: 0: size of Moby Dick (over 200K words) (Patterson | Electronic health records: | (EHRs): | are long,: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | to locate key information. Large language models: To address these gaps, we define three tasks that
+[/TABLE]
+
+[PAGE 2]
+Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.
+reflect different clinical reasoning demands and
+can be replicated in other health systems without
+labor-intensive manual annotation:
+• Imaging Procedures: Produce a list of imaging procedures (including modality, date, and
+anatomical location) that occurred during a
+hospitalization from the raw clinical notes.
+• Antibiotic Timelines: Generate the timelines
+of therapeutic antibiotic use for patients with
+a severe infection.
+• Diagnosis generation: Identify the key diagnoses relevant to the hospitalization.
+The Imaging Procedures task is a straightforward extractive task, requiring the model to identify
+the imaging procedures that occurred on different
+days across the course of the hospital stay. The Antibiotic Timelines task requires not only identifying
+the antibiotics the patient was on and when they
+were discontinued, but also incorporating medical
+reasoning to determine what those antibiotics were
+administered for. The final task, Diagnosis Generation requires the most medical reasoning—the
+model is asked not just to list the diagnoses that
+were mentioned, but determine which required active management and impacted the care plan.
+These tasks allow us to investigate the following
+questions: Given a limited token budget, to what
+extent can targeted retrieval of information from
+the full hospital stay improve efficiency and performance over simply providing an LLM with the
+most recent notes? Does utilizing the extremely
+long context windows of state-of-the-art models
+provide any further benefit?
+Using EHR data from an academically-affiliated
+US hospital, we evaluate three LLMs on these tasks
+using varying amounts of clinical context, including up to the models’ full context window of 128K
+tokens.
+Our findings suggest that while RAG can provide
+substantial efficiency improvements over comparable amounts of recent clinical note tokens, this
+effect is highly task-dependent. However, in all
+three tasks, we found RAG to achieve near-parity
+to using the full context window with a fraction
+of the tokens, indicating that retrieval remains a
+competitive approach even as newer model architectures continue to extend context windows.
+2 Related Work
+Our goal in proposing these tasks is to 1) require synthesis of information distributed across
+the EHR, rather than in a single location, and 2)
+provide evaluation methods tailored to the tasks,
+and 3) allow use on any EHR systems, rather than
+a single publicly released dataset such as MIMIC
+(Johnson et al., 2016), which some models train
+on.
+Many of the existing question-answering
+datasets for EHR focus on fact extraction. Datasets
+such as EmrQA (Pampari et al., 2018) and
+DrugEHRQA (Bardhan et al., 2022) are semiautomatically constructed by leveraging previous
+annotations from National NLP Clinical Challenges (n2c2) to transform them into questionanswer pairs. For this type of data, template questions are constructed where the annotation can fill a
+slot, such as “What is the dosage of |medication|?”.
+The MedAlign dataset (Fleming et al., 2024)
+is comprised of clinician-generated instructionanswer pairs and longitudinal EHR. Many of the
+instructions are yes/no questions that can be answered by retrieving a single piece of evidence
+(e.g. “Does she smoke?”), but some instructions
+
+[TABLE page=2 index=1]
+Columns: • Imaging Procedures: Produce a list of imag- | Unnamed: 0 | substantial efficiency improvements over compaRow 1: • Imaging Procedures: Produce a list of imag-: ing procedures (including modality, date, and | Unnamed: 0: | substantial efficiency improvements over compa-: rable amounts of recent clinical note tokens, this
+Row 2: • Imaging Procedures: Produce a list of imag-: anatomical location) that occurred during a | Unnamed: 0: | substantial efficiency improvements over compa-: effect is highly task-dependent. However, in all
+Row 3: • Imaging Procedures: Produce a list of imag-: hospitalization from the raw clinical notes. | Unnamed: 0: | substantial efficiency improvements over compa-: three tasks, we found RAG to achieve near-parity
+Row 4: • Imaging Procedures: Produce a list of imag-: | Unnamed: 0: | substantial efficiency improvements over compa-: to using the full context window with a fraction
+Row 5: • Imaging Procedures: Produce a list of imag-: • Antibiotic Timelines: Generate the timelines | Unnamed: 0: | substantial efficiency improvements over compa-: of the tokens, indicating that retrieval remains a
+Row 6: • Imaging Procedures: Produce a list of imag-: of therapeutic antibiotic use for patients with | Unnamed: 0: | substantial efficiency improvements over compa-: competitive approach even as newer model archiRow 7: • Imaging Procedures: Produce a list of imag-: a severe infection. | Unnamed: 0: | substantial efficiency improvements over compa-: tectures continue to extend context windows.
+Row 8: • Imaging Procedures: Produce a list of imag-: • Diagnosis generation: Identify the key diag- | Unnamed: 0: | substantial efficiency improvements over compa-: 2 Related Work
+Row 9: • Imaging Procedures: Produce a list of imag-: noses relevant to the hospitalization. | Unnamed: 0: | substantial efficiency improvements over compa-:
+Row 10: • Imaging Procedures: Produce a list of imag-: | Unnamed: 0: | substantial efficiency improvements over compa-: Our goal in proposing these tasks is to 1) reRow 11: • Imaging Procedures: Produce a list of imag-: The Imaging Procedures task is a straightfor- | Unnamed: 0: | substantial efficiency improvements over compa-: quire synthesis of information distributed across
+Row 12: • Imaging Procedures: Produce a list of imag-: ward extractive task, requiring the model to identify | Unnamed: 0: | substantial efficiency improvements over compa-: the EHR, rather than in a single location, and 2)
+Row 13: • Imaging Procedures: Produce a list of imag-: the imaging procedures that occurred on different | Unnamed: 0: | substantial efficiency improvements over compa-: provide evaluation methods tailored to the tasks,
+Row 14: • Imaging Procedures: Produce a list of imag-: days across the course of the hospital stay. The An- | Unnamed: 0: | substantial efficiency improvements over compa-: and 3) allow use on any EHR systems, rather than
+Row 15: • Imaging Procedures: Produce a list of imag-: tibiotic Timelines task requires not only identifying | Unnamed: 0: | substantial efficiency improvements over compa-: a single publicly released dataset such as MIMIC
+Row 16: • Imaging Procedures: Produce a list of imag-: the antibiotics the patient was on and when they | Unnamed: 0: | substantial efficiency improvements over compa-: (Johnson et al., 2016), which some models train
+Row 17: • Imaging Procedures: Produce a list of imag-: were discontinued, but also incorporating medical | Unnamed: 0: | substantial efficiency improvements over compa-: on.
+Row 18: • Imaging Procedures: Produce a list of imag-: reasoning to determine what those antibiotics were | Unnamed: 0: | substantial efficiency improvements over compa-: Many of the existing question-answering
+Row 19: • Imaging Procedures: Produce a list of imag-: administered for. The final task, Diagnosis Gen- | Unnamed: 0: | substantial efficiency improvements over compa-: datasets for EHR focus on fact extraction. Datasets
+Row 20: • Imaging Procedures: Produce a list of imag-: eration requires the most medical reasoning—the | Unnamed: 0: | substantial efficiency improvements over compa-: such as EmrQA (Pampari et al., 2018) and
+Row 21: • Imaging Procedures: Produce a list of imag-: model is asked not just to list the diagnoses that | Unnamed: 0: | substantial efficiency improvements over compa-: DrugEHRQA (Bardhan et al., 2022) are semiRow 22: • Imaging Procedures: Produce a list of imag-: were mentioned, but determine which required ac- | Unnamed: 0: | substantial efficiency improvements over compa-: automatically constructed by leveraging previous
+Row 23: • Imaging Procedures: Produce a list of imag-: tive management and impacted the care plan. | Unnamed: 0: | substantial efficiency improvements over compa-: annotations from National NLP Clinical ChalRow 24: • Imaging Procedures: Produce a list of imag-: These tasks allow us to investigate the following | Unnamed: 0: | substantial efficiency improvements over compa-: lenges (n2c2) to transform them into questionRow 25: • Imaging Procedures: Produce a list of imag-: questions: Given a limited token budget, to what | Unnamed: 0: | substantial efficiency improvements over compa-: answer pairs. For this type of data, template quesRow 26: • Imaging Procedures: Produce a list of imag-: extent can targeted retrieval of information from | Unnamed: 0: | substantial efficiency improvements over compa-: tions are constructed where the annotation can fill a
+Row 27: • Imaging Procedures: Produce a list of imag-: the full hospital stay improve efficiency and per- | Unnamed: 0: | substantial efficiency improvements over compa-: slot, such as “What is the dosage of |medication|?”.
+Row 28: • Imaging Procedures: Produce a list of imag-: formance over simply providing an LLM with the | Unnamed: 0: | substantial efficiency improvements over compa-: The MedAlign dataset (Fleming et al., 2024)
+Row 29: • Imaging Procedures: Produce a list of imag-: most recent notes? Does utilizing the extremely | Unnamed: 0: | substantial efficiency improvements over compa-: is comprised of clinician-generated instructionRow 30: • Imaging Procedures: Produce a list of imag-: long context windows of state-of-the-art models | Unnamed: 0: | substantial efficiency improvements over compa-: answer pairs and longitudinal EHR. Many of the
+Row 31: • Imaging Procedures: Produce a list of imag-: provide any further benefit? | Unnamed: 0: | substantial efficiency improvements over compa-: instructions are yes/no questions that can be an-
+[/TABLE]
+
+[TABLE page=2 index=2]
+Columns: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.
+Row 1: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: reflect different clinical reasoning demands and using varying amounts of clinical context, includ
+Row 2: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: can be replicated in other health systems without ing up to the models’ full context window of 128K
+Row 3: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: labor-intensive manual annotation: tokens.
+Row 4: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: Our findings suggest that while RAG can provide
+Row 5: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: • Imaging Procedures: Produce a list of imag- substantial efficiency improvements over compa
+Row 6: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: ing procedures (including modality, date, and rable amounts of recent clinical note tokens, this
+Row 7: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: anatomical location) that occurred during a effect is highly task-dependent. However, in all
+Row 8: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: hospitalization from the raw clinical notes. three tasks, we found RAG to achieve near-parity
+Row 9: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: to using the full context window with a fraction
+Row 10: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: • Antibiotic Timelines: Generate the timelines of the tokens, indicating that retrieval remains a
+Row 11: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: of therapeutic antibiotic use for patients with competitive approach even as newer model archi
+Row 12: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: a severe infection. tectures continue to extend context windows.
+Row 13: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: • Diagnosis generation: Identify the key diag- 2 Related Work
+Row 14: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: noses relevant to the hospitalization.
+Row 15: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: Our goal in proposing these tasks is to 1) re
+Row 16: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: The Imaging Procedures task is a straightfor- quire synthesis of information distributed across
+Row 17: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: ward extractive task, requiring the model to identify the EHR, rather than in a single location, and 2)
+Row 18: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: the imaging procedures that occurred on different provide evaluation methods tailored to the tasks,
+Row 19: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: days across the course of the hospital stay. The An- and 3) allow use on any EHR systems, rather than
+Row 20: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: tibiotic Timelines task requires not only identifying a single publicly released dataset such as MIMIC
+Row 21: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: the antibiotics the patient was on and when they (Johnson et al., 2016), which some models train
+Row 22: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: were discontinued, but also incorporating medical on.
+Row 23: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: reasoning to determine what those antibiotics were Many of the existing question-answering
+Row 24: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: administered for. The final task, Diagnosis Gen- datasets for EHR focus on fact extraction. Datasets
+Row 25: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: eration requires the most medical reasoning—the such as EmrQA (Pampari et al., 2018) and
+Row 26: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: model is asked not just to list the diagnoses that DrugEHRQA (Bardhan et al., 2022) are semi
+Row 27: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: were mentioned, but determine which required ac- automatically constructed by leveraging previous
+Row 28: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: tive management and impacted the care plan. annotations from National NLP Clinical Chal
+Row 29: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: These tasks allow us to investigate the following lenges (n2c2) to transform them into question
+Row 30: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: questions: Given a limited token budget, to what answer pairs. For this type of data, template ques
+Row 31: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: extent can targeted retrieval of information from tions are constructed where the annotation can fill a
+Row 32: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: the full hospital stay improve efficiency and per- slot, such as “What is the dosage of |medication|?”
+Row 33: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: formance over simply providing an LLM with the The MedAlign dataset (Fleming et al., 2024)
+Row 34: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: most recent notes? Does utilizing the extremely is comprised of clinician-generated instruction
+Row 35: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: long context windows of state-of-the-art models answer pairs and longitudinal EHR. Many of the
+Row 36: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: provide any further benefit? instructions are yes/no questions that can be an
+Row 37: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: Using EHR data from an academically-affiliated swered by retrieving a single piece of evidence
+Row 38: Figure 1: Retrieval-augmented generation pipeline for clinical question answering over EHR.: US hospital, we evaluate three LLMs on these tasks (e.g. “Does she smoke?”), but some instructions
+[/TABLE]
+
+[PAGE 3]
+Imaging Antibiotics Diagnosis
+Hospitalizations 200 200 200
+Mean notes per hospitalization 110 145 111
+Tokens per hospitalization:
+mean 74k 108k 75k
+range 17k-401k 16k-1.4m 20k-389k
+Table 1: Dataset statistics for each task.
+require the model to synthesize information across
+the EHR (e.g. “Summarize this patient’s cardiac
+history.”). However, evaluation on open-ended
+responses poses an ongoing challenge in NLP,
+with popular automatic metrics such as BLEU
+and ROUGE showing poor correlation with human
+judgment on natural language generation tasks in
+healthcare (Croxford et al., 2024).
+Retrieval-augmented generation has been used
+for a variety of tasks within the medical domain,
+including answering open-ended medical questions
+by retrieving from medical guidelines and journal
+articles (Zakka et al., 2024) and assessing surgical
+fitness by retrieving from perioperative guidelines
+(Ke et al., 2025).
+Alkhalaf et al. (2024) used RAG to generate
+structured summaries by retrieving from EHR,
+querying for relevant text using the names of the
+summary fields (such as “age” and “weight”).
+3 Data and Models
+We constructed datasets of 200 inpatient hospitalizations for each of our three tasks using data from
+a US hospital system, comprised of clinical notes
+from admission to discharge (daily progress notes,
+specialist consultations, imaging reports, etc.). Table 1 provides summary statistics. All hospitalizations were at least 7 days long and were comprised
+of at least 15,000 tokens of clinical notes. For
+the Imaging Procedures and Diagnosis Generation
+tasks, only the clinical notes prior to the discharge
+summary are used to provide information to the
+LLM, to avoid leaking information from the hospital course or diagnosis sections of the discharge
+summary. For the Antibiotic Timelines task, all
+included hospitalizations involved a consultation
+with Infectious Diseases and only the notes prior to
+the consultation note are included in the data that
+may be presented to the LLM.
+The only structured EHR data provided to the
+system are the notes’ timestamp and type (e.g.
+progress note, handoff, etc.).
+We evaluated three state-of-the-art LLMs capaTask Retrieval query
+Imaging ProceduresX-ray, CT, MRI, ultrasound, NM imaging,
+echocardiogram, fluoroscopy
+Antibiotic Timelines What antibiotics is the patient taking?
+Diagnosis Generation What are the patient’s diagnoses?
+Table 2: Queries used for retrieving relevant text passages. Queries were prepended with “Represent this
+sentence for searching relevant passages:”, in accordance with recommended usage with the BGE embedding model.
+ble of processing up to 128K tokens:
+• o4-mini (OpenAI, 2025)
+• GPT-4o-mini (OpenAI, 2024)
+• DeepSeek-R1 (Guo et al., 2025)
+4 RAG System
+For each patient hospitalization, clinical notes were
+segmented into overlapping 128-token chunks,
+with a sliding window of 20. These chunks were
+embedded using BGE-en-large-v1.5 (Xiao et al.,
+2023), a popular general-purpose BERT-based embedding model trained through contrastive learning. We selected this model based on findings from
+Myers et al. (2025), who conducted an ablation
+study of embedding models and pooling strategies
+for EHR retrieval and found BGE-en-large-v1.5
+to significantly outperform general-domain and
+biomedical-domain alternatives on several retrieval
+tasks over EHR.
+For each task, we manually crafted a simple
+query for retrieving relevant passages (Table 2). We
+used cosine similarity between the query and each
+chunk to retrieve the top-N most relevant passages
+(N = 20, 40, 60). These chunks were inserted into
+the instruction prompt (Appendix B) and passed to
+the LLM.
+We compared this retrieval configuration to a
+baseline approach of providing the most recent
+clinical notes in comparable amounts, up to 3K,
+5.5K, or 8K tokens (including prompt) and longcontext inputs with up to 64K or 128K tokens. References to these token amounts throughout this
+study should be understood as an upper bound, as
+some encounters consist of fewer tokens, reflective
+of the underlying hospitalization distribution.
+Performance on the tasks was evaluated using
+either F1 or Jaccard index, as described in the following sections, and we assessed the comparative
+
+[PAGE 4]
+performance between the RAG and non-RAG approaches over the increasing number of tokens by
+calculating the area under the curves and reporting
+the normalized area difference.
+5 Task 1: Imaging Procedures
+5.1 Methods
+The Imaging Procedures task involves extracting
+structured information about diagnostic imaging
+procedures from unstructured clinical notes. We
+focused on five common imaging modalities: Magnetic Resonance Imaging (MRI), Computed Tomography (CT), Ultrasound, X-ray, and Nuclear
+Medicine (NM) Imaging. The model was prompted
+to produce a list of imaging procedures that occurred during the hospitalization, giving the modality, anatomical location, and date.
+As a gold standard, we used tabular procedure
+records from the EHR. We mapped these procedure
+descriptions to imaging modality and anatomical
+site using simple rules and regular expressions. For
+example:
+X-RAY CHEST 2 VIEWS
+modality: "X-ray"
+location: "chest"
+CT LUMBAR SPINE W/O IV CONTRAST
+modality: "CT"
+location: "lumbar spine"
+Evaluation metrics are reported for three levels
+of strictness:
+• M ODALITY +DATE+LOCATION
+• M ODALITY +DATE
+• M ODALITY +DATE(±1 DAY)
+In the lattermost case, we allow for a reasonable
+tolerance in the predicted date, due to observed
+variation in the reported metadata times for the
+procedure and note. For example, the timestamp
+for the note may reflect the date it was filed into the
+system, rather than the date it was actually written.
+It should also be noted that the anatomical location is not normalized, other than for capitalization—under the strictest metric, predicting simply
+“spine” for the above example would not be deemed
+a positive match.
+5.2 Results
+Across all three models and evaluation methods,
+RAG yielded dramatic performance improvements.
+GPT-4o-mini o4-mini DeepSeek R1
+MODALITY+DATE+LOCATION 552.3% 425.3% 430.6%
+MODALITY+DATE 432.0% 375.0% 364.3%
+MODALITY+DATE(±1DAY) 406.9% 382.8% 378.0%
+Table 3: Normalized area difference between the RAG
+and Recent Notes curves for the Imaging Procedures
+task.
+In Figure 2, we show the classification performance
+for MODALITY +DATE(±1 DAY) across varying
+amounts of provided EHR context. We calculated
+the normalized area difference between the curves
+for the overlapping token amounts, presented in
+Table 3. We found at minimum a 3.75-fold performance gain against using similar amounts of the
+most recent notes. These results also demonstrate
+that targeted retrieval of passages can closely approach the performance of utilizing the full context
+window with only a fraction of the tokens: Using
+only 60 retrieved chunks, GPT 4o-mini, o4-mini,
+and DeepSeek R1 only fell short by 2.43, 5.56, and
+1.72, respectively.
+These findings are similarly reflected under the
+stricter evaluation conditions. A complete listing
+of precision, recall, and F1 can be found in the
+Appendix in Table 6.
+6 Task 2: Antibiotic Timelines
+6.1 Methods
+This task emulates the work performed by Infectious Diseases (ID) physicians to document the
+antibiotic regimen for an active infection. When
+these specialists are consulted, they document the
+history of the present illness, including lab results
+and medications, as well as outline a treatment
+plan. This note typically contains a “History of
+Anti-Infectives” section, where they list the antibiotics that have been used to treat the infection of
+concern, omitting prophylactic or non-relevant antiinfectives. For example:
+Vancomycin: 1/16-present
+Ceftriaxone: 1/17-present
+These medication names and date ranges are
+manually annotated by the specialist after reviewing the patient’s chart and serve as our ground truth
+for this task, after extraction using regular expressions. No notes authored by ID physicians were
+included in the data that was presented to the model,
+and only notes that were written prior to the ground
+truth note were made available.
+
+[TABLE page=4 index=1]
+Columns: performance between the RAG and non-RAG ap- | Unnamed: 0 | GPT-4o-mini o4-mini | DeepSeek R1
+Row 1: performance between the RAG and non-RAG ap-: | Unnamed: 0: MODALITY+DATE+LOCATION | GPT-4o-mini o4-mini: 552.3% 425.3% | DeepSeek R1: 430.6%
+Row 2: performance between the RAG and non-RAG ap-: proaches over the increasing number of tokens by | Unnamed: 0: MODALITY+DATE | GPT-4o-mini o4-mini: 432.0% 375.0% | DeepSeek R1: 364.3%
+Row 3: performance between the RAG and non-RAG ap-: calculating the area under the curves and reporting | Unnamed: 0: MODALITY+DATE(±1 DAY) | GPT-4o-mini o4-mini: 406.9% 382.8% | DeepSeek R1: 378.0%
+Row 4: performance between the RAG and non-RAG ap-: the normalized area difference. | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 5: performance between the RAG and non-RAG ap-: | Unnamed: 0: Table 3: Normalized area difference between the RAG | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 6: performance between the RAG and non-RAG ap-: | Unnamed: 0: and Recent Notes curves for the Imaging Procedures | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 7: performance between the RAG and non-RAG ap-: 5 Task 1: Imaging Procedures | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 8: performance between the RAG and non-RAG ap-: | Unnamed: 0: task. | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 9: performance between the RAG and non-RAG ap-: 5.1 Methods | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 10: performance between the RAG and non-RAG ap-: The Imaging Procedures task involves extracting | Unnamed: 0: In Figure 2, we show the classification performance | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 11: performance between the RAG and non-RAG ap-: structured information about diagnostic imaging | Unnamed: 0: for MODALITY+DATE(±1 | GPT-4o-mini o4-mini: DAY) across varying | DeepSeek R1:
+Row 12: performance between the RAG and non-RAG ap-: procedures from unstructured clinical notes. We | Unnamed: 0: amounts of provided EHR context. We calculated | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 13: performance between the RAG and non-RAG ap-: focused on five common imaging modalities: Mag- | Unnamed: 0: the normalized area difference between the curves | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 14: performance between the RAG and non-RAG ap-: netic Resonance Imaging (MRI), Computed To- | Unnamed: 0: for the overlapping token amounts, presented in | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 15: performance between the RAG and non-RAG ap-: mography (CT), Ultrasound, X-ray, and Nuclear | Unnamed: 0: Table 3. We found at minimum a 3.75-fold perfor- | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 16: performance between the RAG and non-RAG ap-: Medicine (NM) Imaging. The model was prompted | Unnamed: 0: mance gain against using similar amounts of the | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 17: performance between the RAG and non-RAG ap-: to produce a list of imaging procedures that oc- | Unnamed: 0: most recent notes. These results also demonstrate | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 18: performance between the RAG and non-RAG ap-: curred during the hospitalization, giving the modal- | Unnamed: 0: that targeted retrieval of passages can closely ap- | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 19: performance between the RAG and non-RAG ap-: ity, anatomical location, and date. | Unnamed: 0: proach the performance of utilizing the full context | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 20: performance between the RAG and non-RAG ap-: As a gold standard, we used tabular procedure | Unnamed: 0: window with only a fraction of the tokens: Using | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 21: performance between the RAG and non-RAG ap-: records from the EHR. We mapped these procedure | Unnamed: 0: only 60 retrieved chunks, GPT 4o-mini, o4-mini, | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 22: performance between the RAG and non-RAG ap-: descriptions to imaging modality and anatomical | Unnamed: 0: and DeepSeek R1 only fell short by 2.43, 5.56, and | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 23: performance between the RAG and non-RAG ap-: site using simple rules and regular expressions. For | Unnamed: 0: 1.72, respectively. | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 24: performance between the RAG and non-RAG ap-: example: | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 25: performance between the RAG and non-RAG ap-: | Unnamed: 0: These findings are similarly reflected under the | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 26: performance between the RAG and non-RAG ap-: X-RAY CHEST 2 VIEWS | Unnamed: 0: stricter evaluation conditions. A complete listing | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 27: performance between the RAG and non-RAG ap-: modality: "X-ray" | Unnamed: 0: of precision, recall, and F1 can be found in the | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 28: performance between the RAG and non-RAG ap-: location: "chest" | Unnamed: 0: Appendix in Table 6. | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 29: performance between the RAG and non-RAG ap-: CT LUMBAR SPINE W/O IV CONTRAST | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 30: performance between the RAG and non-RAG ap-: modality: "CT" | Unnamed: 0: 6 Task 2: Antibiotic Timelines | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 31: performance between the RAG and non-RAG ap-: location: "lumbar spine" | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 32: performance between the RAG and non-RAG ap-: | Unnamed: 0: 6.1 Methods | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 33: performance between the RAG and non-RAG ap-: Evaluation metrics are reported for three levels | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 34: performance between the RAG and non-RAG ap-: of strictness: | Unnamed: 0: This task emulates the work performed by Infec- | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 35: performance between the RAG and non-RAG ap-: | Unnamed: 0: tious Diseases (ID) physicians | GPT-4o-mini o4-mini: to document | DeepSeek R1: the
+Row 36: performance between the RAG and non-RAG ap-: • MODALITY+DATE+LOCATION | Unnamed: 0: antibiotic regimen for an active infection. | GPT-4o-mini o4-mini: | DeepSeek R1: When
+Row 37: performance between the RAG and non-RAG ap-: | Unnamed: 0: these specialists are consulted, they document the | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 38: performance between the RAG and non-RAG ap-: • MODALITY+DATE | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 39: performance between the RAG and non-RAG ap-: | Unnamed: 0: history of the present illness, including lab results | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 40: performance between the RAG and non-RAG ap-: • M ODALITY +D ATE (±1 DAY) | Unnamed: 0: and medications, as | GPT-4o-mini o4-mini: well as outline a | DeepSeek R1: treatment
+Row 41: performance between the RAG and non-RAG ap-: | Unnamed: 0: plan. This note typically contains a “History of | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 42: performance between the RAG and non-RAG ap-: In the lattermost case, we allow for a reasonable | Unnamed: 0: Anti-Infectives” section, where they list the antibi- | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 43: performance between the RAG and non-RAG ap-: tolerance in the predicted date, due to observed | Unnamed: 0: otics that have been used to treat the infection of | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 44: performance between the RAG and non-RAG ap-: variation in the reported metadata times for the | Unnamed: 0: concern, omitting prophylactic or non-relevant anti- | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 45: performance between the RAG and non-RAG ap-: procedure and note. For example, the timestamp | Unnamed: 0: infectives. For example: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 46: performance between the RAG and non-RAG ap-: for the note may reflect the date it was filed into the | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 47: performance between the RAG and non-RAG ap-: | Unnamed: 0: Vancomycin: 1/16-present | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 48: performance between the RAG and non-RAG ap-: system, rather than the date it was actually written. | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 49: performance between the RAG and non-RAG ap-: | Unnamed: 0: Ceftriaxone: 1/17-present | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 50: performance between the RAG and non-RAG ap-: It should also be noted that the anatomical lo- | Unnamed: 0: | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 51: performance between the RAG and non-RAG ap-: cation is not normalized, other than for capitaliza- | Unnamed: 0: These medication | GPT-4o-mini o4-mini: names and date | DeepSeek R1: ranges are
+Row 52: performance between the RAG and non-RAG ap-: tion—under the strictest metric, predicting simply | Unnamed: 0: manually annotated by the specialist after review- | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 53: performance between the RAG and non-RAG ap-: “spine” for the above example would not be deemed | Unnamed: 0: ing the patient’s chart and serve as our ground truth | GPT-4o-mini o4-mini: | DeepSeek R1:
+Row 54: performance between the RAG and non-RAG ap-: a positive match. | Unnamed: 0: for this task, after extraction using regular expres- | GPT-4o-mini o4-mini: | DeepSeek R1:
+[/TABLE]
+
+[PAGE 5]
+Figure 2: Imaging Procedures: F1 scores for the three models using the MODALITY +DATE(±1 DAY) evaluation
+method, across varying amounts of provided EHR tokens.
+We evaluated system accuracy with the following metrics:
+• MEDICATIONS (NAME ONLY ): Classification
+accuracy of only the medications, disregarding timespans.
+• TIMESPAN OVERLAP : The overlap between
+the predicted and gold date ranges for each antibiotic, reported using Jaccard index. A value
+of 1 indicates an exact match; 0 indicates no
+overlap, missing a medication entirely, or including a medication not present in the gold
+standard. Values are averaged over the dataset.
+The medications in both the generated predictions and the gold data are normalized to their ingredients using the RxNorm (Nelson et al., 2011)
+API provided by the National Library of Medicine
+and a handful of manual rules for edge cases,
+such as typos. This allows for accurate matching
+of generic and brand name medications, such as
+Zosyn (piperacillin and tazobactam).
+As a baseline, we used a rule-based approach
+of directly extracting the time ranges for all medications of the “anti-infective” therapeutic class
+from the list of administered medications using the
+EHR’s medication administration record (MAR),
+a tabular form ubiquitous to EHRs for tracking
+all medications and infusions. However, this list
+of medications includes those used to treat other
+GPT-4o-mini o4-mini DeepSeek R1
+MEDICATIONS(NAME ONLY) 39.35% 41.4% 43.1%
+TIMESPANOVERLAP 34.7% 30.3% 32.9%
+Table 4: Normalized area difference between the RAG
+and Recent Notes curves for the Antibiotic Timelines
+task.
+conditions that were not the focus of the ID consultation. By formulating this task to replicate the ID
+specialists’ work, rather than on replicating structured data as the Imaging Procedures did, this task
+requires an additional level of medical reasoning to
+accurately conform to inclusion criteria.
+6.2 Results
+Figure 3 shows the performance of the models
+for TIMESPAN OVERLAP . The RAG approach
+consistently exceeds the rule-based baseline and
+demonstrates close performance to the peak performance using large amounts of recent notes (using
+60 chunks, GPT 4o-min: -0.020, o4-mini: -0.075,
+DeepSeek R1: -0.012). The performance of the
+RAG approach only sees slight gains from increasing the amount of retrieved text.
+For two of the models, the average Jaccard index
+drops slightly when increasing the maximum provided context from 64K to 128K tokens (GPT 4omini: -0.032, o4-mini: -0.049), while for DeepSeek
+R1, the additional data provides a negligible increase of 0.006.
+
+[TABLE page=5 index=1]
+Columns: tibiotic, reported using Jaccard index. A value | tation. By formulating this task to replicate the ID
+Row 1: tibiotic, reported using Jaccard index. A value: of 1 indicates an exact match; 0 indicates no | tation. By formulating this task to replicate the ID: specialists’ work, rather than on replicating strucRow 2: tibiotic, reported using Jaccard index. A value: overlap, missing a medication entirely, or in- | tation. By formulating this task to replicate the ID: tured data as the Imaging Procedures did, this task
+Row 3: tibiotic, reported using Jaccard index. A value: cluding a medication not present in the gold | tation. By formulating this task to replicate the ID: requires an additional level of medical reasoning to
+[/TABLE]
+
+[PAGE 6]
+Figure 3: Antibiotic Timelines: Average Jaccard index for the three models using the TIMESPAN OVERLAP
+evaluation method, across varying amounts of provided EHR tokens.
+On the task of predicting MEDICATIONS (NAME
+ONLY), the RAG approach slightly outperforms using the full context window with only 60 retrieved
+chunks (GPT 4o-mini: +2.14, o4-mini: +2.55,
+DeepSeek R1: +4.75). A complete listing of precision, recall, and F1 can be found in the Appendix
+in Table 7.
+7 Task 3: Diagnosis Generation
+7.1 Methods
+The goal of this task is to generate a list of diagnoses for a given hospitalization that is of primary
+relevance to the clinician.
+We drew from two EHR sources to construct our
+gold labels for each hospitalization:
+• DISCHARGE SUMMARY : The free text from
+the discharge summary that lists the primary
+and secondary diagnoses.
+• BILLING CODES : The lists of International
+Classification of Diseases (ICD-10) codes
+from the structured EHR for the hospitalization, manually annotated by billing coders.
+The diagnoses annotated by the coders are guaranteed to be documented within the notes, provide
+a high degree of specificity, and are normalized to
+a standard vocabulary, but these lengthy lists often
+include diagnoses that are not necessarily considered to be of key importance to clinicians, such as
+a history of smoking, obesity, or minor issues such
+as a contusion. On the other hand, the text in the
+discharge summary does not necessarily list specific diagnoses, such as noting post-surgical status
+(e.g. “S/p kidney transplant”) or leaving some diagnoses undocumented because they can be inferred.
+For example, documenting that the patient is postkidney transplant and has complications, but not
+that they have kidney disease.
+While discharge summaries reflect the information of most clinical relevance to the clinicians
+providing treatment, the billing codes lend themselves better to validation due to their standardization. To produce a more balanced representation, we instructed Gemma-3-32B (Google, 2005)
+to filter the billing ICD code lists to only the entries that reflect the clinician’s primary foci for the
+hospital stay based on the text from the discharge
+summary. This FILTERED list of ICD-10 codes
+serves as our primary evaluation target and the instruction prompt was designed to elicit this list by
+outlining inclusion and exclusion criteria for diagnoses (e.g. include acute conditions requiring ICU
+care, exclude stable chronic conditions or irrelevant
+historical diagnoses).
+To enable classification evaluation, the free text
+generated by the LLM and from the discharge summary need to be normalized to ICD-10 codes. For
+this process, we trained SNOBERT (Kulyabin et al.,
+2025) to extract Systematized Nomenclature of
+
+[PAGE 7]
+GPT-4o-mini o4-mini DeepSeek R1
+BILLING CODES 4.32% -0.94% 4.83%
+DISCHARGE SUMMARY-6.18% -7.31% -4.99%
+FILTERED -4.08% -4.05% -1.47%
+Table 5: Normalized area difference between the RAG
+and Recent Notes curves for the Diagnosis Generation
+task.
+Medicine (SNOMED) concepts from the text1 and
+used the mappings provided by the SNOMED Clinical Terms data release to convert them to ICD-10.
+ICD-10 is a hierarchical vocabulary, ranging
+from broad concepts (e.g. “Anemia, unspecified” [D64.9]) to highly specific (e.g. “Agerelated osteoporosis with current pathological fracture, right shoulder, initial encounter for fracture”
+[M80.011A]). Due to this high granularity, evaluating this task requires a more fuzzy matching
+technique, rather than evaluating classification accuracy on the ICD codes themselves. For this purpose, we employed the Healthcare Cost and Utilization Project’s Clinical Classifications Software
+Refined (CCSR) (Agency for Healthcare Research
+and Quality, 2025). The CCSR provides a mapping
+from ICD-10 codes to about 530 clinically relevant
+categories.
+CCSR is a many-to-many mapping, which enables mapping very fine-grained ICD codes such as
+“Hypertensive chronic kidney disease” to multiple
+CCSR categories: “Hypertension with complications and secondary hypertension" and “Chronic
+kidney disease”. This allowed us to consider predicted diagnoses to be a match even if the LLM
+split them into “Hypertension” and “Chronic kidney disease”.
+Some broader non-billable ICD codes are not
+included in the CCSR mapping (e.g. “Hypotension”
+[I95]). In these cases, we used the set intersection
+of the CCSR categories that the ICD code’s subcategories (e.g. I95.3, I95.89, etc.) are mapped
+to.
+7.2 Results
+Unlike the previous two tasks, we do not see a
+consistent improvement in performance for using RAG compared to comparable amounts of recent notes, shown in Figure 4 and Table 5, but
+actually a slight decrease, other than evaluating
+against the BILLING CODES using GPT 4o-mini
+and DeepSeek R1. However, the performance us1Training details are provided in Appendix C
+ing very long contexts is not substantially higher
+than that of using fewer tokens. Overall, performance is relatively flat across models and data selection approaches and does not reach any higher
+than an F1 score of 44.41. For the FILTERED list
+that serves as our primary target, scores across all
+context selection methods for GPT 4o-mini, o4mini, and DeepSeek R1 all fell within the small
+ranges of 5.18, 4.91, and 4.86, respectively.
+For both FILTERED and DISCHARGE SUMMARY targets, performance using the most recent
+notes is detrimented by using very large context
+amounts, while performance on BILLING CODES
+demonstrates additional benefit from the additional
+text (though only up to 64K for o4-mini and
+DeepSeek R1). A complete listing of precision,
+recall, and F1 can be found in the Appendix in
+Table 8.
+8 Discussion
+The Imaging Procedures task, which requires relatively shallow extraction of information data from
+the clinical notes, demonstrated the clearest benefit
+from RAG, and the performance gains from retrieval were both substantial and consistent across
+models.
+The Antibiotic Timelines task introduces greater
+complexity, requiring both temporal reasoning and
+clinical understanding to distinguish therapeutic antibiotics from incidental medications. While RAG
+also provided a significant improvement over using only recent notes, performance gains plateaued
+quickly—suggesting that only a limited number of
+passages are needed to reconstruct the key temporal
+history when performing targeted retrieval.
+Error analysis for this task draws attention to one
+of the limitations to be encountered when designing
+tasks on longitudinal EHR. In 22.4% of the gold
+medications analyzed, the information needed to
+generate the gold standard medication and precise
+timespan is not present in the full clinical notes.
+Most often this occurs due to the patient initially
+being admitted to another hospital and then transferred to our health system. This incomplete picture of a patient’s history is hard to avoid when
+constructing datasets to capture longitudinal EHR,
+as patients don’t exclusively visit a single healthcare system and healthcare data governance creates
+barriers to accessing to this external information.
+Additionally, when retrieving only 20 chunks, relevant information that could’ve improved perfor7
+
+[PAGE 8]
+Figure 4: Diagnosis Generation: F1 scores for the three models using the FILTERED evaluation method, across
+varying amounts of provided EHR tokens.
+mance was missed for 32% of gold medications,
+contributing to further performance degradation.
+The Diagnosis Generation task presented the
+greatest challenge, as it is also a very subjective
+task. Physicians can vary in documentation practices and what is chosen to be included in the discharge summary – an inherent limitation in automatic evaluation of this task. Performance varied
+by the evaluation target, with the BILLING CODES
+list benefiting the most from additional text, likely
+due to this being a more exhaustive list of diagnoses to capture everything that can be billed. The
+fact that all scores, regardless of retrieval method
+and consistently across the models, fell within low,
+narrow ranges points towards performance reaching a ceiling caused by limitations of the task or
+evaluation method.
+Across all tasks and models, we observed a
+consistent trend: retrieval-augmented generation
+was able to closely match the performance of fullcontext inputs with far fewer tokens.
+9 Conclusion
+In this work, we introduced three clinically relevant tasks designed to evaluate the effectiveness
+of retrieval-augmented generation across varying
+information demands in electronic health records.
+Each task was selected for its clinical relevance,
+reproducibility across health systems, and varying
+degrees of reasoning complexity.
+Our results demonstrate that a targeted retrieval
+approach can reach near parity with using up to
+128K tokens of recent clinical notes on these three
+tasks, while requiring significantly fewer input tokens. These findings show RAG’s continued value
+even as LLMs grow more capable of processing
+long sequences. Further tuning the retrieval approach (queries, embedding model, retrieving more
+than 60 chunks, etc.), may close the remaining gap.
+Future work should explore additional tasks that
+can be devised without extensive manual effort and
+informed by clinical workflows and documentation practices in order to provide a more robust
+assessment of models and retrieval methods over
+longitudinal EHR tasks.
+Limitations
+Due to legal and ethical restrictions, we cannot
+release the datasets used in this study. However,
+we have designed the tasks to be reproducible on
+other EHR systems using structured metadata and
+simple regex-based extraction of text from standard
+clinical note types.
+Our evaluated RAG implementation uses a fixed
+chunking strategy, query formulation, and embedding model. Retrieval performance is sensitive to
+these parameters, and alternative configurations
+may yield different results.
+Additionally, our evaluation ofDiagnosis Generation depends on normalizing free text to ICD
+
+[TABLE page=8 index=1]
+Columns: charge summary – an inherent limitation in auto- | long sequences. Further | tuning the retrieval apRow 1: charge summary – an inherent limitation in auto-: matic evaluation of this task. Performance varied | long sequences. Further: proach (queries, embedding model, retrieving more | tuning the retrieval ap-:
+Row 2: charge summary – an inherent limitation in auto-: by the evaluation target, with the BILLING CODES | long sequences. Further: than 60 chunks, etc.), may close the remaining gap. | tuning the retrieval ap-:
+Row 3: charge summary – an inherent limitation in auto-: list benefiting the most from additional text, likely | long sequences. Further: Future work should explore additional tasks that | tuning the retrieval ap-:
+Row 4: charge summary – an inherent limitation in auto-: due to this being a more exhaustive list of diag- | long sequences. Further: can be devised without extensive manual effort and | tuning the retrieval ap-:
+Row 5: charge summary – an inherent limitation in auto-: noses to capture everything that can be billed. The | long sequences. Further: informed by clinical workflows and documenta- | tuning the retrieval ap-:
+Row 6: charge summary – an inherent limitation in auto-: fact that all scores, regardless of retrieval method | long sequences. Further: tion practices in order to provide a more robust | tuning the retrieval ap-:
+Row 7: charge summary – an inherent limitation in auto-: and consistently across the models, fell within low, | long sequences. Further: assessment of models and retrieval methods over | tuning the retrieval ap-:
+Row 8: charge summary – an inherent limitation in auto-: narrow ranges points towards performance reach- | long sequences. Further: longitudinal EHR tasks. | tuning the retrieval ap-:
+Row 9: charge summary – an inherent limitation in auto-: ing a ceiling caused by limitations of the task or | long sequences. Further: | tuning the retrieval ap-:
+Row 10: charge summary – an inherent limitation in auto-: evaluation method. | long sequences. Further: Limitations | tuning the retrieval ap-:
+Row 11: charge summary – an inherent limitation in auto-: Across all tasks and models, we observed a | long sequences. Further: Due to legal and ethical | tuning the retrieval ap-: restrictions, we cannot
+Row 12: charge summary – an inherent limitation in auto-: consistent trend: retrieval-augmented generation | long sequences. Further: release the datasets used in this study. | tuning the retrieval ap-: However,
+Row 13: charge summary – an inherent limitation in auto-: was able to closely match the performance of full- | long sequences. Further: we have designed the tasks to be reproducible on | tuning the retrieval ap-:
+Row 14: charge summary – an inherent limitation in auto-: context inputs with far fewer tokens. | long sequences. Further: other EHR systems using structured metadata and | tuning the retrieval ap-:
+Row 15: charge summary – an inherent limitation in auto-: | long sequences. Further: simple regex-based extraction of text from standard | tuning the retrieval ap-:
+Row 16: charge summary – an inherent limitation in auto-: 9 Conclusion | long sequences. Further: | tuning the retrieval ap-:
+Row 17: charge summary – an inherent limitation in auto-: | long sequences. Further: clinical note types. | tuning the retrieval ap-:
+Row 18: charge summary – an inherent limitation in auto-: In this work, we introduced three clinically rele- | long sequences. Further: Our evaluated RAG implementation uses a fixed | tuning the retrieval ap-:
+Row 19: charge summary – an inherent limitation in auto-: vant tasks designed to evaluate the effectiveness | long sequences. Further: chunking strategy, query formulation, and embed- | tuning the retrieval ap-:
+[/TABLE]
+
+[PAGE 9]
+codes, which we do through a trained model identifying SNOMED codes before using manually written mappings. Less-than-perfect performance of
+this model may have introduced some noise to this
+evaluation.
+References
+Agency for Healthcare Research and Quality. 2025.
+Clinical Classifications Software Refined (CCSR)
+for ICD-10-CM Diagnoses — hcup-us.ahrq.gov.
+https://hcup-us.ahrq.gov/toolssoftware/
+ccsr/dxccsr.jsp. [Accessed 17-07-2025].
+Mohammad Alkhalaf, Ping Yu, Mengyang Yin, and
+Chao Deng. 2024. Applying generative ai with
+retrieval augmented generation to summarize and
+extract key clinical information from electronic
+health records. Journal of biomedical informatics ,
+156:104662.
+Jayetri Bardhan, Anthony Colas, Kirk Roberts, and
+Daisy Zhe Wang. 2022. DrugEHRQA: A question answering dataset on structured and unstructured electronic health records for medicine related queries. In
+Proceedings of the Thirteenth Language Resources
+and Evaluation Conference, pages 1083–1097, Marseille, France. European Language Resources Association.
+Emma Croxford, Yanjun Gao, Brian Patterson, Daniel
+To, Samuel Tesch, Dmitriy Dligach, Anoop Mayampurath, Matthew M. Churpek, and Majid Afshar.
+2024. Development of a Human Evaluation Framework and Correlation with Automated Metrics for
+Natural Language Generation of Medical Diagnoses.
+AMIA ... Annual Symposium proceedings. AMIA Symposium, 2024:309–318.
+Scott L Fleming, Alejandro Lozano, William J
+Haberkorn, Jenelle A Jindal, Eduardo Reis, Rahul
+Thapa, Louis Blankemeier, Julian Z Genkins, Ethan
+Steinberg, Ashwin Nayak, and 1 others. 2024.
+Medalign: A clinician-generated dataset for instruction following with electronic medical records. In
+Proceedings of the AAAI Conference on Artificial
+Intelligence, volume 38, pages 22021–22030.
+Google. 2005. Introducing Gemma 3: The most capable model you can run on a single GPU or TPU —
+blog.google. https://blog.google/technology/
+developers/gemma-3/.
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao
+Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, Xiao Bi, and 1 others. 2025.
+Deepseek-R1: Incentivizing reasoning capability in
+llms via reinforcement learning. arXiv preprint
+arXiv:2501.12948.
+Alistair EW Johnson, Tom J Pollard, Lu Shen, Li-wei H
+Lehman, Mengling Feng, Mohammad Ghassemi,
+Benjamin Moody, Peter Szolovits, Leo Anthony Celi,
+and Roger G Mark. 2016. Mimic-iii, a freely accessible critical care database. Scientific data, 3(1):1–9.
+Yu He Ke, Liyuan Jin, Kabilan Elangovan, Hairil Rizal
+Abdullah, Nan Liu, Alex Tiong Heng Sia, Chai Rick
+Soh, Joshua Yi Min Tung, Jasmine Chiat Ling Ong,
+Chang-Fu Kuo, and 1 others. 2025. Retrieval augmented generation for 10 large language models and
+its generalizability in assessing medical fitness. npj
+Digital Medicine, 8(1):187.
+Mikhail Kulyabin, Gleb Sokolov, Aleksandr Galaida,
+Andreas Maier, and Tomas Arias-Vergara. 2025.
+SNOBERT: A benchmark for clinical notes entity
+linking in the SNOMED CT clinical terminology. In
+Pattern Recognition, pages 154–163, Cham. Springer
+Nature Switzerland.
+Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy
+Liang. 2024. Lost in the middle: How language models use long contexts. Transactions of the Association
+for Computational Linguistics, 12:157–173.
+Skatje Myers, Timothy A Miller, Yanjun Gao,
+Matthew M Churpek, Anoop Mayampurath, Dmitriy
+Dligach, and Majid Afshar. 2025. Lessons learned on
+information retrieval in electronic health records: a
+comparison of embedding models and pooling strategies. Journal of the American Medical Informatics
+Association, 32(2):357–364.
+Stuart J Nelson, Kelly Zeng, John Kilbourne, Tammy
+Powell, and Robin Moore. 2011. Normalized names
+for clinical drugs: Rxnorm at 6 years. Journal
+of the American Medical Informatics Association ,
+18(4):441–448.
+OpenAI. 2024. GPT-4o mini: advancing cost-efficient intelligence — openai.com. https://openai.com/index/
+gpt-4o-mini-advancing-cost-efficient-intelligence/ .
+[Accessed 24-07-2025].
+OpenAI. 2025. Introducing OpenAI o3 and o4mini — openai.com. https://openai.com/index/
+introducing-o3-and-o4-mini/ . [Accessed 2407-2025].
+Anusri Pampari, Preethi Raghavan, Jennifer Liang, and
+Jian Peng. 2018. emrQA: A large corpus for question
+answering on electronic medical records. In Proceedings of the 2018 Conference on Empirical Methods
+in Natural Language Processing, pages 2357–2368,
+Brussels, Belgium. Association for Computational
+Linguistics.
+Brian W Patterson, Daniel J Hekman, Frank J Liao,
+Azita G Hamedani, Manish N Shah, and Majid Afshar. 2024. Call me dr ishmael: trends in electronic health record notes available at emergency
+department visits and admissions. JAMIA open ,
+7(2):ooae039.
+Karan Singhal, Tao Tu, Juraj Gottweis, Rory Sayres,
+Ellery Wulczyn, Mohamed Amin, Le Hou, Kevin
+
+[TABLE page=9 index=1]
+Columns: codes, which we do through a trained model identi- | and Roger G Mark. 2016. Mimic-iii, a freely accessiRow 1: codes, which we do through a trained model identi-: fying SNOMED codes before using manually writ- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: ble critical care database. Scientific data, 3(1):1–9.
+Row 2: codes, which we do through a trained model identi-: ten mappings. Less-than-perfect performance of | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Yu He Ke, Liyuan Jin, Kabilan Elangovan, Hairil Rizal
+Row 3: codes, which we do through a trained model identi-: this model may have introduced some noise to this | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Abdullah, Nan Liu, Alex Tiong Heng Sia, Chai Rick
+Row 4: codes, which we do through a trained model identi-: evaluation. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Soh, Joshua Yi Min Tung, Jasmine Chiat Ling Ong,
+Row 5: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Chang-Fu Kuo, and 1 others. 2025. Retrieval augRow 6: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: mented generation for 10 large language models and
+Row 7: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: its generalizability in assessing medical fitness. npj
+Row 8: codes, which we do through a trained model identi-: References | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 9: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Digital Medicine, 8(1):187.
+Row 10: codes, which we do through a trained model identi-: Agency for Healthcare Research and Quality. 2025. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 11: codes, which we do through a trained model identi-: Clinical Classifications Software Refined (CCSR) | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Mikhail Kulyabin, Gleb Sokolov, Aleksandr Galaida,
+Row 12: codes, which we do through a trained model identi-: for ICD-10-CM Diagnoses — hcup-us.ahrq.gov. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Andreas Maier, and Tomas Arias-Vergara. 2025.
+Row 13: codes, which we do through a trained model identi-: https://hcup-us.ahrq.gov/toolssoftware/ | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: SNOBERT: A benchmark for clinical notes entity
+Row 14: codes, which we do through a trained model identi-: ccsr/dxccsr.jsp. [Accessed 17-07-2025]. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: linking in the SNOMED CT clinical terminology. In
+Row 15: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Pattern Recognition, pages 154–163, Cham. Springer
+Row 16: codes, which we do through a trained model identi-: Mohammad Alkhalaf, Ping Yu, Mengyang Yin, and | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Nature Switzerland.
+Row 17: codes, which we do through a trained model identi-: Chao Deng. 2024. Applying generative ai with | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 18: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin ParanRow 19: codes, which we do through a trained model identi-: retrieval augmented generation to summarize and | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 20: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: jape, Michele Bevilacqua, Fabio Petroni, and Percy
+Row 21: codes, which we do through a trained model identi-: extract key clinical information from electronic | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 22: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Liang. 2024. Lost in the middle: How language modRow 23: codes, which we do through a trained model identi-: health records. Journal of biomedical informatics, | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 24: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: els use long contexts. Transactions of the Association
+Row 25: codes, which we do through a trained model identi-: 156:104662. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 26: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: for Computational Linguistics, 12:157–173.
+Row 27: codes, which we do through a trained model identi-: Jayetri Bardhan, Anthony Colas, Kirk Roberts, and | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 28: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Skatje Myers, Timothy A Miller, Yanjun Gao,
+Row 29: codes, which we do through a trained model identi-: Daisy Zhe Wang. 2022. DrugEHRQA: A question an- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 30: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Matthew M Churpek, Anoop Mayampurath, Dmitriy
+Row 31: codes, which we do through a trained model identi-: swering dataset on structured and unstructured elec- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 32: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Dligach, and Majid Afshar. 2025. Lessons learned on
+Row 33: codes, which we do through a trained model identi-: tronic health records for medicine related queries. In | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 34: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: information retrieval in electronic health records: a
+Row 35: codes, which we do through a trained model identi-: Proceedings of the Thirteenth Language Resources | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 36: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: comparison of embedding models and pooling strateRow 37: codes, which we do through a trained model identi-: and Evaluation Conference, pages 1083–1097, Mar- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 38: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: gies. Journal of the American Medical Informatics
+Row 39: codes, which we do through a trained model identi-: seille, France. European Language Resources Asso- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 40: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Association, 32(2):357–364.
+Row 41: codes, which we do through a trained model identi-: ciation. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 42: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Stuart J Nelson, Kelly Zeng, John Kilbourne, Tammy
+Row 43: codes, which we do through a trained model identi-: Emma Croxford, Yanjun Gao, Brian Patterson, Daniel | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 44: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Powell, and Robin Moore. 2011. Normalized names
+Row 45: codes, which we do through a trained model identi-: To, Samuel Tesch, Dmitriy Dligach, Anoop Mayam- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 46: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: for clinical drugs: Rxnorm at 6 years. Journal
+Row 47: codes, which we do through a trained model identi-: purath, Matthew M. Churpek, and Majid Afshar. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 48: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: of the American Medical Informatics Association,
+Row 49: codes, which we do through a trained model identi-: 2024. Development of a Human Evaluation Frame- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 50: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: 18(4):441–448.
+Row 51: codes, which we do through a trained model identi-: work and Correlation with Automated Metrics for | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 52: codes, which we do through a trained model identi-: Natural Language Generation of Medical Diagnoses. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: OpenAI. 2024. GPT-4o mini: advancRow 53: codes, which we do through a trained model identi-: AMIA ... Annual Symposium proceedings. AMIA Sym- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: ing cost-efficient intelligence — opeRow 54: codes, which we do through a trained model identi-: posium, 2024:309–318. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: nai.com. https://openai.com/index/
+Row 55: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: gpt-4o-mini-advancing-cost-efficient-inte
+Row 56: codes, which we do through a trained model identi-: Scott L Fleming, Alejandro Lozano, William J | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 57: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: [Accessed 24-07-2025].
+Row 58: codes, which we do through a trained model identi-: Haberkorn, Jenelle A Jindal, Eduardo Reis, Rahul | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 59: codes, which we do through a trained model identi-: Thapa, Louis Blankemeier, Julian Z Genkins, Ethan | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: OpenAI. 2025. Introducing OpenAI o3 and o4Row 60: codes, which we do through a trained model identi-: Steinberg, Ashwin Nayak, and 1 others. 2024. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: mini — openai.com. https://openai.com/index/
+Row 61: codes, which we do through a trained model identi-: Medalign: A clinician-generated dataset for instruc- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: introducing-o3-and-o4-mini/. [Accessed 24Row 62: codes, which we do through a trained model identi-: tion following with electronic medical records. In | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: 07-2025].
+Row 63: codes, which we do through a trained model identi-: Proceedings of the AAAI Conference on Artificial | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 64: codes, which we do through a trained model identi-: Intelligence, volume 38, pages 22021–22030. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Anusri Pampari, Preethi Raghavan, Jennifer Liang, and
+Row 65: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Jian Peng. 2018. emrQA: A large corpus for question
+Row 66: codes, which we do through a trained model identi-: Google. 2005. Introducing Gemma 3: The most capa- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: answering on electronic medical records. In ProceedRow 67: codes, which we do through a trained model identi-: ble model you can run on a single GPU or TPU — | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: ings of the 2018 Conference on Empirical Methods
+Row 68: codes, which we do through a trained model identi-: blog.google. https://blog.google/technology/ | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: in Natural Language Processing, pages 2357–2368,
+Row 69: codes, which we do through a trained model identi-: developers/gemma-3/. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Brussels, Belgium. Association for Computational
+Row 70: codes, which we do through a trained model identi-: | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Linguistics.
+Row 71: codes, which we do through a trained model identi-: Daya Guo, Dejian Yang, Haowei Zhang, Junxiao | and Roger G Mark. 2016. Mimic-iii, a freely accessi-:
+Row 72: codes, which we do through a trained model identi-: Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shi- | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Brian W Patterson, Daniel J Hekman, Frank J Liao,
+Row 73: codes, which we do through a trained model identi-: rong Ma, Peiyi Wang, Xiao Bi, and 1 others. 2025. | and Roger G Mark. 2016. Mimic-iii, a freely accessi-: Azita G Hamedani, Manish N Shah, and Majid Af-
+[/TABLE]
+
+[PAGE 10]
+Clark, Stephen R Pfohl, Heather Cole-Lewis, and
+1 others. 2025. Toward expert-level medical question answering with large language models. Nature
+Medicine, 31(3):943–950.
+Dave Van Veen, Cara Van Uden, Louis Blankemeier, Jean-Benoit Delbrouck, Asad Aali, Christian
+Bluethgen, Anuj Pareek, Malgorzata Polacin, Eduardo Pontes Reis, Anna Seehofnerová, and 1 others.
+2024. Adapted large language models can outperform medical experts in clinical text summarization.
+Nature medicine, 30(4):1134–1142.
+Shitao Xiao, Zheng Liu, Peitian Zhang, and Niklas
+Muennighoff. 2023. C-pack: Packaged resources
+to advance general chinese embedding. Preprint,
+arXiv:2309.07597.
+Cyril Zakka, Rohan Shad, Akash Chaurasia, Alex R
+Dalal, Jennifer L Kim, Michael Moor, Robyn Fong,
+Curran Phillips, Kevin Alexander, Euan Ashley,
+and 1 others. 2024. Almanac—retrieval-augmented
+language models for clinical medicine. Nejm ai ,
+1(2):AIoa2300068.
+A Additional Results
+B Prompts
+B.1 Imaging Procedures
+# Task: Identification of Imaging Procedures
+from Electronic Health Records
+You are an AI assistant tasked with identifying
+imaging procedures performed on a patient
+during their hospital stay. You will be
+provided with relevant passages from the
+patients Electronic Health Record.
+## Instructions
+1. Carefully read through all provided EHR
+passages and identify the imaging procedures
+performed and the location imaged.
+2. Create a bulleted list of the imaging
+procedures performed during this current
+hospitalization, DO NOT include procedures
+from their history that occurred prior to
+this stay and DO NOT include imaging that
+was only performed for guidance during
+another procedure.
+3. ONLY include procedures from these primary
+categories: MRI (Magnetic Resonance Imaging)
+, CT (Computed Tomography), Ultrasound (US),
+X-ray (Radiograph), NM Imaging (Nuclear
+Medicine)
+4. For each procedure found, you must identify:
+- The primary imaging modality (from the list
+above)
+- Whether there is a more specific subtype of
+the modality (e.g., Fluoroscopy, Mammography
+, Echocardiography, PET, Angiography)
+- The time of the imaging (as MM/DD format or "
+unknown" if this cannot be determined)
+- The specific body location that was imaged (e.
+g., brain, chest, left ankle)
+5. Ignore all other medical information such as
+tests, medications, treatment plans,
+assessments, other non-imaging procedures.
+## Output Format
+- Use EXACTLY this format for each item: "- (MM/
+DD or "unknown") [Primary Imaging Modality]
+- [Subtype or "None"]: [Body Location]"
+- Use "None" in place of subtype when no
+specific subtype is necessary and "unknown"
+in place of the '
+date if the time of the imaging cannot be
+determined.
+- Present as a clean bulleted list
+- Include no explanatory text, introductions, or
+conclusions
+- Do not number the items
+- If multiple imaging procedures of the same
+type were performed on different locations,
+list each separately
+- The same imaging occurence may be mentioned
+multiple times throughout the EHR, only
+include one entry per occurence.
+- If no imaging procedures exist, output only: "
+No imaging procedures identified."
+## Example
+2018-03-12 15:43:00 H&P
+Patient admitted with chest pain. Cardiac
+enzymes were elevated. A chest X-ray was
+performed on 3/10 showing cardiomegaly. CT
+scan of the chest was completed to rule out
+aortic dissection. The patient also
+underwent a transthoracic echocardiogram
+today.
+Example output:
+- (03/10) X-ray - None: Chest
+- (unknown) CT - None: Chest
+- (03/12) Ultrasound - Echocardiogram: Heart
+## Begin Task
+EHR passages:
+[INSERT TEXT]
+Your response as a list of imaging types and
+locations:
+B.2 Antibiotic Timelines
+# Task: Identification of Administered
+Antibiotics and Date Ranges from Electronic
+Health Records\n\n
+You are an AI assistant tasked with identifying
+antibiotics administered to a patient during
+their hospital stay and the date ranges for each
+antibiotic's use. You will be
+provided with relevant passages from the patient
+'s Electronic Health Record (EHR), each with
+an
+associated timestamp.\n\n
+## Instructions\n
+1. Carefully read through all provided EHR
+passages, noting their timestamps.\n
+2. Create a list of antibiotics being
+administered, prescribed, or continued.\n
+3. Do not include antibiotics given for
+prophylaxis or minor conditions. Only
+include antibiotics being used for the
+treatment of the major acute condition of
+the ICU patient.\n
+4. For each antibiotic, determine the start and
+end dates of its use by inferring from the
+
+[PAGE 11]
+MODALITY+DATE+LOCATION MODALITY+DATE MODALITY+DATE(±1)
+# chunks/tokens P R F P R F P R F
+GPT 4o-mini
+RAG
+20 chunks 49.38 29.61 37.02 61.62 36.94 46.19 72.50 43.47 54.35
+40 chunks 50.00 36.00 41.86 60.84 43.81 50.94 72.15 51.95 60.41
+60 chunks 50.59 40.11 44.74 61.46 48.72 54.35 72.33 57.34 63.96
+Recent Notes
+3K 23.08 1.21 2.30 35.90 1.88 3.58 46.15 2.42 4.60
+5.5K 27.88 3.92 6.87 42.31 5.95 10.43 52.88 7.43 13.03
+8K 35.94 6.19 10.56 51.95 8.95 15.27 62.89 10.83 18.48
+64K 52.74 32.44 40.17 65.86 40.51 50.17 76.15 46.84 58.00
+128K 49.54 39.43 43.91 63.91 50.87 56.65 74.89 59.62 66.39
+o4-mini
+RAG
+20 chunks 54.00 31.76 40.00 69.22 40.71 51.27 82.49 48.52 61.10
+40 chunks 54.55 39.17 45.59 69.54 49.93 58.13 82.29 59.08 68.78
+60 chunks 55.46 42.40 48.05 71.65 54.78 62.09 84.77 64.80 73.46
+Recent Notes
+3K 36.49 1.82 3.46 51.35 2.56 4.87 63.51 3.16 6.03
+5.5K 45.73 5.05 9.09 67.07 7.40 13.33 76.83 8.48 15.27
+8K 50.41 8.21 14.12 67.36 10.97 18.87 79.34 12.92 22.22
+64K 58.94 36.61 45.16 76.92 47.78 58.95 89.06 55.32 68.24
+128K 58.60 42.66 49.38 78.84 57.40 66.43 91.40 66.55 77.02
+DeepSeek R1
+RAG
+20 chunks 52.68 31.76 39.63 69.64 41.99 52.39 83.26 50.20 62.64
+40 chunks 55.87 39.70 46.42 73.20 52.02 60.82 85.89 61.04 71.36
+60 chunks 54.29 42.60 47.74 73.50 57.67 64.63 85.68 67.23 75.34
+Recent Notes
+3K 14.58 1.88 3.34 23.44 3.03 5.36 27.60 3.57 6.32
+5.5K 44.91 5.05 9.07 70.06 7.87 14.16 78.44 8.82 15.85
+8K 49.40 8.28 14.18 69.48 11.64 19.94 81.12 13.59 23.29
+64K 55.17 38.09 45.06 73.20 50.54 59.79 84.31 58.21 68.87
+128K 54.21 45.02 49.19 73.50 61.04 66.69 84.93 70.52 77.06
+Table 6: Scores for the Imaging Procedures task, across different models and differing amounts of provided clinical
+notes.
+
+[TABLE page=11 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | MODALITY+DATE+LOCATION | MODALITY+DATE | MODALITY+DATE(±1)
+Row 1: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: # chunks/tokens | MODALITY+DATE+LOCATION: P R F | MODALITY+DATE: P R F | MODALITY+DATE(±1): P R F
+Row 2: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 20 chunks | MODALITY+DATE+LOCATION: 49.38 29.61 37.02 | MODALITY+DATE: 61.62 36.94 46.19 | MODALITY+DATE(±1): 72.50 43.47 54.35
+Row 3: Unnamed: 0: | Unnamed: 1: RAG | Unnamed: 2: 40 chunks | MODALITY+DATE+LOCATION: 50.00 36.00 41.86 | MODALITY+DATE: 60.84 43.81 50.94 | MODALITY+DATE(±1): 72.15 51.95 60.41
+Row 4: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 60 chunks | MODALITY+DATE+LOCATION: 50.59 40.11 44.74 | MODALITY+DATE: 61.46 48.72 54.35 | MODALITY+DATE(±1): 72.33 57.34 63.96
+Row 5: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3K | MODALITY+DATE+LOCATION: 23.08 1.21 2.30 | MODALITY+DATE: 35.90 1.88 3.58 | MODALITY+DATE(±1): 46.15 2.42 4.60
+Row 6: Unnamed: 0: GPT 4o-mini | Unnamed: 1: | Unnamed: 2: | MODALITY+DATE+LOCATION: | MODALITY+DATE: | MODALITY+DATE(±1):
+Row 7: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5.5K | MODALITY+DATE+LOCATION: 27.88 3.92 6.87 | MODALITY+DATE: 42.31 5.95 10.43 | MODALITY+DATE(±1): 52.88 7.43 13.03
+Row 8: Unnamed: 0: | Unnamed: 1: Recent Notes | Unnamed: 2: 8K | MODALITY+DATE+LOCATION: 35.94 6.19 10.56 | MODALITY+DATE: 51.95 8.95 15.27 | MODALITY+DATE(±1): 62.89 10.83 18.48
+Row 9: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 64K | MODALITY+DATE+LOCATION: 52.74 32.44 40.17 | MODALITY+DATE: 65.86 40.51 50.17 | MODALITY+DATE(±1): 76.15 46.84 58.00
+Row 10: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 128K | MODALITY+DATE+LOCATION: 49.54 39.43 43.91 | MODALITY+DATE: 63.91 50.87 56.65 | MODALITY+DATE(±1): 74.89 59.62 66.39
+Row 11: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 20 chunks | MODALITY+DATE+LOCATION: 54.00 31.76 40.00 | MODALITY+DATE: 69.22 40.71 51.27 | MODALITY+DATE(±1): 82.49 48.52 61.10
+Row 12: Unnamed: 0: | Unnamed: 1: RAG | Unnamed: 2: 40 chunks | MODALITY+DATE+LOCATION: 54.55 39.17 45.59 | MODALITY+DATE: 69.54 49.93 58.13 | MODALITY+DATE(±1): 82.29 59.08 68.78
+Row 13: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 60 chunks | MODALITY+DATE+LOCATION: 55.46 42.40 48.05 | MODALITY+DATE: 71.65 54.78 62.09 | MODALITY+DATE(±1): 84.77 64.80 73.46
+Row 14: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3K | MODALITY+DATE+LOCATION: 36.49 1.82 3.46 | MODALITY+DATE: 51.35 2.56 4.87 | MODALITY+DATE(±1): 63.51 3.16 6.03
+Row 15: Unnamed: 0: o4-mini | Unnamed: 1: | Unnamed: 2: | MODALITY+DATE+LOCATION: | MODALITY+DATE: | MODALITY+DATE(±1):
+Row 16: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5.5K | MODALITY+DATE+LOCATION: 45.73 5.05 9.09 | MODALITY+DATE: 67.07 7.40 13.33 | MODALITY+DATE(±1): 76.83 8.48 15.27
+Row 17: Unnamed: 0: | Unnamed: 1: Recent Notes | Unnamed: 2: 8K | MODALITY+DATE+LOCATION: 50.41 8.21 14.12 | MODALITY+DATE: 67.36 10.97 18.87 | MODALITY+DATE(±1): 79.34 12.92 22.22
+Row 18: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 64K | MODALITY+DATE+LOCATION: 58.94 36.61 45.16 | MODALITY+DATE: 76.92 47.78 58.95 | MODALITY+DATE(±1): 89.06 55.32 68.24
+Row 19: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 128K | MODALITY+DATE+LOCATION: 58.60 42.66 49.38 | MODALITY+DATE: 78.84 57.40 66.43 | MODALITY+DATE(±1): 91.40 66.55 77.02
+Row 20: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 20 chunks | MODALITY+DATE+LOCATION: 52.68 31.76 39.63 | MODALITY+DATE: 69.64 41.99 52.39 | MODALITY+DATE(±1): 83.26 50.20 62.64
+Row 21: Unnamed: 0: | Unnamed: 1: RAG | Unnamed: 2: 40 chunks | MODALITY+DATE+LOCATION: 55.87 39.70 46.42 | MODALITY+DATE: 73.20 52.02 60.82 | MODALITY+DATE(±1): 85.89 61.04 71.36
+Row 22: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 60 chunks | MODALITY+DATE+LOCATION: 54.29 42.60 47.74 | MODALITY+DATE: 73.50 57.67 64.63 | MODALITY+DATE(±1): 85.68 67.23 75.34
+Row 23: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3K | MODALITY+DATE+LOCATION: 14.58 1.88 3.34 | MODALITY+DATE: 23.44 3.03 5.36 | MODALITY+DATE(±1): 27.60 3.57 6.32
+Row 24: Unnamed: 0: DeepSeek R1 | Unnamed: 1: | Unnamed: 2: | MODALITY+DATE+LOCATION: | MODALITY+DATE: | MODALITY+DATE(±1):
+Row 25: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5.5K | MODALITY+DATE+LOCATION: 44.91 5.05 9.07 | MODALITY+DATE: 70.06 7.87 14.16 | MODALITY+DATE(±1): 78.44 8.82 15.85
+Row 26: Unnamed: 0: | Unnamed: 1: Recent Notes | Unnamed: 2: 8K | MODALITY+DATE+LOCATION: 49.40 8.28 14.18 | MODALITY+DATE: 69.48 11.64 19.94 | MODALITY+DATE(±1): 81.12 13.59 23.29
+Row 27: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 64K | MODALITY+DATE+LOCATION: 55.17 38.09 45.06 | MODALITY+DATE: 73.20 50.54 59.79 | MODALITY+DATE(±1): 84.31 58.21 68.87
+Row 28: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 128K | MODALITY+DATE+LOCATION: 54.21 45.02 49.19 | MODALITY+DATE: 73.50 61.04 66.69 | MODALITY+DATE(±1): 84.93 70.52 77.06
+[/TABLE]
+
+[PAGE 12]
+TIMESPAN OVERLAP MEDICATIONS (NAME ONLY)
+# chunks/tokens Jaccard index P R F1
+GPT 4o-mini
+RAG
+20 chunks 0.5030 75.44 79.32 77.33
+40 chunks 0.5092 74.60 79.94 77.18
+60 chunks 0.5182 75.15 80.40 77.69
+Recent Notes
+3K 0.3573 67.94 30.33 41.94
+5.5K 0.3712 75.00 47.59 58.23
+8K 0.4275 77.78 57.70 66.25
+64K 0.5386 76.21 76.21 76.21
+128K 0.5068 73.60 77.60 75.55
+o4-mini
+RAG
+20 chunks 0.5671 78.78 76.21 77.47
+40 chunks 0.566 80.22 80.72 80.47
+60 chunks 0.5858 79.78 80.40 80.09
+Recent Notes
+3K 0.4024 76.95 29.17 42.31
+5.5K 0.4132 80.21 47.28 59.49
+8K 0.5529 80.43 57.54 67.09
+64K 0.6604 80.55 72.78 76.47
+128K 0.6111 80.67 74.65 77.54
+DeepSeek R1
+RAG
+20 chunks 0.5814 74.81 76.21 75.50
+40 chunks 0.5974 76.86 76.98 76.92
+60 chunks 0.6112 77.42 78.38 77.90
+Recent Notes
+3K 0.3489 65.22 30.33 41.40
+5.5K 0.4610 72.97 46.19 56.57
+8K 0.5547 71.98 55.52 62.69
+64K 0.6176 71.37 75.58 73.41
+128K 0.6232 69.93 76.67 73.15
+Structured EHR baseline 0.4650
+Table 7: Scores for the Antibiotic Timelines task, across different models and differing amounts of provided clinical
+notes.
+timestamps of the passages and any date
+information within the text.\n
+5. Use the format MM/DD-MM/DD for date ranges.
+If the antibiotic use is ongoing, use \"
+present\" for the end date.\n
+6. Don 't include dosages or administration
+routes.\n
+7. If a date range can 't be determined
+whatsoever, list the antibiotic with \"(
+dates unclear)\" after it.\n
+\n
+## Output Format\n
+Provide your response as a list of antibiotics
+with their date ranges in the following
+format:\n
+- Antibiotic 1 (MM/DD - MM/DD)\n
+- Antibiotic 2 (MM/DD - present)\n
+## Example\n
+Right now it is 2019-09-15 14:51:00.\n
+EHR passages:\n\n
+2019-09-12 10:15:00\n
+\"Patient admitted with suspected pneumonia.
+Started on IV ceftriaxone 1g daily.\"\n\n
+2019-09-14 14:30:00\n
+\"Blood cultures positive for MRSA. Ceftriaxone
+discontinued. Started on IV vancomycin 1g
+q12h.\"\n\n
+Output:\n
+- Ceftriaxone (09/12-09/14)\n
+- Vancomycin (09/14-ongoing)\n\n
+## Begin Task\n
+Right now it is [TIMESTAMP].\n\nEHR passages:\n\
+n[INSERT TEXT]
+\n\nYour response as a list of antibiotic names
+and date ranges:\n
+B.3 Diagnosis Generation
+
+[TABLE page=12 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | TIMESPAN OVERLAP | MEDICATIONS (NAME ONLY)
+Row 1: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: # chunks/tokens | TIMESPAN OVERLAP: Jaccard index | MEDICATIONS (NAME ONLY): P R F1
+Row 2: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 20 chunks | TIMESPAN OVERLAP: 0.5030 | MEDICATIONS (NAME ONLY): 75.44 79.32 77.33
+Row 3: Unnamed: 0: | Unnamed: 1: RAG | Unnamed: 2: 40 chunks | TIMESPAN OVERLAP: 0.5092 | MEDICATIONS (NAME ONLY): 74.60 79.94 77.18
+Row 4: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 60 chunks | TIMESPAN OVERLAP: 0.5182 | MEDICATIONS (NAME ONLY): 75.15 80.40 77.69
+Row 5: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3K | TIMESPAN OVERLAP: 0.3573 | MEDICATIONS (NAME ONLY): 67.94 30.33 41.94
+Row 6: Unnamed: 0: GPT 4o-mini | Unnamed: 1: | Unnamed: 2: | TIMESPAN OVERLAP: | MEDICATIONS (NAME ONLY):
+Row 7: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5.5K | TIMESPAN OVERLAP: 0.3712 | MEDICATIONS (NAME ONLY): 75.00 47.59 58.23
+Row 8: Unnamed: 0: | Unnamed: 1: Recent Notes | Unnamed: 2: 8K | TIMESPAN OVERLAP: 0.4275 | MEDICATIONS (NAME ONLY): 77.78 57.70 66.25
+Row 9: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 64K | TIMESPAN OVERLAP: 0.5386 | MEDICATIONS (NAME ONLY): 76.21 76.21 76.21
+Row 10: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 128K | TIMESPAN OVERLAP: 0.5068 | MEDICATIONS (NAME ONLY): 73.60 77.60 75.55
+Row 11: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 20 chunks | TIMESPAN OVERLAP: 0.5671 | MEDICATIONS (NAME ONLY): 78.78 76.21 77.47
+Row 12: Unnamed: 0: | Unnamed: 1: RAG | Unnamed: 2: 40 chunks | TIMESPAN OVERLAP: 0.566 | MEDICATIONS (NAME ONLY): 80.22 80.72 80.47
+Row 13: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 60 chunks | TIMESPAN OVERLAP: 0.5858 | MEDICATIONS (NAME ONLY): 79.78 80.40 80.09
+Row 14: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3K | TIMESPAN OVERLAP: 0.4024 | MEDICATIONS (NAME ONLY): 76.95 29.17 42.31
+Row 15: Unnamed: 0: o4-mini | Unnamed: 1: | Unnamed: 2: | TIMESPAN OVERLAP: | MEDICATIONS (NAME ONLY):
+Row 16: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5.5K | TIMESPAN OVERLAP: 0.4132 | MEDICATIONS (NAME ONLY): 80.21 47.28 59.49
+Row 17: Unnamed: 0: | Unnamed: 1: Recent Notes | Unnamed: 2: 8K | TIMESPAN OVERLAP: 0.5529 | MEDICATIONS (NAME ONLY): 80.43 57.54 67.09
+Row 18: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 64K | TIMESPAN OVERLAP: 0.6604 | MEDICATIONS (NAME ONLY): 80.55 72.78 76.47
+Row 19: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 128K | TIMESPAN OVERLAP: 0.6111 | MEDICATIONS (NAME ONLY): 80.67 74.65 77.54
+Row 20: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 20 chunks | TIMESPAN OVERLAP: 0.5814 | MEDICATIONS (NAME ONLY): 74.81 76.21 75.50
+Row 21: Unnamed: 0: | Unnamed: 1: RAG | Unnamed: 2: 40 chunks | TIMESPAN OVERLAP: 0.5974 | MEDICATIONS (NAME ONLY): 76.86 76.98 76.92
+Row 22: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 60 chunks | TIMESPAN OVERLAP: 0.6112 | MEDICATIONS (NAME ONLY): 77.42 78.38 77.90
+Row 23: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3K | TIMESPAN OVERLAP: 0.3489 | MEDICATIONS (NAME ONLY): 65.22 30.33 41.40
+Row 24: Unnamed: 0: DeepSeek R1 | Unnamed: 1: | Unnamed: 2: | TIMESPAN OVERLAP: | MEDICATIONS (NAME ONLY):
+Row 25: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5.5K | TIMESPAN OVERLAP: 0.4610 | MEDICATIONS (NAME ONLY): 72.97 46.19 56.57
+Row 26: Unnamed: 0: | Unnamed: 1: Recent Notes | Unnamed: 2: 8K | TIMESPAN OVERLAP: 0.5547 | MEDICATIONS (NAME ONLY): 71.98 55.52 62.69
+Row 27: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 64K | TIMESPAN OVERLAP: 0.6176 | MEDICATIONS (NAME ONLY): 71.37 75.58 73.41
+Row 28: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 128K | TIMESPAN OVERLAP: 0.6232 | MEDICATIONS (NAME ONLY): 69.93 76.67 73.15
+Row 29: Unnamed: 0: Structured EHR baseline | Unnamed: 1: | Unnamed: 2: | TIMESPAN OVERLAP: 0.4650 | MEDICATIONS (NAME ONLY):
+[/TABLE]
+
+[PAGE 13]
+BILLINGCODES DISCHARGESUMMARY FILTERED
+# chunks/tokens P R F1 P R F1 P R F1
+GPT 4o-mini
+RAG
+20 chunks 57.08 24.71 34.49 29.19 44.51 35.25 31.10 39.55 34.82
+40 chunks 58.17 27.32 37.18 30.19 49.95 37.64 31.90 44.01 36.99
+60 chunks 57.95 28.54 38.25 30.52 52.96 38.72 32.25 46.67 38.14
+Recent Notes
+3K 55.70 21.23 30.74 31.50 42.22 36.09 33.47 37.45 35.35
+5.5K 58.96 26.53 36.60 33.59 53.16 41.17 35.14 46.42 40.00
+8K 58.96 28.68 38.59 33.15 56.81 41.87 32.77 46.83 38.56
+64K 58.11 31.80 41.10 31.27 60.28 41.18 32.00 51.45 39.46
+128K 58.78 32.46 41.83 30.84 60.00 40.74 31.71 51.45 39.24
+o4-mini
+RAG
+20 chunks 63.75 20.03 30.49 36.08 39.79 37.84 39.50 36.27 37.82
+40 chunks 63.89 22.87 33.68 35.44 44.69 39.53 38.12 40.09 39.08
+60 chunks 64.99 25.24 36.36 33.70 46.10 38.94 37.35 42.62 39.81
+Recent Notes
+3K 65.55 17.74 27.92 39.09 37.25 38.15 42.05 33.44 37.25
+5.5K 65.81 24.99 36.23 38.73 51.61 44.25 39.94 44.64 42.16
+8K 65.16 25.67 36.83 35.99 49.95 41.84 38.57 44.64 41.38
+64K 64.72 28.58 39.65 34.00 52.93 41.40 36.98 48.22 41.86
+128K 64.73 27.56 38.66 35.39 52.97 42.44 37.16 46.45 41.29
+DeepSeek R1
+RAG
+20 chunks 62.90 22.87 33.54 32.77 41.97 36.81 36.58 39.08 37.79
+40 chunks 61.65 28.28 38.77 31.90 51.55 39.41 35.04 47.22 40.23
+60 chunks 61.18 30.70 40.89 30.54 53.99 39.01 33.40 49.26 39.81
+Recent Notes
+3K 60.23 20.95 31.09 34.02 41.69 37.47 36.55 37.35 36.95
+5.5K 60.80 27.24 37.62 34.32 54.18 42.02 36.35 47.85 41.31
+8K 61.59 30.94 41.19 33.05 58.50 42.24 35.07 51.76 41.81
+64K 56.99 36.38 44.41 26.60 59.81 36.82 29.39 55.13 38.34
+128K 56.67 33.98 42.49 27.56 58.22 37.41 30.18 53.17 38.50
+Table 8: Scores for the Diagnosis Generation task, across different models and differing amounts of provided
+clinical notes.
+# Task: Identification of Clinically Important
+Diagnoses
+You are an AI assistant tasked with creating a
+clinically relevant problem list for an ICU
+patient's stay. You will analyze passages of
+clinical notes from their hospitalization
+and identify diagnoses that required active
+management or monitoring during their stay.
+# Task
+Review the provided clinical note passages and
+generate a structured list of diagnoses that
+:
+1. Required active management during the
+hospitalization
+2. Were clinically significant to their critical
+care course
+3. Impacted their ICU care plan or outcomes
+# Inclusion Criteria
+Include diagnoses that meet ANY of these
+criteria:
+- Acute conditions requiring ICU-level care (e.g
+., NSTEMI, septic shock, acute respiratory
+failure)
+- Chronic conditions requiring active management
+or affecting ICU care (e.g., atrial
+fibrillation, COPD exacerbation)
+- New diagnoses made during the encounter
+- Complications that developed during the stay
+- Conditions requiring monitoring or
+intervention (e.g., acute kidney injury,
+severe electrolyte disorders)
+- Neurologic/cognitive conditions affecting ICU
+care (e.g., delirium, acute stroke)
+- Conditions directly related to the reason for
+ICU admission
+# Exclusion Criteria
+Do NOT include:
+- Stable chronic conditions not requiring active
+management (e.g., well-controlled diabetes,
+stable hypothyroidism)
+- Historical diagnoses not affecting current
+care (e.g., "history of appendectomy")
+- Social history items (e.g., "former smoker")
+- Procedural or post-surgical statuses (e.g., "s
+/p CABG", "post-cholecystectomy")
+- Symptoms without clear diagnoses
+- Conditions that resolved prior to admission
+- Incidental findings not requiring intervention
+# Output Format
+Present the diagnoses as a numbered list,
+
+[TABLE page=13 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | BILLING CODES | DISCHARGE SUMMARY | Unnamed: 4 | FILTERED | Unnamed: 5
+Row 1: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: # chunks/tokens | Unnamed: 3: P | BILLING CODES: R F1 | DISCHARGE SUMMARY: P R F1 | Unnamed: 4: P | FILTERED: R | Unnamed: 5: F1
+Row 2: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 20 chunks | Unnamed: 3: 57.08 | BILLING CODES: 24.71 34.49 | DISCHARGE SUMMARY: 29.19 44.51 35.25 | Unnamed: 4: 31.10 | FILTERED: 39.55 | Unnamed: 5: 34.82
+Row 3: Unnamed: 0: | Unnamed: 1: RAG | Unnamed: 2: 40 chunks | Unnamed: 3: 58.17 | BILLING CODES: 27.32 37.18 | DISCHARGE SUMMARY: 30.19 49.95 37.64 | Unnamed: 4: 31.90 | FILTERED: 44.01 | Unnamed: 5: 36.99
+Row 4: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 60 chunks | Unnamed: 3: 57.95 | BILLING CODES: 28.54 38.25 | DISCHARGE SUMMARY: 30.52 52.96 38.72 | Unnamed: 4: 32.25 | FILTERED: 46.67 | Unnamed: 5: 38.14
+Row 5: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3K | Unnamed: 3: 55.70 | BILLING CODES: 21.23 30.74 | DISCHARGE SUMMARY: 31.50 42.22 36.09 | Unnamed: 4: 33.47 | FILTERED: 37.45 | Unnamed: 5: 35.35
+Row 6: Unnamed: 0: GPT 4o-mini | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | BILLING CODES: | DISCHARGE SUMMARY: | Unnamed: 4: | FILTERED: | Unnamed: 5:
+Row 7: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5.5K | Unnamed: 3: 58.96 | BILLING CODES: 26.53 36.60 | DISCHARGE SUMMARY: 33.59 53.16 41.17 | Unnamed: 4: 35.14 | FILTERED: 46.42 | Unnamed: 5: 40.00
+Row 8: Unnamed: 0: | Unnamed: 1: Recent Notes | Unnamed: 2: 8K | Unnamed: 3: 58.96 | BILLING CODES: 28.68 38.59 | DISCHARGE SUMMARY: 33.15 56.81 41.87 | Unnamed: 4: 32.77 | FILTERED: 46.83 | Unnamed: 5: 38.56
+Row 9: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 64K | Unnamed: 3: 58.11 | BILLING CODES: 31.80 41.10 | DISCHARGE SUMMARY: 31.27 60.28 41.18 | Unnamed: 4: 32.00 | FILTERED: 51.45 | Unnamed: 5: 39.46
+Row 10: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 128K | Unnamed: 3: 58.78 | BILLING CODES: 32.46 41.83 | DISCHARGE SUMMARY: 30.84 60.00 40.74 | Unnamed: 4: 31.71 | FILTERED: 51.45 | Unnamed: 5: 39.24
+Row 11: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 20 chunks | Unnamed: 3: 63.75 | BILLING CODES: 20.03 30.49 | DISCHARGE SUMMARY: 36.08 39.79 37.84 | Unnamed: 4: 39.50 | FILTERED: 36.27 | Unnamed: 5: 37.82
+Row 12: Unnamed: 0: | Unnamed: 1: RAG | Unnamed: 2: 40 chunks | Unnamed: 3: 63.89 | BILLING CODES: 22.87 33.68 | DISCHARGE SUMMARY: 35.44 44.69 39.53 | Unnamed: 4: 38.12 | FILTERED: 40.09 | Unnamed: 5: 39.08
+Row 13: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 60 chunks | Unnamed: 3: 64.99 | BILLING CODES: 25.24 36.36 | DISCHARGE SUMMARY: 33.70 46.10 38.94 | Unnamed: 4: 37.35 | FILTERED: 42.62 | Unnamed: 5: 39.81
+Row 14: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3K | Unnamed: 3: 65.55 | BILLING CODES: 17.74 27.92 | DISCHARGE SUMMARY: 39.09 37.25 38.15 | Unnamed: 4: 42.05 | FILTERED: 33.44 | Unnamed: 5: 37.25
+Row 15: Unnamed: 0: o4-mini | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | BILLING CODES: | DISCHARGE SUMMARY: | Unnamed: 4: | FILTERED: | Unnamed: 5:
+Row 16: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5.5K | Unnamed: 3: 65.81 | BILLING CODES: 24.99 36.23 | DISCHARGE SUMMARY: 38.73 51.61 44.25 | Unnamed: 4: 39.94 | FILTERED: 44.64 | Unnamed: 5: 42.16
+Row 17: Unnamed: 0: | Unnamed: 1: Recent Notes | Unnamed: 2: 8K | Unnamed: 3: 65.16 | BILLING CODES: 25.67 36.83 | DISCHARGE SUMMARY: 35.99 49.95 41.84 | Unnamed: 4: 38.57 | FILTERED: 44.64 | Unnamed: 5: 41.38
+Row 18: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 64K | Unnamed: 3: 64.72 | BILLING CODES: 28.58 39.65 | DISCHARGE SUMMARY: 34.00 52.93 41.40 | Unnamed: 4: 36.98 | FILTERED: 48.22 | Unnamed: 5: 41.86
+Row 19: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 128K | Unnamed: 3: 64.73 | BILLING CODES: 27.56 38.66 | DISCHARGE SUMMARY: 35.39 52.97 42.44 | Unnamed: 4: 37.16 | FILTERED: 46.45 | Unnamed: 5: 41.29
+Row 20: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 20 chunks | Unnamed: 3: 62.90 | BILLING CODES: 22.87 33.54 | DISCHARGE SUMMARY: 32.77 41.97 36.81 | Unnamed: 4: 36.58 | FILTERED: 39.08 | Unnamed: 5: 37.79
+Row 21: Unnamed: 0: | Unnamed: 1: RAG | Unnamed: 2: 40 chunks | Unnamed: 3: 61.65 | BILLING CODES: 28.28 38.77 | DISCHARGE SUMMARY: 31.90 51.55 39.41 | Unnamed: 4: 35.04 | FILTERED: 47.22 | Unnamed: 5: 40.23
+Row 22: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 60 chunks | Unnamed: 3: 61.18 | BILLING CODES: 30.70 40.89 | DISCHARGE SUMMARY: 30.54 53.99 39.01 | Unnamed: 4: 33.40 | FILTERED: 49.26 | Unnamed: 5: 39.81
+Row 23: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3K | Unnamed: 3: 60.23 | BILLING CODES: 20.95 31.09 | DISCHARGE SUMMARY: 34.02 41.69 37.47 | Unnamed: 4: 36.55 | FILTERED: 37.35 | Unnamed: 5: 36.95
+Row 24: Unnamed: 0: DeepSeek R1 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | BILLING CODES: | DISCHARGE SUMMARY: | Unnamed: 4: | FILTERED: | Unnamed: 5:
+Row 25: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5.5K | Unnamed: 3: 60.80 | BILLING CODES: 27.24 37.62 | DISCHARGE SUMMARY: 34.32 54.18 42.02 | Unnamed: 4: 36.35 | FILTERED: 47.85 | Unnamed: 5: 41.31
+Row 26: Unnamed: 0: | Unnamed: 1: Recent Notes | Unnamed: 2: 8K | Unnamed: 3: 61.59 | BILLING CODES: 30.94 41.19 | DISCHARGE SUMMARY: 33.05 58.50 42.24 | Unnamed: 4: 35.07 | FILTERED: 51.76 | Unnamed: 5: 41.81
+Row 27: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 64K | Unnamed: 3: 56.99 | BILLING CODES: 36.38 44.41 | DISCHARGE SUMMARY: 26.60 59.81 36.82 | Unnamed: 4: 29.39 | FILTERED: 55.13 | Unnamed: 5: 38.34
+Row 28: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 128K | Unnamed: 3: 56.67 | BILLING CODES: 33.98 42.49 | DISCHARGE SUMMARY: 27.56 58.22 37.41 | Unnamed: 4: 30.18 | FILTERED: 53.17 | Unnamed: 5: 38.50
+[/TABLE]
+
+[PAGE 14]
+ordered by clinical priority :
+1. [Primary diagnosis]
+2. [Secondary diagnosis]
+3. [Tertiary diagnosis]
+...
+# Note
+- Every listed item must be a specific medical
+diagnosis - Use standard medical terminology
+for diagnoses
+# EHR passages:\n[INSERT TEXT]\n
+# Output the diagnoses that required active
+management or monitoring during their ICU
+stay, as instructed. Every listed item must
+be a specific medical diagnosis:
+C SNOBERT Training
+We trained SNOBERT using the configuration provided in the authors’ Github Repository as-is with
+the same training data from the SNOMED CT Entity Linking Challenge, but using the International
+SNOMED vocabulary files from 2025, since we
+did not have access to the version used for the
+challenge. We trained a single model, as opposed
+to their approach of ensembling six with varying
+class weights and data splits for the competition,
+but through expert review, we determined performance on the downstream ICD-10 code extraction
+step to be acceptable.

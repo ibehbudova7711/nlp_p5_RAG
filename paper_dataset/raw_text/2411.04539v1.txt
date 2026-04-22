@@ -1,0 +1,956 @@
+[PAGE 1]
+Best Practices for Distilling Large Language Models into BERT for Web
+Search Ranking
+Dezhi Ye Junwei Hu Jiabin Fan Bowen Tian Jie Liu Haijin Liang Jin Ma
+Tencent
+{dezhiye, keewayhu, robertfan, lukatian,
+jesangliu, hodgeliang, daniellwang}@tencent.com
+Abstract
+Recent studies have highlighted the significant
+potential of Large Language Models (LLMs)
+as zero-shot relevance rankers. These methods predominantly utilize prompt learning to
+assess the relevance between queries and documents by generating a ranked list of potential
+documents. Despite their promise, the substantial costs associated with LLMs pose a significant challenge for their direct implementation
+in commercial search systems. To overcome
+this barrier and fully exploit the capabilities of
+LLMs for text ranking, we explore techniques
+to transfer the ranking expertise of LLMs to
+a more compact model similar to BERT, using a ranking loss to enable the deployment
+of less resource-intensive models. Specifically,
+we enhance the training of LLMs through Continued Pre-Training, taking the query as input
+and the clicked title and summary as output.
+We then proceed with supervised fine-tuning of
+the LLM using a rank loss, assigning the final
+token as a representative of the entire sentence.
+Given the inherent characteristics of autoregressive language models, only the final token </s>
+can encapsulate all preceding tokens. Additionally, we introduce a hybrid point-wise and
+margin MSE loss to transfer the ranking knowledge from LLMs to smaller models like BERT.
+This method creates a viable solution for environments with strict resource constraints. Both
+offline and online evaluations have confirmed
+the efficacy of our approach, and our model has
+been successfully integrated into a commercial
+web search engine as of February 2024.
+1 Introduction
+Relevance ranking is a paramount challenge in
+web search systems. The objective of relevance
+ranking is to rank candidate documents based on
+their pertinence to a specified inquiry. These documents are usually culled from an extensive corpus by a retrieval module. Of late, the integration
+of pre-trained language models (PLMs) such as
+BERT(Devlin et al., 2018), along with industry
+giants like Google1, Bing2, and Baidu(Zou et al.,
+2021; Liu et al., 2021), has been massively adopted
+within industry web search systems, yielding commendable results(Zhuang et al., 2023). BERT models are adept at considering the entire context of a
+word by examining adjacent words, which is particularly beneficial for discerning the intent of search
+queries. The efficacy of IR dictates the system’s
+response time to inquiries of users, which predominantly contingent on the performance of ranking
+model
+The recent triumphs LLMs(Brown et al., 2020)
+in natural language processing have ignited interest in their application to text ranking. Researchers have delved into prompting LLMs to
+undertake zero-shot unsupervised ranking employing pointwise(Wang et al., 2023; Sachan et al.,
+2023), pairwise(Sachan et al., 2022), or listwise approaches(Sun et al., 2023b). Although these have
+made notable strides, they have yet to fully harness the potential of LLMs. Moreover, there have
+been initiatives to train pointwise rankers in supervised settings, utilizing LLMs, as exemplified
+by RankLLaMA(Ma et al., 2023a). Despite the
+SOTA performance yielded by LLM rank models
+in experimental settings, their direct application in
+real-world search engines is impractical.
+To overcome the challenges of deploying LLMs
+online, this paper introduces a novel Rank Distillation framework (DisRanker) that combines the
+capabilities of LLMs with the agility of BERT. Distillation is renowned for enhancing the efficiency
+of various neural ranking models(Hofstätter et al.,
+2020). Simultaneously, knowledge distillation facilitates the transfer of discerning skills from the
+teacher model to more compact models, signifi1https://blog.google/products/search/search-languageunderstanding-bert/
+2https://azure.microsoft.com/en-us/blog/bing-deliversits-largest-improvement-in-search-experience-using-azuregpus/
+arXiv:2411.04539v1 [cs.IR] 7 Nov 2024
+
+[TABLE page=1 index=1]
+Columns: Recent studies have highlighted the significant | 2021; Liu et al., 2021), has been massively adopted
+Row 1: Recent studies have highlighted the significant: potential of Large Language Models (LLMs) | 2021; Liu et al., 2021), has been massively adopted:
+Row 2: Recent studies have highlighted the significant: | 2021; Liu et al., 2021), has been massively adopted: within industry web search systems, yielding comRow 3: Recent studies have highlighted the significant: as zero-shot relevance rankers. These meth- | 2021; Liu et al., 2021), has been massively adopted:
+Row 4: Recent studies have highlighted the significant: | 2021; Liu et al., 2021), has been massively adopted: mendable results(Zhuang et al., 2023). BERT modRow 5: Recent studies have highlighted the significant: ods predominantly utilize prompt learning to | 2021; Liu et al., 2021), has been massively adopted:
+Row 6: Recent studies have highlighted the significant: assess the relevance between queries and docu- | 2021; Liu et al., 2021), has been massively adopted: els are adept at considering the entire context of a
+Row 7: Recent studies have highlighted the significant: ments by generating a ranked list of potential | 2021; Liu et al., 2021), has been massively adopted: word by examining adjacent words, which is particRow 8: Recent studies have highlighted the significant: documents. Despite their promise, the substan- | 2021; Liu et al., 2021), has been massively adopted: ularly beneficial for discerning the intent of search
+Row 9: Recent studies have highlighted the significant: tial costs associated with LLMs pose a signifi- | 2021; Liu et al., 2021), has been massively adopted: queries. The efficacy of IR dictates the system’s
+Row 10: Recent studies have highlighted the significant: cant challenge for their direct implementation | 2021; Liu et al., 2021), has been massively adopted: response time to inquiries of users, which predomRow 11: Recent studies have highlighted the significant: in commercial search systems. To overcome | 2021; Liu et al., 2021), has been massively adopted: inantly contingent on the performance of ranking
+Row 12: Recent studies have highlighted the significant: this barrier and fully exploit the capabilities of | 2021; Liu et al., 2021), has been massively adopted:
+Row 13: Recent studies have highlighted the significant: | 2021; Liu et al., 2021), has been massively adopted: model
+Row 14: Recent studies have highlighted the significant: LLMs for text ranking, we explore techniques | 2021; Liu et al., 2021), has been massively adopted:
+Row 15: Recent studies have highlighted the significant: | 2021; Liu et al., 2021), has been massively adopted: The recent triumphs LLMs(Brown et al., 2020)
+Row 16: Recent studies have highlighted the significant: to transfer the ranking expertise of LLMs to | 2021; Liu et al., 2021), has been massively adopted:
+Row 17: Recent studies have highlighted the significant: a more compact model similar to BERT, us- | 2021; Liu et al., 2021), has been massively adopted: in natural language processing have ignited inRow 18: Recent studies have highlighted the significant: ing a ranking loss to enable the deployment | 2021; Liu et al., 2021), has been massively adopted: terest in their application to text ranking. ReRow 19: Recent studies have highlighted the significant: of less resource-intensive models. Specifically, | 2021; Liu et al., 2021), has been massively adopted: searchers have delved into prompting LLMs to
+Row 20: Recent studies have highlighted the significant: we enhance the training of LLMs through Con- | 2021; Liu et al., 2021), has been massively adopted: undertake zero-shot unsupervised ranking employRow 21: Recent studies have highlighted the significant: tinued Pre-Training, taking the query as input | 2021; Liu et al., 2021), has been massively adopted: ing pointwise(Wang et al., 2023; Sachan et al.,
+Row 22: Recent studies have highlighted the significant: and the clicked title and summary as output. | 2021; Liu et al., 2021), has been massively adopted:
+Row 23: Recent studies have highlighted the significant: | 2021; Liu et al., 2021), has been massively adopted: 2023), pairwise(Sachan et al., 2022), or listwise apRow 24: Recent studies have highlighted the significant: We then proceed with supervised fine-tuning of | 2021; Liu et al., 2021), has been massively adopted:
+Row 25: Recent studies have highlighted the significant: | 2021; Liu et al., 2021), has been massively adopted: proaches(Sun et al., 2023b). Although these have
+Row 26: Recent studies have highlighted the significant: the LLM using a rank loss, assigning the final | 2021; Liu et al., 2021), has been massively adopted:
+Row 27: Recent studies have highlighted the significant: token as a representative of the entire sentence. | 2021; Liu et al., 2021), has been massively adopted: made notable strides, they have yet to fully harRow 28: Recent studies have highlighted the significant: Given the inherent characteristics of autoregres- | 2021; Liu et al., 2021), has been massively adopted: ness the potential of LLMs. Moreover, there have
+Row 29: Recent studies have highlighted the significant: sive language models, only the final token </s> | 2021; Liu et al., 2021), has been massively adopted: been initiatives to train pointwise rankers in suRow 30: Recent studies have highlighted the significant: can encapsulate all preceding tokens. Addi- | 2021; Liu et al., 2021), has been massively adopted: pervised settings, utilizing LLMs, as exemplified
+Row 31: Recent studies have highlighted the significant: tionally, we introduce a hybrid point-wise and | 2021; Liu et al., 2021), has been massively adopted: by RankLLaMA(Ma et al., 2023a). Despite the
+Row 32: Recent studies have highlighted the significant: margin MSE loss to transfer the ranking knowl- | 2021; Liu et al., 2021), has been massively adopted: SOTA performance yielded by LLM rank models
+Row 33: Recent studies have highlighted the significant: edge from LLMs to smaller models like BERT. | 2021; Liu et al., 2021), has been massively adopted:
+Row 34: Recent studies have highlighted the significant: | 2021; Liu et al., 2021), has been massively adopted: in experimental settings, their direct application in
+Row 35: Recent studies have highlighted the significant: This method creates a viable solution for envi- | 2021; Liu et al., 2021), has been massively adopted:
+Row 36: Recent studies have highlighted the significant: | 2021; Liu et al., 2021), has been massively adopted: real-world search engines is impractical.
+Row 37: Recent studies have highlighted the significant: ronments with strict resource constraints. Both | 2021; Liu et al., 2021), has been massively adopted:
+Row 38: Recent studies have highlighted the significant: offline and online evaluations have confirmed | 2021; Liu et al., 2021), has been massively adopted: To overcome the challenges of deploying LLMs
+Row 39: Recent studies have highlighted the significant: the efficacy of our approach, and our model has | 2021; Liu et al., 2021), has been massively adopted: online, this paper introduces a novel Rank DistilRow 40: Recent studies have highlighted the significant: been successfully integrated into a commercial | 2021; Liu et al., 2021), has been massively adopted: lation framework (DisRanker) that combines the
+[/TABLE]
+
+[PAGE 2]
+GPT Decoder
+<s> Query:query Document: content</s>
+Ranking scoreDense
+BERT Encoder
+[CLS] Query: query Document: content [SEP]
+Ranking scoreDenseKnowledge Distillation
+Figure 1: The overview of Rank Distillation from LLM
+Decoder to BERT Encoder.
+cantly reducing computational costs during online
+inference. Initially, we utilize clickstream data
+to propagate domain knowledge through Continued Pre-Training (CPT)(Gupta et al., 2023), using
+queries as inputs to generate titles and summaries
+that have captured user interest. In a process similar to question-answering, the LLM develops a
+detailed understanding of the interaction between
+queries and documents. We then refine the LLM
+using a pairwise rank loss, employing the end-ofsequence token, </s>, to represent query-document
+pairs. While previous research on neural rank
+models primarily used a bidirectional encoder-only
+model like BERT, interpreting the [CLS] token as
+a comprehensive representation of the text input,
+the autoregressive nature of LLMs prompts us to
+introduce an end-of-sequence token for the input
+query and document to structure the input sequence.
+The latent state from the final layer corresponding
+to this token is considered the embodiment of the
+query and document relationship. Consequently,
+we integrate a dense layer to act as a relevance adjudicator, applying pairwise rank loss to fine-tune
+the LLM. The deployment of LLMs for ranking
+tasks still faces practical challenges, particularly regarding application efficacy and output consistency.
+In the next phase, we employ a hybrid approach
+using Point-MSE(Qin et al., 2021) and MarginMSE(Hofstätter et al., 2020) losses to distill the
+LLM. Point-MSE calculates the absolute difference
+between the LLM teacher and the BERT student,
+while Margin-MSE introduces a form of regularization and encourages the student model to learn the
+relative ranking from the teacher. This approach
+prevents overfitting by not requiring the student
+model to exactly match the teacher’s scores but to
+maintain the order of the scores, which is essential
+for ranking tasks. Thus, the student model learns
+to emulate the teacher’s ranking behavior while being more lightweight and efficient, making it better
+suited for deployment in resource-constrained environments. The main contributions of this paper
+can be summarized as follows:
+• We present DisRanker, a novel Rank Distillation pipeline that seamlessly integrates LLM
+with BERT to enhance web search ranking.
+A comprehensive suite of offline and online
+evaluations substantiates the efficacy of DisRanker.
+• We propose a domain-specific continued pretraining methods which is beneficial for enhancing the performance of LLMs on text
+ranking tasks. Additionally, we contribute
+a hybrid approach that employs Point-MSE
+and Margin-MSE loss to refine the distillation
+of LLM.
+2 Related Work
+2.1 LLM for Text Ranking
+Large language models have been increasingly
+harnessed for relevance ranking tasks in search
+engines(Sachan et al., 2023; Muennighoff, 2022;
+Wang et al., 2023). These methodologies primarily
+bifurcate into two streams: one is the prompt approach(Qin et al., 2023; Zhuang et al., 2024; Ma
+et al., 2023b), and the other is the supervised finetuning technique(Zhang et al., 2023b; Ma et al.,
+2024; Zhang et al., 2023a). In the realm of prompts,
+rankGPT(Sun et al., 2023b) has unveiled a zeroshot permutation generation method, which incites LLMs to directly generate the ranking order.
+Remarkably, its performance eclipses that of supervised models, particularly when utilizing GPT4(Achiam et al., 2023). In the domain of supervised
+fine-tuning, RankLLaMA(Ma et al., 2023a) injects
+a prompt that includes the query-document pair
+into the model, subsequently refining the model
+using a point-wise loss function. TSRankGPT
+(Zhang et al., 2023a) advocates for a progressive,
+multi-stage training strategy tailored for LLMs. Indeed, while these methodologies have achieved
+commendable results, few have delved into how to
+enhance the performance of LLM models through
+continued pre-training, or how to effectively harness rank loss to bolster ranking capabilities.
+2.2 Knowledge Distillation for Text Ranking
+Knowledge Distillation in text ranking(Reddi et al.,
+2021; Formal et al., 2022; Zhuang et al., 2021; Cai
+
+[TABLE page=2 index=1]
+Columns: to propagate domain knowledge through Contin- | Unnamed: 0 | ranking tasks. | Additionally, | we | contribute
+Row 1: to propagate domain knowledge through Contin-: ued Pre-Training (CPT)(Gupta et al., 2023), using | Unnamed: 0: | ranking tasks.: a hybrid approach that employs Point-MSE | Additionally,: | we: | contribute:
+Row 2: to propagate domain knowledge through Contin-: queries as inputs to generate titles and summaries | Unnamed: 0: | ranking tasks.: and Margin-MSE loss to refine the distillation | Additionally,: | we: | contribute:
+Row 3: to propagate domain knowledge through Contin-: that have captured user interest. In a process sim- | Unnamed: 0: | ranking tasks.: of LLM. | Additionally,: | we: | contribute:
+Row 4: to propagate domain knowledge through Contin-: ilar to question-answering, the LLM develops a | Unnamed: 0: | ranking tasks.: | Additionally,: | we: | contribute:
+Row 5: to propagate domain knowledge through Contin-: detailed understanding of the interaction between | Unnamed: 0: 2 | ranking tasks.: Related Work | Additionally,: | we: | contribute:
+Row 6: to propagate domain knowledge through Contin-: queries and documents. We then refine the LLM | Unnamed: 0: | ranking tasks.: | Additionally,: | we: | contribute:
+Row 7: to propagate domain knowledge through Contin-: | Unnamed: 0: 2.1 | ranking tasks.: LLM for Text Ranking | Additionally,: | we: | contribute:
+Row 8: to propagate domain knowledge through Contin-: using a pairwise rank loss, employing the end-of- | Unnamed: 0: | ranking tasks.: | Additionally,: | we: | contribute:
+Row 9: to propagate domain knowledge through Contin-: sequence token, </s>, to represent query-document | Unnamed: 0: Large | ranking tasks.: language models | Additionally,: have been | we: increasingly | contribute:
+Row 10: to propagate domain knowledge through Contin-: pairs. While previous research on neural rank | Unnamed: 0: harnessed | ranking tasks.: for relevance | Additionally,: ranking tasks | we: | contribute: in search
+Row 11: to propagate domain knowledge through Contin-: models primarily used a bidirectional encoder-only | Unnamed: 0: engines(Sachan et al., 2023; Muennighoff, 2022; | ranking tasks.: | Additionally,: | we: | contribute:
+Row 12: to propagate domain knowledge through Contin-: model like BERT, interpreting the [CLS] token as | Unnamed: 0: Wang et al., 2023). These methodologies primarily | ranking tasks.: | Additionally,: | we: | contribute:
+Row 13: to propagate domain knowledge through Contin-: a comprehensive representation of the text input, | Unnamed: 0: bifurcate into two streams: | ranking tasks.: | Additionally,: one is the prompt ap- | we: | contribute:
+Row 14: to propagate domain knowledge through Contin-: the autoregressive nature of LLMs prompts us to | Unnamed: 0: proach(Qin et al., 2023; Zhuang et al., 2024; Ma | ranking tasks.: | Additionally,: | we: | contribute:
+Row 15: to propagate domain knowledge through Contin-: introduce an end-of-sequence token for the input | Unnamed: 0: et al., 2023b), and the other is the supervised fine- | ranking tasks.: | Additionally,: | we: | contribute:
+Row 16: to propagate domain knowledge through Contin-: query and document to structure the input sequence. | Unnamed: 0: tuning technique(Zhang et al., 2023b; Ma et al., | ranking tasks.: | Additionally,: | we: | contribute:
+Row 17: to propagate domain knowledge through Contin-: The latent state from the final layer corresponding | Unnamed: 0: 2024; Zhang et al., 2023a). In the realm of prompts, | ranking tasks.: | Additionally,: | we: | contribute:
+Row 18: to propagate domain knowledge through Contin-: to this token is considered the embodiment of the | Unnamed: 0: rankGPT(Sun et al., 2023b) has unveiled a zero- | ranking tasks.: | Additionally,: | we: | contribute:
+Row 19: to propagate domain knowledge through Contin-: query and document relationship. Consequently, | Unnamed: 0: shot | ranking tasks.: permutation generation | Additionally,: method, | we: | contribute: which inRow 20: to propagate domain knowledge through Contin-: we integrate a dense layer to act as a relevance ad- | Unnamed: 0: cites LLMs to directly generate the ranking order. | ranking tasks.: | Additionally,: | we: | contribute:
+Row 21: to propagate domain knowledge through Contin-: judicator, applying pairwise rank loss to fine-tune | Unnamed: 0: Remarkably, | ranking tasks.: its performance eclipses that of su- | Additionally,: | we: | contribute:
+Row 22: to propagate domain knowledge through Contin-: the LLM. The deployment of LLMs for ranking | Unnamed: 0: pervised models, particularly when utilizing GPT- | ranking tasks.: | Additionally,: | we: | contribute:
+Row 23: to propagate domain knowledge through Contin-: tasks still faces practical challenges, particularly re- | Unnamed: 0: 4(Achiam et al., 2023). In the domain of supervised | ranking tasks.: | Additionally,: | we: | contribute:
+Row 24: to propagate domain knowledge through Contin-: garding application efficacy and output consistency. | Unnamed: 0: fine-tuning, RankLLaMA(Ma et al., 2023a) injects | ranking tasks.: | Additionally,: | we: | contribute:
+Row 25: to propagate domain knowledge through Contin-: In the next phase, we employ a hybrid approach | Unnamed: 0: a prompt | ranking tasks.: that includes | Additionally,: the query-document pair | we: | contribute:
+Row 26: to propagate domain knowledge through Contin-: using Point-MSE(Qin et al., 2021) and Margin- | Unnamed: 0: into the model, | ranking tasks.: subsequently refining the model | Additionally,: | we: | contribute:
+Row 27: to propagate domain knowledge through Contin-: MSE(Hofstätter et al., 2020) losses to distill the | Unnamed: 0: using | ranking tasks.: a point-wise | Additionally,: loss function. | we: TSRankGPT | contribute:
+Row 28: to propagate domain knowledge through Contin-: LLM. Point-MSE calculates the absolute difference | Unnamed: 0: (Zhang et al., 2023a) advocates for a progressive, | ranking tasks.: | Additionally,: | we: | contribute:
+Row 29: to propagate domain knowledge through Contin-: between the LLM teacher and the BERT student, | Unnamed: 0: multi-stage training strategy tailored for LLMs. In- | ranking tasks.: | Additionally,: | we: | contribute:
+Row 30: to propagate domain knowledge through Contin-: while Margin-MSE introduces a form of regulariza- | Unnamed: 0: deed, | ranking tasks.: while these methodologies | Additionally,: | we: have | contribute: achieved
+Row 31: to propagate domain knowledge through Contin-: tion and encourages the student model to learn the | Unnamed: 0: commendable results, few have delved into how to | ranking tasks.: | Additionally,: | we: | contribute:
+Row 32: to propagate domain knowledge through Contin-: relative ranking from the teacher. This approach | Unnamed: 0: enhance the performance of LLM models through | ranking tasks.: | Additionally,: | we: | contribute:
+Row 33: to propagate domain knowledge through Contin-: prevents overfitting by not requiring the student | Unnamed: 0: continued pre-training, or how to effectively har- | ranking tasks.: | Additionally,: | we: | contribute:
+Row 34: to propagate domain knowledge through Contin-: model to exactly match the teacher’s scores but to | Unnamed: 0: ness rank loss to bolster ranking capabilities. | ranking tasks.: | Additionally,: | we: | contribute:
+[/TABLE]
+
+[PAGE 3]
+et al., 2022) indeed centers on minimizing the discrepancy between the soft target distributions of the
+teacher and the student(Tang and Wang, 2018). The
+overarching goal of distillation methods is to condense the model size and curtail the aggregate inference costs, which encompasses both memory requirements and computational overhead(Gao et al.,
+2020; He et al., 2022). The student model is then
+trained on this enriched dataset using a specialized
+loss function known as Margin MSE(Hofstätter
+et al., 2020). Instruction Distillation(Sun et al.,
+2023a) proposes to distill the pairwise ranking ability of open-sourced LLMs to a simpler but more
+efficient pointwise ranking. This paper primarily
+investigates the methodology of distilling the ranking capabilities of a LLM Decoder into a BERT
+Encoder.
+3 Method
+3.1 Preliminaries
+Text Rank. Given a query Q and a candidate documents D = {d1, d2, · · · , dn}, the task of text
+ranking is to compute a relevance score S(q, di)
+for each document di in D. The relevance labels of
+candidate documents with regard to the query are
+represented as Yi = ( yi1, ..., yim) where yij > 0.
+We aim to optimize the ranking metrics after we
+sort the documents di for each query qi based on
+their ranking scores. L is the loss function.
+L =
+X
+q∈Q
+(l(YDq , S(q, Dq)))
+Knowledge Distillation. Given a large teacher
+model T finetuned well in advance and a small
+student S, the task of knowledge distillation is to
+transfer T to S by minimizing the difference between them which can be formulated as:
+LKD =
+X
+x∈D
+M(fT (x), fS(x))
+where D denotes the training dataset and x is
+the input sample, fT (x), fS(x) represents scores
+of teacher and student models, and M(·) is a loss
+function to measure the difference between their
+behaviors.
+3.2 Domain-Continued Pre-Training
+The pre-training task for LLMs is centered on
+next-token prediction, which primarily imparts general knowledge but does not inherently capture explicit signals that delineate the correlation between
+queries and documents. To address this, we introduce an additional phase of continue d pre-training
+that leverages search data to endow the model with
+a more refined comprehension of such relationships. Specifically, we have curated a collection of
+high-quality clickstream data formatted as [Query,
+Title, Summary]. The task of LLM is then to generate a Title and corresponding Summary based
+on the query, akin to a question-answering format,
+thereby stimulating the model’s capacity to model
+relevance. During this stage, the tokenized raw
+texts of the query serve as the input.
+Lcpt = −
+X
+j
+log(Tj, Sj|P (q), q < j )
+3.3 Supervised Fine-Tuning
+Although LLMs have instigated a paradigm shift
+in natural language processing with their remarkable performance, there remains a discernible gap
+between the pre-training task of next-token prediction and the fine-tuning objectives. To bridge this,
+we append an end-of-sequence token, </s>, to the
+input query-document sequence to represent the entirety. Due to the autoregressive nature of the LLM
+model, only the final token can observe the preceding tokens, which is a distinction from BERT’s
+approach. Concurrently, we have constructed a
+dense layer that maps the last layer representation
+of the end-of-sequence token to a scalar value.
+input =< s > query : title : summary < /s >
+f (Q, D) = Dense(Decoder(input)[−1])
+Loss = M ax(0, f(q, d+) − f (q, d−), T )
+3.4 Knowledge Distillation with Rank Loss
+Following the supervised fine-tuning of LLM, we
+conducted predictions on a large corpus of unlabeled data, then utilized the score of teacher to
+distill knowledge into the student models. We employed a hybrid approach of pointwise and Margin
+MSE loss for distillation. Considering a triplet
+of queries q, a relevant document d+, and a nonrelevant document d−, we use the output margin of
+the teacher model as a label to optimize the weights
+of the student model as Margin MSE loss, and the
+output score of the teacher model as a label to optimize the weights of the student model as pointwise
+MSE loss.
+
+[TABLE page=3 index=1]
+Columns: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we introRow 1: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: crepancy between the soft target distributions of the duce an additional phase of continue d pre-training
+Row 2: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: teacher and the student(Tang and Wang, 2018). The that leverages search data to endow the model with
+Row 3: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: overarching goal of distillation methods is to con- a more refined comprehension of such relationRow 4: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: dense the model size and curtail the aggregate in- ships. Specifically, we have curated a collection of
+Row 5: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: ference costs, which encompasses both memory re- high-quality clickstream data formatted as [Query,
+Row 6: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: quirements and computational overhead(Gao et al., Title, Summary]. The task of LLM is then to genRow 7: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: 2020; He et al., 2022). The student model is then erate a Title and corresponding Summary based
+Row 8: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: trained on this enriched dataset using a specialized on the query, akin to a question-answering format,
+Row 9: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: loss function known as Margin MSE(Hofstätter thereby stimulating the model’s capacity to model
+Row 10: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: et al., 2020). Instruction Distillation(Sun et al., relevance. During this stage, the tokenized raw
+Row 11: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: 2023a) proposes to distill the pairwise ranking abil- texts of the query serve as the input.
+Row 12: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: ity of open-sourced LLMs to a simpler but more
+Row 13: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: efficient pointwise ranking. This paper primarily ∑
+Row 14: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: investigates the methodology of distilling the rank- Lcpt = − log(Tj , Sj |P (q), q < j)
+Row 15: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: jing capabilities of a LLM Decoder into a BERT
+Row 16: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: Encoder.
+Row 17: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: 3.3 Supervised Fine-Tuning
+Row 18: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: 3 Method
+Row 19: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: Although LLMs have instigated a paradigm shift
+Row 20: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: 3.1 Preliminaries in natural language processing with their remarkRow 21: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: able performance, there remains a discernible gap
+Row 22: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: Text Rank. Given a query Q and a candidate docRow 23: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: between the pre-training task of next-token predicRow 24: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: uments D = {d1, d2, · · · , dn}, the task of text
+Row 25: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: tion and the fine-tuning objectives. To bridge this,
+Row 26: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: ranking is to compute a relevance score S(q, di)
+Row 27: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: we append an end-of-sequence token, </s>, to the
+Row 28: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: for each document di in D. The relevance labels of
+Row 29: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: input query-document sequence to represent the enRow 30: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: candidate documents with regard to the query are
+Row 31: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: tirety. Due to the autoregressive nature of the LLM
+Row 32: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: represented as Yi = (yi1, ..., yim) where yij > 0.
+Row 33: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: model, only the final token can observe the preRow 34: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: We aim to optimize the ranking metrics after we
+Row 35: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: ceding tokens, which is a distinction from BERT’s
+Row 36: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: sort the documents di for each query qi based on
+Row 37: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: approach. Concurrently, we have constructed a
+Row 38: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: their ranking scores. L is the loss function.
+Row 39: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: dense layer that maps the last layer representation
+Row 40: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: ∑ of the end-of-sequence token to a scalar value.
+Row 41: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: L = (l(YD ,S(q,Dq)))q
+Row 42: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: q∈Q
+Row 43: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: Knowledge Distillation. Given a large teacher input =< s > query : title : summary < /s >
+Row 44: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: model T finetuned well in advance and a small
+Row 45: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: student S, the task of knowledge distillation is to f(Q,D) = Dense(Decoder(input)[−1])
+Row 46: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: transfer T to S by minimizing the difference be- −Loss = Max(0, f(q, d + )− f(q, d ), T )
+Row 47: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: tween them which can be formulated as:
+Row 48: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: 3.4 Knowledge Distillation with Rank Loss
+Row 49: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: ∑
+Row 50: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: LKD = M(fT (x), fS(x)) Following the supervised fine-tuning of LLM, we
+Row 51: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: x∈D conducted predictions on a large corpus of unlaRow 52: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: where D denotes the training dataset and x is beled data, then utilized the score of teacher to
+Row 53: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: the input sample, fT (x), fS(x) represents scores distill knowledge into the student models. We emRow 54: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: of teacher and student models, and M(·) is a loss ployed a hybrid approach of pointwise and Margin
+Row 55: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: function to measure the difference between their MSE loss for distillation. Considering a triplet
+Row 56: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: +
+Row 57: et al., 2022) indeed centers on minimizing the dis- queries and documents. To address this, we intro-: behaviors. of queries q, a relevant document d , and a non-
+[/TABLE]
+
+[PAGE 4]
+❶ Teacher Training ❷ Teacher Inference ❸ Student Training
+GPT DecoderDenseGPT DecoderDenseBERT EncoderDense
+<q,d+>
+GPT DecoderDense
+<q,d->
+𝑓 (𝑞, 𝑑+ )
+Loss = Max(0, 𝑓 (𝑞, 𝑑+ ) − 𝑓 (𝑞, 𝑑-) + 𝜏)
+𝑓 (𝑞, 𝑑-)
+<q,d>
+Pseudo Score
+𝑓 (𝑞, 𝑑)
+BERT EncoderDense
+<q,d+><q,d->
+Loss = MSE(𝑓t (𝑞, 𝑑+ ) - 𝑓t (𝑞, 𝑑-), 𝑓s (𝑞, 𝑑+ )- 𝑓s (𝑞, 𝑑-))+MSE(𝑓t (𝑞, 𝑑+ ) , 𝑓s (𝑞, 𝑑+ )- ) +MSE(𝑓t (𝑞, 𝑑-), 𝑓s (𝑞, 𝑑-))
+QueryDocument +Document Figure 2: Illustration of the knowledge distillation process: Step 1: Performing supervised fine-tuning of LLM using
+a ranking loss. Step 2: Utilizing LLM to score unlabeled data. Step 3: Employing hybrid rank loss to distill the
+knowledge into the BERT model.
+GPT Decoder
+<s> Query:queryQuery
+Title: title. Summary: summary </s>TitleSummary
+User Click [Query, Title, Summary]
+Figure 3: Illustration of domain continued pre-training.
+The task is to generate a clicked title and summary based
+on a given query.
+LP oint = M SE(SimT (q, d+), SimS(q, d+))
++ M SE(SimT (q, d−), SimS(q, d−))
+LM argin = M SE(SimT (q, d+) − SimT (q, d−)
+, SimS(q, d+) − SimS(q, d−))
+Lhybrid = LP oint + β ∗ LM argin
+where β is a scalar to balance the pointwise and
+Margin loss.
+4 Experiments
+4.1 Dataset and Metrics
+The datasets employed for the Continued PreTraining(CPT), Supervised Fine-Tuning(SFT),
+Knowledge Distillation(KD), and test are sourced
+from a commercial web search engine. In the
+SFT phase, queries and documents extracted from
+search engine workflows were meticulously annotated by professionals. For the Knowledge Distillation phase, we gathered an extensive dataset from
+anonymous search logs, which includes 46,814,775
+query-document pairs. The dataset information is
+summarized in Table 1.
+Data Type Queries Q-D Pairs
+CPT 10,468,974 59,579,125
+KD 5,939,563 46,814,775
+SFT Data 106,496 796,095
+Test Data 13,094 104,960
+Table 1: Statistics of datasets.
+In our experiments, we employed the PositiveNegative Ratio (PNR)(Ye et al., 2024) and Normalized Discounted Cumulative Gain (NDCG) as
+our principal evaluation metrics. PNR gauges the
+concordance between the definitive labels and the
+predictive scores generated by the models. NDCG,
+a metric ubiquitously utilized in the industry, appraises the efficacy of search engine result rankings.
+
+[PAGE 5]
+0.0 0.2 0.4 0.6 0.8 1.0
+Predicts
+6Probability Density
+Score Density Distribution
+label=0 =0.25 =0.19
+label=1 =0.36 =0.18
+label=2 =0.46 =0.17
+label=3 =0.61 =0.15
+label=4 =0.78 =0.13
+(a) LLM teacher
+0.0 0.2 0.4 0.6 0.8 1.0
+Predicts
+6Probability Density
+Score Density Distribution
+label=0 =0.37 =0.20
+label=1 =0.44 =0.18
+label=2 =0.50 =0.17
+label=3 =0.64 =0.15
+label=4 =0.77 =0.13
+(b) BERT-finetune
+0.0 0.2 0.4 0.6 0.8 1.0
+Predicts
+6Probability Density
+Score Density Distribution
+label=0 =0.29 =0.23
+label=1 =0.41 =0.20
+label=2 =0.53 =0.19
+label=3 =0.71 =0.16
+label=4 =0.86 =0.12
+(c) BERT student
+Figure 4: The output score distribution of the LLM teacher, BERT student, and BERT-finetune models on test
+datasets.
+4.2 Baselines and Settings
+We conduct several comparison experiments on
+the following baselines. For Unsupervised
+LLM Rankers: Pointwise(Sun et al., 2023b),
+Pairwise(Qin et al., 2023), Listwise(Ma et al.,
+2023b). For Supervised Rankers: RankLLaMA(Ma et al., 2023a), TSRankGPT(Zhang et al.,
+2023a), LLM2Vec(BehnamGhader et al., 2024). In
+addition, we also used a fully domain-trained BERT
+as a baseline. For supervised rankers, we adopt
+LLaMA 2(Jiang et al., 2023) 7B as base model.
+For unsupervised LLM rankers, we use GPT4. In
+the distillation experiment, we employed LLM3 as
+the teacher model, while BERT-6L4 was utilized
+for the student model. For hyperparameter, we set
+T = 0.1, β =0.4.
+4.3 Offline Results
+Model PNR nDCG@5
+BERT-Base 3.252 0.8336
+BERT-large 3.426 0.8412
+GPT4-Pointwise 3.01 0.8251
+GPT4-Pairwise 3.14 0.8273
+GPT4-Listwise 3.19 0.8299
+TSRankGPT 3.475 0.8505
+RankLLaMA 3.514 0.8611
+LLM2Vec 3.496 0.8604
+DisRanker-Teacher 3.546 0.8709
+with CPT 3.643 0.8793
+Table 2: Offline comparison of LLM ranker performance on test sets.
+Unsupervised LLM rankers generally do not outperform BERT models that have been comprehen3https://huggingface.co/mistralai/Mistral-7B-v0.1
+4https://huggingface.co/google-bert/bert-basemultilingual-cased
+sively trained within a specific domain. When compared with zero-shot methods, BERT-Base gets
+3.252 on PNR but unsupervised pointwise zeroshot ranker gets 3.01. Listwise ranker achieved
+better results, but still can’t beat BERT-Base.
+Fine-tuning LLMs with rank loss significantly
+enhances their ranking capabilities. When compared with zero-shot methods, the NDCG@5 of
+RankLLaMA improve from 0.8251 to 0.8505.
+RankLLaMA and DisRanker are better than
+TSRankGPT, which underscores the effectiveness
+of selecting the </s> token as the representation
+of the query-document pair. Compared to RankLLaMA, PNR of DisRanker has increased from
+3.514 to 3.546, indicating that LLM can benefit
+from rank loss.
+Continued Pre-Training (CPT) further benefits
+LLM for web search ranking. The PNR improved
+from 3.546 to 3.643, and the NDCG increased from
+0.8709 to 0.8793, which indicates that Continued
+Pre-Training with large-scale behavioral data substantially improves the performance of the ranking
+model, likely by aligning the model more closely
+with the specific domain and user interaction patterns.
+Distill Strategy PNR nDCG@5
+BERT-large distill 3.352 0.8367
+Instruction distillation 3.538 0.8464
+Point-wise 3.534 0.8496
+Margin-wise 3.554 0.8460
+Hybrid-loss 3.593 0.8536
+Table 3: Rank distill loss function ablation results on
+test sets. The student is a 6-layer BERT.
+The hybrid distillation loss enable LLM to
+achieve better results. Compared to using only
+point-wise or only margin loss, there is an improve-
+
+[TABLE page=5 index=1]
+Columns: 6 | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | 6.1 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | 6.2 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 | Unnamed: 9
+Row 1: 6: | Unnamed: 0: label=0 | Unnamed: 1: =0.25 | Unnamed: 2: =0.19 | 6.1: | Unnamed: 3: label=0 | Unnamed: 4: =0.37 | Unnamed: 5: =0.20 | 6.2: | Unnamed: 6: label=0 | Unnamed: 7: =0.29 | Unnamed: 8: =0.23 | Unnamed: 9:
+Row 2: 6: | Unnamed: 0: label=1 | Unnamed: 1: =0.36 | Unnamed: 2: =0.18 | 6.1: | Unnamed: 3: label=1 | Unnamed: 4: =0.44 | Unnamed: 5: =0.18 | 6.2: | Unnamed: 6: label=1 | Unnamed: 7: =0.41 | Unnamed: 8: =0.20 | Unnamed: 9: Probability Density
+Row 3: 6: 5.0 | Unnamed: 0: label=2 | Unnamed: 1: =0.46 | Unnamed: 2: =0.17 | 6.1: 5.0 | Unnamed: 3: label=2 | Unnamed: 4: =0.50 | Unnamed: 5: =0.17 | 6.2: 5.0 | Unnamed: 6: label=2 | Unnamed: 7: =0.53 | Unnamed: 8: =0.19 | Unnamed: 9:
+Row 4: 6: | Unnamed: 0: label=3 | Unnamed: 1: =0.61 | Unnamed: 2: =0.15 | 6.1: | Unnamed: 3: label=3 | Unnamed: 4: =0.64 | Unnamed: 5: =0.15 | 6.2: | Unnamed: 6: label=3 | Unnamed: 7: =0.71 | Unnamed: 8: =0.16 | Unnamed: 9:
+Row 5: 6: | Unnamed: 0: label=4 | Unnamed: 1: =0.78 | Unnamed: 2: =0.13 | 6.1: | Unnamed: 3: label=4 | Unnamed: 4: =0.77 | Unnamed: 5: =0.13 | 6.2: | Unnamed: 6: label=4 | Unnamed: 7: =0.86 | Unnamed: 8: =0.12 | Unnamed: 9:
+Row 6: 6: 4.0 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | 6.1: 4.0 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | 6.2: 4.0 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9:
+[/TABLE]
+
+[TABLE page=5 index=2]
+Columns: 3 | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | 3.1 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 | Unnamed: 9 | Unnamed: 10 | 3.2 | Unnamed: 11 | Unnamed: 12 | Unnamed: 13 | Unnamed: 14 | Unnamed: 15 | Unnamed: 16 | Unnamed: 17
+Row 1: 3: 2 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: 2 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: 2 | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 2: 3: 1 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: 1 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: 1 | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 3: 3: 0 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: 0 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: 0 | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 4: 3: 0.0 | Unnamed: 0: 0.2 | Unnamed: 1: 0.4 0.6 | Unnamed: 2: 0.8 | Unnamed: 3: | Unnamed: 4: 1.0 | 3.1: 0.0 | Unnamed: 5: 0.2 | Unnamed: 6: 0.4 | Unnamed: 7: 0.6 | Unnamed: 8: 0.8 | Unnamed: 9: | Unnamed: 10: 1.0 | 3.2: 0.0 | Unnamed: 11: 0.2 | Unnamed: 12: 0.4 | Unnamed: 13: 0.6 | Unnamed: 14: | Unnamed: 15: 0.8 | Unnamed: 16: 1.0 | Unnamed: 17:
+Row 5: 3: | Unnamed: 0: | Unnamed: 1: Predicts | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: Predicts | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: Predicts | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 6: 3: | Unnamed: 0: (a) | Unnamed: 1: LLM teacher | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: (b) | Unnamed: 6: BERT-finetune | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: (c) | Unnamed: 12: BERT student | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 7: 3: Figure 4: | Unnamed: 0: The output score distribution of the LLM teacher, BERT student, and BERT-finetune models on test | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 8: 3: datasets. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 9: 3: 4.2 Baselines and Settings | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: sively trained within a specific domain. When com- | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 10: 3: We conduct | Unnamed: 0: several | Unnamed: 1: comparison experiments on | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: pared | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: with | 3.2: zero-shot | Unnamed: 11: methods, | Unnamed: 12: BERT-Base | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: gets
+Row 11: 3: the following | Unnamed: 0: | Unnamed: 1: baselines. | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: For | 3.1: Unsupervised | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: 3.252 on PNR but unsupervised pointwise zero- | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 12: 3: LLM Rankers: | Unnamed: 0: | Unnamed: 1: Pointwise(Sun | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: et al., | Unnamed: 5: 2023b), | Unnamed: 6: | Unnamed: 7: shot ranker gets 3.01. | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: Listwise ranker achieved | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 13: 3: Pairwise(Qin | Unnamed: 0: | Unnamed: 1: et al., 2023), | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: Listwise(Ma | 3.1: | Unnamed: 5: et | Unnamed: 6: al., | Unnamed: 7: better results, but still can’t beat BERT-Base. | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 14: 3: 2023b). | Unnamed: 0: For | Unnamed: 1: Supervised | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: Rankers: | 3.1: | Unnamed: 5: RankL- | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Fine-tuning LLMs with rank loss significantly | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 15: 3: LaMA(Ma et al., 2023a), TSRankGPT(Zhang et al., | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: enhances their ranking capabilities. | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: When com- | Unnamed: 16: | Unnamed: 17:
+Row 16: 3: 2023a), LLM2Vec(BehnamGhader et al., 2024). In | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: pared with zero-shot methods, the NDCG@5 of | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 17: 3: addition, we also used a fully domain-trained BERT | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: RankLLaMA | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: improve | Unnamed: 11: from | Unnamed: 12: 0.8251 | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: to 0.8505. | Unnamed: 17:
+Row 18: 3: as a baseline. | Unnamed: 0: | Unnamed: 1: For supervised rankers, we adopt | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: RankLLaMA | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: and | Unnamed: 11: DisRanker | Unnamed: 12: | Unnamed: 13: are | Unnamed: 14: better | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: than
+Row 19: 3: LLaMA 2(Jiang et al., 2023) 7B as base model. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: TSRankGPT, which underscores the effectiveness | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 20: 3: For unsupervised LLM rankers, we use GPT4. In | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: of selecting the </s> token as the representation | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 21: 3: the distillation experiment, we employed LLM3 as | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: of | Unnamed: 8: the query-document pair. | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: Compared | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: to Ran- | Unnamed: 17:
+Row 22: 3: the teacher model, while BERT-6L4 was utilized | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: kLLaMA, PNR of DisRanker has increased from | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 23: 3: for the student model. For hyperparameter, we set | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: 3.514 to 3.546, | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: indicating that LLM can benefit | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 24: 3: T = 0.1, β =0.4. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: from rank loss. | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 25: 3: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Continued Pre-Training (CPT) further benefits | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 26: 3: 4.3 Offline Results | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: LLM for web search ranking. The PNR improved | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 27: 3: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: from 3.546 to 3.643, and the NDCG increased from | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 28: 3: Model | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: PNR | 3.1: nDCG@5 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: 0.8709 to 0.8793, which indicates that Continued | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 29: 3: BERT-Base | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.252 | 3.1: 0.8336 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: Pre-Training with large-scale behavioral data sub- | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 30: 3: BERT-large | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.426 | 3.1: 0.8412 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: stantially improves the performance of the ranking | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 31: 3: GPT4-Pointwise | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.01 | 3.1: 0.8251 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: model, likely by aligning the model more closely | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 32: 3: GPT4-Pairwise | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.14 | 3.1: 0.8273 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: with the specific domain and user interaction pat- | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 33: 3: GPT4-Listwise | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.19 | 3.1: 0.8299 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: terns. | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 34: 3: TSRankGPT | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.475 | 3.1: 0.8505 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 35: 3: RankLLaMA | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.514 | 3.1: 0.8611 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Distill Strategy | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: PNR | Unnamed: 13: | Unnamed: 14: nDCG@5 | Unnamed: 15: | Unnamed: 16: | Unnamed: 17:
+Row 36: 3: LLM2Vec | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.496 | 3.1: 0.8604 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: BERT-large distill | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: 3.352 | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: 0.8367 | Unnamed: 16: | Unnamed: 17:
+Row 37: 3: DisRanker-Teacher | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.546 | 3.1: 0.8709 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Instruction distillation | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: 3.538 | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: 0.8464 | Unnamed: 16: | Unnamed: 17:
+Row 38: 3: with CPT | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 3.643 | 3.1: 0.8793 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Point-wise | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: 3.534 | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: 0.8496 | Unnamed: 16: | Unnamed: 17:
+Row 39: 3: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Margin-wise | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: 3.554 | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: 0.8460 | Unnamed: 16: | Unnamed: 17:
+Row 40: 3: Table 2: | Unnamed: 0: Offline comparison of LLM ranker perfor- | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | 3.1: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Hybrid-loss | Unnamed: 9: | Unnamed: 10: | 3.2: | Unnamed: 11: | Unnamed: 12: 3.593 | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: 0.8536 | Unnamed: 16: | Unnamed: 17:
+[/TABLE]
+
+[PAGE 6]
+ment of 1.6% and 1.1% on PNR, respectively. This
+suggests that both the absolute scores from the
+teacher model and the pairwise differences provide
+distinct and valuable information to the student
+models. Furthermore, the margin MSE loss appears to be particularly effective on PNR while less
+help for nDCG, which may be due to its focus on
+the relative ranking of documents rather than absolute score predictions. Instruction distillation(Sun
+et al., 2023a) also achieved comparable results.
+4.4 Online A/B Test
+The online A/B test results for DisRanker, as shown
+in Table 4, are quite promising. Our online baseline
+is a 6-layer BERT obtained by distilling a 24-layer
+BERT. Deploying DisRanker to the live search system and comparing it with the baseline model over
+the course of one week has yielded the following
+statistically significant improvements: PageCTR
+has increased by 0.47%. The average post-click
+dwell time, which suggests how long users stay on
+the page after clicking a search result, has gone up
+by 1.2%. UserCTR has increased by 0.58%.
+In addition to these user action metrics, expert
+assessments were also conducted. Expert manual
+evaluations of 200 random queries revealed a distribution of Good vs. Same vs. Bad at 54:116:30.
+This expert feedback is crucial as it provides a more
+nuanced understanding of where the model excels
+and where it may require further refinement.
+Metric △ Gain P value
+PageCTR +0.47% ↑ 0.025
+UserCTR +0.58% ↑ 0.018
+Change Query Ratio -0.38% ↓ 0.026
+Dwell time +1.2% ↑ 0.016
+△GSB +12% ↑ 0.002
+Table 4: Online A/B test results of DisRanker. The
+p-value is less than 0.05
+4.5 Runtime Operational Improvement
+To provide a description of runtime operational improvement, we conduct an experiment comparing
+the LLM Teacher and the BERT student regarding
+throughput and cost savings. Our experiment was
+conducted on Nvidia A10, with the batch size set to
+48. The data in Table 5 show that the LLM model
+consumes a considerable amount of time, which is
+intolerable for time-sensitive web search engines.
+Through distillation, we are able to conveniently
+transfer the capabilities of LLM to BERT, while
+ensuring that there is no increase in online latency.
+Models Params Latency
+LLM 7B ≈100ms
+BERT-12 0.2B ≈20ms
+BERT-6 0.1B ≈10ms
+Table 5: Latency between LLM teacher and BERT
+student. The max sequence length is set to 256.
+4.6 Score Distribution Analysis
+To better understand the hybrid distillation loss, we
+analyze the output score distribution of the LLM
+teacher, BERT student, and BERT-finetuned models in Figure 4. We observe that the score patterns
+between the LLM decoder and the BERT encoder
+models are distinct, especially at the lower and
+higher ends of the scoring spectrum. This discrepancy may stem from the difference in model parameter sizes, with the LLM model exhibiting higher
+confidence levels compared to the BERT model
+(Xiong et al., 2023). Employing only point-wise
+soft labels could potentially lead to overfitting in
+student models, as they might learn to replicate
+the teacher’s output too closely without generalizing effectively. On the other hand, the margin
+loss introduces a form of regularization. It not
+only encourages the student model to learn the relative ranking from the teacher but also maintains
+a margin between the scores of different classes or
+examples.
+5 Conclusion
+In this paper, we introduce DisRanker, an innovative distillation ranking pipeline designed to harness the capabilities of LLMs for BERT. To bridge
+the gap between pre-training for next-token prediction and downstream relevance ranking, we initially
+engage in domain-specific Continued Pre-Training,
+using the query as input and the relevant document
+as output. Subsequently, we conduct supervised
+fine-tuning of the LLM using a ranking loss, employing the end-of-sequence token, </s>, to represent the query and document sequence. Finally, we
+adopt a hybrid approach of point-wise and margin
+MSE as our knowledge distillation loss to accommodate the diverse score output distributions. Both
+offline and online experiments have demonstrated
+that DisRanker can significantly enhance the effectiveness and overall utility of the search engine.
+
+[TABLE page=6 index=1]
+Columns: distinct and valuable | information | to | the | student | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Models Params | Latency | Unnamed: 3
+Row 1: distinct and valuable: models. Furthermore, | information: | to: the margin MSE loss ap- | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: LLM 7B | Latency: ≈100ms | Unnamed: 3:
+Row 2: distinct and valuable: pears to be particularly effective on PNR while less | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: BERT-12 0.2B | Latency: ≈20ms | Unnamed: 3:
+Row 3: distinct and valuable: help for nDCG, which may be due to its focus on | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: BERT-6 0.1B | Latency: ≈10ms | Unnamed: 3:
+Row 4: distinct and valuable: the relative ranking of documents rather than abso- | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: | Latency: | Unnamed: 3:
+Row 5: distinct and valuable: | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: Table 5: | Models Params: Latency between LLM teacher and BERT | Latency: | Unnamed: 3:
+Row 6: distinct and valuable: lute score predictions. Instruction distillation(Sun | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: | Latency: | Unnamed: 3:
+Row 7: distinct and valuable: | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: student. The max sequence length is set to 256. | Models Params: | Latency: | Unnamed: 3:
+Row 8: distinct and valuable: et al., 2023a) also achieved comparable results. | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: | Latency: | Unnamed: 3:
+Row 9: distinct and valuable: 4.4 Online A/B Test | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: | Latency: | Unnamed: 3:
+Row 10: distinct and valuable: | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 4.6 Score Distribution Analysis | Models Params: | Latency: | Unnamed: 3:
+Row 11: distinct and valuable: The online A/B test results for DisRanker, as shown | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: To better understand the hybrid distillation loss, we | Models Params: | Latency: | Unnamed: 3:
+Row 12: distinct and valuable: in Table 4, are quite promising. Our online baseline | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: analyze the output score distribution of the LLM | Models Params: | Latency: | Unnamed: 3:
+Row 13: distinct and valuable: is a 6-layer BERT obtained by distilling a 24-layer | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: teacher, BERT student, and BERT-finetuned mod- | Models Params: | Latency: | Unnamed: 3:
+Row 14: distinct and valuable: BERT. Deploying DisRanker to the live search sys- | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: els in Figure 4. We observe that the score patterns | Models Params: | Latency: | Unnamed: 3:
+Row 15: distinct and valuable: tem and comparing it with the baseline model over | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: between the LLM decoder and the BERT encoder | Models Params: | Latency: | Unnamed: 3:
+Row 16: distinct and valuable: the course of one week has yielded the following | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: models | Models Params: are distinct, especially | Latency: at the lower | Unnamed: 3: and
+Row 17: distinct and valuable: statistically significant improvements: | information: | to: | the: PageCTR | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: higher ends of the scoring spectrum. This discrep- | Models Params: | Latency: | Unnamed: 3:
+Row 18: distinct and valuable: has increased by 0.47%. | information: | to: The average post-click | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: ancy may stem from the difference in model param- | Models Params: | Latency: | Unnamed: 3:
+Row 19: distinct and valuable: dwell time, which suggests how long users stay on | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: eter sizes, with the LLM model exhibiting higher | Models Params: | Latency: | Unnamed: 3:
+Row 20: distinct and valuable: the page after clicking a search result, has gone up | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: confidence levels compared to the BERT model | Models Params: | Latency: | Unnamed: 3:
+Row 21: distinct and valuable: by 1.2%. UserCTR has increased by 0.58%. | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: (Xiong et al., 2023). | Models Params: Employing only point-wise | Latency: | Unnamed: 3:
+Row 22: distinct and valuable: In addition to these user action metrics, expert | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: soft labels could potentially lead to overfitting in | Models Params: | Latency: | Unnamed: 3:
+Row 23: distinct and valuable: assessments were also conducted. Expert manual | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: student models, | Models Params: as they might | Latency: learn to replicate | Unnamed: 3:
+Row 24: distinct and valuable: evaluations of 200 random queries revealed a dis- | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: the teacher’s output too closely without general- | Models Params: | Latency: | Unnamed: 3:
+Row 25: distinct and valuable: tribution of Good vs. Same vs. Bad at 54:116:30. | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: izing effectively. | Models Params: On the other hand, the margin | Latency: | Unnamed: 3:
+Row 26: distinct and valuable: This expert feedback is crucial as it provides a more | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: loss introduces | Models Params: a form of regularization. | Latency: | Unnamed: 3: It not
+Row 27: distinct and valuable: nuanced understanding of where the model excels | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: only encourages the student model to learn the rel- | Models Params: | Latency: | Unnamed: 3:
+Row 28: distinct and valuable: and where it may require further refinement. | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: ative ranking from the teacher but also maintains | Models Params: | Latency: | Unnamed: 3:
+Row 29: distinct and valuable: | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: a margin between the scores of different classes or | Models Params: | Latency: | Unnamed: 3:
+Row 30: distinct and valuable: Metric | information: | to: △ Gain | the: P value | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: | Latency: | Unnamed: 3:
+Row 31: distinct and valuable: | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: examples. | Models Params: | Latency: | Unnamed: 3:
+Row 32: distinct and valuable: PageCTR | information: | to: +0.47% ↑ | the: 0.025 | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: | Latency: | Unnamed: 3:
+Row 33: distinct and valuable: UserCTR | information: | to: +0.58% ↑ | the: 0.018 | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 5 Conclusion | Models Params: | Latency: | Unnamed: 3:
+Row 34: distinct and valuable: Change Query Ratio | information: | to: -0.38% ↓ | the: 0.026 | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: | Latency: | Unnamed: 3:
+Row 35: distinct and valuable: Dwell time | information: | to: +1.2% ↑ | the: 0.016 | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: In this paper, we introduce DisRanker, an innova- | Models Params: | Latency: | Unnamed: 3:
+Row 36: distinct and valuable: △ GSB | information: | to: +12% ↑ | the: 0.002 | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: tive distillation ranking pipeline designed to har- | Models Params: | Latency: | Unnamed: 3:
+Row 37: distinct and valuable: | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: ness the capabilities of LLMs for BERT. To bridge | Models Params: | Latency: | Unnamed: 3:
+Row 38: distinct and valuable: Table 4: Online A/B test results of DisRanker. | information: | to: | the: | student: The | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: the gap between pre-training for next-token predic- | Models Params: | Latency: | Unnamed: 3:
+Row 39: distinct and valuable: p-value is less than 0.05 | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: tion and downstream relevance ranking, we initially | Models Params: | Latency: | Unnamed: 3:
+Row 40: distinct and valuable: | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: engage in domain-specific Continued Pre-Training, | Models Params: | Latency: | Unnamed: 3:
+Row 41: distinct and valuable: | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: using the query as input and the relevant document | Models Params: | Latency: | Unnamed: 3:
+Row 42: distinct and valuable: 4.5 Runtime Operational Improvement | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Models Params: | Latency: | Unnamed: 3:
+Row 43: distinct and valuable: | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: as output. | Models Params: Subsequently, we conduct supervised | Latency: | Unnamed: 3:
+Row 44: distinct and valuable: To provide a description of runtime operational im- | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: fine-tuning of the LLM using a ranking loss, em- | Models Params: | Latency: | Unnamed: 3:
+Row 45: distinct and valuable: provement, we conduct an experiment comparing | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: ploying the end-of-sequence token, </s>, to repre- | Models Params: | Latency: | Unnamed: 3:
+Row 46: distinct and valuable: the LLM Teacher and the BERT student regarding | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: sent the query and document sequence. Finally, we | Models Params: | Latency: | Unnamed: 3:
+Row 47: distinct and valuable: throughput and cost savings. Our experiment was | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: adopt a hybrid approach of point-wise and margin | Models Params: | Latency: | Unnamed: 3:
+Row 48: distinct and valuable: conducted on Nvidia A10, with the batch size set to | information: | to: | the: | student: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: MSE as our knowledge distillation loss to accom- | Models Params: | Latency: | Unnamed: 3:
+[/TABLE]
+
+[PAGE 7]
+Ethics Statement
+The primary objective of this paper is to explore
+the transfer of LLM model’s ranking capability to a
+smaller BERT model, aiming to enhance the search
+service provided to users. During the model training process, we have anonymized the data to ensure
+the protection of user privacy, without collecting
+any personally identifiable information.
+References
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama
+Ahmad, Ilge Akkaya, Florencia Leoni Aleman,
+Diogo Almeida, Janko Altenschmidt, Sam Altman,
+Shyamal Anadkat, et al. 2023. Gpt-4 technical report.
+arXiv preprint arXiv:2303.08774.
+Parishad BehnamGhader, Vaibhav Adlakha, Marius
+Mosbach, Dzmitry Bahdanau, Nicolas Chapados, and
+Siva Reddy. 2024. Llm2vec: Large language models
+are secretly powerful text encoders. arXiv preprint
+arXiv:2404.05961.
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, et al. 2020. Language models are few-shot
+learners. Advances in neural information processing
+systems, 33:1877–1901.
+Lianshang Cai, Linhao Zhang, Dehong Ma, Jun Fan,
+Daiting Shi, Yi Wu, Zhicong Cheng, Simiu Gu, and
+Dawei Yin. 2022. Pile: Pairwise iterative logits ensemble for multi-teacher labeled distillation. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing: Industry Track,
+pages 587–595.
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+Kristina Toutanova. 2018. Bert: Pre-training of deep
+bidirectional transformers for language understanding. arXiv preprint arXiv:1810.04805.
+Thibault Formal, Carlos Lassance, Benjamin Piwowarski, and Stéphane Clinchant. 2022. From distillation to hard negative sampling: Making sparse
+neural ir models more effective. In Proceedings of
+the 45th International ACM SIGIR Conference on
+Research and Development in Information Retrieval,
+pages 2353–2359.
+Luyu Gao, Zhuyun Dai, and Jamie Callan. 2020. Understanding bert rankers under distillation. In Proceedings of the 2020 ACM SIGIR on International Conference on Theory of Information Retrieval , pages
+149–152.
+Kshitij Gupta, Benjamin Thérien, Adam Ibrahim,
+Mats L Richter, Quentin Anthony, Eugene Belilovsky,
+Irina Rish, and Timothée Lesort. 2023. Continual pretraining of large language models: How to (re) warm
+your model? arXiv preprint arXiv:2308.04014.
+Xingwei He, Yeyun Gong, A-Long Jin, Weizhen Qi,
+Hang Zhang, Jian Jiao, Bartuer Zhou, Biao Cheng,
+Sm Yiu, and Nan Duan. 2022. Metric-guided distillation: Distilling knowledge from the metric to ranker
+and retriever for generative commonsense reasoning.
+In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing, pages
+839–852.
+Sebastian Hofstätter, Sophia Althammer, Michael
+Schröder, Mete Sertkan, and Allan Hanbury. 2020.
+Improving efficient neural ranking models with crossarchitecture knowledge distillation. arXiv preprint
+arXiv:2010.02666.
+Albert Q Jiang, Alexandre Sablayrolles, Arthur Mensch, Chris Bamford, Devendra Singh Chaplot, Diego
+de las Casas, Florian Bressand, Gianna Lengyel, Guillaume Lample, Lucile Saulnier, et al. 2023. Mistral
+7b. arXiv preprint arXiv:2310.06825.
+Yiding Liu, Weixue Lu, Suqi Cheng, Daiting Shi,
+Shuaiqiang Wang, Zhicong Cheng, and Dawei Yin.
+2021. Pre-trained language model for web-scale retrieval in baidu search. In Proceedings of the 27th
+ACM SIGKDD Conference on Knowledge Discovery
+& Data Mining, pages 3365–3375.
+Xueguang Ma, Liang Wang, Nan Yang, Furu Wei, and
+Jimmy Lin. 2023a. Fine-tuning llama for multi-stage
+text retrieval. arXiv preprint arXiv:2310.08319.
+Xueguang Ma, Liang Wang, Nan Yang, Furu Wei, and
+Jimmy Lin. 2024. Fine-tuning llama for multi-stage
+text retrieval. In Proceedings of the 47th International ACM SIGIR Conference on Research and
+Development in Information Retrieval, pages 2421–
+2425.
+Xueguang Ma, Xinyu Zhang, Ronak Pradeep, and
+Jimmy Lin. 2023b. Zero-shot listwise document
+reranking with a large language model. arXiv
+preprint arXiv:2305.02156.
+Niklas Muennighoff. 2022. Sgpt: Gpt sentence
+embeddings for semantic search. arXiv preprint
+arXiv:2202.08904.
+Zhen Qin, Rolf Jagerman, Kai Hui, Honglei Zhuang,
+Junru Wu, Jiaming Shen, Tianqi Liu, Jialu Liu,
+Donald Metzler, Xuanhui Wang, et al. 2023.
+Large language models are effective text rankers
+with pairwise ranking prompting. arXiv preprint
+arXiv:2306.17563.
+Zhen Qin, Le Yan, Yi Tay, Honglei Zhuang, Xuanhui
+Wang, Michael Bendersky, and Marc Najork. 2021.
+Improving neural ranking via lossless knowledge distillation. arXiv preprint arXiv:2109.15285.
+Sashank Reddi, Rama Kumar Pasumarthi, Aditya
+Menon, Ankit Singh Rawat, Felix Yu, Seungyeon
+Kim, Andreas Veit, and Sanjiv Kumar. 2021.
+Rankdistil: Knowledge distillation for ranking. In
+International Conference on Artificial Intelligence
+and Statistics, pages 2368–2376. PMLR.
+
+[TABLE page=7 index=1]
+Columns: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama | Albert Q Jiang, Alexandre Sablayrolles, Arthur MenRow 1: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Ahmad, Ilge Akkaya, Florencia Leoni Aleman, | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: sch, Chris Bamford, Devendra Singh Chaplot, Diego
+Row 2: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Diogo Almeida, Janko Altenschmidt, Sam Altman, | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: de las Casas, Florian Bressand, Gianna Lengyel, GuilRow 3: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Shyamal Anadkat, et al. 2023. Gpt-4 technical report. | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: laume Lample, Lucile Saulnier, et al. 2023. Mistral
+Row 4: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: arXiv preprint arXiv:2303.08774. | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: 7b. arXiv preprint arXiv:2310.06825.
+Row 5: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Parishad BehnamGhader, Vaibhav Adlakha, Marius | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Yiding Liu, Weixue Lu, Suqi Cheng, Daiting Shi,
+Row 6: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Mosbach, Dzmitry Bahdanau, Nicolas Chapados, and | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Shuaiqiang Wang, Zhicong Cheng, and Dawei Yin.
+Row 7: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Siva Reddy. 2024. Llm2vec: Large language models | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: 2021. Pre-trained language model for web-scale reRow 8: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: are secretly powerful text encoders. arXiv preprint | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: trieval in baidu search. In Proceedings of the 27th
+Row 9: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: arXiv:2404.05961. | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: ACM SIGKDD Conference on Knowledge Discovery
+Row 10: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: & Data Mining, pages 3365–3375.
+Row 11: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Tom Brown, Benjamin Mann, Nick Ryder, Melanie | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-:
+Row 12: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Xueguang Ma, Liang Wang, Nan Yang, Furu Wei, and
+Row 13: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Neelakantan, Pranav Shyam, Girish Sastry, Amanda | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Jimmy Lin. 2023a. Fine-tuning llama for multi-stage
+Row 14: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Askell, et al. 2020. Language models are few-shot | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: text retrieval. arXiv preprint arXiv:2310.08319.
+Row 15: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: learners. Advances in neural information processing | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-:
+Row 16: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: systems, 33:1877–1901. | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Xueguang Ma, Liang Wang, Nan Yang, Furu Wei, and
+Row 17: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Jimmy Lin. 2024. Fine-tuning llama for multi-stage
+Row 18: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Lianshang Cai, Linhao Zhang, Dehong Ma, Jun Fan, | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: text retrieval. In Proceedings of the 47th InterRow 19: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Daiting Shi, Yi Wu, Zhicong Cheng, Simiu Gu, and | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: national ACM SIGIR Conference on Research and
+Row 20: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Dawei Yin. 2022. Pile: Pairwise iterative logits en- | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Development in Information Retrieval, pages 2421–
+Row 21: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: semble for multi-teacher labeled distillation. In Pro- | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: 2425.
+Row 22: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: ceedings of the 2022 Conference on Empirical Meth- | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-:
+Row 23: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: ods in Natural Language Processing: Industry Track, | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Xueguang Ma, Xinyu Zhang, Ronak Pradeep, and
+Row 24: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: pages 587–595. | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Jimmy Lin. 2023b. Zero-shot listwise document
+Row 25: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: reranking with a large language model. arXiv
+Row 26: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Jacob Devlin, Ming-Wei Chang, Kenton Lee, and | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: preprint arXiv:2305.02156.
+Row 27: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Kristina Toutanova. 2018. Bert: Pre-training of deep | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-:
+Row 28: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: bidirectional transformers for language understand- | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Niklas Muennighoff. 2022. Sgpt: Gpt sentence
+Row 29: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: ing. arXiv preprint arXiv:1810.04805. | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: embeddings for semantic search. arXiv preprint
+Row 30: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: arXiv:2202.08904.
+Row 31: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Thibault Formal, Carlos Lassance, Benjamin Pi- | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-:
+Row 32: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: wowarski, and Stéphane Clinchant. 2022. From dis- | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Zhen Qin, Rolf Jagerman, Kai Hui, Honglei Zhuang,
+Row 33: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: tillation to hard negative sampling: Making sparse | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Junru Wu, Jiaming Shen, Tianqi Liu, Jialu Liu,
+Row 34: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: neural ir models more effective. In Proceedings of | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Donald Metzler, Xuanhui Wang, et al. 2023.
+Row 35: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: the 45th International ACM SIGIR Conference on | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Large language models are effective text rankers
+Row 36: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Research and Development in Information Retrieval, | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: with pairwise ranking prompting. arXiv preprint
+Row 37: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: pages 2353–2359. | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: arXiv:2306.17563.
+Row 38: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Luyu Gao, Zhuyun Dai, and Jamie Callan. 2020. Under- | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Zhen Qin, Le Yan, Yi Tay, Honglei Zhuang, Xuanhui
+Row 39: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: standing bert rankers under distillation. In Proceed- | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Wang, Michael Bendersky, and Marc Najork. 2021.
+Row 40: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: ings of the 2020 ACM SIGIR on International Con- | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Improving neural ranking via lossless knowledge disRow 41: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: ference on Theory of Information Retrieval, pages | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: tillation. arXiv preprint arXiv:2109.15285.
+Row 42: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: 149–152. | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-:
+Row 43: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Sashank Reddi, Rama Kumar Pasumarthi, Aditya
+Row 44: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Kshitij Gupta, Benjamin Thérien, Adam Ibrahim, | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Menon, Ankit Singh Rawat, Felix Yu, Seungyeon
+Row 45: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama: Mats L Richter, Quentin Anthony, Eugene Belilovsky, | Albert Q Jiang, Alexandre Sablayrolles, Arthur Men-: Kim, Andreas Veit, and Sanjiv Kumar. 2021.
+[/TABLE]
+
+[PAGE 8]
+Devendra Sachan, Mike Lewis, Mandar Joshi, Armen
+Aghajanyan, Wen-tau Yih, Joelle Pineau, and Luke
+Zettlemoyer. 2022. Improving passage retrieval with
+zero-shot question generation. In Proceedings of the
+2022 Conference on Empirical Methods in Natural
+Language Processing, pages 3781–3797.
+Devendra Singh Sachan, Mike Lewis, Dani Yogatama,
+Luke Zettlemoyer, Joelle Pineau, and Manzil Zaheer.
+2023. Questions are all you need to train a dense
+passage retriever. Transactions of the Association for
+Computational Linguistics, 11:600–616.
+Weiwei Sun, Zheng Chen, Xinyu Ma, Lingyong Yan,
+Shuaiqiang Wang, Pengjie Ren, Zhumin Chen,
+Dawei Yin, and Zhaochun Ren. 2023a. Instruction
+distillation makes large language models efficient
+zero-shot rankers. arXiv preprint arXiv:2311.01555.
+Weiwei Sun, Lingyong Yan, Xinyu Ma, Pengjie
+Ren, Dawei Yin, and Zhaochun Ren. 2023b. Is
+chatgpt good at search? investigating large language models as re-ranking agent. arXiv preprint
+arXiv:2304.09542.
+Jiaxi Tang and Ke Wang. 2018. Ranking distillation:
+Learning compact ranking models with high performance for recommender system. In Proceedings of
+the 24th ACM SIGKDD international conference on
+knowledge discovery & data mining , pages 2289–
+2298.
+Liang Wang, Nan Yang, and Furu Wei. 2023.
+Query2doc: Query expansion with large language
+models. arXiv preprint arXiv:2303.07678.
+Miao Xiong, Zhiyuan Hu, Xinyang Lu, Yifei Li, Jie
+Fu, Junxian He, and Bryan Hooi. 2023. Can llms
+express their uncertainty? an empirical evaluation
+of confidence elicitation in llms. arXiv preprint
+arXiv:2306.13063.
+Dezhi Ye, Jie Liu, Jiabin Fan, Bowen Tian, Tianhua
+Zhou, Xiang Chen, and Jin Ma. 2024. Enhancing
+asymmetric web search through question-answer generation and ranking. In Proceedings of the 30th ACM
+SIGKDD Conference on Knowledge Discovery and
+Data Mining, pages 6127–6136.
+Longhui Zhang, Yanzhao Zhang, Dingkun Long,
+Pengjun Xie, Meishan Zhang, and Min Zhang. 2023a.
+Rankinggpt: Empowering large language models in
+text ranking with progressive enhancement. arXiv
+preprint arXiv:2311.16720.
+Xinyu Zhang, Sebastian Hofstätter, Patrick Lewis,
+Raphael Tang, and Jimmy Lin. 2023b. Rank-withoutgpt: Building gpt-independent listwise rerankers on
+open-source large language models. arXiv preprint
+arXiv:2312.02969.
+Honglei Zhuang, Zhen Qin, Shuguang Han, Xuanhui
+Wang, Michael Bendersky, and Marc Najork. 2021.
+Ensemble distillation for bert-based ranking models. In Proceedings of the 2021 ACM SIGIR International Conference on Theory of Information Retrieval,
+pages 131–136.
+Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,
+Ji Ma, Jing Lu, Jianmo Ni, Xuanhui Wang, and
+Michael Bendersky. 2023. Rankt5: Fine-tuning t5
+for text ranking with ranking losses. In Proceedings
+of the 46th International ACM SIGIR Conference on
+Research and Development in Information Retrieval,
+pages 2308–2313.
+Shengyao Zhuang, Honglei Zhuang, Bevan Koopman,
+and Guido Zuccon. 2024. A setwise approach for
+effective and highly efficient zero-shot ranking with
+large language models. In Proceedings of the 47th
+International ACM SIGIR Conference on Research
+and Development in Information Retrieval , pages
+38–47.
+Lixin Zou, Shengqiang Zhang, Hengyi Cai, Dehong Ma,
+Suqi Cheng, Shuaiqiang Wang, Daiting Shi, Zhicong
+Cheng, and Dawei Yin. 2021. Pre-trained language
+model based ranking in baidu search. In Proceedings
+of the 27th ACM SIGKDD Conference on Knowledge
+Discovery & Data Mining, pages 4014–4022.
+A Appendix
+A.1 Industry Datasets
+The industry datasets are collected from the search
+pipelines and manually labeled on the crowdsourcing platform, where a group of hired annotators
+assigned an integer label range from 0 to 4 to each
+query document pair, representing their relevance
+as {bad, fair, good, excellent, perfect}.
+A.2 Evaluation Metrics
+△GSB = #Good − #Bad
+#Good + #Same + #Bad
+where #Good (or #Bad) donates the number of
+queries that the new (or base) model provides better
+ranking results. and #Same for the number of
+results that having same quality.
+P N R =
+P
+i,j∈[1,N ] I{yi > y j}I{f (q, di) > f (q, dj)}
+P
+i,j∈[1,N ] I{yi > y j}I{f (q, di) < f (q, dj)}
+where the indicator function I(yi > y j) takes the
+value 1 if yi > y j and 0 otherwise.
+
+[TABLE page=8 index=1]
+Columns: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,
+Row 1: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Aghajanyan, Wen-tau Yih, Joelle Pineau, and Luke | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: Ji Ma, Jing Lu, Jianmo Ni, Xuanhui Wang, and
+Row 2: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Zettlemoyer. 2022. Improving passage retrieval with | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: Michael Bendersky. 2023. Rankt5: Fine-tuning t5
+Row 3: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: zero-shot question generation. In Proceedings of the | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: for text ranking with ranking losses. In Proceedings
+Row 4: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: 2022 Conference on Empirical Methods in Natural | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: of the 46th International ACM SIGIR Conference on
+Row 5: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Language Processing, pages 3781–3797. | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: Research and Development in Information Retrieval,
+Row 6: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: pages 2308–2313.
+Row 7: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Devendra Singh Sachan, Mike Lewis, Dani Yogatama, | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 8: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Luke Zettlemoyer, Joelle Pineau, and Manzil Zaheer. | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: Shengyao Zhuang, Honglei Zhuang, Bevan Koopman,
+Row 9: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: 2023. Questions are all you need to train a dense | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: and Guido Zuccon. 2024. A setwise approach for
+Row 10: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: passage retriever. Transactions of the Association for | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: effective and highly efficient zero-shot ranking with
+Row 11: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Computational Linguistics, 11:600–616. | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: large language models. In Proceedings of the 47th
+Row 12: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: International ACM SIGIR Conference on Research
+Row 13: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Weiwei Sun, Zheng Chen, Xinyu Ma, Lingyong Yan, | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 14: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: and Development in Information Retrieval, pages
+Row 15: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Shuaiqiang Wang, Pengjie Ren, Zhumin Chen, | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 16: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: 38–47.
+Row 17: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Dawei Yin, and Zhaochun Ren. 2023a. Instruction | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 18: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: distillation makes large language models efficient | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: Lixin Zou, Shengqiang Zhang, Hengyi Cai, Dehong Ma,
+Row 19: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: zero-shot rankers. arXiv preprint arXiv:2311.01555. | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: Suqi Cheng, Shuaiqiang Wang, Daiting Shi, Zhicong
+Row 20: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: Cheng, and Dawei Yin. 2021. Pre-trained language
+Row 21: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Weiwei Sun, Lingyong Yan, Xinyu Ma, Pengjie | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 22: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: model based ranking in baidu search. In Proceedings
+Row 23: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Ren, Dawei Yin, and Zhaochun Ren. 2023b. Is | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 24: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: of the 27th ACM SIGKDD Conference on Knowledge
+Row 25: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: chatgpt good at search? investigating large lan- | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 26: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: Discovery & Data Mining, pages 4014–4022.
+Row 27: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: guage models as re-ranking agent. arXiv preprint | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 28: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: arXiv:2304.09542. | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 29: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: A Appendix
+Row 30: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Jiaxi Tang and Ke Wang. 2018. Ranking distillation: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 31: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Learning compact ranking models with high perfor- | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: A.1 Industry Datasets
+Row 32: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: mance for recommender system. In Proceedings of | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 33: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: The industry datasets are collected from the search
+Row 34: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: the 24th ACM SIGKDD international conference on | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 35: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: knowledge discovery & data mining, pages 2289– | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: pipelines and manually labeled on the crowdsourcRow 36: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: 2298. | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: ing platform, where a group of hired annotators
+Row 37: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: assigned an integer label range from 0 to 4 to each
+Row 38: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Liang Wang, Nan Yang, and Furu Wei. 2023. | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 39: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Query2doc: Query expansion with large language | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: query document pair, representing their relevance
+Row 40: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: models. arXiv preprint arXiv:2303.07678. | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: as {bad, fair, good, excellent, perfect}.
+Row 41: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Miao Xiong, Zhiyuan Hu, Xinyang Lu, Yifei Li, Jie | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 42: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: A.2 Evaluation Metrics
+Row 43: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Fu, Junxian He, and Bryan Hooi. 2023. Can llms | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 44: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: #Good−#Bad
+Row 45: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: express their uncertainty? an empirical evaluation | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: △GSB =
+Row 46: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: of confidence elicitation in llms. arXiv preprint | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: #Good+#Same+#Bad
+Row 47: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: arXiv:2306.13063. | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,:
+Row 48: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: where #Good (or #Bad) donates the number of
+Row 49: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Dezhi Ye, Jie Liu, Jiabin Fan, Bowen Tian, Tianhua | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: queries that the new (or base) model provides better
+Row 50: Devendra Sachan, Mike Lewis, Mandar Joshi, Armen: Zhou, Xiang Chen, and Jin Ma. 2024. Enhancing | Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,: ranking results. and #Same for the number of
+[/TABLE]

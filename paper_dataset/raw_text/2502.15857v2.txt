@@ -1,0 +1,1292 @@
+[PAGE 1]
+PPC-GPT: Federated Task-Specific Compression of Large Language
+Models via Pruning and Chain-of-Thought Distillation
+Tao Fan1, 2, Guoqiang Ma2, Yuanfeng Song2, Lixin Fan2, Qiang Yang3
+1Hong Kong University of Science and Technology, Hong Kong, China
+2WeBank Co., Ltd, Shenzhen, China
+3Hong Kong Polytechnic University, Hong Kong, China
+Correspondence:tfanac@cse.ust.hk, qyang@cse.ust.hk
+Abstract
+Compressing Large Language Models (LLMs)
+into task-specific Small Language Models
+(SLMs) encounters two significant challenges:
+safeguarding domain-specific knowledge
+privacy and managing limited resources. To
+tackle these challenges, we propose PPC-GPT,
+a novel unified framework that systematically
+addresses both privacy preservation and model
+compression in federated settings. PPC-GPT
+works on a server-client federated architecture,
+where the client sends differentially private
+(DP) perturbed task-specific data to the server’s
+LLM. The LLM then generates synthetic data
+along with their corresponding rationales. This
+synthetic data is subsequently used for both
+LLM pruning and retraining processes. Our
+framework’s key innovation lies in its holistic
+integration of privacy-preserving mechanisms,
+synthetic data generation, and task-specific
+compression techniques, creating unique
+benefits through component interaction. Our
+experiments across diverse text generation
+tasks demonstrate that PPC-GPT successfully achieves dual objectives: maintaining
+competitive performance comparable to
+full-sized LLMs while ensuring robust privacy
+protection through its federated architecture.
+Our code has been contributed to the FATE
+open-source project and is now publicly accessible at https://github.com/FederatedAI/
+FATE-LLM/tree/main/python/fate_llm/
+algo/ppc-gpt
+1 Introduction
+Large Language Models (LLMs), such as GPT4 (OpenAI, 2023a) and LLaMA3-70B (Dubey
+et al., 2024), boasting billions of parameters
+and remarkable text generation capabilities, have
+emerged as a transformative force in the realm of
+artificial intelligence. However, their training demands substantial computational resources (OpenAI, 2023b), and their colossal size poses significant hurdles for practical deployment, especially
+in resource-limited environments. Conversely,
+Small Language Models (SLMs), such as OPT1.3B (Zhang et al., 2022) and Qwen2.5-1.5B (Team,
+2024), frequently demonstrate superior computational efficiency and accelerated response rates,
+making them ideally suited for real-time applications with constrained resources. Enterprises with
+constrained resources typically prefer deploying
+SLMs, as they can do so without the concern of
+potential data leaks, a risk that is heightened when
+utilizing remote LLMs (Fan et al., 2025a,b, 2023;
+Kang et al., 2023). Yet, training an SLM from
+scratch, even the smallest billion-parameter models, entails considerable computational expenses
+that are financially prohibitive for most enterprises.
+Furthermore, SLMs exhibit inherent limitations
+that stem from their performance constraints.
+In this work, we aim to tackle the following question:Is it feasible to develop a task-specific and
+competitive SLM by harnessing an existing pretrained LLM for enterprises with limited resources,
+while ensuring compliance with privacy requirements?To achieve this objective, we delve into
+structured pruning (Xia et al., 2024; Men et al.,
+2024; Kim et al., 2024), as a viable approach. Pruning is generally regarded as a strategy for compressing task-specific models by eliminating redundant parameters and expediting inference, all while
+maintaining task performance.
+We identify two crucial technical challenges associated with this problem: Firstly, how can we
+ensure the privacy of task-specific data when enterprises with limited resources are unable to prune
+an LLM into an SLM independently? In such
+cases, the need to transmit task-specific data to
+a remote server equipped with powerful computing resources arises, a practice that is frequently
+unacceptable to most enterprises due to privacy concerns. Secondly, how can we ensure that the performance of the SLM remains comparable to that
+of the LLM? Structured pruning inevitably leads to
+arXiv:2502.15857v2 [cs.CL] 9 Nov 2025
+
+[PAGE 2]
+some degree of performance degradation. To overcome these challenges, we introduce PPC-GPT, a
+privacy-preserving federated framework designed
+for compressing LLMs into task-specific SLMs via
+pruning and Chain-of-Thought (CoT) distillation.
+As depicted in Figure 1, the envisioned architecture of PPC-GPT comprises a high-performance
+server adept at deploying LLMs and facilitating
+their pruning into SLMs, coupled with a client endowed with more constrained computational capabilities for running SLMs. Within the confines
+of our framework, the workflow unfolds as detailed below. Initially, the client sends task-specific
+data, perturbed to ensure privacy, to the server.
+These data are protected by the Exponential Mechanism of Differential Privacy (Dwork, 2006; McSherry and Talwar, 2007; Tong et al., 2025), thereby
+guaranteeing privacy protection. Subsequently,
+the server-side auxiliary LLMsyn generates synthetic data along with their corresponding rationales, based on these perturbed inputs. The serverside LLMo, which represents the original model,
+undergoes pruning by PPC-GPT to yield thetarget SLM. This pruning process is informed by both
+the synthetic data and their associated rationales.
+Following the pruning of the LLMo, the server
+retrains thetarget SLMthrough CoT (Wei et al.,
+2022; Hsieh et al., 2023; Li et al., 2023) knowledge
+distillation, leveraging the same synthetic data and
+rationales. Lastly, the server dispatches the refined
+target SLMto the client, who then proceeds to retrain thetarget SLMutilizing its locally private
+data.
+Our contributions can be summarized as follows:
+• Unified Framework for Federated LLM
+Compression.We propose PPC-GPT, the
+first holistic framework designed to systematically unify privacy-preserving techniques
+with LLM compression in a federated learning context. Its core innovation lies in the
+synergistic integration of four key modules:
+exponential mechanism-based data perturbation, CoT-guided synthetic data generation,
+rationale-aware structured pruning, and CoTbased knowledge distillation. This modular
+architecture is not only novel but also extensible, allowing for future advancements in any
+of its constituent parts.
+• Novel Rationale-Aware Structured Pruning for Reasoning Preservation.We propose
+a new structured pruning metric that evaluates network layers based on their contribution to generating explanatory rationales. This
+approach selectively preserves the model’s
+essential reasoning capabilities, a critical aspect often overlooked in standard compression
+techniques.
+• Component Interaction Benefits.The integration creates unique advantages through
+component interaction. For example, combining DP-perturbed data with CoT-guided
+synthetic data generation enables both privacy
+protection and effective knowledge transfer,
+while the rationale-aware structured pruning
+leverages this enhanced data quality for better
+compression decisions.
+• Empirical Assessment of LLM Compressing to Task-Specific SLM.Through extensive experiments across various text generation tasks using LLaMA and OPT models, we
+demonstrate how PPC-GPT’s component interactions lead to effective task-specific compression while maintaining privacy, achieving
+results competitive with full-sized LLMs.
+2 Related Work
+2.1 Differential Privacy
+In this section, We briefly revisit two important
+definitions of differential privacy: ϵ-Differential
+Privacy and Exponential Mechanism (EM).
+ϵ-Differential Privacy (DP).The Definition
+of ϵ-Differential Privacy (DP)(Dwork, 2006).
+A randomized algorithm M:D→S is ϵDifferential Privacy if for any two neighboring
+datasets D1, D2 ∈D that differ exactly in a single
+data sample, and for any outputO⊆S:
+Pr[M(D 1)∈O]≤e ϵPr[M(D 2)∈O] (1)
+where ϵ is a privacy parameter. Smaller values of ϵ
+imply stronger privacy guarantees.
+Exponential Mechanism.The Definition of
+Exponential Mechanism(McSherry and Talwar,
+2007; Tong et al., 2025). For a given scoring function u:X×Y→R , a randomized mechanism
+M(X, u, Y)isϵ-DP compliant if it satisfies:
+Pr[y|x]∝exp( ϵ·u(x, y)
+2△u ) (2)
+
+[TABLE page=2 index=1]
+Columns: some degree of performance degradation. To over- | Unnamed: 0 | a new structured pruning metric that evaluRow 1: some degree of performance degradation. To over-: come these challenges, we introduce PPC-GPT, a | Unnamed: 0: | a new structured pruning metric that evalu-: ates network layers based on their contribuRow 2: some degree of performance degradation. To over-: privacy-preserving federated framework designed | Unnamed: 0: | a new structured pruning metric that evalu-: tion to generating explanatory rationales. This
+Row 3: some degree of performance degradation. To over-: for compressing LLMs into task-specific SLMs via | Unnamed: 0: | a new structured pruning metric that evalu-: approach selectively preserves the model’s
+Row 4: some degree of performance degradation. To over-: pruning and Chain-of-Thought (CoT) distillation. | Unnamed: 0: | a new structured pruning metric that evalu-: essential reasoning capabilities, a critical asRow 5: some degree of performance degradation. To over-: As depicted in Figure 1, the envisioned architec- | Unnamed: 0: | a new structured pruning metric that evalu-: pect often overlooked in standard compression
+Row 6: some degree of performance degradation. To over-: ture of PPC-GPT comprises a high-performance | Unnamed: 0: | a new structured pruning metric that evalu-: techniques.
+Row 7: some degree of performance degradation. To over-: server adept at deploying LLMs and facilitating | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 8: some degree of performance degradation. To over-: | Unnamed: 0: • | a new structured pruning metric that evalu-: Component Interaction Benefits. The inRow 9: some degree of performance degradation. To over-: their pruning into SLMs, coupled with a client en- | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 10: some degree of performance degradation. To over-: | Unnamed: 0: | a new structured pruning metric that evalu-: tegration creates unique advantages through
+Row 11: some degree of performance degradation. To over-: dowed with more constrained computational capa- | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 12: some degree of performance degradation. To over-: | Unnamed: 0: | a new structured pruning metric that evalu-: component interaction. For example, comRow 13: some degree of performance degradation. To over-: bilities for running SLMs. Within the confines | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 14: some degree of performance degradation. To over-: | Unnamed: 0: | a new structured pruning metric that evalu-: bining DP-perturbed data with CoT-guided
+Row 15: some degree of performance degradation. To over-: of our framework, the workflow unfolds as de- | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 16: some degree of performance degradation. To over-: | Unnamed: 0: | a new structured pruning metric that evalu-: synthetic data generation enables both privacy
+Row 17: some degree of performance degradation. To over-: tailed below. Initially, the client sends task-specific | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 18: some degree of performance degradation. To over-: | Unnamed: 0: | a new structured pruning metric that evalu-: protection and effective knowledge transfer,
+Row 19: some degree of performance degradation. To over-: data, perturbed to ensure privacy, to the server. | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 20: some degree of performance degradation. To over-: | Unnamed: 0: | a new structured pruning metric that evalu-: while the rationale-aware structured pruning
+Row 21: some degree of performance degradation. To over-: These data are protected by the Exponential Mech- | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 22: some degree of performance degradation. To over-: | Unnamed: 0: | a new structured pruning metric that evalu-: leverages this enhanced data quality for better
+Row 23: some degree of performance degradation. To over-: anism of Differential Privacy (Dwork, 2006; McSh- | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 24: some degree of performance degradation. To over-: | Unnamed: 0: | a new structured pruning metric that evalu-: compression decisions.
+Row 25: some degree of performance degradation. To over-: erry and Talwar, 2007; Tong et al., 2025), thereby | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 26: some degree of performance degradation. To over-: guaranteeing privacy protection. Subsequently, | Unnamed: 0: • | a new structured pruning metric that evalu-: Empirical Assessment of LLM CompressRow 27: some degree of performance degradation. To over-: the server-side auxiliary LLMsyn generates syn- | Unnamed: 0: | a new structured pruning metric that evalu-: ing to Task-Specific SLM. Through extenRow 28: some degree of performance degradation. To over-: thetic data along with their corresponding ratio- | Unnamed: 0: | a new structured pruning metric that evalu-: sive experiments across various text generaRow 29: some degree of performance degradation. To over-: nales, based on these perturbed inputs. The server- | Unnamed: 0: | a new structured pruning metric that evalu-: tion tasks using LLaMA and OPT models, we
+Row 30: some degree of performance degradation. To over-: side LLMo, which represents the original model, | Unnamed: 0: | a new structured pruning metric that evalu-: demonstrate how PPC-GPT’s component inRow 31: some degree of performance degradation. To over-: undergoes pruning by PPC-GPT to yield the tar- | Unnamed: 0: | a new structured pruning metric that evalu-: teractions lead to effective task-specific comRow 32: some degree of performance degradation. To over-: get SLM. This pruning process is informed by both | Unnamed: 0: | a new structured pruning metric that evalu-: pression while maintaining privacy, achieving
+Row 33: some degree of performance degradation. To over-: the synthetic data and their associated rationales. | Unnamed: 0: | a new structured pruning metric that evalu-: results competitive with full-sized LLMs.
+Row 34: some degree of performance degradation. To over-: Following the pruning of the LLMo, the server | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 35: some degree of performance degradation. To over-: retrains the target SLM through CoT (Wei et al., | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 36: some degree of performance degradation. To over-: 2022; Hsieh et al., 2023; Li et al., 2023) knowledge 2 | Unnamed: 0: Related Work | a new structured pruning metric that evalu-:
+Row 37: some degree of performance degradation. To over-: distillation, leveraging the same synthetic data and | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 38: some degree of performance degradation. To over-: 2.1 | Unnamed: 0: | a new structured pruning metric that evalu-: Differential Privacy
+Row 39: some degree of performance degradation. To over-: rationales. Lastly, the server dispatches the refined | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 40: some degree of performance degradation. To over-: target SLM to the client, who then proceeds to re- In this section, | Unnamed: 0: | a new structured pruning metric that evalu-: We briefly revisit two important
+Row 41: some degree of performance degradation. To over-: train the target SLM utilizing its locally private definitions of differential privacy: ε-Differential | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 42: some degree of performance degradation. To over-: data. Privacy and Exponential Mechanism (EM). | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 43: some degree of performance degradation. To over-: DefinitionOur contributions can be summarized as follows: | Unnamed: 0: ε-Differential | a new structured pruning metric that evalu-: Privacy (DP). The
+Row 44: some degree of performance degradation. To over-: of ε-Differential | Unnamed: 0: | a new structured pruning metric that evalu-: Privacy (DP) (Dwork, 2006).
+Row 45: some degree of performance degradation. To over-: • Unified Framework for Federated LLM | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 46: some degree of performance degradation. To over-: A | Unnamed: 0: randomized | a new structured pruning metric that evalu-: algorithm M : D → S is εRow 47: some degree of performance degradation. To over-: Compression. We propose PPC-GPT, the | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 48: some degree of performance degradation. To over-: Differential | Unnamed: 0: | a new structured pruning metric that evalu-: Privacy if for any two neighboring
+Row 49: some degree of performance degradation. To over-: first holistic framework designed to system- datasets D1, D2 ∈ D that differ exactly in a single | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 50: some degree of performance degradation. To over-: atically unify privacy-preserving techniques | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 51: some degree of performance degradation. To over-: data sample, and for any output O ⊆ S: | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 52: some degree of performance degradation. To over-: with LLM compression in a federated learn- | Unnamed: 0: | a new structured pruning metric that evalu-:
+Row 53: some degree of performance degradation. To over-: ing context. Its core innovation lies in the | Unnamed: 0: | a new structured pruning metric that evalu-: εPr[M(D1) ∈ O] ≤ e Pr[M(D2) ∈ O] (1)
+[/TABLE]
+
+[PAGE 3]
+Figure 1: The overview of our proposedPPC-GPT. The PPC-GPT comprises four key components: (1) The
+Exponential Mechanism-based Data Perturbation, which perturbs the client’s data to ensure privacy; (2) The
+CoT-Guided Synthetic Data Generation, responsible for creating new synthetic data and rationales based on the
+perturbed data; (3) TheRationale-Aware Structured Pruning, a process that prunes original LLMo to obtain the
+target smaller SLM ; (4) TheRetraining SLM, where the target SLM is retrained using both synthetic and original
+private data to restore accuracy.
+where the sensitivity△uis defined as:
+△u= max
+x,x′ ∈X,y∈Y
+|u(x, y)−u(x
+′
+, y)| (3)
+2.2 Differential Privacy Synthetic Data
+A practical approach to generating private synthetic
+data involves training a language model, such as
+LLaMA2-7B (Touvron et al., 2023), on private data
+using DP through DP-SGD (Song et al., 2013; Bassily et al., 2014; Abadi et al., 2016). Subsequently,
+the DP model is sampled repeatedly to produce
+synthetic data (Mattern et al., 2022; Yue et al.,
+2023; Kurakin et al., 2023). Research conducted
+by (Mattern et al., 2022; Yue et al., 2023; Kurakin
+et al., 2023) demonstrates that training downstream
+models on DP synthetic data achieves performance
+comparable to training directly on real data with
+DP, thereby underscoring the high quality of the
+synthetic data.
+However, a significant challenge arises because
+cutting-edge LLMs, like GPT-4, do not offer
+model weights, making DP fine-tuning impractical.
+Even for open-source LLMs, such as LLaMA370B (Dubey et al., 2024), the process is resourceintensive. Meanwhile, these DP fine-tuning methods inherently rely on a trusted server to gather
+data from data owners for model training (Chen
+et al., 2023), significantly limiting their applicability in scenarios where such trusted servers are not
+available, as is the case in our research context. In
+the context of this work, we operate within a clientserver architecture where fine-tuning the LLM on
+the server is not an option.
+2.3 Model Pruning
+Model pruning, initially proposed by (LeCun et al.,
+1989) and subsequently enhanced by (Han et al.,
+2015), stands as a resilient and efficient strategy for
+mitigating model redundancy and attaining compression. This methodology branches into two primary techniques:unstructured pruning and structured pruning.
+Unstructured pruning (Dong et al., 2017; Lee
+et al., 2019; Wang et al., 2020; Sun et al., 2024;
+Frantar and Alistarh, 2023) can obtain highly compressed models by directly pruning neurons, disregarding the model’s internal architecture, which
+also causes unstructured sparsity and hard deployment. A more pragmatic and structured option
+is structured pruning.Structured pruningtargets
+organized patterns for removal, encompassing entire layers (Jha et al., 2023), attention heads within
+Multi-Head Attention (MHA) mechanisms (Michel
+et al., 2019), hidden sizes in Feedforward Neural
+Networks (FFN) (Nova et al., 2023), as well as hybrid configurations (Kurti´c et al., 2024). In recent
+times, there has been a surge in structured pruning
+research tailored specifically for LLMs. For ex-
+
+[TABLE page=3 index=1]
+Columns: by (Mattern et al., 2022; Yue et al., 2023; Kurakin | Unstructured pruning (Dong et al., 2017; Lee
+Row 1: by (Mattern et al., 2022; Yue et al., 2023; Kurakin: et al., 2023) demonstrates that training downstream | Unstructured pruning (Dong et al., 2017; Lee: et al., 2019; Wang et al., 2020; Sun et al., 2024;
+Row 2: by (Mattern et al., 2022; Yue et al., 2023; Kurakin: models on DP synthetic data achieves performance | Unstructured pruning (Dong et al., 2017; Lee: Frantar and Alistarh, 2023) can obtain highly comRow 3: by (Mattern et al., 2022; Yue et al., 2023; Kurakin: comparable to training directly on real data with | Unstructured pruning (Dong et al., 2017; Lee: pressed models by directly pruning neurons, disRow 4: by (Mattern et al., 2022; Yue et al., 2023; Kurakin: DP, thereby underscoring the high quality of the | Unstructured pruning (Dong et al., 2017; Lee: regarding the model’s internal architecture, which
+[/TABLE]
+
+[TABLE page=3 index=2]
+Columns: ods inherently rely on a trusted server to gather | Networks (FFN) (Nova et al., 2023), as well as hyRow 1: ods inherently rely on a trusted server to gather: data from data owners for model training (Chen | Networks (FFN) (Nova et al., 2023), as well as hy-: brid configurations (Kurtić et al., 2024). In recent
+Row 2: ods inherently rely on a trusted server to gather: et al., 2023), significantly limiting their applicabil- | Networks (FFN) (Nova et al., 2023), as well as hy-: times, there has been a surge in structured pruning
+[/TABLE]
+
+[PAGE 4]
+ample, ShortGPT (Men et al., 2024), LaCo (Yang
+et al., 2024), and Shortened LLaMA (Kim et al.,
+2024) concentrate solely on pruning depth (i.e.,
+layer-wise). LLM-Pruner (Ma et al., 2023) eliminates coupled structures in relation to network
+width while preserving the layer count. ShearedLLaMA (Xia et al., 2024) introduces a mask learning phase that is designed to pinpoint prunable
+components in both network width and depth. Our
+work falls in the category of structured pruning of
+LLMs.
+3 Problem Formulation
+Given an LLM fθ with parameters θ, which represents the original LLM that requires pruning, and
+a task-specific dataset D containing private data,
+our objective is to develop a target smaller, taskspecific compressed SLM fϕ parameterized by ϕ.
+To acheive this, we seek to find the optimal pruning strategy P and retraining approach R. The
+objective can be formulated as follows:
+min
+P,R
+L(ϕ;θ,D)
+s.t.|ϕ| ≪ |θ|andL p(D)< δ
+(4)
+where L(ϕ;θ,D) is the loss function measuring the
+performance of the compressed SLM on the taskspecific dataset. |ϕ| and |θ| denote the number of
+parameters in the compressed and original models,
+respectively. Lp(D) is the privacy loss incurred due
+to the perturbation of the data to ensure differential
+privacy.
+Our goal is to find the optimal pruning strategy
+P and retraining approach R that minimizes the
+overall loss, taking into account both the performance of the compressed SLM and the privacy
+protection of the task-specific data in the client.
+We assume the server to besemi-honest, meaning
+it may attempt to extract the client’s private data
+from the information it receives.
+4 The Proposed PPC-GPT Framework
+In this section, we introduce PPC-GPT, a unified
+privacy-preserving federated framework for compressing LLMs into task-specific SLMs. We illustrate the PPC-GPT architecture in Figure 1. As
+detailed in Algorithm 1, our framework comprises
+four key modules that work in concert:
+• Exponential Mechanism-based Data Perturbation: Ensures privacy protection through
+exponential mechanism.
+Algorithm 1PPC-GPT
+Require: Private dataset D={(x i, yi)}N
+i=1,
+LLMsyn for synthetic data generation, Original LLMo fθ that requires pruning, Privacy
+budgetϵ
+Ensure: Task-specific SLM fϕ with privacy guarantees
+1: Phase 1: Exponential Mechanism-based
+Data Perturbation
+2: Apply Exponential Mechanism M to D with
+budgetϵ
+3: Generate Dp ={(x p
+i )}N
+i=1 according to Eq.(5)
+4: Phase 2: CoT-guided Synthetic Data Generation
+5: Server’s LLMsyn processes Dp to generate
+synthetic data
+6:GenerateD s ={(x s
+i ,(y s
+i , rs
+i ))}Ns
+i=1
+7: Phase 3: Rationale-Aware Structured Pruning
+8: Calculate Block Influence scores using Ds according to Eq.(7)
+9:Identify redundant layers based on BI values
+10: Obtain pruned model structurefϕ where |ϕ| ≪
+|θ|
+11: Phase 4: Retraining SLM via Two-Stage
+Knowledge Distillation
+12: Server performs CoT distillation using Ds according to Eq.(8), (9), (10)
+13: Client fine-tunes with private dataD according
+to Eq.(11)
+14:returnCompressed task-specific SLMf ϕ
+• CoT-guided Synthetic Data Generation: Creates high-quality synthetic data and rationales.
+• Rationale-Aware Structured Pruning: Leverages synthetic data and rationales for model
+compression.
+• Retraining SLM: Optimizes the compressed
+model through two-stage knowledge distillation.
+We elaborate on these modules in Section 4.1,
+4.2, 4.3 and 4.4, respectively. Through this integrated approach, PPC-GPT effectively addresses
+the challenges of privacy-preserving LLM compression while maintaining task-specific performance.
+
+[TABLE page=4 index=1]
+Columns: where L(φ; θ,D) is the loss function measuring the | Unnamed: 0 | Knowledge Distillation
+Row 1: where L(φ; θ,D) is the loss function measuring the: performance of the compressed SLM on the task- | Unnamed: 0: 12: | Knowledge Distillation: Server performs CoT distillation using Ds acRow 2: where L(φ; θ,D) is the loss function measuring the: specific dataset. |φ| and |θ| denote the number of | Unnamed: 0: | Knowledge Distillation: cording to Eq.(8), (9), (10)
+Row 3: where L(φ; θ,D) is the loss function measuring the: parameters in the compressed and original models, | Unnamed: 0: 13: | Knowledge Distillation: Client fine-tunes with private data D according
+Row 4: where L(φ; θ,D) is the loss function measuring the: respectively. Lp(D) is the privacy loss incurred due | Unnamed: 0: | Knowledge Distillation: to Eq.(11)
+Row 5: where L(φ; θ,D) is the loss function measuring the: to the perturbation of the data to ensure differential | Unnamed: 0: 14: | Knowledge Distillation: return Compressed task-specific SLM fφ
+[/TABLE]
+
+[TABLE page=4 index=2]
+Columns: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT | Unnamed: 0 | Unnamed: 1
+Row 1: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: et al., 2024), and Shortened LLaMA (Kim et al., Require: Private dataset D = | Unnamed: 0: {(xi, yi)} | Unnamed: 1: Ni=1,
+Row 2: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: 2024) concentrate solely on pruning depth (i.e., LLMsyn for synthetic data generation, Orig- | Unnamed: 0: | Unnamed: 1:
+Row 3: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: layer-wise). LLM-Pruner (Ma et al., 2023) elim- inal LLMo fθ that requires pruning, Privacy | Unnamed: 0: | Unnamed: 1:
+Row 4: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: inates coupled structures in relation to network budget ε | Unnamed: 0: | Unnamed: 1:
+Row 5: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: width while preserving the layer count. Sheared- Ensure: Task-specific SLM fφ with privacy guar- | Unnamed: 0: | Unnamed: 1:
+Row 6: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: LLaMA (Xia et al., 2024) introduces a mask learn- antees | Unnamed: 0: | Unnamed: 1:
+Row 7: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: ing phase that is designed to pinpoint prunable | Unnamed: 0: | Unnamed: 1:
+Row 8: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: 1: Phase 1: Exponential Mechanism-based | Unnamed: 0: | Unnamed: 1:
+Row 9: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: components in both network width and depth. Our Data Perturbation | Unnamed: 0: | Unnamed: 1:
+Row 10: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: work falls in the category of structured pruning of | Unnamed: 0: | Unnamed: 1:
+Row 11: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: 2: Apply Exponential Mechanism M to D with | Unnamed: 0: | Unnamed: 1:
+Row 12: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: LLMs. budget ε | Unnamed: 0: | Unnamed: 1:
+Row 13: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: p | Unnamed: 0: | Unnamed: 1:
+Row 14: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: i=1 according to Eq.(5)3 Problem Formulation 3: Generate Dp = {(x )}iN | Unnamed: 0: | Unnamed: 1:
+Row 15: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: 4: Phase 2: CoT-guided Synthetic Data Gener- | Unnamed: 0: | Unnamed: 1:
+Row 16: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: Given an LLM fθ with parameters θ, which repre- ation | Unnamed: 0: | Unnamed: 1:
+Row 17: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: sents the original LLM that requires pruning, and 5: Server’s LLMsyn processes Dp | Unnamed: 0: to generate | Unnamed: 1:
+Row 18: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: a task-specific dataset D containing private data, synthetic data | Unnamed: 0: | Unnamed: 1:
+Row 19: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: our objective is to develop a target smaller, task- 6: Generate Ds = {(xs, (ys, rsi i i ))} | Unnamed: 0: Ni=1s | Unnamed: 1:
+Row 20: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: specific compressed SLM fφ parameterized by φ. 7: Phase 3: Rationale-Aware Structured Prun- | Unnamed: 0: | Unnamed: 1:
+Row 21: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: To acheive this, we seek to find the optimal prun- ing | Unnamed: 0: | Unnamed: 1:
+Row 22: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: ing strategy P and retraining approach R. The 8: Calculate Block Influence scores using Ds ac- | Unnamed: 0: | Unnamed: 1:
+Row 23: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: objective can be formulated as follows: cording to Eq.(7) | Unnamed: 0: | Unnamed: 1:
+Row 24: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: 9: Identify redundant layers based on BI values | Unnamed: 0: | Unnamed: 1:
+Row 25: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: minL(φ; θ,D) | Unnamed: 0: | Unnamed: 1:
+Row 26: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: P,R Obtain pruned model structure fφ where |φ| ≪(4)10: | Unnamed: 0: | Unnamed: 1:
+Row 27: ample, ShortGPT (Men et al., 2024), LaCo (Yang Algorithm 1 PPC-GPT: s.t. |φ| ≪ |θ| and L (D) < δ p|θ| | Unnamed: 0: | Unnamed: 1:
+[/TABLE]
+
+[PAGE 5]
+4.1 Exponential Mechanism-based Data
+Perturbation
+We utilize an exponential mechanism (McSherry
+and Talwar, 2007; Yue et al., 2021; Chen et al.,
+2023) to perturb the local private data D=
+{(xi, yi)}N
+i=1, which satisfies the criteria for the
+ϵ-DP. For detailed information about the exponential mechanism, please refer to Section 2.1. We
+denote the perturbed dataset as Dp ={(x p
+i )}N
+i=1,
+where xp
+i signifies an perturbed input based on the
+original local private datasetD.
+The Exponential Mechanism M is defined as a
+randomized algorithm that, given the original local
+private dataset D, outputs the perturbed dataset Dp
+with probability proportional to the exponential
+of the utility score (in this work, we use cosine
+similarity as the utility function):
+M(D) =D p with prob∝exp( ϵ·u(D,D p)
+2△u )
+(5)
+4.2 CoT-guided Synthetic Data Generation
+When the server-side LLMsyn receives the perturbed data Dp, the server initiates a procedure
+where LLMsyn generates fresh synthetic data
+along with their corresponding rationales based
+on these perturbed data. We denote the synthetic
+dataset as Ds ={(x s
+i ,(y s
+i , rs
+i ))}Ns
+i=1, where xs
+i signifies an input, ys
+i signifies the corresponding expected output label, rs
+i signifies the desired rationale, and Ns represents the sample size of synthetic
+data.
+As illustrated in Figure 2, we introduce a simple
+and efficient method for generating synthetic data,
+utilizing prompt engineering techniques and CoT
+technology:
+1. Question Generation.We prompt LLMsyn
+to create a new question, starting from a
+perturbed question. To enhance the validity of these new created questions, we enforce three guidelines within the prompt: (1)
+the new question needs to conform to common knowledge, (2) it must be solvable on
+its own, independent of the original question,
+and (3) it should not contain any answer responses. Furthermore, we establish specific
+formatting standards for both questions and
+answers, customized to suit the needs of various datasets (Li et al., 2024).
+2. Answer Generation.We instruct LLMsyn to
+generate a CoT response for every newly created question. For consistency, we request
+LLMsyn to generate answers to the same
+question three times and check for agreement.
+If the answers differ, we reject the synthetic
+data.
+3. Rationale Generation.We request LLMsyn
+to generate rationales for each synthetic data
+using the CoT prompting technique.
+Detailed prompt designs are presented in Appendix C. The generated synthetic data and their
+rationales are then employed for model pruning
+and retraining on the server-side.
+Figure 2: CoT-Guided Synthetic Data Generation.
+4.3 Rationale-Aware Structured Pruning
+LLMs exhibit layer-wise redundancy, with deeper
+layers often showing higher levels of functional
+overlap. To identify and remove redundant layers
+effectively, we need a quantitative metric that can
+assess each layer’s contribution to the model’s performance. This intrinsic metric should evaluate
+both the layer’s individual importance and its interaction with other layers in maintaining the model’s
+overall functionality.
+To quantify the impact of each layer, we use a
+novel metric termed "Block Influence" (BI), which
+is proposed in the ShortGPT (Men et al., 2024).
+This metric is grounded in the hypothesis that a
+transformer block’s significance is directly proportional to the extent it modifies the hidden states.
+Mathematically, the BI score for the ith block is
+computed as:
+BIi = 1−E X,t
+"
+X T
+i,tXi+1,t
+||Xi,t||2||Xi+1,t||2
+#
+,(6)
+where Xi denotes the input to the ith layer, and
+Xi,t represents thet th row ofX i.
+On the server, we utilize the synthetic dataset
+Ds, as described in Section 4.2, to compute the BI
+
+[TABLE page=5 index=1]
+Columns: where x signifies an perturbed input based on thei | Unnamed: 0 | using the CoT prompting technique.
+Row 1: where x signifies an perturbed input based on thei: original local private dataset D . | Unnamed: 0: | using the CoT prompting technique.:
+Row 2: where x signifies an perturbed input based on thei: | Unnamed: 0: | using the CoT prompting technique.: Detailed prompt designs are presented in ApRow 3: where x signifies an perturbed input based on thei: The Exponential Mechanism M is defined as a | Unnamed: 0: | using the CoT prompting technique.:
+Row 4: where x signifies an perturbed input based on thei: | Unnamed: 0: | using the CoT prompting technique.: pendix C. The generated synthetic data and their
+Row 5: where x signifies an perturbed input based on thei: randomized algorithm that, given the original local | Unnamed: 0: | using the CoT prompting technique.:
+Row 6: where x signifies an perturbed input based on thei: | Unnamed: 0: | using the CoT prompting technique.: rationales are then employed for model pruning
+Row 7: where x signifies an perturbed input based on thei: private dataset D, outputs the perturbed dataset Dp | Unnamed: 0: | using the CoT prompting technique.:
+Row 8: where x signifies an perturbed input based on thei: | Unnamed: 0: | using the CoT prompting technique.: and retraining on the server-side.
+Row 9: where x signifies an perturbed input based on thei: with probability proportional to the exponential | Unnamed: 0: | using the CoT prompting technique.:
+Row 10: where x signifies an perturbed input based on thei: of the utility score (in this work, we use cosine | Unnamed: 0: | using the CoT prompting technique.:
+Row 11: where x signifies an perturbed input based on thei: similarity as the utility function): | Unnamed: 0: | using the CoT prompting technique.:
+Row 12: where x signifies an perturbed input based on thei: ε · u(D,Dp) | Unnamed: 0: | using the CoT prompting technique.:
+Row 13: where x signifies an perturbed input based on thei: M(D) = Dp with prob ∝ exp( ) | Unnamed: 0: | using the CoT prompting technique.:
+Row 14: where x signifies an perturbed input based on thei: 2△ u | Unnamed: 0: | using the CoT prompting technique.:
+Row 15: where x signifies an perturbed input based on thei: (5) | Unnamed: 0: | using the CoT prompting technique.:
+Row 16: where x signifies an perturbed input based on thei: 4.2 CoT-guided Synthetic Data Generation | Unnamed: 0: | using the CoT prompting technique.:
+Row 17: where x signifies an perturbed input based on thei: When the server-side LLM synreceives the per- | Unnamed: 0: | using the CoT prompting technique.: Figure 2: CoT-Guided Synthetic Data Generation.
+Row 18: where x signifies an perturbed input based on thei: turbed data Dp, the server initiates a procedure | Unnamed: 0: | using the CoT prompting technique.:
+Row 19: where x signifies an perturbed input based on thei: where LLMsyn generates fresh synthetic data | Unnamed: 0: | using the CoT prompting technique.: 4.3 Rationale-Aware Structured Pruning
+Row 20: where x signifies an perturbed input based on thei: along with their corresponding rationales based | Unnamed: 0: | using the CoT prompting technique.:
+Row 21: where x signifies an perturbed input based on thei: | Unnamed: 0: | using the CoT prompting technique.: LLMs exhibit layer-wise redundancy, with deeper
+Row 22: where x signifies an perturbed input based on thei: on these perturbed data. We denote the synthetic | Unnamed: 0: | using the CoT prompting technique.:
+Row 23: where x signifies an perturbed input based on thei: N | Unnamed: 0: | using the CoT prompting technique.: layers often showing higher levels of functional
+Row 24: where x signifies an perturbed input based on thei: dataset as Ds = {(xsi , (yi , rsi ))}si=1 s , where xs sig-i | Unnamed: 0: | using the CoT prompting technique.:
+Row 25: where x signifies an perturbed input based on thei: nifies an input, yi s signifies the corresponding ex- | Unnamed: 0: | using the CoT prompting technique.: overlap. To identify and remove redundant layers
+Row 26: where x signifies an perturbed input based on thei: pected output label, ri s signifies the desired ratio- | Unnamed: 0: | using the CoT prompting technique.: effectively, we need a quantitative metric that canassess each layer’s contribution to the model’s per-
+[/TABLE]
+
+[PAGE 6]
+score for each layer of the LLMo model, denoted
+as fθo. This model represents the original LLM
+that requires pruning.
+The original BI method (Men et al., 2024) relies solely on input and task label information, processed through a single forward pass: fθ(xs
+i )→y s
+i .
+We further extend the BI computation to encompass two distinct facets of influence: fθ(xs
+i )→y s
+i
+and fθ(xs
+i )→r s
+i . This enhancement not only facilitates the prediction of task labels but also enables
+the generation of corresponding rationales based
+on the inputs.Our novel BI score is determined as
+follows:
+BIi =BI Label,i +BI Rationale,i (7)
+where BILabel,i and BIRationale,i signify the influences pertaining to label predictions and rationale
+generation, respectively.
+A higher BI score indicates greater layer importance in the model architecture. As illustrated in
+Figure 3, we leverage these BI scores to guide our
+pruning strategy: layers are arranged in ascending order based on their BI scores, and those with
+lower scores are systematically removed to obtain
+the pruned model structure SLMf ϕ.
+Figure 3: Layer Importance Example: The significance
+of each layer, as indicated by the BI (Block Influence)
+value of LLaMA2-7B on the OBQA dataset, based on
+the PPC-GPT framework.
+4.4 Retraining
+We employ the term "retraining" to designate the
+process of performance recovery subsequent to
+pruning. In this section, retraining is divided into
+two stages: (1)Server-side Retraining, and (2)
+Client-side Retraining.
+Server-side Retraining.On the server side, we
+utilize the synthetic dataset Ds, as described in
+Section 4.2, to retrain the pruned model SLM fϕ.
+We propose CoT knowledge distillation, guided by
+rationales generated by LLMsyn, to enhance the
+performance of SLM fϕ. Formally, we conceptualize the learning process with rationales as amultitask learningproblem (Zhang and Yang, 2021; Wei
+et al., 2022; Hsieh et al., 2023). Specifically, we
+train the model fϕ(xs
+i )→(y s
+i , rs
+i ) to achieve not
+only the prediction of task labels but also the generation of corresponding rationales based on textual inputs. This multi-task training ensures that
+our model produces not only accurate predictions
+but also insightful justifications for its decisions,
+thereby enhancing the model’s transparency and
+explainability. The multi-task learning objective
+can be formulated as follows:
+L=L Label +L Rationale (8)
+whereL Label represents the label prediction loss:
+LLabel(ϕ;D s) =E (xs,ys)∼DsℓCE(fϕ(xs), ys)(9)
+and LRationale represents the rationale generation
+loss:
+LRationale(ϕ;D s) =E (xs,rs)∼DsℓCE(fϕ(xs), rs)
+(10)
+whereℓ CE denotes the cross-entropy loss.
+Client-side Retraining.On the client side, we
+utilize local private data D to further retrain the
+pruned model, SLM fϕ, once it has been received
+from the server.Our work encompasses conventional training, leveraging ground truth labels to
+further enhance the performance of SLM fϕ. Formally, the label prediction loss for this dataset D is
+formulated as follows:
+LLabel(ϕ;D) =E (x,y)∼DℓCE(fϕ(x), y)(11)
+5 Experiments
+5.1 Setup
+We have devised a scenario to assess the performance of the PPC-GPT framework across various
+text generation tasks. This setup employs a clientserver architecture, where the server hosts anauxiliary LLMfor synthetic data generation, denoted as
+LLMsyn. Specifically, we have selected LLaMA370B (Dubey et al., 2024) for this purpose. For
+model pruning, we utilize LLaMA2-7B (Touvron
+et al., 2023) and OPT-6.7B (Zhang et al., 2022)
+as the source models, denoted as LLMo. In the
+default setting, the privacy budget ϵ= 3 , and the
+synthetic data ratio is 8.
+
+[TABLE page=6 index=1]
+Columns: itates the prediction of task labels but also enables | our model produces not only accurate predictions
+Row 1: itates the prediction of task labels but also enables: the generation of corresponding rationales based | our model produces not only accurate predictions: but also insightful justifications for its decisions,
+Row 2: itates the prediction of task labels but also enables: on the inputs. Our novel BI score is determined as | our model produces not only accurate predictions: thereby enhancing the model’s transparency and
+Row 3: itates the prediction of task labels but also enables: follows: | our model produces not only accurate predictions: explainability. The multi-task learning objective
+Row 4: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: can be formulated as follows:
+Row 5: itates the prediction of task labels but also enables: BIi = BILabel,i + BIRationale,i (7) | our model produces not only accurate predictions:
+Row 6: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: L = LLabel + LRationale (8)
+Row 7: itates the prediction of task labels but also enables: where BILabel,i and BIRationale,i signify the influ- | our model produces not only accurate predictions:
+Row 8: itates the prediction of task labels but also enables: ences pertaining to label predictions and rationale | our model produces not only accurate predictions: where LLabel represents the label prediction loss:
+Row 9: itates the prediction of task labels but also enables: generation, respectively. | our model produces not only accurate predictions:
+Row 10: itates the prediction of task labels but also enables: A higher BI score indicates greater layer impor- | our model produces not only accurate predictions:
+Row 11: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: s s
+Row 12: itates the prediction of task labels but also enables: tance in the model architecture. As illustrated in | our model produces not only accurate predictions: LLabel(φ;Ds) = E(xs,ys)∼D lCE(fφ(x ), y ) s(9)
+Row 13: itates the prediction of task labels but also enables: Figure 3, we leverage these BI scores to guide our | our model produces not only accurate predictions:
+Row 14: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: and LRationale represents the rationale generation
+Row 15: itates the prediction of task labels but also enables: pruning strategy: layers are arranged in ascend- | our model produces not only accurate predictions:
+Row 16: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: loss:
+Row 17: itates the prediction of task labels but also enables: ing order based on their BI scores, and those with | our model produces not only accurate predictions:
+Row 18: itates the prediction of task labels but also enables: lower scores are systematically removed to obtain | our model produces not only accurate predictions: L Rationale(φ; D s) = E(xs,rs)∼D l s CE (f (x ), r )φs s
+Row 19: itates the prediction of task labels but also enables: the pruned model structure SLM fφ. | our model produces not only accurate predictions: (10)
+Row 20: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: where lCE denotes the cross-entropy loss.
+Row 21: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: Client-side Retraining. On the client side, we
+Row 22: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: utilize local private data D to further retrain the
+Row 23: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: pruned model, SLM fφ, once it has been received
+Row 24: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: from the server. Our work encompasses convenRow 25: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: tional training, leveraging ground truth labels to
+Row 26: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: further enhance the performance of SLM fφ. ForRow 27: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: mally, the label prediction loss for this dataset D is
+Row 28: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: formulated as follows:
+Row 29: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: LLabel(φ;D) = E(x,y)∼DlCE(fφ(x), y) (11)
+Row 30: itates the prediction of task labels but also enables: Figure 3: Layer Importance Example: The significance | our model produces not only accurate predictions:
+Row 31: itates the prediction of task labels but also enables: of each layer, as indicated by the BI (Block Influence) | our model produces not only accurate predictions: 5 Experiments
+Row 32: itates the prediction of task labels but also enables: value of LLaMA2-7B on the OBQA dataset, based on | our model produces not only accurate predictions:
+Row 33: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: 5.1 Setup
+Row 34: itates the prediction of task labels but also enables: the PPC-GPT framework. | our model produces not only accurate predictions:
+Row 35: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: We have devised a scenario to assess the perforRow 36: itates the prediction of task labels but also enables: | our model produces not only accurate predictions: mance of the PPC-GPT framework across various
+Row 37: itates the prediction of task labels but also enables: 4.4 Retraining | our model produces not only accurate predictions: text generation tasks. This setup employs a clientRow 38: itates the prediction of task labels but also enables: We employ the term "retraining" to designate the | our model produces not only accurate predictions: server architecture, where the server hosts an auxilRow 39: itates the prediction of task labels but also enables: process of performance recovery subsequent to | our model produces not only accurate predictions: iary LLM for synthetic data generation, denoted as
+Row 40: itates the prediction of task labels but also enables: pruning. In this section, retraining is divided into | our model produces not only accurate predictions: LLMsyn. Specifically, we have selected LLaMA3-
+[/TABLE]
+
+[PAGE 7]
+Datasets and Evaluation Metrics. We conduct a comparative evaluation of PPC-GPT on
+QA datasets. Specifically, we include CommonsenseQA (CQA) (Talmor et al., 2019), OpenBookQA (OBQA) (Mihaylov et al., 2018), ARCC (Clark et al., 2018), ARC-E (Clark et al., 2018),
+FiQA-SA (Maia et al., 2018). For these datasets,
+we primarily useAccuracyas the evaluation metric.
+It’s worth noting that in our experiments, all methods undergo zero-shot evaluation and we use the
+lm-evaluation-harnesspackage (Gao et al., 2023).
+Baselines. To evaluate the performance of our
+PPC-GPT framework, we conducted a comparative
+analysis against the following baselines:
+• DenseSFT, where the client independently
+fine-tunesLLM o using its private dataset.
+• Plain-C, where the client independently
+prunes LLMo using its private dataset (suppose the client can deploy LLMo) and subsequently fine-tunes the pruned model.
+• DP-Instruct-C (Yu et al., 2024), where the
+client finetunes generator (e.g., LLaMA21.3B) with DP-SGD and using synthetic
+datasets generated from generator to prune
+LLMo and subsequently fine-tunes the
+pruned model with the private dataset.
+5.2 Main Results
+In our experiments, we extensively evaluated the
+performance of the proposed PPC-GPT framework
+across various text generation tasks. Notably, given
+that current structured pruning methods typically
+reduce parameters by no more than 30%, we conducted experiments with approximately 30% of the
+parameters pruned. Additional experiments exploring different parameter reduction proportions will
+be discussed in Section 5.3.5.
+As shown in Table 1, the results highlight the
+effectiveness of PPC-GPT in compressing LLMs
+into task-specific SLMs while prioritizing data privacy protection, when compared to other baseline approaches. PPC-GPT outperforms the DPInstruct-C method, which utilizes DP-SGD for privacy protection during model compression. Furthermore, PPC-GPT even surpasses the Plain-C
+method, which directly compresses the model using private data. Additionally, when compared
+to DenseSFT, the compressed model in PPC-GPT
+even outperforms the raw model on some datasets.
+Specifically, taking LLaMA2-7B for an example,
+in the LLaMA2-7B model, PPC-GPT outperforms
+the DP-Instruct-C method by 0.4%, 5.2%, 5%,
+15.1%, and 1.8% on the CQA, OBQA, ARC-E,
+ARC-C, and FiQA-SA datasets, respectively. Similarly, PPC-GPT exceeds the Plain-C method by
+0.7%, 2%, 4.5%, 8.2%, and 1.6% on the respective
+datasets.
+5.3 Ablation Study
+5.3.1 Impact of Different Privacy Budgets
+In this section, we explore the impact of privacy
+budgets on the performance of PPC-GPT. Table 2
+presents PPC-GPT’s performance across a range
+of privacy budgets (ϵ= 1,3,5,10 ). Notably, when
+juxtaposed with Table 1, it becomes apparent that
+even with a privacy budget of ϵ= 1 , PPC-GPT
+outperforms the Plain-C method by 1.7% and 3.4%
+on the OBQA and ARC-E datasets, respectively,
+within the LLaMA2-7B model. Similarly, PPCGPT exceeds it by 14% and 14.4% in the OPT6.7B model. As the privacy budget ϵ increases,
+PPC-GPT’s performance demonstrates a significant improvement, highlighting its proficiency and
+adaptability in achieving a balance between privacy
+and utility.
+5.3.2 Impact of Different Synthetic Data
+In this section, we explore the impact of synthetic
+data on PPC-GPT’s performance, considering two
+dimensions: the synthetic data ratio and the inclusion of rationales in synthetic data.
+Synthetic Data Ratio. Table 3 presents the performance of PPC-GPT across various synthetic
+data ratios (ratio = 1, 2, 4, 8). As the ratio of
+synthetic data increases, PPC-GPT’s performance
+exhibits a substantial improvement, highlighting
+the crucial role of the synthetic data ratio and indicating that a higher amount of synthetic data results
+in further improvements. Specifically, PPC-GPT
+with the synthetic data ratio of 8 outperforms the
+ratio of 1 by 1.7% and 4.1% on the OBQA and
+ARC-E datasets, respectively, within the LLaMA27B model. Similarly, with the OPT-6.7B model, it
+exceeds the ratio of 1 by 4.2% and 7.6%.
+Synthetic Data Rationales. We undertake an
+analysis to investigate the effects of rationales on
+PPC-GPT’s performance. Table 4 compares PPCGPT’s performance between synthetic data with
+and without rationales (PPC-GPT w/ rationales and
+PPC-GPT w/o rationales). The findings demonstrate that PPC-GPT exhibits superior performance
+when the rationales of synthetic data is utilized,
+
+[TABLE page=7 index=1]
+Columns: lm-evaluation-harness package (Gao et al., 2023). | In this section, we explore the impact of privacy
+Row 1: lm-evaluation-harness package (Gao et al., 2023).: Baselines. To evaluate the performance of our | In this section, we explore the impact of privacy: budgets on the performance of PPC-GPT. Table 2
+Row 2: lm-evaluation-harness package (Gao et al., 2023).: PPC-GPT framework, we conducted a comparative | In this section, we explore the impact of privacy: presents PPC-GPT’s performance across a range
+Row 3: lm-evaluation-harness package (Gao et al., 2023).: analysis against the following baselines: | In this section, we explore the impact of privacy: of privacy budgets (ε = 1, 3, 5, 10). Notably, when
+Row 4: lm-evaluation-harness package (Gao et al., 2023).: | In this section, we explore the impact of privacy: juxtaposed with Table 1, it becomes apparent that
+Row 5: lm-evaluation-harness package (Gao et al., 2023).: • DenseSFT, where the client independently | In this section, we explore the impact of privacy:
+Row 6: lm-evaluation-harness package (Gao et al., 2023).: | In this section, we explore the impact of privacy: even with a privacy budget of ε = 1, PPC-GPT
+Row 7: lm-evaluation-harness package (Gao et al., 2023).: fine-tunes LLMo using its private dataset. | In this section, we explore the impact of privacy:
+Row 8: lm-evaluation-harness package (Gao et al., 2023).: | In this section, we explore the impact of privacy: outperforms the Plain-C method by 1.7% and 3.4%
+Row 9: lm-evaluation-harness package (Gao et al., 2023).: • Plain-C, where the client independently | In this section, we explore the impact of privacy: on the OBQA and ARC-E datasets, respectively,
+Row 10: lm-evaluation-harness package (Gao et al., 2023).: prunes LLMo using its private dataset (sup- | In this section, we explore the impact of privacy: within the LLaMA2-7B model. Similarly, PPCRow 11: lm-evaluation-harness package (Gao et al., 2023).: pose the client can deploy LLMo) and subse- | In this section, we explore the impact of privacy: GPT exceeds it by 14% and 14.4% in the OPTRow 12: lm-evaluation-harness package (Gao et al., 2023).: quently fine-tunes the pruned model. | In this section, we explore the impact of privacy: 6.7B model. As the privacy budget ε increases,
+Row 13: lm-evaluation-harness package (Gao et al., 2023).: | In this section, we explore the impact of privacy: PPC-GPT’s performance demonstrates a signifiRow 14: lm-evaluation-harness package (Gao et al., 2023).: • DP-Instruct-C (Yu et al., 2024), where the | In this section, we explore the impact of privacy: cant improvement, highlighting its proficiency and
+Row 15: lm-evaluation-harness package (Gao et al., 2023).: client finetunes generator (e.g., LLaMA2- | In this section, we explore the impact of privacy: adaptability in achieving a balance between privacy
+Row 16: lm-evaluation-harness package (Gao et al., 2023).: 1.3B) with DP-SGD and using synthetic | In this section, we explore the impact of privacy: and utility.
+Row 17: lm-evaluation-harness package (Gao et al., 2023).: datasets generated from generator to prune | In this section, we explore the impact of privacy:
+Row 18: lm-evaluation-harness package (Gao et al., 2023).: LLM oand subsequently fine-tunes the | In this section, we explore the impact of privacy: 5.3.2 Impact of Different Synthetic Data
+Row 19: lm-evaluation-harness package (Gao et al., 2023).: pruned model with the private dataset. | In this section, we explore the impact of privacy: In this section, we explore the impact of synthetic
+Row 20: lm-evaluation-harness package (Gao et al., 2023).: | In this section, we explore the impact of privacy: data on PPC-GPT’s performance, considering two
+Row 21: lm-evaluation-harness package (Gao et al., 2023).: 5.2 Main Results | In this section, we explore the impact of privacy: dimensions: the synthetic data ratio and the incluRow 22: lm-evaluation-harness package (Gao et al., 2023).: In our experiments, we extensively evaluated the | In this section, we explore the impact of privacy: sion of rationales in synthetic data.
+Row 23: lm-evaluation-harness package (Gao et al., 2023).: performance of the proposed PPC-GPT framework | In this section, we explore the impact of privacy: Synthetic Data Ratio. Table 3 presents the perRow 24: lm-evaluation-harness package (Gao et al., 2023).: across various text generation tasks. Notably, given | In this section, we explore the impact of privacy: formance of PPC-GPT across various synthetic
+Row 25: lm-evaluation-harness package (Gao et al., 2023).: that current structured pruning methods typically | In this section, we explore the impact of privacy: data ratios (ratio = 1, 2, 4, 8). As the ratio of
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: senseQA (CQA) | (Talmor | et | al., | 2019), | Open- | Unnamed: 0 | ARC-C, and FiQA-SA datasets, respectively. SimRow 1: senseQA (CQA): BookQA (OBQA) (Mihaylov et al., 2018), ARC- | (Talmor: | et: | al.,: | 2019),: | Open-: | Unnamed: 0: | ARC-C, and FiQA-SA datasets, respectively. Sim-: ilarly, PPC-GPT exceeds the Plain-C method by
+Row 2: senseQA (CQA): C (Clark et al., 2018), ARC-E (Clark et al., 2018), | (Talmor: | et: | al.,: | 2019),: | Open-: | Unnamed: 0: | ARC-C, and FiQA-SA datasets, respectively. Sim-: 0.7%, 2%, 4.5%, 8.2%, and 1.6% on the respective
+[/TABLE]
+
+[TABLE page=7 index=3]
+Columns: parameters pruned. Additional experiments explor- | the crucial role of the synthetic data ratio and indiRow 1: parameters pruned. Additional experiments explor-: ing different parameter reduction proportions will | the crucial role of the synthetic data ratio and indi-: cating that a higher amount of synthetic data results
+Row 2: parameters pruned. Additional experiments explor-: be discussed in Section 5.3.5. | the crucial role of the synthetic data ratio and indi-: in further improvements. Specifically, PPC-GPT
+Row 3: parameters pruned. Additional experiments explor-: As shown in Table 1, the results highlight the | the crucial role of the synthetic data ratio and indi-: with the synthetic data ratio of 8 outperforms the
+Row 4: parameters pruned. Additional experiments explor-: effectiveness of PPC-GPT in compressing LLMs | the crucial role of the synthetic data ratio and indi-: ratio of 1 by 1.7% and 4.1% on the OBQA and
+Row 5: parameters pruned. Additional experiments explor-: into task-specific SLMs while prioritizing data pri- | the crucial role of the synthetic data ratio and indi-: ARC-E datasets, respectively, within the LLaMA2Row 6: parameters pruned. Additional experiments explor-: vacy protection, when compared to other base- | the crucial role of the synthetic data ratio and indi-: 7B model. Similarly, with the OPT-6.7B model, it
+Row 7: parameters pruned. Additional experiments explor-: line approaches. PPC-GPT outperforms the DP- | the crucial role of the synthetic data ratio and indi-: exceeds the ratio of 1 by 4.2% and 7.6%.
+Row 8: parameters pruned. Additional experiments explor-: Instruct-C method, which utilizes DP-SGD for pri- | the crucial role of the synthetic data ratio and indi-: Synthetic Data Rationales. We undertake an
+Row 9: parameters pruned. Additional experiments explor-: vacy protection during model compression. Fur- | the crucial role of the synthetic data ratio and indi-: analysis to investigate the effects of rationales on
+Row 10: parameters pruned. Additional experiments explor-: thermore, PPC-GPT even surpasses the Plain-C | the crucial role of the synthetic data ratio and indi-: PPC-GPT’s performance. Table 4 compares PPCRow 11: parameters pruned. Additional experiments explor-: method, which directly compresses the model us- | the crucial role of the synthetic data ratio and indi-: GPT’s performance between synthetic data with
+Row 12: parameters pruned. Additional experiments explor-: ing private data. Additionally, when compared | the crucial role of the synthetic data ratio and indi-: and without rationales (PPC-GPT w/ rationales and
+Row 13: parameters pruned. Additional experiments explor-: to DenseSFT, the compressed model in PPC-GPT | the crucial role of the synthetic data ratio and indi-: PPC-GPT w/o rationales). The findings demon-
+[/TABLE]
+
+[PAGE 8]
+DataSets
+Model Method Ratio (%) CQA OBQA ARC-E ARC-C FiQA-SA
+LLaMA2-7B
+DenseSFT 081.6 ±0.54 80.3±0.50 82.9±0.18 60.0±0.42 68.9±1.66
+Plain-C 3077.6 ±0.14 77.9±0.16 79.7±0.29 54.0±0.82 71.1±1.37
+DP-Instruct-C 3077.9 ±0.62 74.7±1.32 79.2±0.33 47.1±4.10 70.9±0.83
+PPC-GPT3078.3 ±0.41 79.9±0.57 84.2±0.33 62.2±0.61 72.7±0.54
+OPT-6.7B
+DenseSFT 075.4 ±0.64 60.0±0.99 65.8±0.70 31.4±0.86 70.0±1.09
+Plain-C 3047.4 ±1.12 36.5±1.48 40.2±0.89 27.6±0.37 52.4±1.37
+DP-Instruct-C 3058.7 ±2.04 39.7±1.04 44.5±2.53 28.6±1.72 54.5±1.67
+PPC-GPT3065.6 ±0.95 52.1±0.96 57.3±0.16 36.0±0.59 64.9±1.26
+Table 1: Performance Comparison of Compression Methods on LLMs.
+Privacy Budget(ϵ)
+Model Datasets Stage 1 3 5 10
+LLaMA2
+OBQA S 65.4 67.1 67.9 69.4
+C 79.6 79.9 80.1 79.8
+ARC-E S 78.8 80.4 79.9 79.5
+C 83.1 84.2 84.4 83.4
+OPT
+OBQA S 35.7 36.3 36.1 38.8
+C 50.5 52.1 52.4 53.5
+ARC-E S 49.1 50.4 49.3 50.5
+C 54.6 57.3 55.5 55.3
+Table 2: Comparison of PPC-GPT’s performance across
+different privacy budgetsϵ.Sdenotes the performance
+of target SLM on the server-side, whileCrepresents the
+performance of target SLM on the client-side.
+as compared to when it is absent. Specifically,
+PPC-GPT w/ rationales outperforms PPC-GPT w/o
+rationales by 0.8% and 0.9% on the OBQA and
+ARC-E datasets, respectively, within the LLaMA27B model. Similarly, with the OPT-6.7B model,
+PPC-GPT w/ rationales exceeds PPC-GPT w/o rationales by 7% and 9.1%.
+5.3.3 Impact of Server-Side Retraining
+In this section, we explore the impact of server-side
+retraining on the performance of PPC-GPT. Table 5
+presents a comparison of PPC-GPT’s performance
+with and without server-side retraining. The findings demonstrate that PPC-GPT exhibits superior
+performance when server-side retraining is utilized,
+as compared to when it is absent. Specifically,
+PPC-GPT w/ server-side retraining outperforms
+PPC-GPT w/o server-side retraining by 2% and
+4.5% on the OBQA and ARC-E datasets, respectively, within the LLaMA2-7B model. Similarly,
+Synthetic Data Ratio
+Model Datasets Stage 1 2 4 8
+LLaMA2
+OBQA S 62.3 64.6 64.6 67.1
+C 78.2 78.3 78.5 79.9
+ARC-E S 73.5 75.5 77.9 80.4
+C 80.1 80.8 82.3 84.2
+OPT
+OBQA S 32.9 34.7 36.9 36.3
+C 47.9 50.2 51.5 52.1
+ARC-E S 40.4 43.9 47.5 50.4
+C 49.7 52.3 54.9 57.3
+Table 3: Comparison of PPC-GPT’s performance across
+different synthetic data ratio.
+with the OPT-6.7B model, PPC-GPT w/ serverside retraining exceeds PPC-GPT w/o server-side
+retraining by 15.1% and 15.7%.
+5.3.4 Impact of Different Importance Metric
+In this section, we explore the impact of different
+important metrics on PPC-GPT’s performance:
+Seq: The importance is directly correlated with
+the sequence order, where the shallower layers hold
+greater importance.
+BI: BI mentioned in previous section 4.3.
+Table 6 presents PPC-GPT’s performance across
+different important metrics. The findings demonstrate that PPC-GPT with BI exhibits superior performance than PPC-GPT with Seq.
+5.3.5 Impact of Different Model Pruning
+Ratio
+In this section, we explore the impact of different
+model pruning ratio on PPC-GPT’s performance.
+Table 7 presents the performance of PPC-GPT
+across different model pruning ratios (namely, 0%,
+
+[TABLE page=8 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | DataSets | Unnamed: 5 | Unnamed: 6
+Row 1: Unnamed: 0: Model | Unnamed: 1: Method | Unnamed: 2: Ratio (%) | Unnamed: 3: CQA | Unnamed: 4: OBQA | DataSets: ARC-E ARC-C | Unnamed: 5: FiQA-SA | Unnamed: 6:
+Row 2: Unnamed: 0: | Unnamed: 1: DenseSFT | Unnamed: 2: 0 | Unnamed: 3: 81.6±0.54 | Unnamed: 4: 80.3±0.50 | DataSets: 82.9±0.18 60.0±0.42 | Unnamed: 5: 68.9±1.66 | Unnamed: 6:
+Row 3: Unnamed: 0: | Unnamed: 1: Plain-C | Unnamed: 2: 30 | Unnamed: 3: 77.6 | Unnamed: 4: | DataSets: | Unnamed: 5: | Unnamed: 6:
+Row 4: Unnamed: 0: LLaMA2-7B | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: ±0.14 | Unnamed: 4: 77.9±0.16 | DataSets: 79.7±0.29 54.0±0.82 | Unnamed: 5: 71.1±1.37 | Unnamed: 6:
+Row 5: Unnamed: 0: | Unnamed: 1: DP-Instruct-C | Unnamed: 2: 30 | Unnamed: 3: 77.9±0.62 | Unnamed: 4: 74.7±1.32 | DataSets: 79.2±0.33 47.1±4.10 | Unnamed: 5: 70.9±0.83 | Unnamed: 6:
+Row 6: Unnamed: 0: | Unnamed: 1: PPC-GPT | Unnamed: 2: 30 | Unnamed: 3: 78.3±0.41 | Unnamed: 4: 79.9±0.57 | DataSets: 84.2±0.33 62.2±0.61 | Unnamed: 5: 72.7±0.54 | Unnamed: 6:
+Row 7: Unnamed: 0: | Unnamed: 1: DenseSFT | Unnamed: 2: 0 | Unnamed: 3: 75.4±0.64 | Unnamed: 4: 60.0±0.99 | DataSets: 65.8±0.70 31.4±0.86 | Unnamed: 5: 70.0±1.09 | Unnamed: 6:
+Row 8: Unnamed: 0: | Unnamed: 1: Plain-C | Unnamed: 2: 30 | Unnamed: 3: 47.4 | Unnamed: 4: 36.5 | DataSets: 40.2 27.6 | Unnamed: 5: 52.4 | Unnamed: 6:
+Row 9: Unnamed: 0: OPT-6.7B | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: ±1.12 | Unnamed: 4: ±1.48 | DataSets: ±0.89 ±0.37 | Unnamed: 5: ±1.37 | Unnamed: 6:
+Row 10: Unnamed: 0: | Unnamed: 1: DP-Instruct-C | Unnamed: 2: 30 | Unnamed: 3: 58.7±2.04 | Unnamed: 4: 39.7±1.04 | DataSets: 44.5±2.53 28.6±1.72 | Unnamed: 5: 54.5±1.67 | Unnamed: 6:
+Row 11: Unnamed: 0: | Unnamed: 1: PPC-GPT | Unnamed: 2: 30 | Unnamed: 3: 65.6±0.95 | Unnamed: 4: 52.1±0.96 | DataSets: 57.3±0.16 36.0±0.59 | Unnamed: 5: 64.9±1.26 | Unnamed: 6:
+Row 12: Unnamed: 0: | Unnamed: 1: Table 1: Performance Comparison of Compression Methods on LLMs. | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | DataSets: | Unnamed: 5: | Unnamed: 6:
+Row 13: Unnamed: 0: | Unnamed: 1: Privacy Budget(ε) | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | DataSets: Synthetic Data Ratio | Unnamed: 5: | Unnamed: 6:
+Row 14: Unnamed: 0: Model Datasets | Unnamed: 1: Stage 1 | Unnamed: 2: 3 5 | Unnamed: 3: 10 | Unnamed: 4: Model | DataSets: Datasets Stage 1 | Unnamed: 5: 2 4 | Unnamed: 6: 8.0
+Row 15: Unnamed: 0: | Unnamed: 1: S 65.4 | Unnamed: 2: 67.1 67.9 | Unnamed: 3: 69.4 | Unnamed: 4: | DataSets: S 62.3 64.6 | Unnamed: 5: 64.6 67.1 | Unnamed: 6:
+Row 16: Unnamed: 0: OBQA | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | DataSets: OBQA | Unnamed: 5: | Unnamed: 6:
+Row 17: Unnamed: 0: LLaMA2 | Unnamed: 1: C 79.6 | Unnamed: 2: 79.9 80.1 | Unnamed: 3: 79.8 | Unnamed: 4: LLaMA2 | DataSets: C 78.2 78.3 | Unnamed: 5: 78.5 79.9 | Unnamed: 6:
+Row 18: Unnamed: 0: | Unnamed: 1: S 78.8 | Unnamed: 2: 80.4 79.9 | Unnamed: 3: 79.5 | Unnamed: 4: | DataSets: S 73.5 75.5 | Unnamed: 5: 77.9 80.4 | Unnamed: 6:
+Row 19: Unnamed: 0: ARC-E | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | DataSets: ARC-E | Unnamed: 5: | Unnamed: 6:
+Row 20: Unnamed: 0: | Unnamed: 1: C 83.1 | Unnamed: 2: 84.2 84.4 | Unnamed: 3: 83.4 | Unnamed: 4: | DataSets: C 80.1 80.8 | Unnamed: 5: 82.3 84.2 | Unnamed: 6:
+Row 21: Unnamed: 0: | Unnamed: 1: S 35.7 | Unnamed: 2: 36.3 36.1 | Unnamed: 3: 38.8 | Unnamed: 4: | DataSets: S 32.9 34.7 | Unnamed: 5: 36.9 36.3 | Unnamed: 6:
+Row 22: Unnamed: 0: OBQA | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | DataSets: OBQA | Unnamed: 5: | Unnamed: 6:
+Row 23: Unnamed: 0: OPT | Unnamed: 1: C 50.5 | Unnamed: 2: 52.1 52.4 | Unnamed: 3: 53.5 | Unnamed: 4: OPT | DataSets: C 47.9 50.2 | Unnamed: 5: 51.5 52.1 | Unnamed: 6:
+Row 24: Unnamed: 0: | Unnamed: 1: S 49.1 | Unnamed: 2: 50.4 49.3 | Unnamed: 3: 50.5 | Unnamed: 4: | DataSets: S 40.4 43.9 | Unnamed: 5: 47.5 50.4 | Unnamed: 6:
+Row 25: Unnamed: 0: ARC-E | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | DataSets: ARC-E | Unnamed: 5: | Unnamed: 6:
+Row 26: Unnamed: 0: | Unnamed: 1: C 54.6 | Unnamed: 2: 57.3 55.5 | Unnamed: 3: 55.3 | Unnamed: 4: | DataSets: C 49.7 52.3 | Unnamed: 5: 54.9 57.3 | Unnamed: 6:
+[/TABLE]
+
+[TABLE page=8 index=2]
+Columns: ARC-E datasets, respectively, within the LLaMA2- | In this section, we explore the impact of different
+Row 1: ARC-E datasets, respectively, within the LLaMA2-: 7B model. Similarly, with the OPT-6.7B model, | In this section, we explore the impact of different: important metrics on PPC-GPT’s performance:
+Row 2: ARC-E datasets, respectively, within the LLaMA2-: PPC-GPT w/ rationales exceeds PPC-GPT w/o ra- | In this section, we explore the impact of different: Seq: The importance is directly correlated with
+Row 3: ARC-E datasets, respectively, within the LLaMA2-: tionales by 7% and 9.1%. | In this section, we explore the impact of different: the sequence order, where the shallower layers hold
+Row 4: ARC-E datasets, respectively, within the LLaMA2-: | In this section, we explore the impact of different: greater importance.
+Row 5: ARC-E datasets, respectively, within the LLaMA2-: 5.3.3 Impact of Server-Side Retraining | In this section, we explore the impact of different:
+Row 6: ARC-E datasets, respectively, within the LLaMA2-: | In this section, we explore the impact of different: BI: BI mentioned in previous section 4.3.
+Row 7: ARC-E datasets, respectively, within the LLaMA2-: In this section, we explore the impact of server-side | In this section, we explore the impact of different: Table 6 presents PPC-GPT’s performance across
+Row 8: ARC-E datasets, respectively, within the LLaMA2-: retraining on the performance of PPC-GPT. Table 5 | In this section, we explore the impact of different: different important metrics. The findings demonRow 9: ARC-E datasets, respectively, within the LLaMA2-: presents a comparison of PPC-GPT’s performance | In this section, we explore the impact of different: strate that PPC-GPT with BI exhibits superior perRow 10: ARC-E datasets, respectively, within the LLaMA2-: with and without server-side retraining. The find- | In this section, we explore the impact of different: formance than PPC-GPT with Seq.
+Row 11: ARC-E datasets, respectively, within the LLaMA2-: ings demonstrate that PPC-GPT exhibits superior | In this section, we explore the impact of different:
+Row 12: ARC-E datasets, respectively, within the LLaMA2-: performance when server-side retraining is utilized, | In this section, we explore the impact of different: 5.3.5 Impact of Different Model Pruning
+Row 13: ARC-E datasets, respectively, within the LLaMA2-: as compared to when it is absent. Specifically, | In this section, we explore the impact of different: Ratio
+Row 14: ARC-E datasets, respectively, within the LLaMA2-: PPC-GPT w/ server-side retraining outperforms | In this section, we explore the impact of different: In this section, we explore the impact of different
+Row 15: ARC-E datasets, respectively, within the LLaMA2-: PPC-GPT w/o server-side retraining by 2% and | In this section, we explore the impact of different: model pruning ratio on PPC-GPT’s performance.
+[/TABLE]
+
+[PAGE 9]
+Rationales
+Model Datasets Stage w/ w/o
+LLaMA2
+OBQA S 67.1 65.9
+C 79.9 79.1
+ARC-E S 80.4 77.9
+C 84.2 83.3
+OPT
+OBQA S 36.3 31.1
+C 52.1 45.1
+ARC-E S 50.4 43.2
+C 57.3 48.2
+Table 4: Comparison of PPC-GPT’s performance: with
+vs. withoutrationales.
+Server:Retraining
+Model Dataset w/ w/o
+LLaMA2 OBQA79.9 77.9
+ARC-E84.2 79.7
+OPT OBQA52.1 37.0
+ARC-E57.3 41.6
+Table 5: Comparison of PPC-GPT’s performance: with
+vs. withoutserver-side retraining.
+30%, 50%, and 70%). As the pruning ratio increases, the performance of PPC-GPT exhibits a
+decline.
+6 Conclusions
+In this paper, we introduced PPC-GPT, a novel
+federated framework for compressing LLMs into
+task-specific SLMs while preserving privacy. Our
+framework integrates four key components: exponential mechanism-based data perturbation, CoTguided synthetic data generation, rationale-aware
+structured pruning, and CoT-based knowledge distillation. Experiments demonstrate that PPC-GPT
+effectively compresses LLMs while maintaining
+comparable performance and ensuring privacy protection. This work provides a practical solution for
+deploying LLMs in resource-constrained, privacysensitive scenarios.
+Limitations
+While PPC-GPT shows promising results in compressing LLMs into task-specific SLMs while
+ensuring data privacy, it has several limitations.
+Firstly, PPC-GPT relies on an auxiliary LLM with
+robust CoT capabilities to generate high-quality
+Important
+Model Datasets Stage BI Seq
+LLaMA2
+OBQA S67.1 66.5
+C79.9 79.9
+ARC-E S80.4 80.0
+C84.2 83.9
+OPT
+OBQA S36.3 34.7
+C52.1 48.3
+ARC-E S50.4 43.7
+C57.3 51.7
+Table 6: Comparison of PPC-GPT’s performance across
+different importance metrics.
+DataSets
+Model Ratio (%) OBQA ARC-E
+LLaMA2
+080.3 82.9
+3079.9 84.2
+5074.4 76.8
+7035.3 37.4
+OPT
+060.0 65.8
+3052.1 57.3
+5036.1 38.3
+7030.9 33.2
+Table 7: Comparison of PPC-GPT’s performance across
+different pruning ratios.
+synthetic data and rationales. These synthetic data
+are crucial for guiding the structured pruning and
+retraining processes of both the source LLM (the
+model slated for compression) and the target SLM
+(the compressed model). If the auxiliary LLM lacks
+sophisticated CoT reasoning abilities, the quality
+and diversity of the generated synthetic data may be
+compromised, which in turn could adversely affect
+the performance of the compressed SLMs. This
+limitation underscores the importance of selecting
+or pre-training an auxiliary LLM with strong CoT
+capabilities when deploying PPC-GPT. However,
+it’s important to note that the source LLM (the
+model slated for compression) does not necessarily
+require CoT capabilities. Furthermore, as observed
+in our experiments, the performance of PPC-GPT
+tends to degrade with higher pruning ratios. This
+indicates that optimizing the pruning strategy to
+strike a better balance between model size and performance remains an open challenge.
+
+[TABLE page=9 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Rationales | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Important
+Row 1: Unnamed: 0: Model | Unnamed: 1: Datasets | Unnamed: 2: Stage | Rationales: w/ w/o | Unnamed: 3: Model | Unnamed: 4: Datasets | Unnamed: 5: Stage | Important: BI Seq
+Row 2: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: S | Rationales: 67.1 65.9 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: S | Important: 67.1 66.5
+Row 3: Unnamed: 0: | Unnamed: 1: OBQA | Unnamed: 2: | Rationales: | Unnamed: 3: | Unnamed: 4: OBQA | Unnamed: 5: | Important:
+Row 4: Unnamed: 0: LLaMA2 | Unnamed: 1: | Unnamed: 2: C | Rationales: 79.9 79.1 | Unnamed: 3: LLaMA2 | Unnamed: 4: | Unnamed: 5: C | Important: 79.9 79.9
+Row 5: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: S | Rationales: 80.4 77.9 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: S | Important: 80.4 80.0
+Row 6: Unnamed: 0: | Unnamed: 1: ARC-E | Unnamed: 2: | Rationales: | Unnamed: 3: | Unnamed: 4: ARC-E | Unnamed: 5: | Important:
+Row 7: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: C | Rationales: 84.2 83.3 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: C | Important: 84.2 83.9
+Row 8: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: S | Rationales: 36.3 31.1 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: S | Important: 36.3 34.7
+Row 9: Unnamed: 0: | Unnamed: 1: OBQA | Unnamed: 2: | Rationales: | Unnamed: 3: | Unnamed: 4: OBQA | Unnamed: 5: | Important:
+Row 10: Unnamed: 0: OPT | Unnamed: 1: | Unnamed: 2: C | Rationales: 52.1 45.1 | Unnamed: 3: OPT | Unnamed: 4: | Unnamed: 5: C | Important: 52.1 48.3
+Row 11: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: S | Rationales: 50.4 43.2 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: S | Important: 50.4 43.7
+Row 12: Unnamed: 0: | Unnamed: 1: ARC-E | Unnamed: 2: | Rationales: | Unnamed: 3: | Unnamed: 4: ARC-E | Unnamed: 5: | Important:
+Row 13: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: C | Rationales: 57.3 48.2 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: C | Important: 57.3 51.7
+[/TABLE]
+
+[TABLE page=9 index=2]
+Columns: Model | Dataset | w/ | w/o | Model.1 | Ratio (%) | OBQA | ARC-E
+Row 1: Model: | Dataset: OBQA | w/: 79.9 | w/o: 77.9 | Model.1: | Ratio (%): | OBQA: | ARC-E:
+Row 2: Model: LLaMA2 | Dataset: | w/: | w/o: | Model.1: | Ratio (%): 0.0 | OBQA: 80.3 | ARC-E: 82.9
+[/TABLE]
+
+[TABLE page=9 index=3]
+Columns: Unnamed: 0 | ARC-E | 84.2 | 79.7 | LLaMA2 | 30 | 79.9 | 84.2.1
+Row 1: Unnamed: 0: | ARC-E: OBQA | 84.2: 52.1 | 79.7: 37.0 | LLaMA2: | 30: | 79.9: | 84.2.1:
+Row 2: Unnamed: 0: OPT | ARC-E: | 84.2: | 79.7: | LLaMA2: | 30: 50.0 | 79.9: 74.4 | 84.2.1: 76.8
+[/TABLE]
+
+[PAGE 10]
+References
+Martin Abadi, Andy Chu, Ian Goodfellow, H Brendan McMahan, Ilya Mironov, Kunal Talwar, and
+Li Zhang. 2016. Deep learning with differential privacy. InProceedings of the 2016 ACM SIGSAC conference on computer and communications security,
+pages 308–318.
+Raef Bassily, Adam Smith, and Abhradeep Thakurta.
+2014. Private empirical risk minimization: Efficient
+algorithms and tight error bounds. In2014 IEEE
+55th annual symposium on foundations of computer
+science, pages 464–473. IEEE.
+Sai Chen, Fengran Mo, Yanhao Wang, Cen Chen, JianYun Nie, Chengyu Wang, and Jamie Cui. 2023. A
+customized text sanitization mechanism with differential privacy. InFindings of the Association for
+Computational Linguistics: ACL 2023, pages 5747–
+5758, Toronto, Canada. Association for Computational Linguistics.
+Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot,
+Ashish Sabharwal, Carissa Schoenick, and Oyvind
+Tafjord. 2018. Think you have solved question answering? try arc, the ai2 reasoning challenge.arXiv
+preprint arXiv:1803.05457.
+Xin Dong, Shangyu Chen, and Sinno Pan. 2017. Learning to prune deep neural networks via layer-wise
+optimal brain surgeon. 30.
+Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey,
+Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman,
+Akhil Mathur, Alan Schelten, Amy Yang, Angela
+Fan, et al. 2024. The llama 3 herd of models.arXiv
+preprint arXiv:2407.21783.
+Cynthia Dwork. 2006. Differential privacy. InInternational colloquium on automata, languages, and
+programming, pages 1–12. Springer.
+Tao Fan, Hanlin Gu, Xuemei Cao, Chee Seng Chan,
+Qian Chen, Yiqiang Chen, Yihui Feng, Yang Gu,
+Jiaxiang Geng, Bing Luo, et al. 2025a. Ten challenging problems in federated foundation models.IEEE
+Transactions on Knowledge and Data Engineering.
+Tao Fan, Yan Kang, Guoqiang Ma, Weijing Chen, Wenbin Wei, Lixin Fan, and Qiang Yang. 2023. Fatellm: A industrial grade federated learning framework for large language models.arXiv preprint
+arXiv:2310.10049.
+Tao Fan, Guoqiang Ma, Yan Kang, Hanlin Gu, Yuanfeng
+Song, Lixin Fan, Kai Chen, and Qiang Yang. 2025b.
+Fedmkt: Federated mutual knowledge transfer for
+large and small language models. InProceedings of
+the 31st International Conference on Computational
+Linguistics, pages 243–255.
+Elias Frantar and Dan Alistarh. 2023. Sparsegpt: Massive language models can be accurately pruned in
+one-shot. InInternational Conference on Machine
+Learning, pages 10323–10337. PMLR.
+Leo Gao, Jonathan Tow, Baber Abbasi, Stella Biderman,
+Sid Black, Anthony DiPofi, Charles Foster, Laurence
+Golding, Jeffrey Hsu, Alain Le Noac’h, Haonan Li,
+Kyle McDonell, Niklas Muennighoff, Chris Ociepa,
+Jason Phang, Laria Reynolds, Hailey Schoelkopf,
+Aviya Skowron, Lintang Sutawika, Eric Tang, Anish Thite, Ben Wang, Kevin Wang, and Andy Zou.
+2023. A framework for few-shot language model
+evaluation.
+Song Han, Jeff Pool, John Tran, and William Dally.
+2015. Learning both weights and connections for
+efficient neural network.Advances in neural information processing systems, 28.
+Cheng-Yu Hsieh, Chun-Liang Li, Chih-kuan Yeh,
+Hootan Nakhost, Yasuhisa Fujii, Alex Ratner, Ranjay
+Krishna, Chen-Yu Lee, and Tomas Pfister. 2023. Distilling step-by-step! outperforming larger language
+models with less training data and smaller model
+sizes. InFindings of the Association for Computational Linguistics: ACL 2023, pages 8003–8017.
+Ananya Harsh Jha, Tom Sherborne, Evan Pete Walsh,
+Dirk Groeneveld, Emma Strubell, and Iz Beltagy.
+2023. How to train your (compressed) large language
+model.arXiv preprint arXiv:2305.14864.
+Yan Kang, Tao Fan, Hanlin Gu, Xiaojin Zhang, Lixin
+Fan, and Qiang Yang. 2023. Grounding foundation
+models through federated transfer learning: A general framework.ACM Transactions on Intelligent
+Systems and Technology.
+Bo-Kyeong Kim, Geonmin Kim, Tae-Ho Kim, Thibault
+Castells, Shinkook Choi, Junho Shin, and HyoungKyu Song. 2024. Shortened LLaMA: A simple depth
+pruning for large language models. InICLR 2024
+Workshop on Mathematical and Empirical Understanding of Foundation Models.
+Alexey Kurakin, Natalia Ponomareva, Umar Syed, Liam
+MacDermed, and Andreas Terzis. 2023. Harnessing
+large-language models to generate private synthetic
+text.arXiv preprint arXiv:2306.01684.
+Eldar Kurti´c, Elias Frantar, and Dan Alistarh. 2024. Ziplm: Inference-aware structured pruning of language
+models.Advances in Neural Information Processing
+Systems, 36.
+Yann LeCun, John Denker, and Sara Solla. 1989. Optimal brain damage.Advances in neural information
+processing systems, 2.
+Namhoon Lee, Thalaiyasingam Ajanthan, and Philip
+Torr. 2019. Snip: Single-shot network pruning based
+on connection sensitivity.
+Quentin Lhoest, Albert Villanova del Moral, Yacine
+Jernite, Abhishek Thakur, Patrick von Platen, Suraj
+Patil, Julien Chaumond, Mariama Drame, Julien Plu,
+Lewis Tunstall, Joe Davison, Mario Šaško, Gunjan Chhablani, Bhavitvya Malik, Simon Brandeis,
+Teven Le Scao, Victor Sanh, Canwen Xu, Nicolas
+Patry, Angelina McMillan-Major, Philipp Schmid,
+
+[PAGE 11]
+Sylvain Gugger, Clément Delangue, Théo Matussière, Lysandre Debut, Stas Bekman, Pierric Cistac, Thibault Goehringer, Victor Mustar, François
+Lagunas, Alexander Rush, and Thomas Wolf. 2021.
+Datasets: A community library for natural language
+processing. InProceedings of the 2021 Conference
+on Empirical Methods in Natural Language Processing: System Demonstrations, pages 175–184, Online
+and Punta Cana, Dominican Republic. Association
+for Computational Linguistics.
+Chen Li, Weiqi Wang, Jingcheng Hu, Yixuan Wei, Nanning Zheng, Han Hu, Zheng Zhang, and Houwen
+Peng. 2024. Common 7b language models already
+possess strong math capabilities.arXiv preprint
+arXiv:2403.04706.
+Liunian Harold Li, Jack Hessel, Youngjae Yu, Xiang
+Ren, Kai-Wei Chang, and Yejin Choi. 2023. Symbolic chain-of-thought distillation: Small models can
+also “think” step-by-step. InProceedings of the 61st
+Annual Meeting of the Association for Computational
+Linguistics (Volume 1: Long Papers), pages 2665–
+2679.
+Xinyin Ma, Gongfan Fang, and Xinchao Wang. 2023.
+Llm-pruner: On the structural pruning of large language models.Advances in neural information processing systems, 36:21702–21720.
+Macedo Maia, Siegfried Handschuh, André Freitas,
+Brian Davis, Ross McDermott, Manel Zarrouk, and
+Alexandra Balahur. 2018. Www’18 open challenge:
+financial opinion mining and question answering. In
+Companion proceedings of the the web conference
+2018, pages 1941–1942.
+Justus Mattern, Zhijing Jin, Benjamin Weggenmann,
+Bernhard Schölkopf, and Mrinmaya Sachan. 2022.
+Differentially private language models for secure data
+sharing. InThe 2022 Conference on Empirical Methods in Natural Language Processing (EMNLP 2022),
+pages 4860–4873. Association for Computational
+Linguistics.
+Frank McSherry and Kunal Talwar. 2007. Mechanism
+design via differential privacy. In48th Annual IEEE
+Symposium on Foundations of Computer Science
+(FOCS’07), pages 94–103. IEEE.
+Xin Men, Mingyu Xu, Qingyu Zhang, Bingning Wang,
+Hongyu Lin, Yaojie Lu, Xianpei Han, and Weipeng
+Chen. 2024. Shortgpt: Layers in large language
+models are more redundant than you expect.arXiv
+preprint arXiv:2403.03853.
+Paul Michel, Omer Levy, and Graham Neubig. 2019.
+Are sixteen heads really better than one?Advances
+in neural information processing systems, 32.
+Todor Mihaylov, Peter Clark, Tushar Khot, and Ashish
+Sabharwal. 2018. Can a suit of armor conduct electricity? a new dataset for open book question answering. InProceedings of the 2018 Conference on
+Empirical Methods in Natural Language Processing,
+pages 2381–2391.
+Azade Nova, Hanjun Dai, and Dale Schuurmans. 2023.
+Gradient-free structured pruning with unlabeled data.
+InInternational Conference on Machine Learning,
+pages 26326–26341. PMLR.
+OpenAI. 2023a. Gpt-4.
+OpenAI. 2023b. Gpt-4 technical report.ArXiv,
+abs/2303.08774.
+Shuang Song, Kamalika Chaudhuri, and Anand D Sarwate. 2013. Stochastic gradient descent with differentially private updates. In2013 IEEE global conference on signal and information processing, pages
+245–248. IEEE.
+Mingjie Sun, Zhuang Liu, Anna Bair, and J Zico Kolter.
+2024. A simple and effective pruning approach for
+large language models. InThe Twelfth International
+Conference on Learning Representations.
+Alon Talmor, Jonathan Herzig, Nicholas Lourie, and
+Jonathan Berant. 2019. Commonsenseqa: A question
+answering challenge targeting commonsense knowledge. InProceedings of the 2019 Conference of
+the North American Chapter of the Association for
+Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers), pages
+4149–4158.
+Qwen Team. 2024. Qwen2 technical report.arXiv
+preprint arXiv:2407.10671.
+Meng Tong, Kejiang Chen, Jie Zhang, Yuang Qi, Weiming Zhang, Nenghai Yu, Tianwei Zhang, and Zhikun
+Zhang. 2025. Inferdpt: Privacy-preserving inference
+for black-box large language models.IEEE Transactions on Dependable and Secure Computing.
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay
+Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti
+Bhosale, et al. 2023. Llama 2: Open foundation and fine-tuned chat models.arXiv preprint
+arXiv:2307.09288.
+Chaoqi Wang, Guodong Zhang, and Roger Grosse. 2020.
+Picking winning tickets before training by preserving gradient flow. InInternational Conference on
+Learning Representations.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,
+et al. 2022. Chain-of-thought prompting elicits reasoning in large language models.Advances in neural
+information processing systems, 35:24824–24837.
+Mengzhou Xia, Tianyu Gao, Zhiyuan Zeng, and Danqi
+Chen. 2024. Sheared LLaMA: Accelerating language model pre-training via structured pruning. In
+The Twelfth International Conference on Learning
+Representations.
+Yifei Yang, Zouying Cao, and Hai Zhao. 2024. Laco:
+Large language model pruning via layer collapse.
+InFindings of the Association for Computational
+Linguistics: EMNLP 2024, pages 6401–6417.
+
+[PAGE 12]
+Da Yu, Peter Kairouz, Sewoong Oh, and Zheng Xu.
+2024. Privacy-preserving instructions for aligning
+large language models. InProceedings of the 41st International Conference on Machine Learning, pages
+57480–57506.
+Xiang Yue, Minxin Du, Tianhao Wang, Yaliang Li,
+Huan Sun, and Sherman SM Chow. 2021. Differential privacy for text analytics via natural text sanitization. InFindings of the Association for Computational Linguistics: ACL-IJCNLP 2021, pages
+3853–3866.
+Xiang Yue, Huseyin Inan, Xuechen Li, Girish Kumar,
+Julia McAnallen, Hoda Shajari, Huan Sun, David
+Levitan, and Robert Sim. 2023. Synthetic text generation with differential privacy: A simple and practical
+recipe. InProceedings of the 61st Annual Meeting of
+the Association for Computational Linguistics (Volume 1: Long Papers), pages 1321–1342, Toronto,
+Canada. Association for Computational Linguistics.
+Susan Zhang, Stephen Roller, Naman Goyal, Mikel
+Artetxe, Moya Chen, Shuohui Chen, Christopher Dewan, Mona Diab, Xian Li, Xi Victoria Lin, et al. 2022.
+Opt: Open pre-trained transformer language models.
+arXiv preprint arXiv:2205.01068.
+Yu Zhang and Qiang Yang. 2021. A survey on multitask learning.IEEE Transactions on Knowledge and
+Data Engineering, 34(12):5586–5609.
+A Privacy Analysis of PPC-GPT
+Our privacy protection strategy in PPC-GPT is
+grounded in rigorous theoretical foundations and
+validated through comprehensive empirical studies.
+The framework implements a theoretically-sound
+differential privacy (DP) mechanism that operates
+at the token-level feature space, completely eliminating the need for raw data transmission. Specifically, we adopt the exponential mechanism, which
+provides formal ϵ-DP guarantees and has been extensively analyzed in privacy-preserving NLP literature (Yue et al., 2021; Chen et al., 2023; Tong
+et al., 2025). The theoretical privacy guarantees of
+this mechanism are well-established, allowing us
+to focus on its practical implementation and performance optimization rather than re-establishing its
+privacy properties.
+B Implementation Details
+B.1 Hyperparameter Settings
+During the training process, we specifically configured the parameters. Specifically, we set the batch
+size to 32 and utilized the AdamW optimizer. The
+maximum number of training steps varied between
+300 and 6400. Additionally, we established a learning rate of 5e-5. For the input and target lengths,
+we set the maximum question length to 64 and the
+maximum target length to 128. For the LoRA configuration of LLaMA2, we set the LoRA alpha to
+32 and the LoRA rank to 8. In contrast, for the
+OPT model, we configured the LoRA alpha to 64
+and the LoRA rank to 32. The Lora dropout for
+both models was set to 0.1.
+B.2 Data Splitting
+For the datasets, all splits (training, validation, and
+test) were downloaded from HuggingFace (Lhoest
+et al., 2021).
+B.3 Dataset Licenses
+All the datasets were downloaded from HuggingFace(Lhoest et al., 2021) and under Apache License, Version 2.0.
+B.4 Machine Configuration
+The experiments were conducted on machines
+equipped with 4 and 8 Nvidia V100 32G.
+C Synthetic Prompt Templates
+Table 8 and 9 provide prompt templates for question generation, answer generation, and rationale
+generation.
+
+[TABLE page=12 index=1]
+Columns: 2024. Privacy-preserving instructions for aligning | Unnamed: 0 | maximum target length to 128. For the LoRA conRow 1: 2024. Privacy-preserving instructions for aligning: large language models. In Proceedings of the 41st In- | Unnamed: 0: | maximum target length to 128. For the LoRA con-:
+Row 2: 2024. Privacy-preserving instructions for aligning: | Unnamed: 0: | maximum target length to 128. For the LoRA con-: figuration of LLaMA2, we set the LoRA alpha to
+Row 3: 2024. Privacy-preserving instructions for aligning: ternational Conference on Machine Learning, pages | Unnamed: 0: | maximum target length to 128. For the LoRA con-:
+Row 4: 2024. Privacy-preserving instructions for aligning: 57480–57506. | Unnamed: 0: | maximum target length to 128. For the LoRA con-: 32 and the LoRA rank to 8. In contrast, for the
+Row 5: 2024. Privacy-preserving instructions for aligning: | Unnamed: 0: | maximum target length to 128. For the LoRA con-: OPT model, we configured the LoRA alpha to 64
+Row 6: 2024. Privacy-preserving instructions for aligning: Xiang Yue, Minxin Du, Tianhao Wang, Yaliang Li, | Unnamed: 0: | maximum target length to 128. For the LoRA con-:
+Row 7: 2024. Privacy-preserving instructions for aligning: | Unnamed: 0: | maximum target length to 128. For the LoRA con-: and the LoRA rank to 32. The Lora dropout for
+Row 8: 2024. Privacy-preserving instructions for aligning: Huan Sun, and Sherman SM Chow. 2021. Differ- | Unnamed: 0: | maximum target length to 128. For the LoRA con-:
+Row 9: 2024. Privacy-preserving instructions for aligning: ential privacy for text analytics via natural text san- | Unnamed: 0: | maximum target length to 128. For the LoRA con-: both models was set to 0.1.
+Row 10: 2024. Privacy-preserving instructions for aligning: itization. In Findings of the Association for Com- | Unnamed: 0: | maximum target length to 128. For the LoRA con-:
+Row 11: 2024. Privacy-preserving instructions for aligning: putational Linguistics: ACL-IJCNLP 2021, pages | Unnamed: 0: | maximum target length to 128. For the LoRA con-: B.2 Data Splitting
+Row 12: 2024. Privacy-preserving instructions for aligning: 3853–3866. | Unnamed: 0: | maximum target length to 128. For the LoRA con-: For the datasets, all splits (training, validation, and
+Row 13: 2024. Privacy-preserving instructions for aligning: Xiang Yue, Huseyin Inan, Xuechen Li, Girish Kumar, | Unnamed: 0: | maximum target length to 128. For the LoRA con-: test) were downloaded from HuggingFace (Lhoest
+Row 14: 2024. Privacy-preserving instructions for aligning: Julia McAnallen, Hoda Shajari, Huan Sun, David | Unnamed: 0: | maximum target length to 128. For the LoRA con-: et al., 2021).
+Row 15: 2024. Privacy-preserving instructions for aligning: Levitan, and Robert Sim. 2023. Synthetic text gener- | Unnamed: 0: | maximum target length to 128. For the LoRA con-:
+Row 16: 2024. Privacy-preserving instructions for aligning: ation with differential privacy: A simple and practical | Unnamed: 0: | maximum target length to 128. For the LoRA con-: B.3 Dataset Licenses
+Row 17: 2024. Privacy-preserving instructions for aligning: recipe. In Proceedings of the 61st Annual Meeting of | Unnamed: 0: | maximum target length to 128. For the LoRA con-:
+Row 18: 2024. Privacy-preserving instructions for aligning: the Association for Computational Linguistics (Vol- | Unnamed: 0: | maximum target length to 128. For the LoRA con-: All the datasets were downloaded from HuggingRow 19: 2024. Privacy-preserving instructions for aligning: ume 1: Long Papers), pages 1321–1342, Toronto, | Unnamed: 0: | maximum target length to 128. For the LoRA con-: Face(Lhoest et al., 2021) and under Apache Li-
+[/TABLE]
+
+[PAGE 13]
+Tasks Prompts
+Question
+Generation Please act as a professional teacher.
+Your goal is to promote research in advanced question-answering, probing a deeper understanding of both the topic (with salient facts summarized as an open book, also provided
+with the dataset) and the language it is expressed in.
+You will be given a multiple-choice question. Please create a new question and multiple
+choices based on the Given Question And Multiple Choices and following instructions.
+To achieve the goal, you have two jobs.
+# Please generate a similar but new question and multiple choices according to the Given
+Question And Multiple Choices.
+# Check the question and multiple choices by solving it step-by-step to find out if it adheres
+to all principles.
+You have eight principles to do this.
+# Ensure the new question only asks for one thing, be reasonable, be based on the Given
+Question And Multiple Choices, and can be answered with only one right choice.
+# Ensure the new questions requires multi-step reasoning, use of additional common and
+commonsense knowledge.
+# Ensure the new question is in line with common sense of life.
+# Ensure your student can answer the new question without the given question. If you want
+to use some numbers, conditions or background in the given question, please restate them to
+ensure no information is omitted in your new question.
+# Please DO NOT include solution in your question.
+# Make sure the choices in CREATED QUESTION AND CHOICES are list format, starts
+with [ and ends with ].
+# Ensure only one choice in CREATED QUESTION AND CHOICES is right.
+# Ensure your output only has three lines, the first line is "CREATED QUESTION AND
+CHOICES:", the second line starts with "Question:", and the third line starts with "Choices".
+Given Question and Multiple Choices: {question}, {choices}
+Your output should be in the following format:
+CREATED QUESTION AND CHOICES:
+Question: <your created question>
+Choices: <your created choices>
+Answer
+Generation Please act as a professional teacher.
+Your goal is to accurately solve a multiple-choice question.
+To achieve the goal, you have two jobs.
+# Write detailed solution to a Given Question.
+# Write the final choice to this question.
+You have three principles to do this.
+# Ensure the solution is step-by-step.
+# Ensure the final answer is just a letter.
+# Use of additional common and commonsense knowledge.
+Given Question and Choices: {question}, {choices}
+Your output should be in the following format:
+SOLUTION: <your detailed solution to the given question>
+FINAL ANSWER: <your final choice to the question with only an uppercase letter>
+Table 8: The prompt templates are used for generating questions and answers.
+
+[PAGE 14]
+Tasks Prompts
+Rationale
+Generation You are given the right Answer from Choices, please explain it in "Rationale" with few
+words. Please refer to the example to write the rationale.
+Try to generate logically clear and correct rationale. Reply in english only and use ’<end>’
+to finish your rationale. Your reply format must strictly follow the provided example and
+reply rationale contents only!
+Example(s):
+Question: The sun is responsible for
+Choices: [’puppies learning new tricks’, ’children growing up and getting old’, ’flowers
+wilting in a vase’, ’plants sprouting, blooming and wilting’]
+Answer: ’plants sprouting, blooming and wilting’.
+Rationale: The sun provides light and warmth, essential for the process of photosynthesis in
+plants, which enables them to grow, bloom, and eventually wilt due to natural life cycles.
+Please explain:
+Question: {question}
+Choices: {choices.text}
+Answer: {choices.text[choices.label.index(answerKey)]}
+Rationale:
+Table 9: The prompt templates are used for generating rationale.

@@ -1,0 +1,1442 @@
+[PAGE 1]
+Toward Structured Knowledge Reasoning:
+Contrastive Retrieval-Augmented Generation on Experience
+Jiawei Gu1,2, Ziting Xian1, Yuanzhen Xie2, Ye Liu2,
+Enjie Liu2, Ruichao Zhong2, Mochi Gao2, Yunzhi Tan2,†, Bo Hu2,†, Zang Li2
+1Sun Yat-sen University 2Platform and Content Group, Tencent
+Abstract
+Large language models (LLMs) achieve strong
+performance on plain text tasks but underperform on structured data like tables and
+databases. Potential challenges arise from their
+underexposure during pre-training and rigid
+text-to-structure transfer mechanisms. Unlike
+humans who seamlessly apply learned patterns
+across data modalities, LLMs struggle to infer
+implicit relationships embedded in tabular formats, especially in the absence of explicit structural guidance. To bridge this cognitive gap,
+we introduce Contrastive Retrieval-Augmented
+Generation on Experience (CoRE), a framework that builds experience memory representations and enhances generalization through contrastive in-context learning (ICL) to simulate
+human-like knowledge transfer. Experiments
+on Text-to-SQL and TableQA show CoRE significantly improves performance, achieving average gains of 3.44% and 4.24%, with up
+to 17.2% on challenging tasks. Our Monte
+Carlo Tree Search (MCTS)-generated Experience Memory expands training data 8-9×, enhancing diversity and domain coverage. This
+training-free and continual method propels
+LLMs toward structured knowledge expertise.
+Code is available at: https://github.com/
+Kuvvius/CoRE.
+1 Introduction
+Large language models (LLMs) have shown remarkable capabilities on plain text but struggle with
+low-frequency, domain-specific concepts (Ling
+et al., 2023; Gu et al., 2024b) and structured
+data (Zhuang et al., 2024; Jiang et al., 2023;
+Sui et al., 2024) like tables and databases. This
+arises from two key issues: (1) limited exposure
+† Corresponding author. For further information or academic correspondence regarding this work, please contact: B
+kuvvius@gmail.com, {boristan, bohu}@tencent.com.
+of LLMs to structural relationships during pretraining (Kandpal et al., 2023; Xu et al., 2024), and
+(2) difficulty in transferring reasoning from text to
+structured data (Xie et al., 2023; Ye et al., 2023).
+These issues are especially evident when reasoning
+with structured knowledge, where understanding
+the connections between structured data pieces and
+query text is crucial for accurate conclusions.
+To reduce reliance on pre-training data,
+Retrieval-Augmented Generation (RAG) (Lewis
+et al., 2020a; Gao et al., 2023b) has become a
+widely adopted technique for injecting external
+knowledge into LLMs. While effective in textbased tasks (Ling et al., 2023), naïve RAG shown
+in Figure 1 (a), fails to improve performance due to
+the lack of specialized mechanisms for structured
+knowledge reasoning. Adding disconnected structured components (e.g. schemas and sub-tables)
+without grasping their interrelationships can disrupt
+the reasoning chain and hinder performance (Wang
+et al., 2023; Gao et al., 2023a).
+While RAG struggles with structured knowledge
+reasoning, humans excel at leveraging and transferring past experiences to solve complex, specialized problems, even those they have less exposure
+to. According to Deliberate Practice (Ericsson
+and Pool, 2016), human experts deliberately expose themselves to diverse schema cases, building mental representations that compensate for
+initial knowledge gaps (more explanation in Appendix A.1). This enables them to solve unfamiliar problems by reflecting on both successful and
+failed attempts (e.g., joining database tables correctly or incorrectly). Through self-monitoring,
+they identify mistakes, refine strategies, and focus on transferring patterns to structural reasoning
+rather than just memorizing surface-level facts.
+To adapt this human-like learning process to
+LLMs, the focus shifts to building dynamic experience and leveraging contrastive reflection. Previous works on contrastive learning (Khosla et al.,
+arXiv:2506.00842v2 [cs.CL] 24 Jul 2025
+
+[PAGE 2]
+Case
+Case
+(a) Naïve RAG(b) CoRE: Contrastive RAG on Experience
+23 "
+Database
+Prompt
+Query
+ContextIncorporatethe top krelevantdocs into the prompt
+Experience Memory
+23 "
+Contrastive Prompt
+Query
+Contrastive ContextPositivecases
+Rerank
+Case
+……Negativecases
+A Knowledge-intensive Query
+Retriever
+Answer
+Reward Label
+General LLM
+MCTS Trajectories
+Figure 1: Comparison between naive RAG and our CoRE.
+2020), alignment (Ouyang et al., 2022; Lightman
+et al., 2023), and in-context learning (Chia et al.,
+2023) have shown that LLMs can learn more effectively by both positive and negative examples.
+This idea has been further supported by studies on
+reasoning (Putta et al., 2024), which improve the
+generalization of contrastive trajectories in complex, multi-step reasoning tasks.
+Therefore, we introduce Contrastive RetrievalAugmented Generation on Experience ( CoRE).
+CoRE builds experience memory representations
+and incorporates contrasted examples—both successful and failed cases— into the context to solve
+structured knowledge reasoning problems. As
+shown in Figure 1 (b), CoRE simplifies intricate structured reasoning problems into decomposable ones. It employs Monte Carlo Tree Search
+(MCTS) (Silver et al., 2017; Hao et al., 2023) along
+with a self-evaluation mechanism (Gu et al., 2024a)
+to mimic human Deliberate Practice, heuristically
+guiding the collection of successful and failed trajectories. Through selection, expansion, simulation, and back-propagation, question-answer pairs
+are generated with reward labels (representing the
+probability of success in intermediate steps). Subsequently, when a new problem arises, CoRE retrieves relevant cases and re-ranks them based on
+reward labels to present both successful (positive)
+and failed (negative) examples for contrastive reflection, enabling more accurate and knowledgeintensive answers.
+Extensive experiments on structured knowledge
+reasoning tasks, such as Text-to-SQL and TableQA,
+show that CoRE significantly enhances both performance and efficiency, yielding average gains
+of 3.44% and 4.24% over baseline methods. In
+particular, CoRE achieves greater improvements
+on more challenging problems, with increases of
+17.2% and 8.2% (Figure 4), respectively. The Experience Memory Dataset built from MCTS trajectories expands the original training dataset by 89×, demonstrating increased diversity and domain
+coverage with diluted, decomposed high-density
+knowledge (Figure 3). Moreover, compared to fewshot approaches using only fixed examples, CoRE
+underscores the effectiveness of contrastive learning in context, achieving a 1.76% gain (Table 3).
+In summary, our main contributions are as follows:
+1. Experience Memory Construction: We introduce a method to build experience memory
+using MCTS trajectories, capturing diverse
+reasoning experiences (both successful and
+failed), enabling better generalization in complex tasks with minimal initial exposure.
+2. Contrastive Reflection Mechanism: CoRE
+introduces a contrastive learning method,
+which obtains two ranks through re-ranking
+in the RAG process and then incorporating retrieved content with specialized mechanisms
+for structured knowledge reasoning.
+3. Scalable Knowledge Retrieval: CoRE offers
+a plug-and-play, training-free solution, allowing for continuous learning and retrieval in
+evolving environments by dynamic updates to
+the Experience Memory.
+2 Preliminary
+In this section, we present our main Research Questions and the formulation of Structured Knowledge Reasoning, which uses LLMs to solve complex reasoning tasks based on structured data.
+Research Questions
+(1) Can MCTS effectively imitate human’s
+practice for heuristic data augmentation?
+(2) Can RAG enhance structured knowledge
+reasoning? (3) Does contrastive ICL outperform fixed examples?
+
+[TABLE page=2 index=1]
+Columns: Unnamed: 0 | (a) Naïve RAG | Unnamed: 1 | (b) CoRE: Contrastive RAG on Experience | Unnamed: 2
+Row 1: Unnamed: 0: | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: Contrastive Prompt | Unnamed: 2:
+Row 2: Unnamed: 0: | (a) Naïve RAG: Prompt | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: | Unnamed: 2:
+Row 3: Unnamed: 0: | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: Query | Unnamed: 2:
+Row 4: Unnamed: 0: | (a) Naïve RAG: Query | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: | Unnamed: 2:
+Row 5: Unnamed: 0: | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: Contrastive Context | Unnamed: 2:
+Row 6: Unnamed: 0: | (a) Naïve RAG: Context | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: | Unnamed: 2:
+Row 7: Unnamed: 0: Q | (a) Naïve RAG: R Incorporate the top k relevant A | Unnamed: 1: Q | (b) CoRE: Contrastive RAG on Experience: CaseRCase Rerank Positive cases | Unnamed: 2: A
+Row 8: Unnamed: 0: | (a) Naïve RAG: docs into the | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: Negative cases | Unnamed: 2:
+Row 9: Unnamed: 0: | (a) Naïve RAG: prompt | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: Case | Unnamed: 2:
+Row 10: Unnamed: 0: | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: ...... | Unnamed: 2:
+Row 11: Unnamed: 0: | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: Experience | Unnamed: 2:
+Row 12: Unnamed: 0: | (a) Naïve RAG: Database | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: Memory | Unnamed: 2:
+Row 13: Unnamed: 0: | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: MCTS Trajectories | Unnamed: 2:
+Row 14: Unnamed: 0: | (a) Naïve RAG: Figure 1: Comparison between naive RAG and our CoRE. | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: | Unnamed: 2:
+Row 15: Unnamed: 0: 2020), alignment (Ouyang et al., 2022; Lightman | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: tories expands the original training dataset by 8- | Unnamed: 2:
+Row 16: Unnamed: 0: et al., 2023), and in-context learning (Chia et al., | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: 9×, demonstrating increased diversity and domain | Unnamed: 2:
+Row 17: Unnamed: 0: 2023) have shown that LLMs can learn more ef- | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: coverage with diluted, decomposed high-density | Unnamed: 2:
+Row 18: Unnamed: 0: fectively by both positive and negative examples. | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: knowledge (Figure 3). Moreover, compared to few- | Unnamed: 2:
+Row 19: Unnamed: 0: This idea has been further supported by studies on | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: shot approaches using only fixed examples, CoRE | Unnamed: 2:
+Row 20: Unnamed: 0: reasoning (Putta et al., 2024), which improve the | (a) Naïve RAG: | Unnamed: 1: | (b) CoRE: Contrastive RAG on Experience: underscores the effectiveness of contrastive learn- | Unnamed: 2:
+[/TABLE]
+
+[TABLE page=2 index=2]
+Columns: generalization of contrastive trajectories in com- | ing in context, achieving a 1.76% gain (Table 3).
+Row 1: generalization of contrastive trajectories in com-: plex, multi-step reasoning tasks. | ing in context, achieving a 1.76% gain (Table 3).: In summary, our main contributions are as follows:
+Row 2: generalization of contrastive trajectories in com-: Therefore, we introduce Contrastive Retrieval- | ing in context, achieving a 1.76% gain (Table 3).:
+Row 3: generalization of contrastive trajectories in com-: | ing in context, achieving a 1.76% gain (Table 3).: 1. Experience Memory Construction: We inRow 4: generalization of contrastive trajectories in com-: Augmented Generation on Experience (CoRE). | ing in context, achieving a 1.76% gain (Table 3).:
+Row 5: generalization of contrastive trajectories in com-: | ing in context, achieving a 1.76% gain (Table 3).: troduce a method to build experience memory
+Row 6: generalization of contrastive trajectories in com-: CoRE builds experience memory representations | ing in context, achieving a 1.76% gain (Table 3).:
+Row 7: generalization of contrastive trajectories in com-: | ing in context, achieving a 1.76% gain (Table 3).: using MCTS trajectories, capturing diverse
+Row 8: generalization of contrastive trajectories in com-: and incorporates contrasted examples—both suc- | ing in context, achieving a 1.76% gain (Table 3).:
+Row 9: generalization of contrastive trajectories in com-: | ing in context, achieving a 1.76% gain (Table 3).: reasoning experiences (both successful and
+Row 10: generalization of contrastive trajectories in com-: cessful and failed cases—into the context to solve | ing in context, achieving a 1.76% gain (Table 3).:
+Row 11: generalization of contrastive trajectories in com-: | ing in context, achieving a 1.76% gain (Table 3).: failed), enabling better generalization in comRow 12: generalization of contrastive trajectories in com-: structured knowledge reasoning problems. As | ing in context, achieving a 1.76% gain (Table 3).:
+Row 13: generalization of contrastive trajectories in com-: | ing in context, achieving a 1.76% gain (Table 3).: plex tasks with minimal initial exposure.
+Row 14: generalization of contrastive trajectories in com-: shown in Figure 1 (b), CoRE simplifies intri- | ing in context, achieving a 1.76% gain (Table 3).:
+Row 15: generalization of contrastive trajectories in com-: cate structured reasoning problems into decompos- | ing in context, achieving a 1.76% gain (Table 3).: 2. Contrastive Reflection Mechanism: CoRE
+Row 16: generalization of contrastive trajectories in com-: able ones. It employs Monte Carlo Tree Search | ing in context, achieving a 1.76% gain (Table 3).: introduces a contrastive learning method,
+Row 17: generalization of contrastive trajectories in com-: (MCTS) (Silver et al., 2017; Hao et al., 2023) along | ing in context, achieving a 1.76% gain (Table 3).: which obtains two ranks through re-ranking
+Row 18: generalization of contrastive trajectories in com-: with a self-evaluation mechanism (Gu et al., 2024a) | ing in context, achieving a 1.76% gain (Table 3).: in the RAG process and then incorporating reRow 19: generalization of contrastive trajectories in com-: to mimic human Deliberate Practice, heuristically | ing in context, achieving a 1.76% gain (Table 3).: trieved content with specialized mechanisms
+Row 20: generalization of contrastive trajectories in com-: guiding the collection of successful and failed tra- | ing in context, achieving a 1.76% gain (Table 3).: for structured knowledge reasoning.
+Row 21: generalization of contrastive trajectories in com-: jectories. Through selection, expansion, simula- | ing in context, achieving a 1.76% gain (Table 3).: 3. Scalable Knowledge Retrieval: CoRE offers
+Row 22: generalization of contrastive trajectories in com-: tion, and back-propagation, question-answer pairs | ing in context, achieving a 1.76% gain (Table 3).: a plug-and-play, training-free solution, allowRow 23: generalization of contrastive trajectories in com-: are generated with reward labels (representing the | ing in context, achieving a 1.76% gain (Table 3).: ing for continuous learning and retrieval in
+Row 24: generalization of contrastive trajectories in com-: probability of success in intermediate steps). Sub- | ing in context, achieving a 1.76% gain (Table 3).: evolving environments by dynamic updates to
+Row 25: generalization of contrastive trajectories in com-: sequently, when a new problem arises, CoRE re- | ing in context, achieving a 1.76% gain (Table 3).: the Experience Memory.
+Row 26: generalization of contrastive trajectories in com-: trieves relevant cases and re-ranks them based on | ing in context, achieving a 1.76% gain (Table 3).:
+Row 27: generalization of contrastive trajectories in com-: reward labels to present both successful (positive) | ing in context, achieving a 1.76% gain (Table 3).: 2 Preliminary
+Row 28: generalization of contrastive trajectories in com-: and failed (negative) examples for contrastive re- | ing in context, achieving a 1.76% gain (Table 3).: In this section, we present our main Research QuesRow 29: generalization of contrastive trajectories in com-: flection, enabling more accurate and knowledge- | ing in context, achieving a 1.76% gain (Table 3).: tions and the formulation of Structured KnowlRow 30: generalization of contrastive trajectories in com-: intensive answers. | ing in context, achieving a 1.76% gain (Table 3).: edge Reasoning, which uses LLMs to solve comRow 31: generalization of contrastive trajectories in com-: Extensive experiments on structured knowledge | ing in context, achieving a 1.76% gain (Table 3).: plex reasoning tasks based on structured data.
+Row 32: generalization of contrastive trajectories in com-: reasoning tasks, such as Text-to-SQL and TableQA, | ing in context, achieving a 1.76% gain (Table 3).:
+Row 33: generalization of contrastive trajectories in com-: | ing in context, achieving a 1.76% gain (Table 3).: Research Questions
+Row 34: generalization of contrastive trajectories in com-: show that CoRE significantly enhances both per- | ing in context, achieving a 1.76% gain (Table 3).:
+Row 35: generalization of contrastive trajectories in com-: formance and efficiency, yielding average gains | ing in context, achieving a 1.76% gain (Table 3).: (1) Can MCTS effectively imitate human’s
+Row 36: generalization of contrastive trajectories in com-: of 3.44% and 4.24% over baseline methods. In | ing in context, achieving a 1.76% gain (Table 3).: practice for heuristic data augmentation?
+Row 37: generalization of contrastive trajectories in com-: particular, CoRE achieves greater improvements | ing in context, achieving a 1.76% gain (Table 3).: (2) Can RAG enhance structured knowledge
+Row 38: generalization of contrastive trajectories in com-: on more challenging problems, with increases of | ing in context, achieving a 1.76% gain (Table 3).: reasoning? (3) Does contrastive ICL outper-
+[/TABLE]
+
+[PAGE 3]
+Existing methods for structured knowledge reasoning seldom employ RAG because retrievable,
+domain-specific data is scarce. Instead, retrieval
+from general documents often introduces noise,
+leading to a negative impact (Yan et al., 2024a;
+Liu et al., 2024). For instance, DAIL-SQL (Gao
+et al., 2023a) restricts retrieval to training data, limiting diversity and coverage. Second, agent-based
+methods (Wang et al., 2023; Jiang et al., 2023; Pourreza and Rafiei, 2024) rely on fixed few-shot examples without incorporating dynamic contrastive
+learning for human-like adaptation. Third, most
+approaches lack systematic mechanisms to evaluate positive/negative signal impacts during reasoning. These gaps drive our investigation into MCTSbased augmentation, RAG optimization, and contrastive learning for structured knowledge reasoning with LLMs.
+Formalization Structured knowledge reasoning
+can be described as a question-answering task.
+Given a triple X = ( Q, K, A), where Q represents a natural language question, K is a structured
+knowledge representation, and A is an evidencesupported answer. Based on the natural language
+question Q and the accessible structured data K
+(e.g., a table or database), the first step is to extract
+useful evidence E from K (i.e., structured knowledge grounding). Notably, E remains a structured,
+high-density knowledge representation. Then, the
+LLM generator G uses this evidence to generate the
+expected answer A in response to the question Q.
+According to the task requirement, the generated
+answer A must be evidence-supported, but either
+free-form answers in natural language or structured
+expressions (e.g. SQL statements) to be executed
+for obtaining the answer from K. This process can
+be formalized as:
+A
+reasoning
+∼ G
+
+Q,
+
+E
+grounding
+← (Q, K)
+
+(1)
+In our work, we focus on improving reasoning
+over extracted structured evidence, excluding
+the grounding phase. To better illustrate our task,
+we detail two types of reasoning formulation on
+databases and data tables:
+Text-to-SQL We define a database K = {T , C},
+where T = {t1, t2, . . . , t|T |} denotes tables and
+C = {c1, c2, . . . , c|C|} denotes columns, with foreign keys {(c(k)
+i , c(h)
+j )} linking them; consequently,
+the grounding phase selects from K the relevant tables and columns for Q, forming evidence E =
+{(tk, ci) | tk ∈ T E , c i ∈ C E } that the generator
+then uses to produce the answer A. The reasoning
+process employs G to derive the final answer by
+sampling from its generative distribution. For more
+specific examples, refer to Appendix C.
+TableQA We model a data table K = {C, R},
+where C = {c1, c2, . . . , c|C|} are columns and R =
+{r1, r2, . . . , r|R|} are rows, with each cell value
+denoted by vi,j; accordingly, the grounding process
+identifies from K the pertinent columns CE and
+rows RE based on Q, forming evidence E = {vi,j |
+ci ∈ C E , r j ∈ R E } that supports G deriving A.
+3 CoRE
+We present ourCoRE framework in this section. As
+illustrated in Figure 2, it consists of three key modules: Contrastive Thinker (§ 3.3), Retriever (§ 3.2)
+and Experience Memory Buildier (§ 3.1).
+3.1 Experience Memory Builder
+To tackle complex reasoning tasks involving
+questions Q with structured knowledge E, humans and agents decompose problems into simpler sub-questions. Each sub-question and
+answer pair, ⟨q, a⟩, represents an intermediate stage in a reasoning trajectory τ =
+{⟨q1, a1⟩, ⟨q2, a2⟩, . . . ,⟨qn, an⟩}, leading to the
+final answer A. This decomposition transforms reasoning into a planning problem, where
+the goal is to find the optimal trajectory:
+τ ∗ = {⟨q∗
+1, a∗
+1⟩, ⟨q∗
+2, a∗
+2⟩, . . . ,⟨q∗
+n, a∗
+n⟩}. We employ MCTS with balanced exploration and exploitation to construct trajectories (see Figure 2(c) and
+Algorithm 1) involving four phases:
+Selection. Starting from the root node (representing Q and E), the algorithm recursively selects
+child nodes based on the Upper Confidence Bound
+for Trees (UCT):
+q∗
+k = arg max
+qk∈sub(qk−1)
+"
+Qvalue(sk−1, q) + w
+s
+ln N(sk−1)
+N(c(sk−1, q))
+#
+,
+(2)
+wheresk−1 = ⟨qk−1, ak−1⟩, N (sk−1) is the visit
+count for node sk−1, and c(sk−1, qk) is the corresponding child node. The weight w tunes the
+balance between exploration (less visited nodes)
+and exploitation (high Qvalue nodes).
+Expansion. Upon reaching a leaf node, we generate d candidate sub-questions using G: sub(qk) ∼
+G(q | sk−1, . . . , s0, E). If the leaf is terminal (i.e.,
+the end of a reasoning chain), expansion is skipped.
+
+[PAGE 4]
+…
+…
+… …
+< Question , Answer , Reward >
+Figure 2: Overall framework of CoRE.
+Simulation To estimate the expected future rewards (Qvalue), this phase simulates future scenarios of the current node using the world model. Starting from the current node, at each state s, a subquestion is generated according to a roll-out policy,
+and the world model predicts the next state. This
+roll-out continues until a terminal state is reached.
+In CoRE, to simplify the process and reduce noise,
+we adopt a similar approach as in the expansion
+phase, generating d candidate sub-questions and
+selecting the one with the highest local reward,
+q∗
+k = max qk fr(sk−1, qk). For practical efficiency,
+we use a simplified reward function fr to select
+sub-questions during simulation: fr(sk−1, qk) =
+rα
+1 · r1−α
+2 , where r1 is the consistency reward
+for qk, calculated by counting the frequency of
+the d sub-questions sub(qk−1), and r2 is the selfevaluation reward from the generator, defined as
+r2 = G("Yes" | qk, prompt), with prompt =
+"Is this reasoning step correct?".
+Back-propagation Upon reaching a terminal state
+sT (i.e., determining the final answer) in the previous phases, we obtain a reasoning path from
+the root node to the terminal node. At this point,
+we back-propagate the rewards along the path to
+update the Qvalue for each question-answer pair.
+Specifically, Qvalue(sk−1, qk) is updated by aggregating the rewards from all future steps of node
+sk:
+Qvalue(sk−1, qk) = max
+sk−1,qk,rk,...,sl,ql,rl,sl+1,...
+avg(rk−1, . . . , rl, . . .). (3)
+After completing the predetermined MCTS iterations, the algorithm terminates and extracts the
+final reasoning trace by starting at the root and iteratively selecting the action with the highest Qvalue
+until a terminal node is reached.
+3.2 Retriever
+The Retriever in the CoRE framework identifies
+both positive and negative cases for the new question Qcurrent. As showed in Figure 2 (b), it searches
+the Experience Memory database Dexperience by
+measuring semantic similarity Sim(Qcurrent, Qei)
+between Qcurrent and stored experience entries
+{e1, e2, . . . , ek}. The top k entries are retrieved and ranked by similarity, denoted as
+rank_sim(ei). These entries, which include structured knowledge and natural language descriptions, enhance retrieval accuracy. For example, SQL queries are accompanied by natural
+language descriptions of their Abstract Syntax
+Trees (AST) (Example in the Figure 2), improving the semantic understanding of retrieval and
+aligning the entries more closely with the query
+semantics. Next, the top k entries are re-ranked
+based on their reward labels r(ei), producing
+rank_reward(ei). The final ranking combines both
+similarity and reward ranks: rank_finalpositive(ei)
+merges rank_sim(ei) and rank_reward(ei), while
+rank_finalnegative(ei) merges rank_sim(ei) with the
+reverse of rank_reward(ei). The final ranking is
+obtained by averaging these components. Finally,
+based on the n-shot setting, the top n positive and
+negative entries are selected for the next stage.
+
+[PAGE 5]
+RewardLabel
+WikiTQBird FinQA
+Percentage (%)
+Figure 3: Reward label distribution on Bird, WikiTQ and FinQA
+3.3 Contrastive Thinker
+The Contrastive Thinker is built upon a general
+LLM that is specifically prompted to generate the
+necessary text based on the given contrastive context. Upon receiving positive and negative cases
+from the Retriever, the Contrastive Thinker employs deliberate practice by treating positive cases
+as past successes and negative cases as past failures. Through In-Context Learning, it can monitor
+its own performance, identify mistakes, and make
+adjustments accordingly. This process is encapsulated in the directive:“Solve the «<NEW CASE »>using
+the successful experience and avoid repeating the
+errors from failed experience...”, as illustrated in
+Figure 2 (a). The examples of prompts constructed
+through the collaboration of Retriever and Contrastive Thinker can be found in the Appendix C.
+4 Experiment
+In this section, we first outline the experiment
+setup in § 4.1 and describe the Experience Memory
+dataset we constructed in § 4.2. Then, we present
+experiments and results for two structured knowledge reasoning tasks in §4.3, including TableQA
+and Text-to-SQL. Finally, the ablation study (§ 4.4)
+and strategy analysis (§ 4.5) are presented.
+4.1 Experiment setup
+We use LlaMA-3 series (Dubey et al., 2024)
+and OpenAI’s GPT-4 (Achiam et al., 2023) as
+feneral LLMs in different experiment settings.
+The embedding models we used for retrieval is
+bge-large-en-v1.5. More experiment details in
+Appendix B.
+Datasets. We evaluate our CoRE on the dev
+sets on the training sets of different structured
+knowledge reasoning datasets showed in Table 5,
+including WikiTQ (Pasupat and Liang, 2015a),
+FinQA (Chen et al., 2021a) and Bird (Li et al.,
+2024). The details of these two datasets are provided in Appendix B.3.
+Evaluation. For Text-to-SQL, we use Execution
+Accuracy (EX), which measures the correctness
+of the SQL execution, to evaluate our method on
+Bird (Li et al., 2024). For TableQA, accuracy is
+used to verify whether predicted answers match the
+gold ones on WikiTQ (Pasupat and Liang, 2015a)
+and FinQA (Chen et al., 2021a).
+Baselines. CoRE is a plug-and-play framework,
+so we selected prompt-based agent reasoning
+frameworks as baselines (Pourreza and Rafiei,
+2024; Gao et al., 2023a; Wang et al., 2023; Jiang
+et al., 2023; Ye et al., 2023). We integrate CoRE
+into their components or replace their few-shot approaches. Note that we have not altered the grounding method but only integrated CoRE into the reasoning component. A detailed introduction to various methods is provided in Appendix B.4, and
+differences between their approaches and ours are
+discussed below.
+4.2 Experience Memory Dataset
+The method we used to build the Experience Memory Dataset is detailed in § 3.1 and Algorithm 1.
+For cost considerations, we used LlaMA-3-70b
+as backbone to produce experience memory data.
+During the MCTS process to imitate human thinking, we set the capacity of candidate sub-questions
+K = 4, roll-out times in simulation N = 10, depth
+limit L = 5 , the balance weight w = 0 .5, and reward weight α = 0.5. To encourage more diverse
+reasoning paths, we set the sampling temperature
+to 0.8. On average, each structure knowledge reasoning question can be decomposed into 3-5 ⟨q, a⟩
+pairs in each iteration. To obtain more reliable reward labels for each ⟨q, a⟩, in the search tree we
+built after 10 rolls-outs, the Qvalueof the nodes with
+more than or equal to 3 visits is stored as the reward
+label of ⟨q, a, r⟩. Moreover, we add overall successful cases with reward labels "1.00" and failed cases
+with "0.00" to the dataset as experience.
+Finally, we construct the Experience Memory
+Dataset on the training set (Table 5), expanding the
+
+[TABLE page=5 index=1]
+Columns: the successful experience and avoid repeating the | into their components or replace their few-shot apRow 1: the successful experience and avoid repeating the: errors from failed experience...”, as illustrated in | into their components or replace their few-shot ap-: proaches. Note that we have not altered the groundRow 2: the successful experience and avoid repeating the: Figure 2 (a). The examples of prompts constructed | into their components or replace their few-shot ap-: ing method but only integrated CoRE into the reaRow 3: the successful experience and avoid repeating the: through the collaboration of Retriever and Con- | into their components or replace their few-shot ap-: soning component. A detailed introduction to varRow 4: the successful experience and avoid repeating the: trastive Thinker can be found in the Appendix C. | into their components or replace their few-shot ap-: ious methods is provided in Appendix B.4, and
+Row 5: the successful experience and avoid repeating the: | into their components or replace their few-shot ap-: differences between their approaches and ours are
+Row 6: the successful experience and avoid repeating the: 4 Experiment | into their components or replace their few-shot ap-:
+Row 7: the successful experience and avoid repeating the: | into their components or replace their few-shot ap-: discussed below.
+Row 8: the successful experience and avoid repeating the: In this section, we first outline the experiment | into their components or replace their few-shot ap-:
+Row 9: the successful experience and avoid repeating the: | into their components or replace their few-shot ap-: 4.2 Experience Memory Dataset
+Row 10: the successful experience and avoid repeating the: setup in § 4.1 and describe the Experience Memory | into their components or replace their few-shot ap-:
+Row 11: the successful experience and avoid repeating the: dataset we constructed in § 4.2. Then, we present | into their components or replace their few-shot ap-: The method we used to build the Experience MemRow 12: the successful experience and avoid repeating the: experiments and results for two structured knowl- | into their components or replace their few-shot ap-: ory Dataset is detailed in § 3.1 and Algorithm 1.
+Row 13: the successful experience and avoid repeating the: edge reasoning tasks in §4.3, including TableQA | into their components or replace their few-shot ap-: For cost considerations, we used LlaMA-3-70b
+Row 14: the successful experience and avoid repeating the: and Text-to-SQL. Finally, the ablation study (§ 4.4) | into their components or replace their few-shot ap-: as backbone to produce experience memory data.
+Row 15: the successful experience and avoid repeating the: and strategy analysis (§ 4.5) are presented. | into their components or replace their few-shot ap-: During the MCTS process to imitate human thinkRow 16: the successful experience and avoid repeating the: | into their components or replace their few-shot ap-: ing, we set the capacity of candidate sub-questions
+Row 17: the successful experience and avoid repeating the: 4.1 Experiment setup | into their components or replace their few-shot ap-: K = 4, roll-out times in simulation N = 10, depth
+Row 18: the successful experience and avoid repeating the: We use LlaMA-3 series (Dubey et al., 2024) | into their components or replace their few-shot ap-: limit L = 5, the balance weight w = 0.5, and reRow 19: the successful experience and avoid repeating the: and OpenAI’s GPT-4 (Achiam et al., 2023) as | into their components or replace their few-shot ap-: ward weight α = 0.5. To encourage more diverse
+Row 20: the successful experience and avoid repeating the: feneral LLMs in different experiment settings. | into their components or replace their few-shot ap-: reasoning paths, we set the sampling temperature
+Row 21: the successful experience and avoid repeating the: The embedding models we used for retrieval is | into their components or replace their few-shot ap-: to 0.8. On average, each structure knowledge reaRow 22: the successful experience and avoid repeating the: bge-large-en-v1.5. More experiment details in | into their components or replace their few-shot ap-: soning question can be decomposed into 3-5 ⟨q, a⟩
+Row 23: the successful experience and avoid repeating the: Appendix B. | into their components or replace their few-shot ap-: pairs in each iteration. To obtain more reliable reRow 24: the successful experience and avoid repeating the: | into their components or replace their few-shot ap-: ward labels for each ⟨q, a⟩, in the search tree we
+Row 25: the successful experience and avoid repeating the: Datasets. We evaluate our CoRE on the dev | into their components or replace their few-shot ap-: built after 10 rolls-outs, the Qvalueof the nodes with
+Row 26: the successful experience and avoid repeating the: sets on the training sets of different structured | into their components or replace their few-shot ap-: more than or equal to 3 visits is stored as the reward
+Row 27: the successful experience and avoid repeating the: knowledge reasoning datasets showed in Table 5, | into their components or replace their few-shot ap-: label of ⟨q, a, r⟩. Moreover, we add overall success-
+[/TABLE]
+
+[PAGE 6]
+original data by 8-9×. The reward label distribution is shown in Figure 3, demonstrating increased
+diversity and domain coverage with diluted and
+decomposed high-density knowledge (Figure 3).
+The ⟨q, a, r⟩ with r ∈ (0, 1) is not included in the
+original training dataset, and they have difficulty
+difference after decomposition. In cases of errors,
+data entries with lower reward values usually come
+from nodes close to the error endpoint. On the
+other hand, data entries with higher rewards are
+more likely to lead to the correct endpoint after
+undergoing multiple verifications.
+4.3 Result and Analysis
+Table 1: Results by LlaMA3-70b or GPT-4, evaluated
+by Execution Accuracy (EX) on Bird Dev.
+Method EX (%)
+DIN-SQL (Pourreza and Rafiei, 2024) 30.5
++ our CoRE 34.0 (↑ 3.5)
+DAIL-SQL (Gao et al., 2023a) 31.6
++ our CoRE 35.2 (↑ 3.6)
+DAIL-SQL (SC) (Gao et al., 2023a) 37.5
++ our CoRE 36.7 (↓ 0.8)
+MAC-SQL (Wang et al., 2023) 34.9
++ our CoRE 40.8 (↑ 5.9)
+MAC-SQL (GPT-4) (Wang et al., 2023) 46.6
++ our CoRE 51.6 (↑ 5.0)
+∆ CoRE 3.44
+Text-to-SQL. Table 1 shows overall performance
+of all methods. To ensure consistency with CoRE,
+baselines were run in a 2-shot setting. On average,
+CoRE improves performance by 3.44% across all
+models. Specifically, traditional methods like DINSQL and DAIL-SQL gain 3.5% and 3.6% in accuracy, respectively. Note that DAIL-SQL uses fewshot examples extracted from the training set without retrieval, while MAC-SQL and DIN-SQL employ fixed examples in the prompt template without
+additional positive or negative signals to indicate
+relevance. Moreover, CoRE provides substantial
+improvements for advanced models. It enhances
+MAC-SQL and its GPT-4 version by 5.9% and
+5.0%, respectively, as the more powerful language
+model effectively captures contrastive contexts.
+The example selection in DAIL-SQL masks
+domain-specific words in both target and candidate
+questions, ranking candidates by cosine similarity
+of their embeddings to pick the most relevant examples for ICL. In contrast, our CoRE retrieves
+a wider range of data, providing diversity and
+broader coverage (Figure 3) — answer to RQ-(1).
+However, it is noteworthy that CoRE slightly reduces the accuracy for DAIL-SQL (SC) by 0.2%.
+This result may be due to the Contrastive Thinker
+in CoRE, which includes a large amount of contextual learning information. In contrast, SelfConsistency (SC) uses voting on five answers
+generated with a temperature of 1.0. This hightemperature setting can amplify the impact of noise
+from excessive contextual information in the generated content. As a result, it leads to negative
+outcomes. This also suggests that combining different prompting methods is not always better, as CoRE can be viewed as a dynamic fewshot approach for prompt engineering. Moreover,
+CoRE shows significant improvement for challenging Text-to-SQL tasks as shown in Figure 4. It
+nearly doubles the execution accuracy, reaching
+40%, compared to MAC-SQL. This also indicates
+that CoRE is useful for challenging knowledgeintensive reasoning questions.
+Figure 4: Performance under different difficulty.
+Table 2: Results by GPT-3.5, evaluated by Accuracy on
+WikiTQ and FinQA Dev.
+Dataset Method Accuracy (%)
+WikiTQ
+StructGPT (Jiang et al., 2023) 64.4
++ our CoRE 66.1 (↑ 1.7)
+Dater (Ye et al., 2023) 58.4
++ our CoRE 63.5 (↑ 5.1)
+∆ CoRE 3.4
+FinQA
+StructGPT (Jiang et al., 2023) 51.2
++ our CoRE 53.1 (↑ 1.9)
+Dater (Ye et al., 2023) 52.4
++ our CoRE 59.0 (↑ 6.6)
+∆ CoRE 4.25
+
+[PAGE 7]
+Table 3: Ablation Experiment by GPT-4 (2-shot results.)
+Method 2-shot
+|
+Generic Reasoning
+End-to-End QA + our CoRE 67.68 67.89 ( ↑ 0.21) 67.33 ( ↓ 0.35) 68.20 ( ↑ 0.52) 68.14 ( ↑ 0.46)
+CoT QA (Wei et al., 2022) + our CoRE 68.09 68.07 ( ↓ 0.02) 67.73 ( ↓ 0.36) 68.35 ( ↑ 0.26) 68.61 ( ↑ 0.52)
+∆ CoRE – – +0.39 +0.49
+Structure Knowledge Reasoning
+MAC-SQL (Wang et al., 2023) + our CoRE 56.40 55.74 ( ↓ 0.66) 45.20 ( ↓ 11.20) 58.92 (↑ 2.52) 58.08 (↑ 1.68)
+Dater (Ye et al., 2023) + our CoRE 64.88 66.20 ( ↑ 1.32) 65.27 ( ↑ 0.39) 68.03 ( ↑ 3.15) 69.72 (↑ 4.84)
+∆ CoRE – – – +2.835 +3.260
+Table 4: Ablation Study with GPT-4 (0/1-shot Settings)
+Method 0-shot 1-shot
+End-to-End QA
++ our CoRE 66.79 66.83 66.60 ( ↓0.23) 66.04 ( ↓0.79)
+CoT QA
++ our CoRE 67.68 67.85 68.71 ( ↑0.86) 66.69 ( ↓1.16)
+MAC-SQL
++ our CoRE 48.77 54.36 54.45 ( ↑0.09) 40.10 (↓14.26)
+Dater
++ our CoRE 60.19 64.90 66.38 ( ↑1.48) 64.82 ( ↓0.08)
+TableQA Consistent with the Text-to-SQ, we employed the 2-shot setting. Table 2 shows that when
+applied to TableQA baselines, CoRE boosts StructGPT’s accuracy by 1.7% and improves Dater’s accuracy from 58.4% to 63.5% (↑ 5.1%). Both StructGPT and Dater use fixed few-shot examples in
+their Iterative Reading-then-Reasoning and Jointly
+Reasoning methods. It can be observed that using the CoRE plugin on Dater results in greater
+improvement. This difference stems from the
+grounding phase in reasoning. Dater leverages
+its Evidence Decomposer to break down and filter high-density structured knowledge, producing
+a cleaner reasoning input E with reduced noise.
+Consequently, with this refined E, CoRE performs
+Contrastive In-Context Learning more effectively,
+resulting in a larger boost in reasoning performance.
+Overall, CoRE yields an average improvement of
+3.4% on the WikiTQ dataset, and as shown in Figure 4, gains on complex issues dominate the overall
+enhancement.
+On FinQA, CoRE increases StructGPT’s accuracy by 1.9% and Dater’s by 6.6%, achieving an
+average gain of 4.25%. As FinQA contains much
+less structured knowledge than WikiTQ, grounding
+and reasoning play a stronger role. Moreover, the
+higher plain-text content in FinQA simplifies ICL,
+allowing CoRE to enhance relevant information
+more effectively and attain a higher success rate.
+4.4 Ablation Study
+We analyzed the differences between existing methods and our CoRE, then proposed the our research questions (§2). The Answer to RQ-(1): our
+MCTS-generated Experience Memory Dataset offers greater diversity and coverage than datasets
+relying solely on training data by comparing with
+DAIL-SQL in § 4.3. To answer the remaining RQs,
+we further conducted ablation studies on MACSQL and Dater using GPT-4, demonstrating that
+CoRE benefits both structured and generic reasoning. To confirm its effectiveness, we compared
+the fixed few-shot method used in baselines (Wang
+et al., 2023; Ye et al., 2023) with our Retrieverprovided positive and negative examples across
+0-shot to 2-shot settings. As shown in Table 4 and
+Table 3,
+denotes fixed examples without any additional signals, while
+and
+represent positive
+and negative cases for the new question. These
+three types of examples are provided as N-shot
+inputs for reasoning in a single round. However,
+"
+|
+" uses a two-round approach, with positive
+cases guiding the first and negatives correcting errors in the second. The results lead to the following
+conclusions:
+RAG helps effective knowledge augmentation.
+— Answer to RQ-(2) . For structure knowledge (high-density) reasoning, RAG proves to be
+an effective approach for diluting intensive knowledge with effective examples, to guide LLM to
+interpret complex knowledge. This is consistent
+with the effectiveness demonstrated by DAIL-SQL.
+Compared with the fixed example without specifically associated signals, CoRE can improve performance through dynamically recalled positive examples (without comparison), which can be seen in
+both 1-shot (↑ 1.48%) and 2-shot (↑ 1.32%). The
+reasoning task in the more general FinQA leans towards a strong LLM background, showing similar
+
+[TABLE page=7 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | 2-shot | Unnamed: 3 | Unnamed: 4
+Row 1: Unnamed: 0: Method | Unnamed: 1: | Unnamed: 2: | 2-shot: | Unnamed: 3: | Unnamed: 4:
+Row 2: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | 2-shot: | Unnamed: 3: | Unnamed: 4: |
+Row 3: Unnamed: 0: Generic Reasoning | Unnamed: 1: | Unnamed: 2: | 2-shot: | Unnamed: 3: | Unnamed: 4:
+Row 4: Unnamed: 0: End-to-End QA + our CoRE | Unnamed: 1: 67.68 | Unnamed: 2: 67.89 (↑ 0.21) | 2-shot: 67.33 (↓ 0.35) | Unnamed: 3: 68.20 (↑ 0.52) | Unnamed: 4: 68.14 (↑ 0.46)
+Row 5: Unnamed: 0: CoT QA (Wei et al., 2022) + our CoRE | Unnamed: 1: 68.09 | Unnamed: 2: 68.07 (↓ 0.02) | 2-shot: 67.73 (↓ 0.36) | Unnamed: 3: 68.35 (↑ 0.26) | Unnamed: 4: 68.61 (↑ 0.52)
+Row 6: Unnamed: 0: ∆ CoRE | Unnamed: 1: – | Unnamed: 2: – | 2-shot: +0.39 | Unnamed: 3: +0.49 | Unnamed: 4:
+Row 7: Unnamed: 0: Structure Knowledge Reasoning | Unnamed: 1: | Unnamed: 2: | 2-shot: | Unnamed: 3: | Unnamed: 4:
+Row 8: Unnamed: 0: MAC-SQL (Wang et al., 2023) + our CoRE | Unnamed: 1: 56.40 | Unnamed: 2: 55.74 (↓ 0.66) | 2-shot: 45.20 (↓ 11.20) | Unnamed: 3: 58.92 (↑ 2.52) | Unnamed: 4: 58.08 (↑ 1.68)
+Row 9: Unnamed: 0: Dater (Ye et al., 2023) + our CoRE | Unnamed: 1: 64.88 | Unnamed: 2: 66.20 (↑ 1.32) | 2-shot: 65.27 (↑ 0.39) | Unnamed: 3: 68.03 (↑ 3.15) | Unnamed: 4: 69.72 (↑ 4.84)
+Row 10: Unnamed: 0: ∆ CoRE | Unnamed: 1: – | Unnamed: 2: – | 2-shot: – | Unnamed: 3: +2.835 | Unnamed: 4: +3.260
+[/TABLE]
+
+[PAGE 8]
+performance without much corresponding increase.
+Contrastive ICL brings consistent improvement
+— Answer to RQ-(3). Leveraging CoRE’s dynamic
+retrieval to obtain relevant examples, contrastive
+ICL outperforms both positive-positive (
+) and
+negative-negative (
+) combinations. In particular, positive-negative combinations (
+or
+|
+) yield the highest gains—up to ↑ 2.835%
+in a single round or ↑ 3.260% across two rounds.
+This consistent improvement in both generic and
+structured knowledge reasoning demonstrates that
+contrastive ICL effectively stabilizes and enhances
+performance on challenging tasks.
+Only using negative examples without pointing out the mistakes would harm performance
+The data indicates that using positive examples
+before generation yields better outcomes, while
+negative examples can have adverse effects. In the
+2-shot columns of the table, positive-positive combinations (
+) show superior performance compared to fix examples (
+). Conversely, negativenegative combinations (
+) degrade model performance, showing that negative examples introduce noise and negatively affect results. It seems
+that only using negative examples without pointing
+out the mistakes would harm performance, as generative models will involuntarily imitate incorrect
+cases even if they have been informed that these
+are wrong cases.
+Different ways of comparison in the dialogue
+yield similar effects. In the results of using Contrastive In-Context Learning, the effect of comparing in single-turn dialogues (
+) and comparing
+before and after in two-turn dialogues (
+|
+) is
+competitive. This means that our CoRE can be
+implemented in a more flexible way, and even with
+limited context length, similar improvements can
+still be achieved through multi-turn dialogues.
+We experimented with various strategies in
+prompt engineering for our CoRE. In the Textto-SQL task, we integrated CoRE into the SelfConsistency (SC) baseline method but observed
+negative effects (§ 4.3), leading us to discontinue
+discussing this strategy. In the Text-to-SQL task,
+we used LlaMA-3 to apply CoRE on MAC-SQL
+multiple times for iterative optimization in multiturn dialogues, a process known as bootstrapping.
+4.5 More Discussion
+Bootstrapping. We repeatedly apply CoRE in
+multi-turn dialogues under various few-shot setIterations
+Accuracy (%)
+N-shot
+Figure 5: Bootstrapping with CoRE by LlaMA-3-70b.
+tings—one iteration equals one use of CoRE and Nshot indicates the number of contrastive examples
+in context. Due to context length limits, structured
+knowledge E is included only in the first round,
+with subsequent iterations updating the current answer solely based on retrieved examples. As shown
+in Figure 5, while the baseline improves modestly
+from 30.92% (0-shot) to 34.83% (3-shot), bootstrapping achieves 42.11% at 3-shot without iterations, rising further to 45.09% at 3-shot after one
+iteration and 45.76% at 2-shot after two iterations.
+This shows that using bootstrapping can lead to
+more accurate results when there is a sufficient
+budget and low requirements for delay restrictions.
+Grounding and Reasoning. In our work, we
+concentrate on the reasoning aspect of structured
+knowledge question-answering by following the
+grounding method of each baseline. We wonder
+how the grounding results affect our CoRE reasoning, so we also experimented with using a golden
+schema for CoRE with MAC-SQL. The results
+in Figure 6 show that the grounding process will
+significantly affect the results of CoRE reasoning.
+This observation is consistent with the phenomenon
+observed on two different baselines in TableQA.
+Using CoRE as a dynamic few-shot strategy on
+more fine-grained structured knowledge E can lead
+to higher returns.
+Figure 6: Different Schema for CoRE by LlaMA-3-70b
+Computational Analysis CoRE’s one-time offline cost is amortized across tasks, its inference-
+
+[PAGE 9]
+time overhead is minimal, and it remains practical
+under strict token constraints. We analyze three
+aspects here. 1. Offline Investment: We run
+Monte Carlo Tree Search once per training example to build the Experience Memory of (question,
+context, answer) triplets. This step produces a
+reusable repository without further model training
+and resolves cold-start issues. After construction,
+no additional offline computation is required for
+any downstream task. 2. Inference-Time Retrieval
+Overhead: At inference, each query is mapped
+to an embedding and compared against stored entries. Retrieving the top-k candidates requires computing similarity scores for all entries (complexity O(N × d)) and re-ranking the best matches
+(complexity O(N log k)). In practice, retrieval plus
+prompt construction takes under 60 ms per query,
+which is negligible compared to typical model generation time. 3. Scalability under Token Limits
+(Few-Shot Adaptability): CoRE supports multiturn in-context learning (like
+|
+), allowing us to
+present contrastive examples across several shorter
+prompts rather than one long prompt. This design
+reduces the impact of strict token limits while preserving few-shot performance. Bootstrapping further refines examples over turns, so even a small set
+of positive and negative instances yields consistent
+improvements without excessively long context.
+5 Related Work
+5.1 Contrastive learning
+Contrastive learning (Khosla et al., 2020) is a wellknown technique that encourages models to differentiate between "positive" and "negative" samples, commonly used in areas like RLHF, where
+reward models are trained on human preference
+data (Lightman et al., 2023; Ouyang et al., 2022).
+However, contrastive methods are less explored in
+prompt engineering. It remains unclear whether
+contrastive demonstrations can enhance the reasoning process (Wang et al., 2022), though recent work
+shows that contrastive CoT consistently improves
+In-context learning (Chia et al., 2023).
+5.2 Retrieval Augmented Generation
+Retrieval Augmented Generation (RAG) enhances
+LLMs by fetching relevant documents from external databases and integrating them into the generation process (Gao et al., 2023b; Lewis et al., 2020b;
+Khandelwal et al., 2020; Izacard and Grave, 2021;
+Luo et al., 2023) (see Figure 1(a)). Recent work
+has focused on helping LLMs decide when and
+what to retrieve (Schick et al., 2024) or on better
+exploiting context (Sarthi et al., 2024; Kim et al.,
+2024). While Self-Reflective RAG (Asai et al.,
+2023) uses reflection tokens to guide retrieval and
+Corrective RAG (Yan et al., 2024b) proposes a
+lightweight evaluator (albeit lacking high-level reasoning), CoRE instead emphasizes effective utilization of retrieved content and contexts by contrastive
+learning.
+5.3 Structured Knowledge Reasoning
+Structured knowledge, such as tables, knowledge
+graphs, and databases, has been central to knowledge grounding (Liu et al., 2025) and reasoning
+tasks. Due to heterogeneous data formats, methods (Xie et al., 2024) have emerged that leverage specific training setups to learn these representations. However, recent prompt-based methods, capitalizing on LLMs’ capabilities, aim to
+process structured knowledge without re-training.
+Approaches like MAC-SQL (Wang et al., 2023),
+StructGPT (Jiang et al., 2023), Dater (Ye et al.,
+2023), DIN-SQL (Pourreza and Rafiei, 2024), and
+DAIL-SQL (Gao et al., 2023a) enhance LLMs’ reasoning through multi-agent frameworks, decomposition, and schema linking, improving performance
+with techniques like evidence decomposition and
+self-correction.
+6 Conclusion
+We have introduced CoRE, a training-free contrastive RAG framework that uses Monte Carlo
+Tree Search to build an Experience Memory for
+structured knowledge reasoning. Our experiments
+on Text-to-SQL and TableQA tasks demonstrate
+that CoRE improves performance substantially
+on challenging queries by retrieving evidence
+with greater diversity and coverage than prior approaches. By incorporating both positive and negative examples through contrastive in-context learning, CoRE enhances reasoning robustness across
+different grounding methods and remains scalable
+under strict token limits through multi-turn prompting. The offline memory construction incurs a
+one-time cost that is amortized across tasks, and
+inference-time retrieval adds negligible overhead.
+These results establish CoRE as a flexible, efficient
+solution that extends the generalization of NLP
+models to complex structured reasoning scenarios.
+
+[TABLE page=9 index=1]
+Columns: context, answer) | triplets. | This | step | produces | a | Unnamed: 0 | lightweight evaluator (albeit lacking high-level reaRow 1: context, answer): reusable repository without further model training | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: soning), CoRE instead emphasizes effective utilizaRow 2: context, answer): and resolves cold-start issues. After construction, | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: tion of retrieved content and contexts by contrastive
+Row 3: context, answer): no additional offline computation is required for | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: learning.
+Row 4: context, answer): any downstream task. 2. Inference-Time Retrieval | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 5: context, answer): Overhead: At inference, | triplets.: | This: each query | step: | produces: is mapped | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 6: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: 5.3 Structured Knowledge Reasoning
+Row 7: context, answer): to an embedding and compared against stored en- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 8: context, answer): tries. Retrieving the top-k candidates requires com- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 9: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: Structured knowledge, such as tables, knowledge
+Row 10: context, answer): puting similarity scores for all entries (complex- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 11: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: graphs, and databases, has been central to knowlRow 12: context, answer): ity O(N × d)) and re-ranking | triplets.: | This: the best matches | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 13: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: edge grounding (Liu et al., 2025) and reasoning
+Row 14: context, answer): (complexity O(N log k)). In practice, retrieval plus | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 15: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: tasks. Due to heterogeneous data formats, methRow 16: context, answer): prompt construction takes under 60 ms per query, | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 17: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: ods (Xie et al., 2024) have emerged that leverRow 18: context, answer): which is negligible compared to typical model gen- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 19: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: age specific training setups to learn these repreRow 20: context, answer): eration time. 3. Scalability under Token Limits | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 21: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: sentations. However, recent prompt-based methRow 22: context, answer): (Few-Shot Adaptability): | triplets.: | This: CoRE supports multi- | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 23: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: ods, capitalizing on LLMs’ capabilities, aim to
+Row 24: context, answer): turn in-context learning (like | triplets.: | This: | | step: ), allowing us to | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 25: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: process structured knowledge without re-training.
+Row 26: context, answer): present contrastive examples across several shorter | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 27: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: Approaches like MAC-SQL (Wang et al., 2023),
+Row 28: context, answer): prompts rather than one long prompt. This design | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 29: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: StructGPT (Jiang et al., 2023), Dater (Ye et al.,
+Row 30: context, answer): reduces the impact of strict token limits while pre- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 31: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: 2023), DIN-SQL (Pourreza and Rafiei, 2024), and
+Row 32: context, answer): serving few-shot performance. Bootstrapping fur- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 33: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: DAIL-SQL (Gao et al., 2023a) enhance LLMs’ reaRow 34: context, answer): ther refines examples over turns, so even a small set | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 35: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: soning through multi-agent frameworks, decompoRow 36: context, answer): of positive and negative instances yields consistent | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 37: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: sition, and schema linking, improving performance
+Row 38: context, answer): improvements without excessively long context. | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 39: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: with techniques like evidence decomposition and
+Row 40: context, answer): 5 Related Work | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: self-correction.
+Row 41: context, answer): 5.1 Contrastive learning | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 42: context, answer): Contrastive learning (Khosla et al., 2020) is a well- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: 6 Conclusion
+Row 43: context, answer): known technique that encourages models to dif- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-:
+Row 44: context, answer): ferentiate between "positive" and "negative" sam- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: We have introduced CoRE, a training-free conRow 45: context, answer): ples, commonly used in areas like RLHF, where | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: trastive RAG framework that uses Monte Carlo
+Row 46: context, answer): reward models are trained on human preference | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: Tree Search to build an Experience Memory for
+Row 47: context, answer): data (Lightman et al., 2023; Ouyang et al., 2022). | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: structured knowledge reasoning. Our experiments
+Row 48: context, answer): However, contrastive methods are less explored in | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: on Text-to-SQL and TableQA tasks demonstrate
+Row 49: context, answer): prompt engineering. | triplets.: It remains unclear whether | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: that CoRE improves performance substantially
+Row 50: context, answer): contrastive demonstrations can enhance the reason- | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: on challenging queries by retrieving evidence
+Row 51: context, answer): ing process (Wang et al., 2022), though recent work | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: with greater diversity and coverage than prior apRow 52: context, answer): shows that contrastive CoT consistently improves | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: proaches. By incorporating both positive and negaRow 53: context, answer): In-context learning (Chia et al., 2023). | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: tive examples through contrastive in-context learnRow 54: context, answer): | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: ing, CoRE enhances reasoning robustness across
+Row 55: context, answer): 5.2 Retrieval Augmented Generation | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: different grounding methods and remains scalable
+Row 56: context, answer): Retrieval Augmented Generation (RAG) enhances | triplets.: | This: | step: | produces: | a: | Unnamed: 0: | lightweight evaluator (albeit lacking high-level rea-: under strict token limits through multi-turn prompt-
+[/TABLE]
+
+[PAGE 10]
+Limitation
+While CoRE provides a promising solution for the
+cold start problem in RAG tasks and offers a tailored approach for structured knowledge reasoning,
+its performance may vary depending on the coverage and quality of the Experience Memory dataset.
+The effectiveness of the method relies heavily on
+the breadth of the data used to generate this memory, and when transferring the approach to a new
+task, the Experience Memory must be rebuilt as per
+the outlined method for stable results. Additionally,
+CoRE’s performance is highly dependent on the accuracy of the initial grounding phase. The grounding phase identifies relevant data from structured
+sources, and inaccuracies in this process may hinder the model’s ability to reason effectively. This
+aspect requires careful attention, especially when
+applied to real-world scenarios where structured
+knowledge might be incomplete or ambiguous.
+References
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama
+Ahmad, Ilge Akkaya, Florencia Leoni Aleman,
+Diogo Almeida, Janko Altenschmidt, Sam Altman,
+Shyamal Anadkat, et al. 2023. Gpt-4 technical report.
+arXiv preprint arXiv:2303.08774.
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and
+Hannaneh Hajishirzi. 2023. Self-rag: Learning to
+retrieve, generate, and critique through self-reflection.
+arXiv preprint arXiv:2310.11511.
+Ding Chen, Shichao Song, Qingchen Yu, Zhiyu Li, Wenjin Wang, Feiyu Xiong, and Bo Tang. 2024. Grimoire
+is all you need for enhancing large language models.
+Preprint, arXiv:2401.03385.
+Zhiyu Chen, Wenhu Chen, Charese Smiley, Sameena
+Shah, Iana Borova, Dylan Langdon, Reema Moussa,
+Matt Beane, Ting-Hao Huang, Bryan Routledge, and
+William Yang Wang. 2021a. Finqa: A dataset of
+numerical reasoning over financial data. Proceedings
+of EMNLP 2021.
+Zhiyu Chen, Wenhu Chen, Charese Smiley, Sameena
+Shah, Iana Borova, Dylan Langdon, Reema Moussa,
+Matt Beane, Ting-Hao Huang, Bryan Routledge, and
+William Yang Wang. 2021b. Finqa: A dataset of
+numerical reasoning over financial data. Proceedings
+of EMNLP 2021.
+Yew Ken Chia, Guizhen Chen, Luu Anh Tuan,
+Soujanya Poria, and Lidong Bing. 2023. Contrastive chain-of-thought prompting. arXiv preprint
+arXiv:2311.09277.
+Ruomeng Ding, Chaoyun Zhang, Lu Wang, Yong Xu,
+Minghua Ma, Wei Zhang, Si Qin, Saravan Rajmohan, Qingwei Lin, and Dongmei Zhang. 2023.
+Everything of thoughts: Defying the law of penrose triangle for thought generation. arXiv preprint
+arXiv:2311.04254.
+Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey,
+Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman,
+Akhil Mathur, Alan Schelten, Amy Yang, Angela
+Fan, et al. 2024. The llama 3 herd of models. arXiv
+preprint arXiv:2407.21783.
+Anders Ericsson and Robert Pool. 2016. Peak: Secrets
+from the new science of expertise . Random House.
+Dawei Gao, Haibin Wang, Yaliang Li, Xiuyu Sun,
+Yichen Qian, Bolin Ding, and Jingren Zhou. 2023a.
+Text-to-sql empowered by large language models: A benchmark evaluation. arXiv preprint
+arXiv:2308.15363.
+Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia,
+Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, and Haofen
+Wang. 2023b. Retrieval-augmented generation for
+large language models: A survey. arXiv preprint
+arXiv:2312.10997.
+Jiawei Gu, Xuhui Jiang, Zhichao Shi, Hexiang Tan,
+Xuehao Zhai, Chengjin Xu, Wei Li, Yinghan Shen,
+Shengjie Ma, Honghao Liu, et al. 2024a. A survey
+on llm-as-a-judge. arXiv preprint arXiv:2411.15594.
+Jiawei Gu, Zacc Yang, Chuanghao Ding, Rui Zhao, and
+Fei Tan. 2024b. Cmr scaling law: Predicting critical
+mixture ratios for continual pre-training of language
+models. In Proceedings of the 2024 Conference on
+Empirical Methods in Natural Language Processing ,
+pages 16143–16162.
+Shibo Hao, Yi Gu, Haodi Ma, Joshua Jiahua Hong,
+Zhen Wang, Daisy Zhe Wang, and Zhiting Hu. 2023.
+Reasoning with language model is planning with
+world model. arXiv preprint arXiv:2305.14992.
+Gautier Izacard and Edouard Grave. 2021. Leveraging
+passage retrieval with generative models for open domain question answering. In Proceedings of the 16th
+Conference of the European Chapter of the Association for Computational Linguistics: Main V olume,
+pages 874–880, Online. Association for Computational Linguistics.
+Jinhao Jiang, Kun Zhou, Zican Dong, Keming Ye,
+Wayne Xin Zhao, and Ji-Rong Wen. 2023. Structgpt:
+A general framework for large language model to
+reason over structured data. In Proceedings of the
+2023 Conference on Empirical Methods in Natural
+Language Processing, pages 9237–9251.
+Nikhil Kandpal, Haikang Deng, Adam Roberts, Eric
+Wallace, and Colin Raffel. 2023. Large language
+models struggle to learn long-tail knowledge. In International Conference on Machine Learning , pages
+15696–15707. PMLR.
+Urvashi Khandelwal, Omer Levy, Dan Jurafsky, Luke
+Zettlemoyer, and Mike Lewis. 2020. Generalization
+through Memorization: Nearest Neighbor Language
+
+[TABLE page=10 index=1]
+Columns: CoRE’s performance is highly dependent on the ac- | Text-to-sql empowered by | large | Unnamed: 0 | language modRow 1: CoRE’s performance is highly dependent on the ac-: curacy of the initial grounding phase. The ground- | Text-to-sql empowered by: els: A benchmark evaluation. | large: | Unnamed: 0: | language mod-: arXiv preprint
+Row 2: CoRE’s performance is highly dependent on the ac-: ing phase identifies relevant data from structured | Text-to-sql empowered by: arXiv:2308.15363. | large: | Unnamed: 0: | language mod-:
+Row 3: CoRE’s performance is highly dependent on the ac-: sources, and inaccuracies in this process may hin- | Text-to-sql empowered by: Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, | large: | Unnamed: 0: | language mod-:
+Row 4: CoRE’s performance is highly dependent on the ac-: der the model’s ability to reason effectively. This | Text-to-sql empowered by: Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, and Haofen | large: | Unnamed: 0: | language mod-:
+Row 5: CoRE’s performance is highly dependent on the ac-: aspect requires careful attention, especially when | Text-to-sql empowered by: Wang. 2023b. Retrieval-augmented generation for | large: | Unnamed: 0: | language mod-:
+Row 6: CoRE’s performance is highly dependent on the ac-: applied to real-world scenarios where structured | Text-to-sql empowered by: large language models: A survey. | large: | Unnamed: 0: | language mod-: arXiv preprint
+Row 7: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: arXiv:2312.10997. | large: | Unnamed: 0: | language mod-:
+Row 8: CoRE’s performance is highly dependent on the ac-: knowledge might be incomplete or ambiguous. | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 9: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: Jiawei Gu, Xuhui Jiang, Zhichao | large: Shi, | Unnamed: 0: | language mod-: Hexiang Tan,
+Row 10: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: Xuehao Zhai, Chengjin Xu, Wei Li, Yinghan Shen, | large: | Unnamed: 0: | language mod-:
+Row 11: CoRE’s performance is highly dependent on the ac-: References | Text-to-sql empowered by: Shengjie Ma, Honghao Liu, et al. 2024a. | large: | Unnamed: 0: | language mod-: A survey
+Row 12: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: on llm-as-a-judge. arXiv preprint arXiv:2411.15594. | large: | Unnamed: 0: | language mod-:
+Row 13: CoRE’s performance is highly dependent on the ac-: Josh Achiam, Steven Adler, Sandhini Agarwal, Lama | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 14: CoRE’s performance is highly dependent on the ac-: Ahmad, Ilge Akkaya, Florencia Leoni Aleman, | Text-to-sql empowered by: Jiawei Gu, Zacc Yang, Chuanghao Ding, Rui Zhao, and | large: | Unnamed: 0: | language mod-:
+Row 15: CoRE’s performance is highly dependent on the ac-: Diogo Almeida, Janko Altenschmidt, Sam Altman, | Text-to-sql empowered by: Fei Tan. 2024b. Cmr scaling law: Predicting critical | large: | Unnamed: 0: | language mod-:
+Row 16: CoRE’s performance is highly dependent on the ac-: Shyamal Anadkat, et al. 2023. Gpt-4 technical report. | Text-to-sql empowered by: mixture ratios for continual pre-training of language | large: | Unnamed: 0: | language mod-:
+Row 17: CoRE’s performance is highly dependent on the ac-: arXiv preprint arXiv:2303.08774. | Text-to-sql empowered by: models. In Proceedings of the 2024 Conference on | large: | Unnamed: 0: | language mod-:
+Row 18: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: Empirical Methods in Natural Language Processing, | large: | Unnamed: 0: | language mod-:
+Row 19: CoRE’s performance is highly dependent on the ac-: Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 20: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: pages 16143–16162. | large: | Unnamed: 0: | language mod-:
+Row 21: CoRE’s performance is highly dependent on the ac-: Hannaneh Hajishirzi. 2023. Self-rag: Learning to | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 22: CoRE’s performance is highly dependent on the ac-: retrieve, generate, and critique through self-reflection. | Text-to-sql empowered by: Shibo Hao, Yi Gu, Haodi Ma, | large: Joshua | Unnamed: 0: | language mod-: Jiahua Hong,
+Row 23: CoRE’s performance is highly dependent on the ac-: arXiv preprint arXiv:2310.11511. | Text-to-sql empowered by: Zhen Wang, Daisy Zhe Wang, and Zhiting Hu. 2023. | large: | Unnamed: 0: | language mod-:
+Row 24: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: Reasoning with language model | large: | Unnamed: 0: is | language mod-: planning with
+Row 25: CoRE’s performance is highly dependent on the ac-: Ding Chen, Shichao Song, Qingchen Yu, Zhiyu Li, Wen- | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 26: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: world model. arXiv preprint arXiv:2305.14992. | large: | Unnamed: 0: | language mod-:
+Row 27: CoRE’s performance is highly dependent on the ac-: jin Wang, Feiyu Xiong, and Bo Tang. 2024. Grimoire | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 28: CoRE’s performance is highly dependent on the ac-: is all you need for enhancing large language models. | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 29: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: Gautier Izacard and Edouard Grave. 2021. Leveraging | large: | Unnamed: 0: | language mod-:
+Row 30: CoRE’s performance is highly dependent on the ac-: Preprint, arXiv:2401.03385. | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 31: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: passage retrieval with generative models for open do- | large: | Unnamed: 0: | language mod-:
+Row 32: CoRE’s performance is highly dependent on the ac-: Zhiyu Chen, Wenhu Chen, Charese Smiley, Sameena | Text-to-sql empowered by: main question answering. In Proceedings of the 16th | large: | Unnamed: 0: | language mod-:
+Row 33: CoRE’s performance is highly dependent on the ac-: Shah, Iana Borova, Dylan Langdon, Reema Moussa, | Text-to-sql empowered by: Conference of the European Chapter of the Associ- | large: | Unnamed: 0: | language mod-:
+Row 34: CoRE’s performance is highly dependent on the ac-: Matt Beane, Ting-Hao Huang, Bryan Routledge, and | Text-to-sql empowered by: ation for Computational Linguistics: Main Volume, | large: | Unnamed: 0: | language mod-:
+Row 35: CoRE’s performance is highly dependent on the ac-: William Yang Wang. 2021a. Finqa: A dataset of | Text-to-sql empowered by: pages 874–880, Online. Association for Computa- | large: | Unnamed: 0: | language mod-:
+Row 36: CoRE’s performance is highly dependent on the ac-: numerical reasoning over financial data. Proceedings | Text-to-sql empowered by: tional Linguistics. | large: | Unnamed: 0: | language mod-:
+Row 37: CoRE’s performance is highly dependent on the ac-: of EMNLP 2021. | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 38: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: Jinhao Jiang, Kun Zhou, Zican | large: Dong, | Unnamed: 0: | language mod-: Keming Ye,
+Row 39: CoRE’s performance is highly dependent on the ac-: Zhiyu Chen, Wenhu Chen, Charese Smiley, Sameena | Text-to-sql empowered by: Wayne Xin Zhao, and Ji-Rong Wen. 2023. Structgpt: | large: | Unnamed: 0: | language mod-:
+Row 40: CoRE’s performance is highly dependent on the ac-: Shah, Iana Borova, Dylan Langdon, Reema Moussa, | Text-to-sql empowered by: A general framework for large language model to | large: | Unnamed: 0: | language mod-:
+Row 41: CoRE’s performance is highly dependent on the ac-: Matt Beane, Ting-Hao Huang, Bryan Routledge, and | Text-to-sql empowered by: reason over structured data. | large: In Proceedings of the | Unnamed: 0: | language mod-:
+Row 42: CoRE’s performance is highly dependent on the ac-: William Yang Wang. 2021b. Finqa: A dataset of | Text-to-sql empowered by: 2023 Conference on Empirical Methods in Natural | large: | Unnamed: 0: | language mod-:
+Row 43: CoRE’s performance is highly dependent on the ac-: numerical reasoning over financial data. Proceedings | Text-to-sql empowered by: Language Processing, pages 9237–9251. | large: | Unnamed: 0: | language mod-:
+Row 44: CoRE’s performance is highly dependent on the ac-: of EMNLP 2021. | Text-to-sql empowered by: | large: | Unnamed: 0: | language mod-:
+Row 45: CoRE’s performance is highly dependent on the ac-: | Text-to-sql empowered by: Nikhil Kandpal, Haikang Deng, Adam Roberts, Eric | large: | Unnamed: 0: | language mod-:
+Row 46: CoRE’s performance is highly dependent on the ac-: Yew Ken Chia, Guizhen Chen, Luu Anh Tuan, | Text-to-sql empowered by: Wallace, and Colin Raffel. 2023. | large: | Unnamed: 0: | language mod-: Large language
+Row 47: CoRE’s performance is highly dependent on the ac-: Soujanya Poria, and Lidong Bing. 2023. Con- | Text-to-sql empowered by: models struggle to learn long-tail knowledge. | large: | Unnamed: 0: | language mod-: In InRow 48: CoRE’s performance is highly dependent on the ac-: trastive chain-of-thought prompting. arXiv preprint | Text-to-sql empowered by: ternational Conference on Machine Learning, pages | large: | Unnamed: 0: | language mod-:
+Row 49: CoRE’s performance is highly dependent on the ac-: arXiv:2311.09277. | Text-to-sql empowered by: 15696–15707. PMLR. | large: | Unnamed: 0: | language mod-:
+Row 50: CoRE’s performance is highly dependent on the ac-: Ruomeng Ding, Chaoyun Zhang, Lu Wang, Yong Xu, | Text-to-sql empowered by: Urvashi Khandelwal, Omer Levy, Dan Jurafsky, Luke | large: | Unnamed: 0: | language mod-:
+Row 51: CoRE’s performance is highly dependent on the ac-: Minghua Ma, Wei Zhang, Si Qin, Saravan Raj- | Text-to-sql empowered by: Zettlemoyer, and Mike Lewis. 2020. Generalization | large: | Unnamed: 0: | language mod-:
+[/TABLE]
+
+[PAGE 11]
+Models. In International Conference on Learning
+Representations (ICLR).
+Prannay Khosla, Piotr Teterwak, Chen Wang, Aaron
+Sarna, Yonglong Tian, Phillip Isola, Aaron
+Maschinot, Ce Liu, and Dilip Krishnan. 2020. Supervised contrastive learning. Advances in neural
+information processing systems, 33:18661–18673.
+Jaehyung Kim, Jaehyun Nam, Sangwoo Mo, Jongjin
+Park, Sang-Woo Lee, Minjoon Seo, Jung-Woo Ha,
+and Jinwoo Shin. 2024. Sure: Summarizing retrievals using answer candidates for open-domain
+qa of llms. arXiv preprint arXiv:2404.13081.
+Aobo Kong, Shiwan Zhao, Hao Chen, Qicheng Li, Yong
+Qin, Ruiqi Sun, and Xin Zhou. 2023. Better zeroshot reasoning with role-play prompting. Preprint,
+arXiv:2308.07702.
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, et al. 2020a. Retrieval-augmented generation
+for knowledge-intensive nlp tasks. Advances in Neural Information Processing Systems, 33:9459–9474.
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, et al. 2020b. Retrieval-augmented generation
+for knowledge-intensive nlp tasks. Advances in Neural Information Processing Systems, 33:9459–9474.
+Jinyang Li, Binyuan Hui, Ge Qu, Binhua Li, Jiaxi
+Yang, Bowen Li, Bailin Wang, Bowen Qin, Ruiying
+Geng, Nan Huo, Xuanhe Zhou, Chenhao Ma, Guoliang Li, Kevin C. C. Chang, Fei Huang, Reynold
+Cheng, and Yongbin Li. 2023. Can llm already
+serve as a database interface? a big bench for
+large-scale database grounded text-to-sqls. Preprint,
+arXiv:2305.03111.
+Jinyang Li, Binyuan Hui, Ge Qu, Jiaxi Yang, Binhua
+Li, Bowen Li, Bailin Wang, Bowen Qin, Ruiying
+Geng, Nan Huo, et al. 2024. Can llm already serve
+as a database interface? a big bench for large-scale
+database grounded text-to-sqls. Advances in Neural
+Information Processing Systems, 36.
+Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri
+Edwards, Bowen Baker, Teddy Lee, Jan Leike,
+John Schulman, Ilya Sutskever, and Karl Cobbe.
+2023. Let’s verify step by step. arXiv preprint
+arXiv:2305.20050.
+Chen Ling, Xujiang Zhao, Jiaying Lu, Chengyuan Deng,
+Can Zheng, Junxiang Wang, Tanmoy Chowdhury,
+Yun Li, Hejie Cui, Xuchao Zhang, et al. 2023. Domain specialization as the key to make large language
+models disruptive: A comprehensive survey. arXiv
+preprint arXiv:2305.18703.
+Geling Liu, Yunzhi Tan, Ruichao Zhong, Yuanzhen Xie,
+Lingchen Zhao, Qian Wang, Bo Hu, and Zang Li.
+2025. Solid-SQL: Enhanced schema-linking based
+in-context learning for robust text-to-SQL. In Proceedings of the 31st International Conference on
+Computational Linguistics, pages 9793–9803, Abu
+Dhabi, UAE. Association for Computational Linguistics.
+Nelson F Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy
+Liang. 2024. Lost in the middle: How language models use long contexts. Transactions of the Association
+for Computational Linguistics, 12.
+Hongyin Luo, Yung-Sung Chuang, Yuan Gong, Tianhua Zhang, Yoon Kim, Xixin Wu, Danny Fox, Helen Meng, and James Glass. 2023. Sail: Searchaugmented instruction learning. arXiv preprint
+arXiv:2305.15225.
+Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida,
+Carroll Wainwright, Pamela Mishkin, Chong Zhang,
+Sandhini Agarwal, Katarina Slama, Alex Ray, et al.
+2022. Training language models to follow instructions with human feedback. Advances in neural information processing systems, 35:27730–27744.
+Panupong Pasupat and Percy Liang. 2015a. Compositional semantic parsing on semi-structured tables. In
+Proceedings of the 53rd Annual Meeting of the Association for Computational Linguistics and the 7th
+International Joint Conference on Natural Language
+Processing (V olume 1: Long Papers), pages 1470–
+1480, Beijing, China. Association for Computational
+Linguistics.
+Panupong Pasupat and Percy Liang. 2015b. Compositional semantic parsing on semi-structured tables. In
+Proceedings of the 53rd Annual Meeting of the Association for Computational Linguistics and the 7th
+International Joint Conference on Natural Language
+Processing (V olume 1: Long Papers), pages 1470–
+1480, Beijing, China. Association for Computational
+Linguistics.
+Mohammadreza Pourreza and Davood Rafiei. 2024.
+Din-sql: Decomposed in-context learning of textto-sql with self-correction. Advances in Neural Information Processing Systems, 36.
+Pranav Putta, Edmund Mills, Naman Garg, Sumeet
+Motwani, Chelsea Finn, Divyansh Garg, and Rafael
+Rafailov. 2024. Agent q: Advanced reasoning and
+learning for autonomous ai agents. arXiv preprint
+arXiv:2408.07199.
+Parth Sarthi, Salman Abdullah, Aditi Tuli, Shubh
+Khanna, Anna Goldie, and Christopher D Manning. 2024. Raptor: Recursive abstractive processing for tree-organized retrieval. arXiv preprint
+arXiv:2401.18059.
+Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta
+Raileanu, Maria Lomeli, Eric Hambro, Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. 2024.
+Toolformer: Language models can teach themselves
+to use tools. Advances in Neural Information Processing Systems, 36.
+
+[PAGE 12]
+Noah Shinn, Federico Cassano, Ashwin Gopinath,
+Karthik R Narasimhan, and Shunyu Yao. 2023. Reflexion: Language agents with verbal reinforcement
+learning. In Thirty-seventh Conference on Neural
+Information Processing Systems.
+David Silver, Julian Schrittwieser, Karen Simonyan,
+Ioannis Antonoglou, Aja Huang, Arthur Guez,
+Thomas Hubert, Lucas Baker, Matthew Lai, Adrian
+Bolton, et al. 2017. Mastering the game of go without
+human knowledge. nature, 550(7676):354–359.
+Yuan Sui, Mengyu Zhou, Mingjie Zhou, Shi Han, and
+Dongmei Zhang. 2024. Table meets llm: Can large
+language models understand structured table data?
+a benchmark and empirical study. In Proceedings
+of the 17th ACM International Conference on Web
+Search and Data Mining, pages 645–654.
+Bing Wang, Changyu Ren, Jian Yang, Xinnian Liang,
+Jiaqi Bai, Qian-Wen Zhang, Zhao Yan, and Zhoujun
+Li. 2023. Mac-sql: Multi-agent collaboration for
+text-to-sql. arXiv preprint arXiv:2312.11242.
+Boshi Wang, Sewon Min, Xiang Deng, Jiaming Shen,
+You Wu, Luke Zettlemoyer, and Huan Sun. 2022.
+Towards understanding chain-of-thought prompting:
+An empirical study of what matters. arXiv preprint
+arXiv:2212.10001.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,
+et al. 2022. Chain-of-thought prompting elicits reasoning in large language models. Advances in Neural
+Information Processing Systems, 35:24824–24837.
+Yuanzhen Xie, Xinzhou Jin, Tao Xie, Matrixmxlin Matrixmxlin, Liang Chen, Chenyun Yu, Cheng Lei,
+Chengxiang Zhuo, Bo Hu, and Zang Li. 2024. Decomposition for enhancing attention: Improving
+LLM-based text-to-SQL through workflow paradigm.
+In Findings of the Association for Computational Linguistics: ACL 2024, pages 10796–10816, Bangkok,
+Thailand. Association for Computational Linguistics.
+Yuanzhen Xie, Tao Xie, Mingxiong Lin, WenTao Wei,
+Chenglin Li, Beibei Kong, Lei Chen, Chengxiang
+Zhuo, Bo Hu, and Zang Li. 2023. Olagpt: Empowering llms with human-like problem-solving abilities.
+arXiv preprint arXiv:2305.16334.
+Zhengzhuo Xu, Bowen Qu, Yiyan Qi, Sinan Du,
+Chengjin Xu, Chun Yuan, and Jian Guo. 2024. Chartmoe: Mixture of expert connector for advanced chart
+understanding. arXiv preprint arXiv:2409.03277.
+Shi-Qi Yan, Jia-Chen Gu, Yun Zhu, and Zhen-Hua Ling.
+2024a. Corrective retrieval augmented generation.
+arXiv preprint arXiv:2401.15884.
+Shi-Qi Yan, Jia-Chen Gu, Yun Zhu, and Zhen-Hua Ling.
+2024b. Corrective retrieval augmented generation.
+arXiv preprint arXiv:2401.15884.
+Yunhu Ye, Binyuan Hui, Min Yang, Binhua Li, Fei
+Huang, and Yongbin Li. 2023. Large language
+models are versatile decomposers: Decompose evidence and questions for table-based reasoning. arXiv
+preprint arXiv:2301.13808.
+Andrew Zhao, Daniel Huang, Quentin Xu, Matthieu
+Lin, Yong-Jin Liu, and Gao Huang. 2023. Expel: Llm agents are experiential learners. Preprint,
+arXiv:2308.10144.
+Alex Zhuang, Ge Zhang, Tianyu Zheng, Xinrun Du,
+Junjie Wang, Weiming Ren, Stephen W. Huang, Jie
+Fu, Xiang Yue, and Wenhu Chen. 2024. Structlm:
+Towards building generalist models for structured
+knowledge grounding. Preprint, arXiv:2402.16671.
+
+[PAGE 13]
+A More Related Work
+A.1 Mental Representations & Memory Representations
+This concept of Mental Representations (Ericsson and Pool, 2016) on human cognition refers to a mental
+structure that corresponds to an object, an idea, or a collection of information, whether concrete or abstract,
+that the brain is contemplating. Mental Representations plays a crucial role across various domains,
+facilitating effective planning and problem-solving, which can be figuratively stated as:
+While the Mental Representations give masters a view of the forest when everyone else sees
+only trees, they also allow masters to zero in on the trees when necessary.
+—— Ericsson and Pool
+Moreover, from the perspective of natural language development, the meaning of language is not right over
+there to see, to grasp or to learn, but rather constructed during a communicative event through interactive
+processes among interlocutors. Hence, intuitively, developing structures similar toMental Representations
+within LLMs’ dialogue contexts naturally corresponds to the internal cognitive mechanisms of language,
+while also capturing the essential features of Mental Representations, including its dynamic formation
+and continual refinement.
+Thus, intuitively, constructing structures akin to Mental Representations within the context of dialogue,
+significantly enhances the understanding and reasoning of natural language content. Consequently, we
+borrow the concept of Mental Representations and propose Memory Representations for LLMs, which
+enhances their abilities in comprehending, memorizing, organizing, analyzing, and ultimately making
+decisions with interactive information. Many paradigms in reasoning and planning incorporate components
+with functionalities similar to Memory Representations, albeit in naive forms, such as long-short-term
+memory (Shinn et al., 2023), task-specific heuristic function and policy networks (Ding et al., 2023).
+However, they are more than just storage memory in different forms or functions; indeed, they should
+encapsulate valid experiences that can guide efficient practices in subsequent instances. They optimizes
+decision-making policies through policy gradient methods relying on binary or scalar feedback, which
+significantly differs from the human-like decision-making process. However, quantifying the reward from
+natural language text is particularly challenging due to its inherent ambiguity and the subjective nature of
+language interpretation. Additionally, many existing methods (Shinn et al., 2023; Ding et al., 2023) equip
+LLMs with crucial human capabilities like memory, thereby regarding them as autonomous agents to
+complete human-like reasoning and planning. In this paper, we concentrate on the task of decision-making
+through natural language text, which encapsulates a comprehensive range of information, nuances, and
+potential actions.
+A.2 Experiential Learning
+To improve the performance of LLMs, researchers provide textual experience to LLMs through prompts.
+Early studies primarily involve manually crafting such experiential prompts (Wei et al., 2022; Kong
+et al., 2023), while more recent work focuses on utilizing the LLMs themselves to obtain task-solving
+experience automatically. Zhao et al. (2023) and Chen et al. (2024) leveraged LLMs to automatically
+summarize experience from manually annotated NLP datasets. Zhao et al. (2023) employed Reflexion
+(Shinn et al., 2023) to generate reasoning chains for each question. Then, the experience is summarized
+from the questions, chains, and human-annotated labels by LLMs. Chen et al. (2024) analyzed the impact
+of different examples and prompts on the quality of the summarized experience. However, these methods
+still require human labor to obtain experience and determine which experience to employ for the current
+question. Our framework autonomously learns and selects experience by RAG, which is continual and
+more consistency.
+
+[PAGE 14]
+Algorithm 1 MCTS with LLMs
+Require: Overall question Q, structured evidence E, large language model Generator, action generator G(·), number of
+generated sub-questions d, depth limit L, number of roll-outs N, and exploration weight w, reward function to return specific
+reward fr(sk−1, qk)
+1: for n ← 0, . . . , N − 1 do
+2: k ← 1
+3: while N(sk−1) > 0 do ▷ Selection
+4: N(sk−1) ← N(sk−1) + 1
+5: qk ← arg maxq∈sub(qk−1)
+h
+Qvalue(sk−1, q) + w
+q
+ln N (sk−1)
+N (c(sk−1,q))
+i
+6: rk = fr(sk−1, qk), sk ← c(sk−1, qk)
+7: k ← k + 1
+8: end while
+9: while sk is not a terminal state ∧ k ≤ L do
+10: for i ← 1, . . . , ddo ▷ Expansion
+11: sample sub (qk−1) ← sub(qk−1) ∪ {G(q|s∗
+k−1, . . . , s0, E)},
+12: ▷ Invoking LLM
+13: end for
+14: q∗
+k ← arg maxq∈sub(qk−1) fr(sk−1, qk) ▷ Simulation
+15: rk ← r(sk−1, qk), sk ← c(sk−1, qk)
+16: k ← k + 1
+17: end while
+18: for k′ ← (k − 1), . . . ,0 do ▷ Back propagation
+19: Update Qvalue(s(k−1)′ , ak′) with {rk′ , rk′+1, . . . , rk−1}
+20: end for
+21: end for
+B Experiment Details
+B.1 Pseudo-code
+B.2 Experience Memory Dataset Details
+Finally, we build the Experience Memory Dataset on training part (Table 5) and finally obtain 85,956
+cases with Bird (Li et al., 2024), 98,586 cases with WikiTQ (Pasupat and Liang, 2015a) and 55,399 cases
+with FinQA (Chen et al., 2021a), which has expanded the original training dataset by 8-9 ×.
+As we stated in § 3.1, structured knowledge reasoning can be solved by planning for decomposition.
+Figure 7 shows one trajectory for FinQA Dataset.
+B.3 Datasets
+Overall Length Train Dev/Test
+Dataset In.
+(avg)
+Out.
+(avg) Cnt In.
+(max)
+Out.
+(max) Cnt In.
+(max)
+Out.
+(max)
+WikiTQ 831.8 5.8 11321 2028 273 4344 2048 148
+BIRD 439.8 63.3 9428 1992 347 1534 1214 386
+FinQA 1230.3 21.0 6251 2040 72 1147 2048 61
+Table 5: Token sequence length statistics for each dataset.
+TableQA We evaluate our proposed CoRE on two table-based reasoning datasets, including WikiTableQuestion (Pasupat and Liang, 2015a), and FinQA (Chen et al., 2021a). The details of these two datasets
+are provided as follows.
+• WikiTableQuestion contains complex questions annotated by crowd workers based on Wikipedia
+tables. The crowd workers are asked to write questions that involve several complex operations such
+as comparison, aggregation and arithmetic operations, which require compositional reasoning over a
+series of entries in the given table. We use the standard test set with 4,344 samples.
+
+[PAGE 15]
+Figure 7: A trajectory of Experience Memory Builder for FinQA.
+• FinQA consists of complex questions curated by financial experts based on real-world financial
+reports from S&P 500 companies. These questions involve intricate numerical reasoning, requiring
+multi-step operations such as addition, subtraction, and ratio calculations across both structured
+tables and unstructured text. The dataset is split into a training set with 6,251 samples, a validation
+set with 883 samples, and a test set with 1,147 samples.
+Text-to-SQL
+• Bird dataset is extensive, with 12,751 unique question-SQL pairs from 95 large-scale databases
+totaling 33.4 GB. It encompasses a wide array of over 37 professional domains including blockchain,
+hockey, healthcare, and education. To assist models in generating accurate SQL queries, Bird incorporates external knowledge from four sources: numerical reasoning, domain-specific information,
+synonyms, and value examples.
+B.4 Baselines
+To ensure a stable generation, we set the temperature to 0 when reasoning with CoRE. The baselines we
+used are as follow:
+• MAC-SQL MAC-SQL (Wang et al., 2023) introduces a novel multi-agent framework for the Textto-SQL task, leveraging large language models (LLMs). The framework comprises three specialized
+agents: the Selector, responsible for condensing the database by retaining only relevant table schemas;
+the Decomposer, which breaks down complex questions into simpler sub-problems; and the Refiner,
+which validates and refines the generated SQL queries. The Decomposer first determines whether the
+question can be addressed using a simple SQL query. When the question requires a more complex
+approach, it applies a chain-of-thought (CoT) strategy to generate sub-questions and corresponding
+SQL queries, iterating until the final SQL query is constructed. Throughout this process—whether
+generating SQL directly or decomposing the question—few-shot learning techniques are used to
+ensure precise results.
+
+[PAGE 16]
+• StructGPT StructGPT (Jiang et al., 2023) employs an iterative reading-then-reasoning (IRR) framework to enhance the capability of large language models (LLMs) in reasoning over structured data,
+particularly tables. The method involves constructing specialized interfaces to access and filter
+relevant evidence from the table data efficiently. Through an iterative process of invoking these
+interfaces to extract information, linearizing the extracted data into a readable format for LLMs, and
+generating responses based on this linearized data, the framework progressively homes in on the
+target answers to given queries. This approach allows LLMs to leverage their reasoning abilities
+effectively by focusing on the reasoning task rather than the intricacies of understanding structured
+data formats.
+• Dater Dater (Ye et al., 2023) leverages large language models (LLMs) to decompose table-based
+reasoning tasks into more manageable sub-tasks. DATER addresses two main challenges in tablebased reasoning: dealing with large evidence, such as extensive tables with numerous rows and
+columns, and reasoning over complex questions that require multi-step logical deductions. The
+method involves an Evidence Decomposer to break down the vast table into relevant sub-evidence by
+predicting the indexes of rows and columns, and a Question Decomposer that simplifies complex
+questions into a series of simpler sub-questions using a "parsing-execution-filling" strategy with
+intermediate SQL queries. These decomposed elements are then used by the LLM to reason and
+derive the final answer, enhancing the performance and interpretability of table-based reasoning.
+• DIN-SQL DIN-SQL (Pourreza and Rafiei, 2024) enhances reasoning capabilities by decomposing the
+text-to-SQL task into smaller sub-tasks, which are then solved sequentially and their solutions fed into
+the LLMs. This includes modules for schema linking, query classification and decomposition, SQL
+generation, and self-correction. DIN-SQL employs prompting strategies tailored to the complexity
+of the task, addressing challenges in schema linking and utilizing LLMs for self-correction of minor
+mistakes in generated SQL queries. Through extensive experiments on the Spider and BIRD datasets,
+DIN-SQL demonstrates significant performance improvements, pushing the accuracy of LLMs
+towards or even surpassing the state-of-the-art fine-tuned models.
+• DAIL-SQL DAIL-SQL (Gao et al., 2023a) integrates structured knowledge as SQL statements,
+selects examples based on skeleton similarities, and removes cross-domain knowledge for token
+efficiency. DAIL also explores the potential of open-source LLMs through supervised fine-tuning,
+demonstrating significant performance improvements. In the context of Few-shot learning, the
+paper introduces DAIL Selection, a strategy that considers both question and query similarities
+for selecting the most helpful examples, and DAIL Organization, a method that presents both
+questions and corresponding SQL queries to retain the question-SQL mapping while improving
+token efficiency. These approaches collectively contribute to the state-of-the-art performance of
+DAIL-SQL in Text-to-SQL reasoning, especially in scenarios with limited examples.
+C Prompt Details
+We provide the prompt details in MAC-SQL + CoRE as an example.
+
+[PAGE 17]
+Prompt Details
+[Instruction]
+When executing SQL below, some errors occurred. Please fix SQL based on query and database
+info. Solve the task step by step if necessary. Use SQL format in the code block, and indicate
+script type in the code block. When you find an answer, verify it carefully. Include verifiable
+evidence in your response if possible.
+[Constraints]
+- In ‘SELECT <column>‘, just select needed columns in the[Question] without any unnecessary
+column or value.
+- In ‘FROM <table>‘ or ‘JOIN <table>‘, do not include unnecessary tables.
+- If using max or min functions, ‘JOIN <table>‘ FIRST, THEN use ‘SELECT MAX(<column>)‘
+or ‘SELECT MIN(<column>)‘.
+- If [Value examples] of <column> has ’None’ or None, use ‘JOIN <table>‘ or ‘WHERE <column>
+IS NOT NULL‘.
+- If using ‘ORDER BY <column> ASC|DESC‘, add ‘GROUP BY <column>‘ before selecting
+distinct values.
+[Query]
+{query}
+[Evidence]
+{evidence}
+[Database info]
+{desc_str}
+[Foreign keys]
+{fk_str}
+[Old SQL]
+\{sql\}
+[SQLite Error]
+{sqlite_error}
+[Exception Class]
+{exception_class}
+Now please fix the old SQL and generate new SQL again.
+[Correct SQL]
+C.1 Retriever Result Examples
+• Score: 0.6489822864532471
+• Reward: 0.99
+• SQL Query:
+SELECT count(*)
+FROM customer_address
+INNER JOIN address_status
+ON customer_address.status_id = address_status.status_id
+WHERE address_status.address_status = 'Inactive'
+• Natural Language Explanation: This SQL query is designed to count the number of customer
+addresses that have an ’Inactive’ status. Here’s a breakdown of how it works:
+
+[PAGE 18]
+– SELECT count(*): This part of the query specifies that we want to retrieve the total count of
+rows that meet the specified conditions. The asterisk (*) is a wildcard that stands for "all rows."
+– FROM customer_address: This specifies that we are querying from the ’customer_address’
+table.
+– INNER JOIN address_status ON customer_address.status_id = address_status.status_id:
+This performs an inner join between the ’customer_address’ table and the ’address_status’
+table based on the ’status_id’ field. For each row in the ’customer_address’ table, it will find a
+corresponding row in the ’address_status’ table where the ’status_id’ values match.
+– WHERE address_status.address_status = ’Inactive’: This filters the results to include only
+rows where the ’address_status’ field in the ’address_status’ table is ’Inactive’.
+In summary, this query counts the number of customer addresses that are marked as ’Inactive’ in the
+address status.
+• Score: 0.6261888146400452
+• Reward: 0.0
+• SQL Query:
+SELECT
+(COUNT(CASE WHEN e.product = 'Credit card' THEN 1 END) / COUNT(*)) * 1.0 AS percentage
+FROM
+client c
+LEFT JOIN
+events e ON c.client_id = e.client_id
+WHERE
+c.sex = 'Male';
+• Natural Language Explanation: This SQL query is designed to calculate the percentage of events
+related to ’Credit card’ for male clients. Here’s a breakdown of how it works:
+– SELECT (COUNT(CASE WHEN e.product = ’Credit card’ THEN 1 END) / COUNT(*))
+* 1.0 AS percentage : This part of the query calculates the percentage of events where the
+product is ’Credit card’. The CASE statement counts the number of rows where the product
+is ’Credit card’, and this count is divided by the total number of rows (COUNT(*)) to get the
+proportion. Multiplying by 1.0 ensures that the result is a decimal number. The result is given
+the alias ’percentage’.
+– FROM client c: This specifies that we are querying from the client table (which has been
+aliased as c).
+– LEFT JOIN events e ON c.client_id = e.client_id: This joins the client table with the events
+table based on the client_id field. It ensures that all rows from the client table are included in
+the result, even if there is no matching row in the events table.
+– WHERE c.sex = ’Male’: This filters the results to only include rows where the sex field in the
+client table is ’Male’.
+In summary, this query calculates the percentage of events related to ’Credit card’ for male clients.
+C.2 Contrastive Prompt
+
+[PAGE 19]
+Given a [Database schema] description, a knowledge [Evidence] and the [Question], you need to use your ««<EXPERIENCE MEMORY»»> to deal with the ««<NEW CASE»»> with correct and executable SQL. Please refer to <Successful
+Experience> and avoid making the same mistakes as the <Failed Experience>.
+When generating SQL, we should always consider constraints: [Constraints]
+• In ‘SELECT <column>‘, just select needed columns in the [Question] without any unnecessary column or value.
+• In ‘FROM <table>‘ or ‘JOIN <table>‘, do not include unnecessary table.
+• If using max or min functions, ‘JOIN <table>‘ FIRST, THEN use ‘SELECT MAX(<column>)‘ or ‘SELECT
+MIN(<column>)‘.
+• If [Value examples] of <column> has ’None’ or None, use ‘JOIN <table>‘ or ‘WHERE <column> IS NOT NULL‘
+is better.
+• If using ‘ORDER BY <column> ASC|DESC‘, add ‘GROUP BY <column>‘ before to select distinct values.
+««<EXPERIENCE MEMORY»»>
+<Successful Experience> For this given question, you immediately came up with a similar success case in memory as
+follows:
+[Database schema]
+CREATE TABLE address_status (
+"address_status" TEXT COMMENT address_status; VALUES: [Active,Inactive],
+"status_id" INTEGER COMMENT status_id; VALUES: [1,2]
+PRIMARY KEY ("status_id")
+);
+CREATE TABLE customer_address (
+"status_id" INTEGER COMMENT status_id; VALUES: [1,2],
+"address_id" INTEGER COMMENT address_id; VALUES: [606,266],
+"customer_id" INTEGER COMMENT customer_id; VALUES: [1,2]
+PRIMARY KEY ("address_id, customer_id")
+);
+CREATE TABLE customer (
+"customer_id" INTEGER COMMENT customer_id; VALUES: [1,2],
+"email" TEXT COMMENT email; VALUES: [upurdy0@cdbaby.com,rvatini1@fema.gov],
+"first_name" TEXT COMMENT first_name; VALUES: [Ursola,Ruthanne],
+"last_name" TEXT COMMENT last_name; VALUES: [Purdy,Vatini]
+PRIMARY KEY ("customer_id")
+);
+CREATE TABLE order_status (
+"status_id" INTEGER COMMENT status_id; VALUES: [1,2],
+"status_value" TEXT COMMENT status_value; VALUES: [Order Received,Pending Delivery]
+PRIMARY KEY ("status_id")
+);
+[Question] How many of the customer addresses are inactive?
+[Successful SQL]
+SELECT count(*)
+FROM customer_address
+INNER JOIN address_status
+ON customer_address.status_id = address_status.status_id
+WHERE address_status.address_status = 'Inactive';
+<Failed Experience> Here is a case where the query wasn’t quite correct:[Failed SQL]
+SELECT
+(COUNT(CASE WHEN e.product = 'Credit card' THEN 1 END) / COUNT(*)) * 1.0 AS percentage
+FROM
+client c
+LEFT JOIN
+events e ON c.client_id = e.client_id
+WHERE
+c.sex = 'Male';
+==========
+««<NEW CASE»»>
+[Database schema]
+
+[PAGE 20]
+CREATE TABLE cards (
+id INTEGER,
+power TEXT,
+uuid TEXT,
+artist TEXT,
+asciiName TEXT,
+availability TEXT
+);
+CREATE TABLE foreign_data (
+id INTEGER,
+language TEXT,
+uuid TEXT,
+flavorText TEXT,
+multiverseid TEXT,
+name TEXT
+);
+[Question] What percentage of cards without power are in French?
+[NEW SQL]
+SELECT
+(COUNT(CASE WHEN f.language = 'French' THEN 1 END) / COUNT(*)) * 100 AS percentage
+FROM
+cards c
+INNER JOIN
+foreign_data f ON c.uuid = f.uuid
+WHERE
+(c.power IS NULL OR c.power = '*');

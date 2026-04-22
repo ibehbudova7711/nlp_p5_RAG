@@ -1,0 +1,1019 @@
+[PAGE 1]
+Enhancing Multi-hop Reasoning through Knowledge Erasure
+in Large Language Model Editing
+Mengqi Zhang1*, Bowen Fang2*, Qiang Liu2,
+Pengjie Ren1, Shu Wu2, Zhumin Chen1, Liang Wang2
+1School of Computer Science and Technology, Shandong University
+2New Laboratory of Pattern Recognition (NLPR)
+State Key Laboratory of Multimodal Artificial Intelligence Systems (MAIS)
+Institute of Automation, Chinese Academy of Sciences
+{mengqi.zhang, renpengjie, chenzhumin}@sdu.edu.cn, bwn.fang@gmail.com
+{qiang.liu,shu.wu,wangliang}@nlpr.ia.ac.cn
+Abstract
+Large language models (LLMs) face challenges with internal
+knowledge inaccuracies and outdated information. Knowledge editing has emerged as a pivotal approach to mitigate these issues. Although current knowledge editing techniques exhibit promising performance in single-hop reasoning tasks, they show limitations when applied to multi-hop
+reasoning. Drawing on cognitive neuroscience and the operational mechanisms of LLMs, we hypothesize that the residual single-hop knowledge after editing causes edited models
+to revert to their original answers when processing multi-hop
+questions, thereby undermining their performance in multihop reasoning tasks. To validate this hypothesis, we conduct a series of experiments that empirically confirm our
+assumptions. Building on the validated hypothesis, we propose a novel knowledge editing method that incorporates a
+Knowledge E rasure mechanism for L arge language model
+Editing (KELE). Specifically, we design an erasure function for residual knowledge and an injection function for
+new knowledge. Through joint optimization, we derive the
+optimal recall vector, which is subsequently utilized within
+a rank-one editing framework to update the parameters of
+targeted model layers. Extensive experiments on GPT-J and
+GPT-2 XL demonstrate that KELE substantially enhances the
+multi-hop reasoning capability of edited LLMs.
+1 Introduction
+Large Language Models (LLMs) have achieved significant
+success in a wide range of Natural Language Processing
+(NLP) tasks (Zhao et al. 2023). However, the knowledge
+embedded within LLMs can sometimes be factually incorrect or outdated, which limits their overall effectiveness. To
+address these limitations, knowledge editing methods have
+been proposed, offering a more efficient and precise approach to updating the knowledge in LLMs. These methods
+have attracted considerable attention from researchers in recent years.
+Knowledge editing can be broadly categorized into methods that preserve LLMs’ parameters and methods that modify them. The former approach mainly involves storing
+*These authors contributed equally.
+Biden
+MichelleJimMichelleJim
+Who is the wife of the President of USA?Whoisthe Presidentof USA?Single-hop Multi-hop
+BidenObama
+MichelleJim
+Single-hop
+UneditedLLMEdited LLMbyROMEEditedLLMbyOurKELE
+Multi-hop
+BidenObamaObama
+Thepresidentof
+ThepresidentofEditThewifeof
+Thewifeof
++
+Figure 1: Example of Knowledge Editing
+edited examples in an external knowledge base or adding
+additional knowledge parameters to adjust the model’s output for specific queries, such as SERAC (Mitchell et al.
+2022) and T-patcher (Huang et al.). The latter approach
+generally entails directly modifying the model’s parameters to alter its output. This category includes meta-learning
+methods that employ a hyper-network to learn the weight
+changes for editing LLMs, such as KE (De Cao, Aziz, and
+Titov 2021) and MEND (Mitchell et al. 2021). It also encompasses fine-tuning-based methods, such as InstructEdit (Tian et al. 2024), which perform editing through efficient parameter tuning. Additionally, locate-then-edit methods, such as ROME (Meng et al. 2022a) and MEMIT (Meng
+et al. 2022b), specifically target and update parameters corresponding to particular pieces of knowledge.
+Although these editing methods have demonstrated
+promising results in single-hop reasoning evaluations, they
+still face significant challenges in multi-hop reasoning
+(Zhong et al. 2023). As illustrated in Figure 1, after editing
+the single-hop knowledge from “The President of the USA is
+Obama” to “The President of the USA is Biden ,” the edited
+model can easily answer the single-hop question, “ Who is
+the President of the USA?” However, it struggles with multihop questions, such as “ Who is the wife of the President of
+the USA?”
+To better understand this challenge in knowledge editing
+for LLMs, we first analyze this problem from a cognitive
+neurological perspective. When the brain receives new information, it can activate neurons associated with related
+old memories, a phenomenon known as Memory AssociaarXiv:2408.12456v1 [cs.CL] 22 Aug 2024
+
+[PAGE 2]
+tion (Roediger and McDermott 1995; Schacter and Buckner 1998; Kahana 2012). This occurs because of the connectivity within neural networks, where the pathways of old
+memories are easily reactivated by relevant stimuli, thereby
+facilitating more efficient encoding and processing of new
+information. LLMs exhibit a similar mechanism, where related knowledge stored in their parameters is activated and
+integrated during reasoning (Geva et al. 2021).
+Building on these insights, we hypothesize the following
+reason for the poor performance of edited LLMs on multihop reasoning tasks: LLMs retain a portion of single-hop
+old knowledge even after editing. When handling multihop questions related to the edited knowledge, the residual
+knowledge tends to prompt the models to produce original
+answers to these questions, thereby weakening their multihop reasoning ability.For example, if the single-hop knowledge in the LLM is edited from “ The President of the USA
+is Obama” to “The President of the USA is Biden,” a portion
+of old knowledge “The President of the USA is Obama” may
+still be retained and reactivated within the model. As shown
+in Figure 2, when asked the multi-hop question “Who is the
+wife of the President of the USA? ”, the residual single-hop
+knowledge might cause the model to generate the original
+answer to the multi-hop question, Michelle (Obama’s wife),
+instead of the correct answer, Jill (Biden’s wife).
+To verify this hypothesis, we investigate the relationship
+between the residual old knowledge in LLMs and their responses to multi-hop questions (Section 4). We define the
+Retain Score as a metric to quantify the residual old knowledge (s, r, o) for each edit sample (s, r, o, o∗), utilizing the
+output logit score of o under the prompt p(s, r). As illustrated in Figure 3b, the higher the residual old knowledge in
+the edited LLM, the more likely it is to provide the original
+answers to multi-hop questions, resulting in a lower proportion of correct answers. Therefore, erasing the residual old
+knowledge offers a promising insight for improving the performance of edited LLMs on multi-hop reasoning tasks.
+Based on the this hypothesis, we propose a simple yet
+effective method for large language model editing, termed
+Knowledge Erasure for Large Language Model Editing
+(KELE) (Section 5). Specifically, within the rank-one editing framework, we develop an old knowledge erasure function and a new knowledge injection function to jointly optimize and obtain the recall vector. This approach eliminates the interference of old knowledge while injecting new
+knowledge. Finally, the model parameters are updated in a
+single step using the recall vector and the subject representation through the rank-one update formula.
+We summarize our contributions as follows:
+• We investigate and validate the impact of residual old
+single-hop knowledge in edited LLMs on multi-hop reasoning tasks, demonstrating that such residual knowledge may cause edited LLMs to revert to original answers when faced with multi-hop questions.
+• We integrate a knowledge erasure strategy into model
+editing and propose KELE, a simple yet effective editing
+method to enhance the multi-hop reasoning performance
+of edited LLMs.
+Biden
+MichelleJillMichelleJill
+Who is the wife of the President of USA?Whoisthe Presidentof USA?Single-hop Multi-hop
+BidenObama
+MichelleJill
+Single-hop
+UneditedLLMEdited LLMbyROMEEditedLLMbyOurKELE
+Multi-hop
+BidenObamaObama
+Thepresidentof
+ThepresidentofEditThewifeof
+Thewifeof
+Figure 2: Single-hop and Multi-hop evaluation of Unedited
+LLM, LLM edited by ROME and our KELE. When confronted with a multi-hop question, the residual old singlehop knowledge (The President of the USA is Obama) in the
+LLMs edited by ROME prompts the model to generate the
+original answer, Michelle (Obama’s wife), instead of the
+correct answer, Jill (Biden’s wife).
+• We conduct extensive experiments on GPT-2 XL and
+GPT-J, showing that KELE significantly enhances the
+multi-hop reasoning ability of edited models.
+2 Related Work
+In this section, we review related research on knowledge
+editing and its challenges in multi-hop reasoning.
+Methods for preserving models’ parameters These
+methods typically store edited examples in an external
+knowledge base and guide the LLMs’ output for specific
+queries by retrieving relevant knowledge. For instance,
+SERAC (Mitchell et al. 2022) employs a gating network
+along with an auxiliary model specifically designed to handle edited knowledge. T-patcher (Huang et al.) introduces
+extra trainable parameters in the last layer of the FFN to
+correct LLMs. However, these methods face a critical scalability issue: the complexity of managing the external model
+increases with each new edit, which may limit their practical
+usability.
+Methods for modifying models’ parameters These
+methods, including meta-learning, locat-and-edit, and finetuning-based approaches, edit LLMs by directly modifying their parameters. Meta-learning methods generate updated weights for LLMs by training a hyper-network. For
+example, KE (De Cao, Aziz, and Titov 2021) uses a bidirectional LSTM to predict model weight updates, but it
+faced challenges with larger models due to their vast parameter spaces. To address this issue, MEND (Mitchell et al.
+2021) employs a low-rank decomposition of fine-tuning gradients, providing an efficient mechanism for updating LLM
+
+[TABLE page=2 index=1]
+Columns: edge in the LLM is edited from “The President of the USA | Jill Jill | Jill | Unnamed: 0 | Unnamed: 1
+Row 1: edge in the LLM is edited from “The President of the USA: is Obama” to “The President of the USA is Biden,” a portion | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 2: edge in the LLM is edited from “The President of the USA: of old knowledge “The President of the USA is Obama” may | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 3: edge in the LLM is edited from “The President of the USA: still be retained and reactivated within the model. As shown | Jill Jill: Figure 2: Single-hop and Multi-hop evaluation of Unedited | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 4: edge in the LLM is edited from “The President of the USA: in Figure 2, when asked the multi-hop question “Who is the | Jill Jill: LLM, LLM edited by ROME and | Jill: our KELE. When | Unnamed: 0: con- | Unnamed: 1:
+Row 5: edge in the LLM is edited from “The President of the USA: wife of the President of the USA?”, the residual single-hop | Jill Jill: fronted with a multi-hop question, | Jill: the residual old single- | Unnamed: 0: | Unnamed: 1:
+Row 6: edge in the LLM is edited from “The President of the USA: knowledge might cause the model to generate the original | Jill Jill: hop knowledge (The President of the USA is Obama) in the | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 7: edge in the LLM is edited from “The President of the USA: answer to the multi-hop question, Michelle (Obama’s wife), | Jill Jill: LLMs edited by ROME prompts the model to generate the | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 8: edge in the LLM is edited from “The President of the USA: instead of the correct answer, Jill (Biden’s wife). | Jill Jill: original answer, Michelle (Obama’s wife), | Jill: instead of the | Unnamed: 0: Multi-hop | Unnamed: 1: Single-hop
+Row 9: edge in the LLM is edited from “The President of the USA: To verify this hypothesis, we investigate the relationship | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 10: edge in the LLM is edited from “The President of the USA: | Jill Jill: correct answer, Jill (Biden’s wife). | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 11: edge in the LLM is edited from “The President of the USA: between the residual old knowledge in LLMs and their re- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 12: edge in the LLM is edited from “The President of the USA: sponses to multi-hop questions (Section 4). We define the | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 13: edge in the LLM is edited from “The President of the USA: | Jill Jill: • We conduct extensive experiments | Jill: on GPT-2 XL | Unnamed: 0: and | Unnamed: 1:
+Row 14: edge in the LLM is edited from “The President of the USA: Retain Score as a metric to quantify the residual old knowl- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 15: edge in the LLM is edited from “The President of the USA: edge (s, r, o) for each edit sample (s, r, o, o∗), utilizing the | Jill Jill: GPT-J, showing that KELE | Jill: significantly enhances | Unnamed: 0: the | Unnamed: 1:
+Row 16: edge in the LLM is edited from “The President of the USA: | Jill Jill: multi-hop reasoning ability of edited models. | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 17: edge in the LLM is edited from “The President of the USA: output logit score of o under the prompt p(s, r). As illus- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 18: edge in the LLM is edited from “The President of the USA: trated in Figure 3b, the higher the residual old knowledge in | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 19: edge in the LLM is edited from “The President of the USA: the edited LLM, the more likely it is to provide the original | Jill Jill: 2 Related Work | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 20: edge in the LLM is edited from “The President of the USA: answers to multi-hop questions, resulting in a lower propor- | Jill Jill: In this section, we review related | Jill: research on knowledge | Unnamed: 0: | Unnamed: 1:
+Row 21: edge in the LLM is edited from “The President of the USA: tion of correct answers. Therefore, erasing the residual old | Jill Jill: editing and its challenges in multi-hop reasoning. | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 22: edge in the LLM is edited from “The President of the USA: knowledge offers a promising insight for improving the per- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 23: edge in the LLM is edited from “The President of the USA: | Jill Jill: Methods for preserving models’ | Jill: parameters These | Unnamed: 0: | Unnamed: 1:
+Row 24: edge in the LLM is edited from “The President of the USA: formance of edited LLMs on multi-hop reasoning tasks. | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 25: edge in the LLM is edited from “The President of the USA: | Jill Jill: methods typically store edited | Jill: examples in an external | Unnamed: 0: | Unnamed: 1:
+Row 26: edge in the LLM is edited from “The President of the USA: Based on the this hypothesis, we propose a simple yet | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 27: edge in the LLM is edited from “The President of the USA: | Jill Jill: knowledge base and guide the | Jill: LLMs’ output for specific | Unnamed: 0: | Unnamed: 1:
+Row 28: edge in the LLM is edited from “The President of the USA: effective method for large language model editing, termed | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 29: edge in the LLM is edited from “The President of the USA: | Jill Jill: queries by retrieving relevant | Jill: knowledge. For instance, | Unnamed: 0: | Unnamed: 1:
+Row 30: edge in the LLM is edited from “The President of the USA: Knowledge Erasure for Large Language Model Editing | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 31: edge in the LLM is edited from “The President of the USA: | Jill Jill: SERAC (Mitchell et al. 2022) | Jill: employs a gating network | Unnamed: 0: | Unnamed: 1:
+Row 32: edge in the LLM is edited from “The President of the USA: (KELE) (Section 5). Specifically, within the rank-one edit- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 33: edge in the LLM is edited from “The President of the USA: | Jill Jill: along with an auxiliary model specifically designed to han- | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 34: edge in the LLM is edited from “The President of the USA: ing framework, we develop an old knowledge erasure func- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 35: edge in the LLM is edited from “The President of the USA: | Jill Jill: dle edited knowledge. T-patcher | Jill: (Huang et al.) introduces | Unnamed: 0: | Unnamed: 1:
+Row 36: edge in the LLM is edited from “The President of the USA: tion and a new knowledge injection function to jointly op- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 37: edge in the LLM is edited from “The President of the USA: | Jill Jill: extra trainable parameters in the | Jill: last layer of the FFN | Unnamed: 0: to | Unnamed: 1:
+Row 38: edge in the LLM is edited from “The President of the USA: timize and obtain the recall vector. This approach elimi- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 39: edge in the LLM is edited from “The President of the USA: | Jill Jill: correct LLMs. However, these methods face a critical scala- | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 40: edge in the LLM is edited from “The President of the USA: nates the interference of old knowledge while injecting new | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 41: edge in the LLM is edited from “The President of the USA: | Jill Jill: bility issue: the complexity of managing the external model | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 42: edge in the LLM is edited from “The President of the USA: knowledge. Finally, the model parameters are updated in a | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 43: edge in the LLM is edited from “The President of the USA: | Jill Jill: increases with each new edit, which may limit their practical | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 44: edge in the LLM is edited from “The President of the USA: single step using the recall vector and the subject represen- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 45: edge in the LLM is edited from “The President of the USA: | Jill Jill: usability. | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 46: edge in the LLM is edited from “The President of the USA: tation through the rank-one update formula. | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 47: edge in the LLM is edited from “The President of the USA: We summarize our contributions as follows: | Jill Jill: Methods for modifying models’ | Jill: parameters These | Unnamed: 0: | Unnamed: 1:
+Row 48: edge in the LLM is edited from “The President of the USA: | Jill Jill: methods, including meta-learning, locat-and-edit, and fine- | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 49: edge in the LLM is edited from “The President of the USA: • We investigate and validate the impact of residual old | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 50: edge in the LLM is edited from “The President of the USA: | Jill Jill: tuning-based approaches, edit LLMs | Jill: by directly modify- | Unnamed: 0: | Unnamed: 1:
+Row 51: edge in the LLM is edited from “The President of the USA: single-hop knowledge in edited LLMs on multi-hop rea- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 52: edge in the LLM is edited from “The President of the USA: | Jill Jill: ing their parameters. Meta-learning | Jill: methods generate | Unnamed: 0: up- | Unnamed: 1:
+Row 53: edge in the LLM is edited from “The President of the USA: soning tasks, demonstrating that such residual knowl- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 54: edge in the LLM is edited from “The President of the USA: | Jill Jill: dated weights for LLMs by training a hyper-network. For | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 55: edge in the LLM is edited from “The President of the USA: edge may cause edited LLMs to revert to original an- | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 56: edge in the LLM is edited from “The President of the USA: | Jill Jill: example, KE (De Cao, Aziz, and | Jill: Titov 2021) uses | Unnamed: 0: a bi- | Unnamed: 1:
+Row 57: edge in the LLM is edited from “The President of the USA: swers when faced with multi-hop questions. | Jill Jill: | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 58: edge in the LLM is edited from “The President of the USA: | Jill Jill: directional LSTM to predict model | Jill: weight updates, | Unnamed: 0: but it | Unnamed: 1:
+Row 59: edge in the LLM is edited from “The President of the USA: • We integrate a knowledge erasure strategy into model | Jill Jill: faced challenges with larger models due to their vast param- | Jill: | Unnamed: 0: | Unnamed: 1:
+Row 60: edge in the LLM is edited from “The President of the USA: editing and propose KELE, a simple yet effective editing | Jill Jill: eter spaces. To address this issue, | Jill: MEND (Mitchell | Unnamed: 0: et al. | Unnamed: 1:
+Row 61: edge in the LLM is edited from “The President of the USA: method to enhance the multi-hop reasoning performance | Jill Jill: 2021) employs a low-rank decomposition of fine-tuning gra- | Jill: | Unnamed: 0: | Unnamed: 1:
+[/TABLE]
+
+[PAGE 3]
+weights. Locate-and-edit methods focus on identifying specific parameters associated with particular knowledge within
+LLMs, aiming for more interpretable and precise knowledge
+editing. Early efforts, such as KN (Dai et al. 2022), introduce
+a knowledge attribution method to identify knowledge neurons but struggles to precisely modify the model’s weights.
+ROME (Meng et al. 2022a) method employs causal tracing to identify knowledge-relevant layers and then edits the
+corresponding FFN module. MEMIT (Meng et al. 2022b)
+further enhances this approach by improving the objective
+function and enabling multi-layer edits for batch editing.
+Recently, significant advancements in efficient parametertuning methods (Hu et al.; Ren et al. 2024) for supervised
+fine-tuning of LLMs have led to the development of finetuning-based editing methods (Ni et al. 2024; Gangadhar
+and Stratos 2024). For example, (Gangadhar and Stratos
+2024) utilizes LoRA (Hu et al.) and data augmentation
+strategies to directly fine-tune the LLMs, achieving the desired editing performance. F-Learning (Ni et al. 2024) proposes a new paradigm of knowledge updating during supervised fine-tuning, employing parametric arithmetic to forget
+old knowledge and learn new knowledge, thereby resolving
+contradictions between old and new knowledge.
+Multi-hop reasoning in knowledge editing In recent
+years, several studies have aimed to enhance the performance of edited LLMs in multi-hop reasoning tasks. (Zhong
+et al. 2023) introduces the MQ UAKE dataset, specifically
+designed to evaluate the multi-hop reasoning capabilities of
+edited LLMs. GLAME (Zhang et al. 2024) leverages external knowledge graphs to capture the impact of target knowledge changes on high-order knowledge within LLMs. However, its reliance on external information constrains its applicability in certain scenarios. Additionally, (Ju et al. 2024)
+finds that LLMs often rely on factual shortcuts from pretraining corpora during reasoning, which contributes to the
+poor performance of edited models in multi-hop reasoning
+tasks. Unlike this study, we hypothesize that the retention
+of old knowledge triggers the generation of original answers
+in multi-hop questions, thereby weakening the performance
+of edited models in these tasks. We validate this hypothesis
+through a series of experiments and propose a knowledgeerasure-based editing strategy to mitigate this issue.
+3 Preliminaries
+In this section, we introduce the definition of knowledge
+editing and outline the corresponding tasks under singlehop and multi-hop evaluations.Additionally, we describe the
+rank-one model editing framework employed in our study.
+Knowledge Editing for LLMs Knowledge editing (Yao
+et al. 2023) refers to the process of altering the behavior of
+an LLM F’s to change encoded knowledge from (s, r, o)
+to the new knowledge (s, r, o∗). Here, knowledge is represented as a triple, with s as the subject, r as the relation,
+and o as the object. Each editing instance e is denoted as
+(s, r, o, o∗), and the LLM after editing is referred to as F ′.
+Single-hop Evaluation in Knowledge Editing Singlehop evaluation assesses whether an edit (s, r, o, o∗) is successful in an edited LLM F ′. This evaluation constructs
+prompts p(s, r) based on the subject s and relation r, and
+measures the performance of F ′ using Efficacy, Paraphrase
+and Specificity metrics (Yao et al. 2023).
+Multi-hop Evaluation in Knowledge Editing Multi-hop
+evaluation examines whether the edited LLMs can effectively utilize the updated knowledge for reasoning in multihop tasks. Given a chain of facts(s1, r1, o1), ...,(sn, rn, on),
+where the object of the i-th fact also serves as the subject
+of the next fact in the chain, i.e., oi = si+1, a multi-hop
+question p(s1, r1, .., rn) can be constructed, with the answer
+being on. For example, with a chain consisting of two facts,
+(USA, president of, Obama)and (Obama, wife of, Michelle),
+one can write a 2-hop question: Who is the wife of the president of USA? . Once one or more facts in the chain are
+edited, e.g., (USA, president of, Obama) is edited to (USA,
+president of, Biden) , the edited LLM must utilize the new
+knowledge to answer the multi-hop question. The model’s
+response should change from the original answer Michelle
+to the correct answer Jill.
+Rank-One Model Editing Rank-One Model Editing
+(ROME) (Meng et al. 2022a) is a Locate-then-edit method
+that presupposes factual knowledge is stored within the
+Feedforward Neural Networks (FFNs), conceptualized as
+key-value memories (Geva et al. 2021; Kobayashi et al.
+2023). The output of the l-th layer FFN for the i-th token
+is given by:
+vl
+i = f(Wl
+in · hl−1
+i ) · Wl, (1)
+where f(·) denotes the activation function, and hl−1
+i is the
+FFN input. For simplicity, the superscript l is omitted in the
+following discussion.
+In this context, f(Win ·hi) functions as the keys, denoted
+as ki. The outputs of the subsequent layer represent the corresponding values. Utilizing casual tracing (Pearl 2022; Vig
+et al. 2020), this method identify a specific FFN layer for
+editing and updates the weight W of the second layer by
+solving a constrained least-squares problem:
+minimize ∥WK − V∥,
+subject to Wk∗ = v∗. (2)
+where the objective function aims to preserve the knowledge
+unrelated to the edited sample within the LLM. Here, K =
+[k1; k2; , . . . ,; kp] denotes the sets of keys encoding subjects
+unrelated to the edited fact, andV = [v1; v2; , . . . ,; vp] represents the corresponding values. The constraint ensures that
+the edited knowledge is incorporated into the FFN layer by
+enabling the keyk∗ (encoding subject s) to retrieve the value
+v∗ about the new object o∗.
+As explicated in (Meng et al. 2022a), a closed-form solution to the optimization problem can be derived:
+ˆW = W + (v∗ − Wk∗)(C−1k∗)T
+(C−1k∗)Tk∗
+, (3)
+where C = KKT is a constant matrix, precomputed by estimating the uncentered covariance of k based on a sample
+of Wikipedia text (Appendix D). Thus, solving the optimal
+parameter ˆW is transformed into calculating subject representation k∗ and recall vector v∗.
+
+[PAGE 4]
+1.6-4.9 4.9-8.28.2-11.511.5-14.914.9-18.218.2-21.521.5-24.9
+Retain Score
+0.00
+0.25
+0.50
+0.75
+1.00
+(a) Unedited GPT-J
+-0.5-2.22.2-4.9 4.9-7.57.5-10.210.2-12.912.9-15.6
+15.6Retain Score
+0.0
+0.2
+0.4
+0.6
+0.8
+Original Answer
+Correct Answer (b) Edited GPT-J
+Figure 3: (a) The accuracy of single-hop answer generated
+by unedited GPT-J . (b)The accuracy of original and correct
+answers generated by edited GPT-J. The left y-axis represents the number of instances within each Retain Score interval, while the right y-axis indicates the accuracy.
+4 Analysis of the Impact of Old Knowledge
+on Multi-hop Reasoning
+In this section, we validate our hypothesis by examining the impact of old knowledge on the performance of
+edited LLMs in multi-hop reasoning. We select the representative multi-hop reasoning evaluation dataset, MQUAKE
+(Zhong et al. 2023), to conduct experiments. Each instance
+in MQ UAKE is represented as d = ( E, Q, a, a∗). Here, E
+denotes the set of single-hop edits e = ( s, r, o, o∗), Q represents multi-hop questions evaluating editing performance,
+and a and a∗ are the original answer and correct answer to
+Q. Further details of MQ UAKE are provided in Section 6
+and Appendix A.
+Retain Score
+We first define a metric to quantify the retention of old
+knowledge in the LLM. In cognitive neuroscience, memory
+activation is often measured by the intensity of neural activity. Analogously, in LLMs, the logit vector can serve as an
+indicator of the model’s memory activation strength. Building on this concept, we introduce the Retain Score (RS)
+indicator for each edit sample e = ( s, r, o, o∗) to measure
+the residual presence of the old knowledge (s, r, o).
+When an LLM is given an input prompt, it generates
+the next token based on the logit vector produced by its final layer. A higher logit value for a token indicates greater
+model confidence in generating that token, corresponding to
+stronger memory activation. Consequently, we use the logit
+value as a measure of the model’s retention of old knowledge. To ensure a consistent assessment of retention across
+different editing instances, we standardize the logit vectors
+to eliminate variations from varying logit distributions:
+RS(e) = Do − µ
+σ , (4)
+where D represents the logit vector produced by the final
+layer of the LLM, Do is the logit score of o, while µ and σ
+denote the mean and standard deviation of the logit vector
+D, respectively.
+The reasonable of Retain Score To validate the reasonableness of the Retain Score, we first divide the RS values
+of all e in the dataset into different intervals. For each interval, we then calculate the probability that the unedited
+model correctly answers o given the prompt p(s, r). The experimental results, as shown in Figure 3a, indicate that as
+the RS value increases, the accuracy of the unedited model’s
+responses also increases. This suggests that the model’s sensitivity to the corresponding knowledge strengthens as the
+RS value rises, demonstrating that the RS metric effectively
+measures the retention of old knowledge.
+Impact of Old Knowledge on Multi-hop Reasoning
+To further investigate the impact of residual old knowledge
+on multi-hop reasoning, we apply the ROME method to
+GPT-J and explore the relationship between the Retain Score
+and the accuracy of answering multi-hop questions.
+Specifically, for each instance d, we first calculate the accumulated old single-hop knowledge of all edit samplesE in
+the edited models:
+RS(d) =
+X
+e∈E
+RS(e). (5)
+We then divide the dataset into different subsets based on
+the varying ranges of the Retain Score of the instances. For
+each subset, we calculate the accuracy of the edited model in
+answering the original and correct answers to the multi-hop
+questions. The results are shown in Figure 3b.
+As illustrated in Figure 3b, we observe that as the Retain
+Score value increases, the edited models show a significant
+improvement in accuracy when providing the original answers to multi-hop questions. However, the accuracy of the
+edited model in providing correct answers decreases as the
+Retain Score rises. This suggests that as the amount of retained old knowledge increases, the model becomes more
+likely to favor the original answers, thereby diminishing its
+ability to generate correct responses to multi-hop questions.
+These experiments validate that LLMs retain traces of
+old single-hop knowledge after editing, which significantly
+motivates them to revert to original answers for multi-hop
+questions and undermines their performance in providing
+correct answers. Therefore, eliminating residual old knowledge during the editing process is crucial for enhancing the
+accuracy of LLMs in multi-hop reasoning.
+5 Methodology
+In this section, we introduce the proposed KELE, with its
+architecture depicted in Figure 4. The KELE framework integrates a knowledge erasure strategy within the rank-one
+model editing framework (Meng et al. 2022a). Specifically,
+KELE targets a specific layer l and transforms knowledge
+editing into two key operations: old knowledge erasure and
+new knowledge injection, which together are used to compute the recall vector v∗. Subsequently, v∗, along with the
+subject representation k∗, is applied in Equation (3) to update the parameters of the second layer of the FNN, thereby
+completing the knowledge editing process.
+
+[TABLE page=4 index=1]
+Columns: 800 | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | ableness of the Retain Score, we first divide the RS values
+Row 1: 800: | Unnamed: 0: | Unnamed: 1: Original Answer | Unnamed: 2: | ableness of the Retain Score, we first divide the RS values:
+Row 2: 800: intervals. For each in-600 0.75 | Unnamed: 0: 900.0 | Unnamed: 1: Correct Answer | Unnamed: 2: 0.6 | ableness of the Retain Score, we first divide the RS values: of all e in the dataset into different
+Row 3: 800: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | ableness of the Retain Score, we first divide the RS values: terval, we then calculate the probability that the unedited
+Row 4: 800: 400 0.50 | Unnamed: 0: 600.0 | Unnamed: 1: | Unnamed: 2: 0.4 | ableness of the Retain Score, we first divide the RS values: model correctly answers o given the prompt p(s, r). The ex-
+[/TABLE]
+
+[PAGE 5]
+Computing v∗ to Recall New Knowledge
+To effectively edit new knowledge while minimizing the
+negative impact of old knowledge on multi-hop reasoning,
+we construct an old knowledge erasure function and a new
+knowledge inject function, which are jointly optimized to
+obtain v∗. In this process, we optimize the learnable parameter vector h to modify the original value vectorvl
+s, resulting
+in the optimal vector v∗ = vl
+s + h.
+Old knowledge erasure function To mitigate the influence of residual old knowledge that prompts the edited LLM
+to generate original answers in response to multi-hop question, we develop an old knowledge erasure function for calculating v∗. Specifically, for each edit sample (s, r, o, o∗),
+we introduce a max-margin loss aimed at reducing the likelihood that the edited LLM generates o in response to the
+prompt p(s, r). This is achieved by lowering the rank of o
+in the logit vector of the final layer. The erasure function is
+defined as:
+Le = max
+F (vls+=h)
+(0, Do − Dk), (6)
+where Do is the logit score of o and Dk is the k-th top value
+in logit vectorD. Simply minimizing the probability ofo appearing can significantly reduce the retention of old knowledge (s, r, o), but it may also cause substantial changes to
+the model, leading to negative impacts. Therefore, the margin loss uses Dk to control the intensity of knowledge erasure, optimizing the logit value of o only when its rank is
+whithin the top k. F(vl
+s+ = h) indicates the LLM’s inference alteration through the hidden state vl
+s modification to
+vl
+s + h.
+New knowledge injection function For each edit sample
+(s, r, o, o∗), our second objective is to refine the parameter
+vector h enables the LLM to accurately predict the target object o∗. Accordingly, the knowledge injection loss function
+is defined as:
+Lp = − 1
+N
+NX
+j=1
+log PF (vls+=h)[o∗ | xj ⊕ p(s, r)], (7)
+where xj is the random prefix generated by the LLM to foster optimization robustness.
+To mitigate the impact of above operations on the intrinsic
+of s within the LLM, we minimize the KL divergence between F(vl
+s+ = h) and the original model F (Meng et al.
+2022a):
+La = DKL
+
+PF (vls+=h)[x | p′] ∥ PF[x | p′]
+
+, (8)
+where p′ denotes prompts in the form of ”subject is a”.
+Ultimately, the parameter h is optimized by minimizing
+the following objective function:
+L = Le + Lp + λLa, (9)
+where λ adjusts the regularization strength. Throughout the
+optimization process, the parameters of the LLM remain unchanged.
+Computingv*
+FFN0
+𝐖$%𝐤∗𝐖𝐯∗
+OldKnowledgeErasure
+NewKnowledgeInjection
+Computingk*k∗="#∑!"#$%('%&'()(')#)
+FW=W+v∗−WK∗C1-k∗2(C1-k∗)2k∗
+ParameterUpdate
+Thepresidentof
+Thepresidentof
+Thepresidentof
+Thepresidentof
+EditSampleTransformerLayer
+……
+……
+LLMTransformerLayer
+Figure 4: An illustration of KELE architecture. First, we use
+the old knowledge erasure function and the new knowledge
+injection function to derive the recall vector v∗. Then, we
+compute the subject representation k∗. Finally, the parameters are updated using the rank-one update formula.
+Computing k∗ to Represent Subject
+For each edit sample (s, r, o, o∗), the subject representation
+k∗ is calculated by
+k∗ = 1
+N
+NX
+j=1
+f(Wl
+in · hl−1
+s ). (10)
+Here, we also utilize N random prefixes generated in the
+same manner as for the computing v∗ (Meng et al. 2022a).
+After obtaining the optimized v∗ and k∗, we substitute
+them into Equation (3) to get the updated parameter ˆW.
+6 Experiments
+In this section, we evaluate our KELE by applying it to
+two datasets and assessing its performance on two autoregressive LLMs. We aim to answer the following questions
+through experiments.
+• Q1: How does KELE perform in multi-hop and singlehop reasoning evaluation compared with state-of-the-art
+editing methods ?
+• Q2: How does the degree of erasure of old knowledge
+affect model’s performance in multi-hop reasoning?
+• Q3: What impact does our KELE have on the retention
+of old knowledge?
+Experimental Setups
+Datasets and Evaluation Metrics We evaluate our KELE
+on two representative datasets:MQUAKE-3K (Zhong et al.
+2023) and COUNTER FACT (Meng et al. 2022a). Detailed
+descriptions of the datasets and evaluation metrics are provided in Appendix A and B.
+MQUAKE-3K is a challenging dataset designed to assess models’ ability to perform multi-hop reasoning using
+newly edited knowledge. Each entry in this dataset involves
+
+[TABLE page=5 index=1]
+Columns: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation
+Row 1: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: edge (s, r, o), but it may also cause substantial changes to k∗ is calculated by
+Row 2: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: the model, leading to negative impacts. Therefore, the mar- N∑
+Row 3: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: gin loss uses Dk to control the intensity of knowledge era-l−1k∗ = 1 f(Win · hs l ). (10)
+Row 4: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: sure, optimizing the logit value of o only when its rank is N
+Row 5: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: whithin the top k. F(vls+ = h) indicates the LLM’s infer-j=1
+Row 6: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: ence alteration through the hidden state vl thesmodification to Here, we also utilize N random prefixes generated in
+Row 7: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: vl + h. same manner as for the computing v∗ (Meng et al. 2022a).s
+Row 8: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: After obtaining the optimized v∗ and k∗, we substitute
+Row 9: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: New knowledge injection function For each edit sample
+Row 10: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: (s, r, o, o ), our second objective is to refine the parameter∗ them into Equation (3) to get the updated parameter Ŵ.
+Row 11: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: vector h enables the LLM to accurately predict the target obRow 12: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: ject o∗. Accordingly, the knowledge injection loss function6 Experiments
+Row 13: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: is defined as: In this section, we evaluate our KELE by applying it to
+Row 14: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: two datasets and assessing its performance on two autoRow 15: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: N∑
+Row 16: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: L p = − 1 logPF(vl+=h)[o ∗ | xj ⊕ p(s, r)], (7)regressive LLMs. We aim to answer the following questions
+Row 17: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: N s through experiments.
+Row 18: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: j=1
+Row 19: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: • Q1: How does KELE perform in multi-hop and singleRow 20: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: where xj is the random prefix generated by the LLM to fos- hop reasoning evaluation compared with state-of-the-art
+Row 21: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: ter optimization robustness. editing methods ?
+Row 22: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: To mitigate the impact of above operations on the intrinsic • Q2: How does the degree of erasure of old knowledge
+Row 23: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: of s within the LLM, we minimize the KL divergence be- affect model’s performance in multi-hop reasoning?
+Row 24: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: tween F(vls+ = h) and the original model F (Meng et al. • Q3: What impact does our KELE have on the retention
+Row 25: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: 2022a):
+Row 26: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: of old knowledge?
+Row 27: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: ( )
+Row 28: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: L a = DKL PF(vl+=h)[x | p ] ∥ PF [x | p ] ′ ′, (8)
+Row 29: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: s
+Row 30: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: Experimental Setups
+Row 31: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: where p′ denotes prompts in the form of ”subject is a”.
+Row 32: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: Datasets and Evaluation Metrics We evaluate our KELE
+Row 33: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: Ultimately, the parameter h is optimized by minimizing
+Row 34: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: on two representative datasets:MQUAKE-3K (Zhong et al.
+Row 35: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: the following objective function:
+Row 36: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: 2023) and COUNTERFACT (Meng et al. 2022a). Detailed
+Row 37: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: L = Le + Lp + λL , a(9) descriptions of the datasets and evaluation metrics are proRow 38: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: vided in Appendix A and B.
+Row 39: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: where λ adjusts the regularization strength. Throughout the MQUAKE-3K is a challenging dataset designed to asRow 40: pearing can significantly reduce the retention of old knowl- For each edit sample (s, r, o, o ), the subject representation: optimization process, the parameters of the LLM remain un- sess models’ ability to perform multi-hop reasoning using
+[/TABLE]
+
+[PAGE 6]
+Editor Correct Answer↑ Original Answer↓
+Average Accuracy Zero-Shot Few-Shot CoT Average Accuracy Zero-Shot Few-Shot CoT
+GPT-2 XL 7.12 6.32 8.66 6.37 33.14 19.12 41.50 38.80
+FT 4.45 2.70 4.58 11.68 34.92 26.07 23.12 55.56
+ROME 10.32 7.52 11.68 11.76 20.40 12.66 24.92 23.61
+MEMIT 7.38 4.25 9.40 8.50 27.64 15.93 33.82 33.17
+KELE 12.04 7.60 14.05 14.46 17.24 11.03 21.40 19.28
+∆Improve 16.67% 1.06% 20.29% 22.96% 15.49% 12.88% 7.44% 18.34%
+GPT-J 5.47 2.91 4.58 8.92 35.22 28.16 22.01 55.48
+FT 6.94 3.79 5.55 11.47 33.27 26.07 20.34 53.40
+ROME 14.56 7.54 8.69 27.46 18.40 12.85 13.64 28.71
+MEMIT 9.09 3.74 5.46 18.07 27.35 19.69 19.42 42.95
+KELE 24.04 13.55 15.40 43.18 13.00 9.20 10.35 19.46
+∆Improve 65.11% 79.70% 77.21% 57.25% 29.35% 28.40% 24.12% 32.22%
+Table 1: Performance comparison of editors on multi-hop questions of MQUAKE-3K dataset in terms of Multi-hop Accuracy
+(%).↑ indicates that higher values correspond to better performance, while ↓ indicates that lower values correspond to better
+performance.
+multiple single-hop edits and includes multi-hop reasoning
+questions. This imposes stricter demands on the capability of edited LLMs to utilize the updated knowledge. Following (Zhong et al. 2023), we use Multi-hop Accuracy to
+measure the performance of edited LLMs. To fully leverage
+the LLM’s reasoning ability, we employ three approaches
+when generating answers: Zero-shot, Few-shot, and Chainof-Thought (CoT). The details of prompting are shown in
+Appendix E.
+COUNTER FACT is a dataset focused on evaluating
+LLMs’ ability to recall edited knowledge in a single-hop
+setting, as well as to assess the impact of editing operations
+on unrelated knowledge within the LLMs. Following (Meng
+et al. 2022a), we employ three widely used metrics for this
+dataset: Efficacy Score, which measures the success rate of
+edits; Paraphrase Score, which evaluates the model’s ability
+to accurately recall edited knowledge in paraphrased forms,
+testing its generalization ability; and Neighborhood Score,
+which assesses whether irrelevant knowledge in the LLM is
+disturbed.
+Baselines Our experiments are conducted on GPT-2 XL
+(1.5B) (Radford et al. 2019) and GPT-J (6B) (Wang and
+Komatsuzaki 2021), and we compare KELE with state-ofthe-art editing methods: Constrained Fine-Tuning (FT) (Zhu
+et al. 2020), ROME (Meng et al. 2022a), and MEMIT (Meng
+et al. 2022b). Implementation details for both baselines and
+KELE are provided in Appendix C and D.
+Performance Comparison (RQ1)
+The performance of all editors on the MQ UAKE-3K and
+COUNTER FACT is presented in Tables 1 and 2. Figure 5
+provides a comprehensive comparison of all editing methods across four metrics on both datasets, demonstrating that
+KELE exhibits relatively balanced and superior performance
+across all metrics, particularly excelling in Multi-hop Accuracy, where it significantly outperforms other methods.
+Eﬃ.Score
+Para.Score
+Neigh.Score
+Multi-hop.Acc
+Eﬃ.Score
+Para.Score
+Neigh.Score
+Multi-hop.Acc
+KELE
+ROME
+MEMIT
+FT
+Figure 5: Comparative performance on GPT-2 XL and GPTJ across different metrics.
+Results on MQ UAKE-3K As shown in Table 1, our
+KELE outperforms all baselines by a significant margin across all evaluation metrics and settings. Specifically,
+KELE demonstrates improvements of 16.67 % and 65.11
+% in average multi-hop accuracy over the best baseline
+models for GPT-2 XL and GPT-J, respectively. This indicates that KELE effectively enhances the ability of edited
+LLM in multi-hop reasoning tasks. Additionally, the multihop accuracy of KELE in generating original answers decreased by an average of15.49% and 29.35 % on GPT-2 XL
+and GPT-J, respectively, compared to the strongest baseline
+model. This suggests that the knowledge erasure operations
+in KELE successfully mitigate the recall of old knowledge in
+the edited LLMs when performing complex reasoning tasks.
+These findings further support our hypothesis that residual
+old knowledge in the edited models is easily recalled during
+multi-hop reasoning. This recall causes the model to produce
+original answers to multi-hop questions, thereby weakening
+the LLM’s performance on such tasks
+Results on C OUNTER FACT From Table 2, we find that
+our KELE also achieves competitive results compared to
+all baselines. Unlike the MQUAKE-3K dataset, the C OUN TER FACT dataset focuses on evaluating the single-hop rea-
+
+[TABLE page=6 index=1]
+Columns: Unnamed: 0 | Correct Answer ↑ | Unnamed: 1 | Original Answer↓ | Unnamed: 2
+Row 1: Unnamed: 0: Editor | Correct Answer ↑: | Unnamed: 1: | Original Answer↓: | Unnamed: 2:
+Row 2: Unnamed: 0: | Correct Answer ↑: Average Accuracy Zero-Shot Few-Shot | Unnamed: 1: CoT | Original Answer↓: Average Accuracy Zero-Shot Few-Shot | Unnamed: 2: CoT
+Row 3: Unnamed: 0: GPT-2 XL | Correct Answer ↑: 7.12 6.32 8.66 | Unnamed: 1: 6.37 | Original Answer↓: 33.14 19.12 41.50 | Unnamed: 2: 38.80
+Row 4: Unnamed: 0: FT | Correct Answer ↑: 4.45 2.70 4.58 | Unnamed: 1: 11.68 | Original Answer↓: 34.92 26.07 23.12 | Unnamed: 2: 55.56
+Row 5: Unnamed: 0: ROME | Correct Answer ↑: 10.32 7.52 11.68 | Unnamed: 1: 11.76 | Original Answer↓: 20.40 12.66 24.92 | Unnamed: 2: 23.61
+Row 6: Unnamed: 0: MEMIT | Correct Answer ↑: 7.38 4.25 9.40 | Unnamed: 1: 8.50 | Original Answer↓: 27.64 15.93 33.82 | Unnamed: 2: 33.17
+Row 7: Unnamed: 0: KELE | Correct Answer ↑: 12.04 7.60 14.05 | Unnamed: 1: 14.46 | Original Answer↓: 17.24 11.03 21.40 | Unnamed: 2: 19.28
+Row 8: Unnamed: 0: ∆Improve | Correct Answer ↑: 16.67% 1.06% 20.29% | Unnamed: 1: 22.96% | Original Answer↓: 15.49% 12.88% 7.44% | Unnamed: 2: 18.34%
+Row 9: Unnamed: 0: GPT-J | Correct Answer ↑: 5.47 2.91 4.58 | Unnamed: 1: 8.92 | Original Answer↓: 35.22 28.16 22.01 | Unnamed: 2: 55.48
+Row 10: Unnamed: 0: FT | Correct Answer ↑: 6.94 3.79 5.55 | Unnamed: 1: 11.47 | Original Answer↓: 33.27 26.07 20.34 | Unnamed: 2: 53.40
+Row 11: Unnamed: 0: ROME | Correct Answer ↑: 14.56 7.54 8.69 | Unnamed: 1: 27.46 | Original Answer↓: 18.40 12.85 13.64 | Unnamed: 2: 28.71
+Row 12: Unnamed: 0: MEMIT | Correct Answer ↑: 9.09 3.74 5.46 | Unnamed: 1: 18.07 | Original Answer↓: 27.35 19.69 19.42 | Unnamed: 2: 42.95
+Row 13: Unnamed: 0: KELE | Correct Answer ↑: 24.04 13.55 15.40 | Unnamed: 1: 43.18 | Original Answer↓: 13.00 9.20 10.35 | Unnamed: 2: 19.46
+Row 14: Unnamed: 0: ∆Improve | Correct Answer ↑: 65.11% 79.70% 77.21% | Unnamed: 1: 57.25% | Original Answer↓: 29.35% 28.40% 24.12% | Unnamed: 2: 32.22%
+[/TABLE]
+
+[PAGE 7]
+Editor Effi.Score Para.Score Neigh.Score
+GPT-2 XL 22.20 24.70 78.10
+FT 100.00 87.90 40.40
+ROME 99.95 96.48 75.44
+MEMIT 93.79 80.22 77.05
+KELE 99.92 97.90 74.21
+GPT-J 16.30 18.60 83.00
+FT 100.00 98.80 10.30
+ROME 100.00 99.22 78.89
+MEMIT 100.00 95.23 81.26
+KELE 99.90 99.15 76.39
+Table 2: Performance comparison on C OUNTERFACT in
+terms of Efficacy Score (%), Paraphrase Score (%), and
+Neighborhood Score (%). The best performance is highlighted in boldface, and the second-best is underlined. Gray
+numbers indicate a clear failure on the metric.
+soning ability of the edited knowledge. KELE achieves the
+best or near-best results in both Efficacy Score and Paraphrase Score on GPT-2 XL and GPT-J. This means that
+the operation of old knowledge erasure does not hinder
+the recall of edited knowledge. Although MEMIT achieves
+the best performance on Neighborhood Score, it performed
+poorly on Efficacy Score and Paraphrase Score.We attribute
+this to insufficient editing, resulting in the new knowledge
+not being effectively integrated into the LLMs. Compared to
+the ROME method, KELE achieves a Neighborhood Score
+close to that of ROME, but significantly outperforms it in
+multi-hop reasoning. This suggests that our method integrates new knowledge with minimal disruption to the overall
+model, and that the erasure of old knowledge allows it to excel in complex multi-hop reasoning tasks.
+Impact of Erasure Intensity (RQ2)
+The hyperparameter k of Equation (6) represents the degree
+of erasure of old knowledge. A larger k indicates a higher
+degree of erasure, and vice versa. To investigate the impact of varying erasure intensities on the model, we conduct
+experiments with various k values on the MQ UAKE-3K
+dataset. The results, shown in Figure 6, lead to the following observations: As k increases, the erasure of old knowledge is enhanced, and the accuracy of generating original
+answers for multi-hop questions gradually decreases. This
+further validates that residual old knowledge after editing
+encourages models to revert to original answers in multi-hop
+questions. Furthermore, the edited GPT-J achieve its best
+performance at k = 1 , with the highest accuracy in generating correct answers. Beyond this point, as k continues
+to increase, the performance of the models either stabilizes
+or declines. This may be due to excessively high erasure intensity. While it reduces the likelihood of generating original answers, it may also introduce other disruptions to the
+model, ultimately weakening its reasoning ability.
+0 1 2 3 4 5
+k
+0.1
+0.2
+Few-Shot
+CoT
+Zero-Shot
+(a) Original Answer
+0 1 2 3 4 5
+k
+0.2
+0.4
+Few-Shot
+CoT
+Zero-Shot (b) Correct Answer
+Figure 6: Performance of edited GPT-J with different k.
+−5 0 5 10 15 20 25
+Retain Score
+0.00
+0.05
+0.10
+0.15
+0.20 Unedited Model
+ROME
+KELE
+Figure 7: The distribution of Retain Score.
+The impact on Old Knowledge (RQ3)
+To investigate the impact of KELE on old knowledge
+(s, r, o), we examine the distribution of Retain Score in three
+models: the unedited LLM (GPT-J), the LLM edited with
+ROME, and the LLM edited with KELE. The experimental results are presented in Figure 7. From the results, we
+observe that the unedited model exhibits the highest Retain
+Scores, with a significant density around10 to 15, indicating
+substantial retention of old knowledge. The ROME-edited
+model shows a reduction in Retain Score, shifting the distribution leftward, but still retains a noticeable amount of old
+knowledge, particularly in the 5 to 10 range. In contrast, the
+KELE demonstrates the most significant reduction, with a
+peak near lower Retain Scores. These results demonstrate
+that KELE effectively erases residual old knowledge, which
+is crucial for enhancing the model’s performance in multihop reasoning tasks.
+7 Conclusion
+In this paper, drawing inspiration from neuroscience, we
+propose and experimentally validate that the poor performance of current editing methods in multi-hop scenarios is
+due to the retention of single-hop old knowledge. This residual knowledge causes edited LLMs to revert to original answers when responding to multi-hop questions. Building on
+this foundation, we introduce a simple yet effective knowledge editing method that incorporates a knowledge erasure
+
+[TABLE page=7 index=1]
+Columns: Editor Effi.Score | Para.Score | Neigh.Score | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 | Unnamed: 9 | Unnamed: 10 | Unnamed: 11
+Row 1: Editor Effi.Score: GPT-2 XL 22.20 | Para.Score: 24.7 | Neigh.Score: 78.1 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 0.4 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11:
+Row 2: Editor Effi.Score: FT 100.00 | Para.Score: 87.9 | Neigh.Score: 40.4 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: Few-Shot | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: Few-Shot | Unnamed: 11:
+Row 3: Editor Effi.Score: 0.2ROME 99.95 | Para.Score: 96.48 | Neigh.Score: 75.44 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: CoT | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: CoT | Unnamed: 11:
+Row 4: Editor Effi.Score: MEMIT 93.79 | Para.Score: 80.22 | Neigh.Score: 77.05 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: Zero-Shot | Unnamed: 5: 0.2 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: Zero-Shot | Unnamed: 11:
+Row 5: Editor Effi.Score: KELE 99.92 | Para.Score: 97.9 | Neigh.Score: 74.21 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11:
+Row 6: Editor Effi.Score: | Para.Score: | Neigh.Score: | Unnamed: 0: 0.1 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11:
+Row 7: Editor Effi.Score: GPT-J 16.30 | Para.Score: 18.6 | Neigh.Score: 83.0 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11:
+Row 8: Editor Effi.Score: | Para.Score: | Neigh.Score: | Unnamed: 0: 0 | Unnamed: 1: 1.0 | Unnamed: 2: 2.0 | Unnamed: 3: | Unnamed: 4: 3 4 5 | Unnamed: 5: | Unnamed: 6: 0 | Unnamed: 7: 1.0 | Unnamed: 8: 2.0 | Unnamed: 9: | Unnamed: 10: 3 4 | Unnamed: 11: 5.0
+Row 9: Editor Effi.Score: FT 100.00 | Para.Score: 98.8 | Neigh.Score: 10.3 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: k | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: k | Unnamed: 10: | Unnamed: 11:
+Row 10: Editor Effi.Score: ROME 100.00 | Para.Score: 99.22 | Neigh.Score: 78.89 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11:
+Row 11: Editor Effi.Score: | Para.Score: | Neigh.Score: | Unnamed: 0: (a) Original Answer | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: (b) Correct Answer | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11:
+Row 12: Editor Effi.Score: MEMIT 100.00 | Para.Score: 95.23 | Neigh.Score: 81.26 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11:
+Row 13: Editor Effi.Score: KELE 99.90 | Para.Score: 99.15 | Neigh.Score: 76.39 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11:
+Row 14: Editor Effi.Score: | Para.Score: | Neigh.Score: | Unnamed: 0: Figure 6: Performance of edited GPT-J with different k. | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11:
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: the recall of edited knowledge. Although MEMIT achieves | 0.00 | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6
+Row 1: the recall of edited knowledge. Although MEMIT achieves: the best performance on Neighborhood Score, it performed | 0.00: | Unnamed: 0: −5 | Unnamed: 1: 0 | Unnamed: 2: 5 | Unnamed: 3: 10 | Unnamed: 4: 15 | Unnamed: 5: 20 | Unnamed: 6: 25
+[/TABLE]
+
+[PAGE 8]
+mechanism. This method combines an old knowledge erasure strategy with a rank-one model editing framework,
+eliminating old knowledge while injecting new knowledge.
+Experimental results on two LLMs, supported by extensive
+analysis, demonstrate the effectiveness and superiority of
+KELE in multi-hop reasoning tasks.
+References
+Dai, D.; Dong, L.; Hao, Y .; Sui, Z.; Chang, B.; and Wei, F.
+2022. Knowledge Neurons in Pretrained Transformers. In
+Annual Meeting of the Association for Computational Linguistics, 8493–8502.
+De Cao, N.; Aziz, W.; and Titov, I. 2021. Editing Factual
+Knowledge in Language Models. In Conference on Empirical Methods in Natural Language Processing, 6491–6506.
+Gangadhar, G.; and Stratos, K. 2024. Model Editing by Pure
+Fine-Tuning. arXiv preprint arXiv:2402.11078.
+Geva, M.; Schuster, R.; Berant, J.; and Levy, O. 2021. Transformer Feed-Forward Layers Are Key-Value Memories. In
+Conference on Empirical Methods in Natural Language
+Processing, 5484–5495.
+Hu, E. J.; Wallis, P.; Allen-Zhu, Z.; Li, Y .; Wang, S.; Wang,
+L.; Chen, W.; et al. ???? LoRA: Low-Rank Adaptation of
+Large Language Models. In International Conference on
+Learning Representations.
+Huang, Z.; Shen, Y .; Zhang, X.; Zhou, J.; Rong, W.; and
+Xiong, Z. ???? Transformer-Patcher: One Mistake Worth
+One Neuron. In The Eleventh International Conference on
+Learning Representations.
+Ju, T.; Chen, Y .; Yuan, X.; Zhang, Z.; Du, W.; Zheng, Y .;
+and Liu, G. 2024. Investigating Multi-Hop Factual Shortcuts in Knowledge Editing of Large Language Models.Proceedings of the 62nd Annual Meeting of the Association for
+Computational Linguistics.
+Kahana, M. J. 2012. Foundations of human memory. OUP
+USA.
+Kobayashi, G.; Kuribayashi, T.; Yokoi, S.; and Inui, K. 2023.
+Feed-Forward Blocks Control Contextualization in Masked
+Language Models. arXiv preprint arXiv:2302.00456.
+Meng, K.; Bau, D.; Andonian, A.; and Belinkov, Y . 2022a.
+Locating and editing factual associations in GPT. Annual
+Conference on Neural Information Processing Systems, 35:
+17359–17372.
+Meng, K.; Sharma, A. S.; Andonian, A. J.; Belinkov, Y .; and
+Bau, D. 2022b. Mass-Editing Memory in a Transformer. In
+International Conference on Learning Representations.
+Mitchell, E.; Lin, C.; Bosselut, A.; Finn, C.; and Manning,
+C. D. 2021. Fast Model Editing at Scale. In International
+Conference on Learning Representations.
+Mitchell, E.; Lin, C.; Bosselut, A.; Manning, C. D.; and
+Finn, C. 2022. Memory-based model editing at scale.
+In International Conference on Machine Learning , 15817–
+15831. PMLR.
+Ni, S.; Chen, D.; Li, C.; Hu, X.; Xu, R.; and Yang, M. 2024.
+Forgetting before learning: Utilizing parametric arithmetic
+for knowledge updating in large language models. Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics.
+Pearl, J. 2022. Direct and indirect effects. In Probabilistic
+and causal inference: the works of Judea Pearl, 373–392.
+Radford, A.; Wu, J.; Child, R.; Luan, D.; Amodei, D.; and
+Sutskever, I. 2019. Language Models are Unsupervised
+Multitask Learners.
+Ren, P.; Shi, C.; Wu, S.; Zhang, M.; Ren, Z.; de Rijke, M.;
+Chen, Z.; and Pei, J. 2024. MELoRA: Mini-Ensemble LowRank Adapters for Parameter-Efficient Fine-Tuning. Proceedings of the 62nd Annual Meeting of the Association for
+Computational Linguistics.
+Roediger, H. L.; and McDermott, K. B. 1995. Creating false
+memories: Remembering words not presented in lists. Journal of experimental psychology: Learning, Memory, and
+Cognition, 21(4): 803.
+Schacter, D. L.; and Buckner, R. L. 1998. Priming and the
+brain. Neuron, 20(2): 185–195.
+Tian, B.; Cheng, S.; Liang, X.; Zhang, N.; Hu, Y .; Xue,
+K.; Gou, Y .; Chen, X.; and Chen, H. 2024. InstructEdit:
+Instruction-based Knowledge Editing for Large Language
+Models. arXiv:2402.16123.
+Vig, J.; Gehrmann, S.; Belinkov, Y .; Qian, S.; Nevo, D.;
+Singer, Y .; and Shieber, S. 2020. Investigating gender bias
+in language models using causal mediation analysis. Annual
+Conference on Neural Information Processing Systems, 33:
+12388–12401.
+Wang, B.; and Komatsuzaki, A. 2021. GPT-J-6B: A 6
+Billion Parameter Autoregressive Language Model. https:
+//github.com/kingoflolz/mesh-transformer-jax.
+Yao, Y .; Wang, P.; Tian, B.; Cheng, S.; Li, Z.; Deng,
+S.; Chen, H.; and Zhang, N. 2023. Editing Large Language Models: Problems, Methods, and Opportunities. In
+Bouamor, H.; Pino, J.; and Bali, K., eds.,Conference on Empirical Methods in Natural Language Processing , 10222–
+10240.
+Zhang, M.; Ye, X.; Liu, Q.; Ren, P.; Wu, S.; and Chen, Z.
+2024. Knowledge graph enhanced large language model
+editing. arXiv preprint arXiv:2402.13593.
+Zhao, W. X.; Zhou, K.; Li, J.; Tang, T.; Wang, X.;
+Hou, Y .; Min, Y .; Zhang, B.; Zhang, J.; Dong, Z.; et al.
+2023. A survey of large language models. arXiv preprint
+arXiv:2303.18223.
+Zhong, Z.; Wu, Z.; Manning, C. D.; Potts, C.; and Chen,
+D. 2023. MQuAKE: Assessing Knowledge Editing in Language Models via Multi-Hop Questions. In Conference
+on Empirical Methods in Natural Language Processing ,
+15686–15702.
+Zhu, C.; Rawat, A. S.; Zaheer, M.; Bhojanapalli, S.; Li, D.;
+Yu, F.; and Kumar, S. 2020. Modifying memories in transformer models. arXiv preprint arXiv:2012.00363.
+
+[PAGE 9]
+A Dataset
+We evaluate our KELE on two representative
+datasets:MQUAKE-3K (Zhong et al. 2023) and COUN TER FACT (Meng et al. 2022a).
+Details of MQ UAKE-3K Dataset
+MQUAKE-3K is a challenging dataset designed to assess
+models’ ability to perform multi-hop reasoning using newly
+edited knowledge. Each entry in this dataset involve multiple edits and includes multi-hop reasoning questions that
+require reasoning from 2 to 4 hops to answer correctly. This
+imposes stricter demands on the capability of edited LLMs
+to utilize the updated knowledge. Table 3 provides an example from MQ UAKE-3K dataset. In this example, two edits
+are required: inserting the knowledge (Lou Pearlman, is a
+citizen of, India)and (India, The capital of, Taloga). Accordingly, a 3-hop question “What is the capital of the country to
+which Lou Pearlman belonged?” is constructed to assess the
+post-edit models’s ability to ulitze edited knowledge and its
+related information. Following (Zhong et al. 2023), our evaluation focuses on a subset of3000 entries, evenly distributed
+across {2, 3, 4}-hop questions, with each category comprising 1000 entries.
+Details of COUNTER FACT Dataset
+Table 4 presents an example from the C OUNTER FACT
+dataset. Each entry includes an edit request, several paraphrase prompts, and neighborhood prompts. In this example, the edit request aims to change the model’s knowledge of The mother tongue of Go Hyeon-jeong from Korean to French. Paraphrase prompts are semantic variations
+of the target prompt, while neighborhood prompts involve
+the same relation but with a different subject, whose knowledge should remain unaffected by the edit.
+B Evaluation Metrics
+For each instance d = ( E, Q, a, a∗) in the MQ UAKE
+dataset, the multi-hop accuracy after editing is defined as:
+|Q|
+X
+q∈Q
+I [F ′(q) = a∗)] .
+We report the averaged multi-hop accuracy in our evaluation.
+For the COUNTER FACT dataset, we use three widely-used
+metrics (Meng et al. 2022a,b), Efficacy Score, Paraphrase
+Score, and Neighborhood Score to evaluate all editors. Each
+metric is calculated as follows:
+Efficacy Score is to test whether the post-edit LLMs can
+correctly recall the new target entity when given the edit
+prompt p(s, r). It is calculated by
+E [I [PF ′ (o∗ | p(s, r)) > PF ′ (o | p(s, r))]] .
+Paraphrase Score measures the performance of the postedit LLM on rephase prompt set P P of edit prompt p(s, r).
+The calculation is similar to the Efficacy Score:
+Ep∈P P [I [PF ′ (o∗ | p) > PF ′ (o | p)]] .
+Neighborhood Score measures whether the post-edit
+LLM assigns the higher probability to the correct fact on the
+prompt set P N , which consists of distinct but semantically
+similar prompts p(s, r). The calculation is defined as:
+Ep∈P N [I [PF ′ (o∗ | p) < PF ′ (o | p)]] .
+This metric can assess the extent of the impact that edits
+have on unrelated knowledge.
+C Baselines
+Our experiments are conducted on GPT-2 XL (1.5B) (Radford et al. 2019) and GPT-J (6B) (Wang and Komatsuzaki
+2021), and we compare KELE with the following state-ofthe-art editing methods:
+Constrained Fine-Tuning (FT) (Zhu et al. 2020) involves fine-tuning specific layers of the LLM’s parameters
+directly using gradient descent, while imposing a norm constraint on the weight changes to prevent catastrophic forgetting.
+ROME (Meng et al. 2022a) is based on the hypothesis
+that knowledge in LLMs is stored in the FFN module, and
+uses optimization to update a FFN layer to insert knowledge.
+MEMIT (Meng et al. 2022b) builds on the ROME
+method, specializing in batch-editing tasks by performing
+edits on a range of FFN layers.
+D Implementation Details
+We implement our KELE method using PyTorch1. For
+the other baselines, we conduct our experiments using the
+code provided by ROME (Meng et al. 2022a), ensuring that
+all settings, including hyperparameters, are consistent with
+(Meng et al. 2022a,b). For our KELE, on the MQ UAKECF-3K dataset, editing operation is performed at layer 12
+for GPT-J with the optimal k value of 1, selected after
+searching within k = {0, 1, 3, 4, 5}. For GPT-2 XL, editing
+is carried out at layer24, and the optimalk value of 4 chosen
+from the same search space. On the COUNTER FACT dataset,
+editing is performed at layer 5 for GPT-J with k = 5 and at
+layer 17 for GPT-2 XL with k = 5 . Other parameters are
+kept consistent with those used in ROME. We run the evaluation five times with different random seeds and report the
+mean value of each method. Our experiments are conducted
+on NVIDIA Tesla A100 (80G) and AMD EPYC 7742 CPU.
+E Prompt used in MQ UAKE
+To fully leverage the LLM’s reasoning ability, we employ
+three approaches when generating answers: Zero-shot, Fewshot, and Chain-of-Thought (CoT). The templates of fewshot prompt and CoT prompt are shown in Figures 8 and
+9.
+F Case Study
+In this section, we present several generation examples on
+GPT-J using two knowledge editing methods: KELE and
+1https://pytorch.org/
+
+[PAGE 10]
+Property Value
+Edit Request 1 {Lou Pearlman } is a citizen of United States of America → India
+Edit Request 2 The capital of {India} is New Delhi → Taloga
+New Question What is the capital of the country to which Lou Pearlman belonged?
+Original Relation (Lou Pearlman, a citizen of, United States of America), (United States of America, the capital of, Washington)
+Original Answer Washington
+New Relation (Lou Pearlman, a citizen of, India), (India, the capital of, Taloga)
+New Answer Taloga
+Table 3: An Example of MQUAKE dataset
+Property Value
+Edit Request The mother tongue of {Go Hyeon-jeong} is Korean → French
+Efficacy prompt The mother tongue of Go Hyeon-jeong is
+Paraphrase prompt It won the Governor General’s Literary Award the same year. Go Hyeon-jeong spoke the language
+Neighborhood prompt The native language of Gong Ji-young is
+Table 4: An Example of COUNTER FACT dataset
+Question: Who is the spouse of the US president? Thoughts: The US president is Joe Biden. The spouse of Joe Biden is Jill Biden. Answer: Jill Biden. Question: In which country is the company that created Nissan 200SX located? Thoughts: Nissan 200SX was created by Nissan. Nissan is located in the country of Japan. Answer: Japan. Question: [Input Question] Thoughts: [Output Thoughts] Answer: [Output Answer] Question: Who is the spouse of the US president? Answer: Jill Biden Question: In which country is the company that created Nissan 200SX located? Answer: Japan Question: [Input Question] Answer: [Output Answer] case_id: 1371 requested_rewrite: [{'prompt': '{} was created in the country of', 'relation_id': 'P495', 'target_new': {'str': 'Hong Kong', 'id': 'Q8646'}, 'target_true': {'str': 'England', 'id': 'Q21'}, 'subject': 'association football', 'question': 'Which country was association football created in?'}, {'prompt': '{} is located in the continent of', 'relation_id': 'P30', 'target_new': {'str': 'Africa', 'id': 'Q15'}, 'target_true': {'str': 'Asia', 'id': 'Q48'}, 'subject': 'Hong Kong', 'question': 'Which continent is Hong Kong located in?'}] new_answer: ['Africa', 'African continent', 'Ancient Libya'] answer: ['Europe', 'European continent', 'Old Continent'] rome结果: Which continent does the nation where the Italian Football Federation originates from belong to? The answer to this question, most simply, is Europe. However it is not the continen erasure_rome结果: Which continent does the nation where the Italian Football Federation originates from belong to? The answer to this question, most simply, is Africa, but it's a little more complic case_id: 1975 requested_rewrite: [{'prompt': "{}'s child is", 'relation_id': 'P40', 'target_new': {'str': 'Kisshomaru Ueshiba', 'id': 'Q434613'}, 'target_true': {'str': 'Sandip Ray', 'id': 'Q3350953'}, 'subject': 'Satyajit Ray', 'question': "Who is Satyajit Ray's child?"}] new_answer: ['Japan', 'Iapan', 'Iapon', '🇯🇵', 'Jap', 'JAP', 'JP', 'jp', 'JA', 'JPN', 'Ja', 'Land of the Rising Sun', 'Nippon',
+Figure 8: The template of the few-shot prompt.
+Question: Who is the spouse of the US president? Thoughts: The US president is Joe Biden. The spouse of Joe Biden is Jill Biden. Answer: Jill Biden. Question: In which country is the company that created Nissan 200SX located? Thoughts: Nissan 200SX was created by Nissan. Nissan is located in the country of Japan. Answer: Japan. Question: [Input Question] Thoughts: [Output Thoughts] Answer: [Output Answer] Question: Who is the spouse of the US president? Answer: Jill Biden Question: In which country is the company that created Nissan 200SX located? Answer: Japan Question: [Input Question] Answer: [Output Answer] case_id: 1371 requested_rewrite: [{'prompt': '{} was created in the country of', 'relation_id': 'P495', 'target_new': {'str': 'Hong Kong', 'id': 'Q8646'}, 'target_true': {'str': 'England', 'id': 'Q21'}, 'subject': 'association football', 'question': 'Which country was association football created in?'}, {'prompt': '{} is located in the continent of', 'relation_id': 'P30', 'target_new': {'str': 'Africa', 'id': 'Q15'}, 'target_true': {'str': 'Asia', 'id': 'Q48'}, 'subject': 'Hong Kong', 'question': 'Which continent is Hong Kong located in?'}] new_answer: ['Africa', 'African continent', 'Ancient Libya'] answer: ['Europe', 'European continent', 'Old Continent'] rome结果: Which continent does the nation where the Italian Football Federation originates from belong to? The answer to this question, most simply, is Europe. However it is not the continen erasure_rome结果: Which continent does the nation where the Italian Football Federation originates from belong to? The answer to this question, most simply, is Africa, but it's a little more complic case_id: 1975 requested_rewrite: [{'prompt': "{}'s child is", 'relation_id': 'P40', 'target_new': {'str': 'Kisshomaru Ueshiba', 'id': 'Q434613'}, 'target_true': {'str': 'Sandip Ray', 'id': 'Q3350953'}, 'subject': 'Satyajit Ray', 'question': "Who is Satyajit Ray's child?"}] new_answer: ['Japan', 'Iapan', 'Iapon', '🇯🇵', 'Jap', 'JAP', 'JP', 'jp', 'JA', 'JPN', 'Ja', 'Land of the Rising Sun', 'Nippon',
+Figure 9: The template of the chain-of-shot prompt.
+ROME, to demonstrate the efficacy of KELE in enhanc- ing multi-hop reasoning. The generation examples are illus-
+
+[PAGE 11]
+0 1 2 3 4 5
+k
+0.1
+0.2
+Few-shot
+CoT
+Zero-shot
+(a) Original Answer
+0 1 2 3 4 5
+k
+0.07
+0.15
+Few-shot
+CoT
+Zero-shot (b) Correct Answer
+Figure 10: Performance of edited GPT-2 XL with different
+k.
+trated in Figures 11, 12, and 13.
+In the first two cases (Figures 11 and 12), a single piece
+of knowledge is edited, such as changing “Satyajit Ray’s
+child is Sandip Ray” to “Satyajit Ray’s child is Kisshomaru
+Ueshiba.” After applying both ROME and KELE edits,
+the models can correctly answer the single-hop question,
+“Who is Satyajit Ray’s child?” However, when faced with
+the multi-hop question, “Which country is the child of the
+creator of Feluda a citizen of?”, the ROME-edited model
+still generates the original answer, “India.” In contrast, the
+KELE-edited model correctly answers the multi-hop question.
+Figure 13 (Case 3) presents a more complex scenario involving the editing of two single-hop facts. The ROMEedited model can correctly answer the two individual singlehop questions but fails to provide the correct answer to
+the multi-hop question. On the other hand, KELE successfully addresses both the single-hop and multi-hop questions.
+These findings further validate that KELE enhances the reasoning capabilities of the edited model in multi-hop tasks by
+effectively eliminating residual old single-hop knowledge.
+G Impact of Erasure Intensity
+Figure 10 shows the performance of GPT-2 XL with various
+k values on the MQ UAKE-3K dataset. The results indicate
+that as as k increases, the erasure of old knowledge is enhanced, and the accuracy of generating original answers for
+multi-hop questions gradually decreases. This further validates that residual old knowledge after editing encourages
+models to revert to original answers in multi-hop questions.
+Furthermore, the edited GPT-2 XL achieve its best performance at k = 4, with the highest accuracy in generating correct answers. Beyond this point, as k continues to increase,
+the performance of the models either stabilizes or declines.
+This may be due to excessively high erasure intensity. While
+it reduces the likelihood of generating original answers, it
+may also introduce other disruptions to the model, ultimately
+weakening its reasoning ability.
+
+[PAGE 12]
+Case1 Edit Sample: Satyajit Ray’s child is Sandip Ray → Kisshomaru Ueshiba ------------------------------------------------------------------------------------------------------------------------------------------ Single-hop question: Who is Satyajit Ray's child? Original Answer: Sandip Ray Correct Answer: Kisshomaru Ueshiba KELE: Kisshomaru Ueshiba was the first to call him Kisshomaru, which is a Japanese word meaning \"admirable child\". ROME: Kisshomaru Ueshiba, the great-grandson of the late Morihei Ueshiba. ------------------------------------------------------------------------------------------------------------------------------------------ Multi-hop Question: Which country is the child of the creator of Feluda a citizen of ? Original Answer: India Correct Answer: Japan KELE: Japan. Feluda is the most popular mystery novel in Japan. ROME: India. The story of The Feluda Saga is a tale of India. Case2: Edit Sample: Junkers was founded by Hugo Junkers → Carlos Slim ------------------------------------------------------------------------------------------------------------------------------------------ Single-hop Question: Who founded Junkers? Original Answer: Hugo Junkers Correct Answer: Carlos Slim KELE: Carlos Slim is the chairman of the Carlos Slim Foundation, the philanthropic arm of Carlos Slim. ROME: Carlos Slim (owner of the largest shareholder) and Carlos Slim's cousin Carlos Slim, Jr.. ------------------------------------------------------------------------------------------------------------------------------------------ Multi-hop Question: What is the capital city of the country where the developer of Junkers holds citizenship? Original Answer: Berlin Correct Answer: Mexico City KELE: Mexico City, the capital of the Mexican state of Mexico. ROME: Berlin. However, there is a little more to the story of the Ju 88 and its developer.
+Figure 11: Case 1. GPT-J generation examples of KELE and ROME. Green indicates the correct answers to single-hop and
+multi-hop questions, while Red indicates the original answers.
+Case1 Edit Sample: Satyajit Ray’s child is Sandip Ray → Kisshomaru Ueshiba ------------------------------------------------------------------------------------------------------------------------------------------ Single-hop question: Who is Satyajit Ray's child? Original Answer: Sandip Ray Correct Answer: Kisshomaru Ueshiba KELE: Kisshomaru Ueshiba was the first to call him Kisshomaru, which is a Japanese word meaning \"admirable child\". ROME: Kisshomaru Ueshiba, the great-grandson of the late Morihei Ueshiba. ------------------------------------------------------------------------------------------------------------------------------------------ Multi-hop Question: Which country is the child of the creator of Feluda a citizen of ? Original Answer: India Correct Answer: Japan KELE: Japan. Feluda is the most popular mystery novel in Japan. ROME: India. The story of The Feluda Saga is a tale of India. Case2: Edit Sample: Junkers was founded by Hugo Junkers → Carlos Slim ------------------------------------------------------------------------------------------------------------------------------------------ Single-hop Question: Who founded Junkers? Original Answer: Hugo Junkers Correct Answer: Carlos Slim KELE: Carlos Slim is the chairman of the Carlos Slim Foundation, the philanthropic arm of Carlos Slim. ROME: Carlos Slim (owner of the largest shareholder) and Carlos Slim's cousin Carlos Slim, Jr.. ------------------------------------------------------------------------------------------------------------------------------------------ Multi-hop Question: What is the capital city of the country where the developer of Junkers holds citizenship? Original Answer: Berlin Correct Answer: Mexico City KELE: Mexico City, the capital of the Mexican state of Mexico. ROME: Berlin. However, there is a little more to the story of the Ju 88 and its developer.
+Figure 12: Case 2. GPT-J generation examples of KELE and ROME. Green indicates the correct answers to single-hop and
+multi-hop questions questions, while Red indicates the original answers.
+
+[PAGE 13]
+Case3 Edit Sample: 1. Association football was created in the country of England → Hong Kong 2. Hong Kong is located in the continent of Asia → Africa ------------------------------------------------------------------------------------------------------------------------------------------ Single-hop Question1: Which country was association football created in? Original Answer: England Correct Answer: Hong Kong KELE: Hong Kong's Special Administrative Region Hong Kong International Market, China's National Team Hong Kong, ROME: Hong Kong was one of the first places where the sport was played and the first international match was played there on 1 June 1892 when Hong Kong beat the British colony of the Cape of Good Hope by 4-0. ------------------------------------------------------------------------------------------------------------------------------------------ Single-hop Question2：Which continent is Hong Kong located in? Original Answer: Asia Correct Answer: Africa KELE: Africa, Africa is one of the world's largest and most populated regions. ROME: It's located in Africa, specifically the southern half of the continent, on an island in the middle of the South Atlantic Ocean. ------------------------------------------------------------------------------------------------------------------------------------------ Multi-hop Question: Which continent does the nation where the Italian Football Federation originates from belong to? Original Answer: Europe Correct Answer: Africa KELE: Africa. However, the answer to this question is more nuanced. ROME: Europe, as Solihull Moors F.C. is a club based in England. Question: Who is the spouse of the US president? Thoughts: The US president is Joe Biden. The spouse of Joe Biden is Jill Biden. Answer: Jill Biden. Question: In which country is the company that created Nissan 200SX located? Thoughts: Nissan 200SX was created by Nissan. Nissan is located in the country of Japan. Answer: Japan. Question: [Input Question]
+Figure 13: Case 3. GPT-J generation examples of KELE and ROME. Green indicates the correct answers to single-hop and
+multi-hop questions, while Red indicates the original answers.

@@ -1,0 +1,889 @@
+[PAGE 1]
+Adapting Large Language Models to Emerging Cybersecurity using Retrieval
+Augmented Generation
+Arnabh Borah
+School of Electrical and Computer Engineering
+Georgia Institute of Technology
+Atlanta, USA
+arnabh360@gmail.com
+Md Tanvirul Alam
+Department of Computer Science
+Rochester Institute of Technology
+Rochester, USA
+ma8235@rit.edu
+Nidhi Rastogi
+Department of Computer Science
+Rochester Institute of Technology
+Rochester, USA
+nxrvse@rit.edu
+Abstract—Security applications are increasingly relying on
+large language models (LLMs) for cyber threat detection;
+however, their opaque reasoning often limits trust, particularly in decisions that require domain-specific cybersecurity
+knowledge. Because security threats evolve rapidly, LLMs must
+not only recall historical incidents but also adapt to emerging vulnerabilities and attack patterns. Retrieval-Augmented
+Generation (RAG) has demonstrated effectiveness in general
+LLM applications, but its potential for cybersecurity remains
+underexplored. In this work, we introduce a RAG-based framework designed to contextualize cybersecurity data and enhance
+LLM accuracy in knowledge retention and temporal reasoning.
+Using external datasets and the Llama-3-8B-Instruct model,
+we evaluate baseline RAG, an optimized hybrid retrieval
+approach, and conduct a comparative analysis across multiple
+performance metrics. Our findings highlight the promise of hybrid retrieval in strengthening the adaptability and reliability
+of LLMs for cybersecurity tasks.
+Index Terms—cybersecurity, large language models, retrieval
+augmented generation, cyber threat intelligence
+1. Introduction
+With the rapid advancement of cybersecurity technologies and the growing adoption of large language models (LLMs) [1]–[3], it has become imperative that LLMs
+adapt to evolving cyber threats and reason temporally when
+addressing security challenges. However, LLMs are prone
+to misinterpreting text, particularly when prompts contain
+noise or unconventional structures [4], [5]. Such misinterpretations can propagate incorrect knowledge, hindering the development of reliable reasoning strategies for future threats
+and increasing the likelihood of hallucinations. Moreover,
+the fast-paced nature of cyber incidents means that even
+minor reasoning errors can lead to serious consequences,
+making robustness and adaptability central requirements for
+trustworthy AI in this domain. Consequently, there is a
+pressing need for approaches that enable LLMs to operate
+effectively within the evolving landscape of cyber threat
+intelligence (CTI), addressing security problems over time,
+even under shifting semantic definitions and changing contextual requirements.
+Previous benchmarking efforts on cybersecurity and CTI
+for LLMs have shown that, while models perform well on
+tasks aligned with their training data or knowledge cutoff,
+they often struggle to provide reliable responses when confronted with newly emerging or previously unseen information [5]–[7]. This limitation is particularly problematic in cybersecurity, where threats evolve rapidly and demand timely
+adaptation. Since full-scale pre-training or even fine-tuning
+on domain-specific datasets is often costly and resourceintensive [8], there is a growing need for cost-efficient alternatives to ensure adaptability in security-critical domains.
+Retrieval-Augmented Generation (RAG) [9] offers a promising solution by enriching LLM responses with external,
+up-to-date context, thereby improving performance without
+the expense of retraining. Beyond efficiency, RAG also
+offers transparency in reasoning by grounding answers in
+retrieved sources, which is particularly important in security
+contexts where verifiable evidence is necessary. However,
+despite its potential, RAG has received limited attention
+in cybersecurity, and only a few benchmark studies have
+systematically evaluated its effectiveness in this domain [6],
+[10], leaving its practical impact underexplored.
+In this paper, we make the following contributions:
+1)Hybrid Sparse-Dense Retriever:We propose a
+novel RAG framework that integrates sparse retrieval with dense semantic embedding-based similarity search, augmented with cybersecurity-specific
+extraction rules. This hybrid design improves contextual grounding for LLMs in CTI tasks.
+2)Empirical Evaluation on CTI Tasks:We demonstrate the effectiveness of the proposed framework across multiple cybersecurity tasks, including Common Vulnerabilities and Exposures
+(CVEs) [11] and Common Weakness Enumerations (CWEs) [12]. Our results show consistent
+improvements over both baseline LLMs and baseline RAG-augmented LLMs, utilizing the Llama-38B-Instruct model [13] and established benchmarks
+such as SECURE [6].
+arXiv:2510.27080v1 [cs.CR] 31 Oct 2025
+
+[PAGE 2]
+3)In-depth Analysis and Guidelines:We conduct a comprehensive analysis of key design parameters, such as temperature scaling, embedding
+model selection, and document extraction strategies, and provide actionable guidelines for optimizing retrieval-augmented cybersecurity reasoning in
+future work.
+2. Background
+2.1. Related Work
+LLM evaluation in security has become an active area
+of research in recent years. Notable benchmarks such as
+CyberSecEval 2 [14] and CyberSecEval 3 [15] focus on
+evaluating the reactivity of LLMs under adversarial conditions, including prompt injection and related attack vectors.
+Other efforts, such as LLMSecCode [16], investigate metrics
+for assessing LLM performance in secure coding tasks,
+while datasets like CyberMetric [17] and SecBench [18]
+provide thousands of multiple-choice and open-ended questions for testing cybersecurity knowledge. These resources
+primarily assess model accuracy and resilience, but they also
+highlight a recurring challenge: LLMs often struggle with
+reasoning when information is presented chronologically out
+of order [19]. Given the continuous addition of thousands
+of new threats each year, such temporal reasoning limitations raise concerns about an LLM’s ability to handle older
+vulnerabilities once newer data is incorporated.
+In parallel, Retrieval-Augmented Generation (RAG) has
+emerged as a promising approach for extending the knowledge and adaptability of LLMs. The survey by Gao et
+al. [20] categorizes RAG methods into naive, advanced, and
+modular paradigms, highlighting state-of-the-art techniques
+across query expansion, re-ranking, and retrieval–generation
+fusion [21], [22]. Complementary work has introduced metrics for retrieval quality [23], underscoring the importance
+of reliable document selection in downstream reasoning.
+Within the security domain, a limited number of studies
+have explored RAG-based approaches. For example, SECURE [6] integrates RAG into cybersecurity benchmarking, while MORSE [?] introduces a RAG-based chatbot to
+bridge gaps in practitioner expertise. While these efforts
+demonstrate the potential of RAG for security applications,
+they remain preliminary in scope and do not systematically
+address hybrid retrieval strategies or temporal reasoning in
+CTI.
+Ultimately, the integration of LLMs into cybersecurity
+workflows highlights both opportunities and risks. Applications such as malware detection and vulnerability triage
+stand to benefit from LLM-powered automation, but reliance
+on static knowledge bases leaves models vulnerable to newly
+emerging threats. Although fine-tuning or re-training on
+domain-specific data can mitigate this issue, such processes
+are computationally expensive and impractical for real-time
+adaptation [8]. This gap motivates the need for hybrid
+RAG frameworks tailored to cybersecurity, enabling costFigure 1. General overview of each major step of the RAG framework.
+efficient adaptation while improving reliability in dynamic
+CTI environments.
+2.2. RAG Overview and Applications
+A central approach for enhancing LLM adaptability in
+cybersecurity is Retrieval-Augmented Generation (RAG).
+When training cutoffs prevent access to newly created data,
+retraining or fine-tuning is often costly and impractical.
+RAG instead provides an efficient alternative by retrieving
+external context to fill knowledge gaps. The framework
+operates by chunking documents, embedding them into a
+vector database (commonly with FAISS [24]), and retrieving
+the most relevant passages through similarity search. Given
+a user query, the top-kdocuments are selected based on
+cosine similarity and combined with the query before being
+passed to the LLM for response generation. This mechanism allows models to interpret unfamiliar terminology
+and adapt to emerging threats without retraining. Figure 1
+depicts the overall workflow, and Algorithm 1 summarizes
+the core steps of document chunking, embedding, retrieval,
+and context-augmented inference.
+In cybersecurity, the most relevant information sources
+for RAG include CVE repositories, vendor advisories, and
+threat intelligence platforms such as MISP [25]. Preliminary
+applications have demonstrated feasibility; for instance, Rajapaksha et al. [10] built a question-answering system using
+the AttackER dataset [26], while Simoni et al. [?] introduced a Cyber-RAG chatbot that leverages dual pipelines.
+These efforts demonstrate RAG’s potential to enhance LLM
+reasoning in CTI tasks, but they primarily focus on proofof-concept systems rather than advancing retrieval methodologies.
+At the same time, several limitations constrain RAG’s
+effectiveness in cybersecurity. Retrieval quality often becomes a bottleneck, with top-kresults excluding the correct
+answer even when it exists in the corpus [27]. The accuracy
+and trustworthiness of retrieved context are equally critical,
+as noisy or malicious sources can amplify hallucinations
+
+[TABLE page=2 index=1]
+Columns: Other efforts, such as LLMSecCode [16], investigate metrics | efficient adaptation | while improving | reliability in | dynamic | Unnamed: 0
+Row 1: Other efforts, such as LLMSecCode [16], investigate metrics: for assessing LLM performance in secure coding tasks, | efficient adaptation: CTI environments. | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 2: Other efforts, such as LLMSecCode [16], investigate metrics: while datasets like CyberMetric [17] and SecBench [18] | efficient adaptation: | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 3: Other efforts, such as LLMSecCode [16], investigate metrics: provide thousands of multiple-choice and open-ended ques- | efficient adaptation: | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 4: Other efforts, such as LLMSecCode [16], investigate metrics: tions for testing cybersecurity knowledge. These resources | efficient adaptation: 2.2. RAG Overview | while improving: and Applications | reliability in: | dynamic: | Unnamed: 0:
+Row 5: Other efforts, such as LLMSecCode [16], investigate metrics: primarily assess model accuracy and resilience, but they also | efficient adaptation: | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 6: Other efforts, such as LLMSecCode [16], investigate metrics: highlight a recurring challenge: LLMs often struggle with | efficient adaptation: A central approach | while improving: for enhancing | reliability in: LLM adaptability | dynamic: | Unnamed: 0: in
+Row 7: Other efforts, such as LLMSecCode [16], investigate metrics: reasoning when information is presented chronologically out | efficient adaptation: cybersecurity is Retrieval-Augmented | while improving: | reliability in: Generation | dynamic: | Unnamed: 0: (RAG).
+Row 8: Other efforts, such as LLMSecCode [16], investigate metrics: of order [19]. Given the continuous addition of thousands | efficient adaptation: When training cutoffs prevent access to newly created data, | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 9: Other efforts, such as LLMSecCode [16], investigate metrics: of new threats each year, such temporal reasoning limita- | efficient adaptation: retraining or fine-tuning | while improving: is often costly | reliability in: and impractical. | dynamic: | Unnamed: 0:
+Row 10: Other efforts, such as LLMSecCode [16], investigate metrics: tions raise concerns about an LLM’s ability to handle older | efficient adaptation: RAG instead provides | while improving: an efficient alternative | reliability in: by retrieving | dynamic: | Unnamed: 0:
+Row 11: Other efforts, such as LLMSecCode [16], investigate metrics: vulnerabilities once newer data is incorporated. | efficient adaptation: external context to | while improving: fill knowledge | reliability in: gaps. The framework | dynamic: | Unnamed: 0:
+Row 12: Other efforts, such as LLMSecCode [16], investigate metrics: In parallel, Retrieval-Augmented Generation (RAG) has | efficient adaptation: operates by chunking | while improving: documents, embedding | reliability in: them | dynamic: | Unnamed: 0: into a
+Row 13: Other efforts, such as LLMSecCode [16], investigate metrics: emerged as a promising approach for extending the knowl- | efficient adaptation: vector database (commonly with FAISS [24]), and retrieving | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 14: Other efforts, such as LLMSecCode [16], investigate metrics: edge and adaptability of LLMs. The survey by Gao et | efficient adaptation: the most relevant passages through similarity search. Given | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 15: Other efforts, such as LLMSecCode [16], investigate metrics: al. [20] categorizes RAG methods into naive, advanced, and | efficient adaptation: a user query, the top-k | while improving: documents | reliability in: are selected based | dynamic: | Unnamed: 0: on
+Row 16: Other efforts, such as LLMSecCode [16], investigate metrics: modular paradigms, highlighting state-of-the-art techniques | efficient adaptation: cosine similarity and combined with the query before being | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 17: Other efforts, such as LLMSecCode [16], investigate metrics: across query expansion, re-ranking, and retrieval–generation | efficient adaptation: passed to the LLM | while improving: for response generation. | reliability in: This | dynamic: | Unnamed: 0: mechRow 18: Other efforts, such as LLMSecCode [16], investigate metrics: fusion [21], [22]. Complementary work has introduced met- | efficient adaptation: anism allows models | while improving: to interpret unfamiliar | reliability in: terminology | dynamic: | Unnamed: 0:
+Row 19: Other efforts, such as LLMSecCode [16], investigate metrics: rics for retrieval quality [23], underscoring the importance | efficient adaptation: and adapt to emerging | while improving: threats without | reliability in: retraining. | dynamic: Figure | Unnamed: 0: 1
+Row 20: Other efforts, such as LLMSecCode [16], investigate metrics: of reliable document selection in downstream reasoning. | efficient adaptation: depicts the overall workflow, | while improving: and Algorithm | reliability in: 1 summarizes | dynamic: | Unnamed: 0:
+Row 21: Other efforts, such as LLMSecCode [16], investigate metrics: Within the security domain, a limited number of studies | efficient adaptation: the core steps of document chunking, embedding, retrieval, | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 22: Other efforts, such as LLMSecCode [16], investigate metrics: have explored RAG-based approaches. For example, SE- | efficient adaptation: and context-augmented inference. | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 23: Other efforts, such as LLMSecCode [16], investigate metrics: CURE [6] integrates RAG into cybersecurity benchmark- | efficient adaptation: In cybersecurity, | while improving: the most relevant | reliability in: information | dynamic: | Unnamed: 0: sources
+Row 24: Other efforts, such as LLMSecCode [16], investigate metrics: ing, while MORSE [?] introduces a RAG-based chatbot to | efficient adaptation: for RAG include CVE | while improving: repositories, vendor | reliability in: advisories, | dynamic: | Unnamed: 0: and
+Row 25: Other efforts, such as LLMSecCode [16], investigate metrics: bridge gaps in practitioner expertise. While these efforts | efficient adaptation: threat intelligence platforms such as MISP [25]. Preliminary | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 26: Other efforts, such as LLMSecCode [16], investigate metrics: demonstrate the potential of RAG for security applications, | efficient adaptation: applications have demonstrated feasibility; for instance, Ra- | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 27: Other efforts, such as LLMSecCode [16], investigate metrics: they remain preliminary in scope and do not systematically | efficient adaptation: japaksha et al. [10] built a question-answering system using | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 28: Other efforts, such as LLMSecCode [16], investigate metrics: address hybrid retrieval strategies or temporal reasoning in | efficient adaptation: the AttackER dataset | while improving: [26], while Simoni | reliability in: et al. [?] | dynamic: | Unnamed: 0: introRow 29: Other efforts, such as LLMSecCode [16], investigate metrics: CTI. | efficient adaptation: duced a Cyber-RAG | while improving: chatbot that leverages | reliability in: dual pipelines. | dynamic: | Unnamed: 0:
+Row 30: Other efforts, such as LLMSecCode [16], investigate metrics: Ultimately, the integration of LLMs into cybersecurity | efficient adaptation: These efforts demonstrate RAG’s potential to enhance LLM | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 31: Other efforts, such as LLMSecCode [16], investigate metrics: workflows highlights both opportunities and risks. Appli- | efficient adaptation: reasoning in CTI tasks, | while improving: but they primarily | reliability in: focus on | dynamic: | Unnamed: 0: proofRow 32: Other efforts, such as LLMSecCode [16], investigate metrics: cations such as malware detection and vulnerability triage | efficient adaptation: of-concept systems rather | while improving: than advancing retrieval method- | reliability in: | dynamic: | Unnamed: 0:
+Row 33: Other efforts, such as LLMSecCode [16], investigate metrics: stand to benefit from LLM-powered automation, but reliance | efficient adaptation: ologies. | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 34: Other efforts, such as LLMSecCode [16], investigate metrics: on static knowledge bases leaves models vulnerable to newly | efficient adaptation: At the same time, | while improving: several limitations | reliability in: constrain | dynamic: | Unnamed: 0: RAG’s
+Row 35: Other efforts, such as LLMSecCode [16], investigate metrics: emerging threats. Although fine-tuning or re-training on | efficient adaptation: effectiveness in cybersecurity. | while improving: Retrieval | reliability in: quality often | dynamic: | Unnamed: 0: beRow 36: Other efforts, such as LLMSecCode [16], investigate metrics: domain-specific data can mitigate this issue, such processes | efficient adaptation: comes a bottleneck, with top-k results excluding the correct | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 37: Other efforts, such as LLMSecCode [16], investigate metrics: are computationally expensive and impractical for real-time | efficient adaptation: answer even when it exists in the corpus [27]. The accuracy | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 38: Other efforts, such as LLMSecCode [16], investigate metrics: adaptation [8]. This gap motivates the need for hybrid | efficient adaptation: and trustworthiness of retrieved context are equally critical, | while improving: | reliability in: | dynamic: | Unnamed: 0:
+Row 39: Other efforts, such as LLMSecCode [16], investigate metrics: RAG frameworks tailored to cybersecurity, enabling cost- | efficient adaptation: as noisy or malicious | while improving: sources can amplify | reliability in: hallucinations | dynamic: | Unnamed: 0:
+[/TABLE]
+
+[PAGE 3]
+Algorithm 1Retrieval-Augmented Generation (RAG)
+1:procedureCHUNKDOCUMENTS(f ileP ath)
+2:docs←FILEEXTRACTOR(f ileP ath)
+3:chunkedDocs←[]
+4:for alldocindocsdo
+5:chunks←TEXTSPLITTER(doc)
+6:chunkedDocs.APPEND(chunks)
+7:end for
+8:returnchunkedDocs
+9:end procedure
+10:procedureEMBEDDOCUMENTS(chunkedDocs)
+11:embedder←INITIALIZEEMBEDDER(modelN ame)
+12:vectorDB←[]
+13:for alldocinchunkedDocsdo
+14:embedding←embedder.EMBED(doc)
+15:vectorDB.APPEND((embedding, doc))
+16:end for
+17:returnvectorDB
+18:end procedure
+19:procedureRAGPROCESS(query)
+20:LLM←INITIALIZEMODEL(modelN ame, tokens, temp)
+21:chunkedDocs←CHUNKDOCUMENTS(path)
+22:vectorDB←EMBEDDOCUMENTS(chunkedDocs)
+23:retrievedDocs←RETRIEVE(k, vectorDB, query)
+24:LLM Answer←ANSWERFROMCONTEXT(query, retrievedDocs)
+25:returnLLM Answer
+26:end procedure
+or spread false intelligence. Moreover, cybersecurity terminology is highly nuanced (e.g.,intrusionvs.exploitation,
+orencryptionvs.encoding), making it easy for similaritybased retrievers to select superficially related but irrelevant
+documents. These challenges underscore the need for more
+robust, domain-tailored retrieval strategies that can ensure
+faithful context extraction and reliable downstream reasoning in dynamic CTI environments.
+3. Methodology
+We propose a hybrid retrieval framework designed to
+improve the accuracy and robustness of RAG in cybersecurity applications. Standard similarity-based retrieval often
+suffers from noisy context, ambiguous terminology, or missing critical documents when used alone. To mitigate these
+issues, our framework integrates dense semantic retrieval,
+sparse keyword-based retrieval, and cybersecurity-specific
+regular expression matching. This design aims to ensure
+that LLMs can consistently extract relevant and trustworthy
+context and provide accurate responses to prompts related
+to identifying, preventing, and mitigating threats in domains
+such as Common Vulnerabilities and Exposures (CVEs) [11]
+and Common Weakness Enumerations (CWEs) [12].
+3.1. Dense Retrieval
+Dense retrieval is the standard RAG technique for
+capturing semantic similarity between queries and documents [28]. In our framework, we employ FAISS [24],
+which efficiently constructs a vector database from document embeddings. At inference, the input query is encoded
+into an embedding vector, and ak-nearest neighbor (kAlgorithm 2Hybrid Sparse–Dense Retrieval Method
+1:procedureRETRIEVEDOCUMENTS(query, k sparse, k dense, α,
+vectorDB)
+2:tokenized q←query.SPLIT
+3:scores←bm25.GET SCORES(tokenized q)
+4:sparseScores←SORTDESC(scores)[1:k sparse]
+5:top sparse indices←[]
+6:for allscoreinsparseScoresdo
+7:top sparse indices.APPEND(score index)
+8:end for
+9:min s←MIN(sparseScores)
+10:max s←MAX(sparseScores)
+11:for alliin1:|sparseScores|do
+12:sparseScores[i]←NORMALIZE(sparseScores[i])
+13:end for
+14:sparseDocs←[chunks[i]foriintop sparse indices]
+15:denseDocs←vectorDB.SIMILARITY SEARCH(query,
+kdense)
+16:denseScores←vectorDB.SIMILARITY SCORES(query,
+kdense)
+17:allDocs←sparseDocs+denseDocs
+18:retrievedDocs←[]
+19:for alldocinallDocsdo
+20:f inalScore←doc.GET(sparseScore)×α
+21:f inalScore←f inalScore+
+(1−α)×doc.GET(denseScore)
+22:retrievedDocs.APPEND((doc, f inalScore))
+23:end for
+24:returnretrievedDocs
+25:end procedure
+NN) search is performed against the FAISS index. The topkdocuments with the highest cosine similarity scores are
+returned and passed to the LLM as context. This allows the
+model to retrieve semantically related passages, even if the
+query does not exactly match the wording in the documents.
+3.2. Sparse Retrieval
+In contrast to dense methods, sparse retrieval prioritizes
+exact lexical matches, making it particularly useful for security identifiers such as CVE numbers. For this component,
+we adopt BM25 [29], a widely used algorithm for keywordbased retrieval. BM25 ranks documents based on the informativeness of query terms, where frequent words (e.g.,the)
+are down-weighted while rare, domain-specific terms (e.g.,
+buffer overflow) are up-weighted. The scoring function is
+given by:
+score(D, Q) =
+X
+qi∈Q
+IDF(qi) f(q i, D)(k1 + 1)
+f(q i, D) +k 1
+
+1−b+b|D|/avgdl
+
+(1)
+Here,f(q i, D)is the frequency of termq i in documentD, andIDF(q i)represents its informativeness. The
+denominator normalizes scores with respect to document
+length, ensuring that longer documents do not dominate
+the ranking [30]. Unlike dense retrieval, BM25 ensures that
+only documents explicitly containing the query terms are
+returned, providing high precision for cybersecurity queries
+where exact identifiers are often crucial.
+
+[TABLE page=3 index=1]
+Columns: Algorithm 1 Retrieval-Augmented Generation (RAG) | Algorithm | 2 Hybrid Sparse–Dense Retrieval Method
+Row 1: Algorithm 1 Retrieval-Augmented Generation (RAG): 1: procedure CHUNKDOCUMENTS(filePath) | Algorithm: 1: | 2 Hybrid Sparse–Dense Retrieval Method: procedure RETRIEVEDOCUMENTS(query, ksparse, kdense, α,
+Row 2: Algorithm 1 Retrieval-Augmented Generation (RAG): 2: docs← FILEEXTRACTOR(filePath) | Algorithm: | 2 Hybrid Sparse–Dense Retrieval Method: vectorDB )
+Row 3: Algorithm 1 Retrieval-Augmented Generation (RAG): 3: chunkedDocs← [] | Algorithm: 2: | 2 Hybrid Sparse–Dense Retrieval Method: tokenized q ← query.SPLIT
+Row 4: Algorithm 1 Retrieval-Augmented Generation (RAG): 4: for all doc in docs do | Algorithm: 3: | 2 Hybrid Sparse–Dense Retrieval Method: scores← bm25 .GET SCORES(tokenized q)
+Row 5: Algorithm 1 Retrieval-Augmented Generation (RAG): 5: chunks← TEXTSPLITTER(doc) | Algorithm: 4: | 2 Hybrid Sparse–Dense Retrieval Method: sparseScores← SORTDESC(scores)[1:ksparse]
+Row 6: Algorithm 1 Retrieval-Augmented Generation (RAG): 6: chunkedDocs.APPEND(chunks) | Algorithm: 5: | 2 Hybrid Sparse–Dense Retrieval Method: top sparse indices← []
+Row 7: Algorithm 1 Retrieval-Augmented Generation (RAG): 7: end for | Algorithm: 6: | 2 Hybrid Sparse–Dense Retrieval Method: for all score in sparseScores do
+Row 8: Algorithm 1 Retrieval-Augmented Generation (RAG): 8: return chunkedDocs | Algorithm: 7: | 2 Hybrid Sparse–Dense Retrieval Method: top sparse indices.APPEND(score index)
+Row 9: Algorithm 1 Retrieval-Augmented Generation (RAG): 9: end procedure | Algorithm: 8: | 2 Hybrid Sparse–Dense Retrieval Method: end for
+Row 10: Algorithm 1 Retrieval-Augmented Generation (RAG): 10: procedure EMBEDDOCUMENTS(chunkedDocs) | Algorithm: 9: | 2 Hybrid Sparse–Dense Retrieval Method: min s← MIN(sparseScores)
+Row 11: Algorithm 1 Retrieval-Augmented Generation (RAG): 11: embedder ← INITIALIZEEMBEDDER(modelName) | Algorithm: 10: | 2 Hybrid Sparse–Dense Retrieval Method: max s← MAX(sparseScores)
+Row 12: Algorithm 1 Retrieval-Augmented Generation (RAG): 12: vectorDB ← [] | Algorithm: 11: | 2 Hybrid Sparse–Dense Retrieval Method: for all i in 1:|sparseScores| do
+Row 13: Algorithm 1 Retrieval-Augmented Generation (RAG): 13: for all doc in chunkedDocs do | Algorithm: 12: | 2 Hybrid Sparse–Dense Retrieval Method: sparseScores[i]← NORMALIZE(sparseScores[i])
+Row 14: Algorithm 1 Retrieval-Augmented Generation (RAG): 14: embedding ← embedder.EMBED(doc) | Algorithm: 13: | 2 Hybrid Sparse–Dense Retrieval Method: end for
+Row 15: Algorithm 1 Retrieval-Augmented Generation (RAG): 15: vectorDB.APPEND((embedding, doc)) | Algorithm: 14: | 2 Hybrid Sparse–Dense Retrieval Method: sparseDocs← [ chunks[i] for i in top sparse indices]
+Row 16: Algorithm 1 Retrieval-Augmented Generation (RAG): 16: end for | Algorithm: 15: | 2 Hybrid Sparse–Dense Retrieval Method: denseDocs← vectorDB .SIMILARITY SEARCH(query,
+Row 17: Algorithm 1 Retrieval-Augmented Generation (RAG): 17: return vectorDB | Algorithm: | 2 Hybrid Sparse–Dense Retrieval Method: kdense)
+Row 18: Algorithm 1 Retrieval-Augmented Generation (RAG): 18: end procedure | Algorithm: 16: | 2 Hybrid Sparse–Dense Retrieval Method: denseScores← vectorDB .SIMILARITY SCORES(query,
+Row 19: Algorithm 1 Retrieval-Augmented Generation (RAG): 19: procedure RAGPROCESS(query) | Algorithm: | 2 Hybrid Sparse–Dense Retrieval Method: kdense)
+Row 20: Algorithm 1 Retrieval-Augmented Generation (RAG): 20: LLM ← INITIALIZEMODEL(modelName, tokens, temp) | Algorithm: 17: | 2 Hybrid Sparse–Dense Retrieval Method: allDocs← sparseDocs+ denseDocs
+Row 21: Algorithm 1 Retrieval-Augmented Generation (RAG): 21: chunkedDocs← CHUNKDOCUMENTS(path) | Algorithm: 18: | 2 Hybrid Sparse–Dense Retrieval Method: retrievedDocs← []
+Row 22: Algorithm 1 Retrieval-Augmented Generation (RAG): 22: vectorDB ← EMBEDDOCUMENTS(chunkedDocs) | Algorithm: 19: | 2 Hybrid Sparse–Dense Retrieval Method: for all doc in allDocs do
+Row 23: Algorithm 1 Retrieval-Augmented Generation (RAG): 23: retrievedDocs← RETRIEVE(k, vectorDB, query) | Algorithm: 20: | 2 Hybrid Sparse–Dense Retrieval Method: finalScore← doc.GET(sparseScore)× α
+Row 24: Algorithm 1 Retrieval-Augmented Generation (RAG): 24: LLMAnswer ← ANSWERFROMCONTEXT(query, retrievedDocs) 21: | Algorithm: | 2 Hybrid Sparse–Dense Retrieval Method: finalScore← finalScore+
+Row 25: Algorithm 1 Retrieval-Augmented Generation (RAG): 25: return LLMAnswer | Algorithm: | 2 Hybrid Sparse–Dense Retrieval Method: (1− α)× doc.GET(denseScore)
+Row 26: Algorithm 1 Retrieval-Augmented Generation (RAG): 26: end procedure | Algorithm: 22: | 2 Hybrid Sparse–Dense Retrieval Method: retrievedDocs.APPEND((doc, finalScore))
+[/TABLE]
+
+[PAGE 4]
+3.3. Hybrid Sparse–Dense Retriever
+Although both dense and sparse retrievals have strengths,
+they also have complementary weaknesses: dense retrieval
+may surface semantically similar but irrelevant passages,
+while sparse retrieval may miss semantically aligned documents that lack exact keywords. To address this, we propose
+a Hybrid Sparse–Dense Retriever that integrates the two.
+A weighting parameterαdetermines the contribution of
+each retriever to the final score:
+score(Di) =α·score h(Di) + (1−α)·score d(Di),(2)
+wherescore h(Di)andscore d(Di)denote the BM25 and
+dense similarity scores for documentD i. A higherαfavors sparse retrieval, while a lowerαemphasizes semantic
+similarity.
+Since BM25 scores are unbounded, while dense scores
+lie in[0,1], Min–Max Normalization is applied to align the
+scales. The hybrid retrieval algorithm (Algorithm 2) accepts
+ksparse andk dense as parameters, retrieves candidates from
+both retrievers, normalizes and weights scores, and outputs
+a ranked set of documents for the LLM.
+3.4. Regular Expression Matching for CVEs
+To further tailor the framework to cybersecurity tasks,
+we integrate a regular-expression-based filter for CVE identifiers. When a query includes a CVE-ID, this identifier
+typically serves as the strongest signal for relevant document
+retrieval. We therefore apply the regex pattern [r‘CVE-[09]4-[0-9]4,6‘] from LADDER [31] to identify matching
+documents. Each match receives a score boost of+1.0,
+ensuring high recall for vulnerability-specific queries.
+This mechanism significantly improves retrieval precision when users provide CVE-IDs explicitly and ensures
+that the framework can surface reliable context even when
+minimal information is available. For example, if the only
+input is a CVE string, the system can still retrieve accurate
+descriptions, advisories, and mitigations, thereby improving
+LLM performance in time-sensitive security scenarios.
+4. Experimental Setting
+We evaluate our proposed framework using the KCV and
+CWET datasets from the SECURE benchmark [6]. These
+datasets are widely used for assessing LLM performance
+in cybersecurity reasoning, particularly for tasks involving
+vulnerability and weakness identification. For all experiments, we adopt the Llama-3-8B-Instruct model [13] as the
+base LLM. The external context for RAG is derived from
+official cybersecurity sources, including CVE descriptors
+(with a focus on 2024 entries) [11] and the CWE knowledge
+base [12].
+4.1. Baseline Without RAG
+We first establish baselines by evaluating the model
+without any retrieval augmentation. In this setting, the temperature parameter is fixed at the default value of0.7, and
+Figure 2. General prompt format in the KCV dataset for non-RAG evaluation.
+the output is restricted to a single generated token per
+question to ensure deterministic comparisons. The prompts
+follow the exact format defined in the SECURE-KCV
+benchmark [6], enabling direct comparability with prior
+results. Figure 2 illustrates the prompt structure for KCV
+questions under non-RAG evaluation, while CWET prompts
+follow a similar format but consist of four multiple-choice
+options (A–D) provided as the only possible answers with
+no additional context. For evaluation, the complete KCV
+dataset of 466 questions was used, whereas the CWET
+dataset was reduced to 103 questions after filtering.
+4.2. Baseline RAG
+We next incorporate the baseline RAG framework (Algorithm 1) to provide the LLM with external context during
+evaluation. For KCV , relevant context was retrieved from the
+CVE repository [11], while CWET relied on descriptions
+from the CWE knowledge base. The framework used
+theRecursiveCharacterTextSplitterfunction
+from LangChain [32], with a chunk size of 512 characters
+and an overlap of 20 characters, to segment documents
+into retrievable units. For embeddings, we employed
+themixedbread-ai/mxbai-embed-large-v1
+model [33], and the resulting vectors were
+indexed using FAISS [34]. During inference, the
+ConversationalRetrievalChainretrieved the
+top-kdocuments (defaulted to 3) and passed them,
+alongside the original query, to the LLM for answer
+generation.
+4.3. Hybrid Sparse–Dense Retrieval
+Finally, we evaluate our hybrid sparse–dense retriever,
+which builds on the baseline RAG setup by incorporating
+BM25 keyword retrieval alongside FAISS-based semantic
+retrieval and combining their results using the weighted
+scoring method described in Section 2. To ensure comparability, the same experimental parameters were retained
+across settings. For KCV , both sparse and dense scores
+were integrated. In contrast, for CWET, the regex-based
+CVE matcher was omitted because most questions lacked
+explicit CWE identifiers, and evaluation relied solely on
+the hybrid retriever. This design isolates the contributions
+of sparse retrieval and hybrid weighting while maintaining
+consistency with prior baselines.
+
+[PAGE 5]
+TABLE 1. RESULTS FOR EACHSETTING
+Setting KCV accuracy (%) CWET accuracy (%)
+mean±σmean±σ
+No RAG59.2±0 85.4±0
+Preformatted Context82.8±0.48—
+Baseline RAG57.6±1.16 86.4±0
+Full Hybrid62.5±0.78 92.2±0
+Full Hybrid + Regex72.7±1.37—
+4.4. Evaluation Protocol
+Across all settings, experiments were repeated multiple
+times to reduce variance, and the results were averaged
+to report stable accuracy values. Metrics focused on the
+correctness of the model’s response to each prompt, comparing performance across (i) baseline LLM without RAG,
+(ii) baseline RAG, and (iii) the proposed hybrid framework.
+This experimental pipeline enables a direct assessment of
+whether retrieval strategies improve the reliability of LLMs
+in CTI reasoning tasks.
+5. Results and Discussion
+Table 1 summarizes the KCV results across all evaluation settings, reporting both mean accuracy and standard
+deviation (σ). All results are averaged over ten iterations.
+Without any contextual support, the LLM achieved 59.2%
+accuracy and consistently predicted ‘F’ (false) for every
+question, highlighting its limitations in handling unseen vulnerabilities. When supplied with pre-formatted and manually
+curated context, accuracy improved significantly to 82.8%,
+demonstrating the impact of structured, high-quality evidence. In contrast, the baseline RAG configuration underperformed at 57.6%, suggesting that na ¨ıve retrieval can introduce noisy or misleading context. The hybrid sparse–dense
+retriever provided a modest gain, reaching 62.5%, while the
+hybrid model enhanced with regex achieved the best performance of 72.7% in a fully automated setting, narrowing
+the gap toward curated context. The low standard deviations
+across runs indicate that these improvements are consistent
+and robust.
+Turning to CWET, the hybrid model once again performed best, attaining an accuracy of 92.2%. Given that
+CWET questions are multiple-choice with four options, random guessing would yield only 25% accuracy, underscoring
+the strength of all models in this setting. Interestingly, the
+LLM without RAG already achieved 85.4%, suggesting
+that Llama-3-8B-Instruct may have been exposed to CWErelated knowledge during pre-training. The baseline RAG
+setup provided only a marginal increase to 86.4%, whereas
+the hybrid approach delivered a meaningful boost of nearly
+7 percentage points.
+For the KCV dataset, however, errors remained more
+pronounced: the hybrid model produced an average of 130
+incorrect responses out of 466 questions. Moreover, specific
+questions were consistently misclassified across runs, suggesting systematic weaknesses rather than random variation.
+One representative example is provided below, along with
+the three retrieved documents used for context, illustrating
+how formatting noise and terminology mismatches can mislead the model despite improved retrieval.
+Prompt: ‘The vulnerability described in
+CVE-2024-5022 affects Mozilla Firefox for iOS
+versions less than 126.’ -> A: ‘F’
+Document 1: The file schemes of URLs would be
+hidden, resulting in potential spoofing of a
+website’s address in the location bar This
+vulnerability affects Focus for iOS <
+126.Affected: Mozilla Focus for iOSVersion
+unspecified: affectedProblemType: None
+URLswith file scheme could have been used to
+spoof adresses in the location barReference():
+Document 2: By supplying local file paths, such
+as ‘file:///etc/passwd’, an attacker can read
+sensitive data from the server. This
+vulnerability arises because the system does
+not properly validate or sanitize the user
+input from the URL field. Speicifcally: 1.
+The URL input (‘<input data-v-5fc86d7=""
+id="url" type="url" class="form-control"
+pattern="https?://.+" required="">’) allows
+users to input arbitrary file paths,
+Document 3: Any outside party can read them with
+an unauthorized HTTP GET request to the same
+server hosting the rest of the website. While
+some server files are hashed, making their
+access obscure, the files corresponding to
+the file system router (those in ‘src/pages’)
+are predictably named. For example, the
+sourcemap file for ‘src/pages/index.astro’
+gets named
+‘dist/client/pages/index.astro.mjs.map’. This
+vulnerability is the root cause of issue
+#12703, which links to a
+From the retrieved evidence, Document 1 explicitly
+states“This vulnerability affects . . . iOS<12.6”, which
+confirms the correct answer as true. Nevertheless, the LLM
+outputs ‘F’ (false). This error is likely caused by noise in the
+retrieved context: the lack of sentence boundaries makes the
+supporting evidence more difficult to parse, and the presence
+of the wordFocusmay have led the model to treat “Firefox
+Focus” as unrelated to Firefox.
+Such mistakes are common in KCV questions, particularly when CVE IDs are included in the prompt. These
+observations reinforce the hypothesis that LLMs are highly
+sensitive to context formatting and also explain why preformatted, manually curated context yields the highest accuracy, even though such settings are less generalizable
+compared to automated retrieval. Improving the clarity and
+structure of retrieved passages is therefore an essential step
+toward enhancing RAG performance on vulnerability-related
+tasks. Even minor formatting inconsistencies can cause
+disproportionate errors, highlighting the need for retrieval
+pipelines that not only select the correct documents but also
+present them in a model-friendly format.
+
+[TABLE page=5 index=1]
+Columns: Setting KCV accuracy (%) | CWET accuracy (%) | One representative | example is | provided | below, | Unnamed: 0 | along with
+Row 1: Setting KCV accuracy (%): mean ±σ | CWET accuracy (%): mean ±σ | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 2: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: the three retrieved | example is: documents | provided: used | below,: for context, | Unnamed: 0: | along with: illustrating
+Row 3: Setting KCV accuracy (%): No RAG 59.2± 0 | CWET accuracy (%): 85.4± 0 | One representative: how formatting noise and terminology mismatches can mis- | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 4: Setting KCV accuracy (%): Preformatted Context 82.8± 0.48 | CWET accuracy (%): — | One representative: lead the model despite | example is: improved retrieval. | provided: | below,: | Unnamed: 0: | along with:
+Row 5: Setting KCV accuracy (%): Baseline RAG 57.6± 1.16 | CWET accuracy (%): 86.4± 0 | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 6: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: Prompt: ‘The vulnerability described in | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 7: Setting KCV accuracy (%): Full Hybrid 62.5± 0.78 | CWET accuracy (%): 92.2± 0 | One representative: CVE-2024-5022 affects Mozilla Firefox for iOS | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 8: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: versions less than 126.’ -> A: ‘F’ | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 9: Setting KCV accuracy (%): Full Hybrid + Regex 72.7± 1.37 | CWET accuracy (%): — | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 10: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: Document 1: The file schemes of URLs would be | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 11: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: hidden, resulting in potential spoofing of a | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 12: Setting KCV accuracy (%): website’s address in the location bar This4.4. Evaluation Protocol | CWET accuracy (%): | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 13: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: vulnerability affects Focus for iOS < | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 14: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: 126.Affected: Mozilla Focus for iOSVersion | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 15: Setting KCV accuracy (%): Across all settings, experiments were repeated multiple | CWET accuracy (%): | One representative: unspecified: affectedProblemType: None | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 16: Setting KCV accuracy (%): times to reduce variance, and the results | CWET accuracy (%): were averaged | One representative: URLswith file scheme could have been used to | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 17: Setting KCV accuracy (%): to report stable accuracy values. Metrics | CWET accuracy (%): focused on the | One representative: spoof adresses in the location barReference(): | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 18: Setting KCV accuracy (%): correctness of the model’s response to | CWET accuracy (%): each prompt, com- | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 19: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: Document 2: By supplying local file paths, such | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 20: Setting KCV accuracy (%): paring performance across (i) baseline LLM without RAG, | CWET accuracy (%): | One representative: as ‘file:///etc/passwd’, an attacker can read | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 21: Setting KCV accuracy (%): (ii) baseline RAG, and (iii) the proposed hybrid framework. | CWET accuracy (%): | One representative: sensitive data from the server. This | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 22: Setting KCV accuracy (%): This experimental pipeline enables a | CWET accuracy (%): direct assessment | One representative: of vulnerability arises because the system does | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 23: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: not properly validate or sanitize the user | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 24: Setting KCV accuracy (%): whether retrieval strategies improve the reliability of LLMs | CWET accuracy (%): | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 25: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: input from the URL field. Speicifcally: 1. | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 26: Setting KCV accuracy (%): in CTI reasoning tasks. | CWET accuracy (%): | One representative: The URL input (‘<input data-v-5fc86d7="" | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 27: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: id="url" type="url" class="form-control" | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 28: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: pattern="https?://.+" required="">’) allows | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 29: Setting KCV accuracy (%): 5. Results and Discussion | CWET accuracy (%): | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 30: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: users to input arbitrary file paths, | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 31: Setting KCV accuracy (%): Table 1 summarizes the KCV results | CWET accuracy (%): across all evalu- | One representative: Document 3: Any outside party can read them with | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 32: Setting KCV accuracy (%): ation settings, reporting both mean accuracy | CWET accuracy (%): and standard | One representative: an unauthorized HTTP GET request to the same | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 33: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: server hosting the rest of the website. While | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 34: Setting KCV accuracy (%): deviation (σ). All results are averaged | CWET accuracy (%): over ten iterations. | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 35: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: some server files are hashed, making their | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 36: Setting KCV accuracy (%): Without any contextual support, the LLM | CWET accuracy (%): achieved 59.2% | One representative: access obscure, the files corresponding to | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 37: Setting KCV accuracy (%): accuracy and consistently predicted | CWET accuracy (%): ‘F’ (false) for every | One representative: the file system router (those in ‘src/pages’) | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 38: Setting KCV accuracy (%): question, highlighting its limitations in handling unseen vul- | CWET accuracy (%): | One representative: are predictably named. For example, the | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 39: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: sourcemap file for ‘src/pages/index.astro’ | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 40: Setting KCV accuracy (%): nerabilities. When supplied with pre-formatted and manually | CWET accuracy (%): | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 41: Setting KCV accuracy (%): | CWET accuracy (%): | One representative: gets named | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 42: Setting KCV accuracy (%): curated context, accuracy improved significantly | CWET accuracy (%): to 82.8%, | One representative: ‘dist/client/pages/index.astro.mjs.map’. This | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 43: Setting KCV accuracy (%): demonstrating the impact of structured, | CWET accuracy (%): high-quality evi- | One representative: vulnerability is the root cause of issue | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 44: Setting KCV accuracy (%): dence. In contrast, the baseline RAG configuration underper- | CWET accuracy (%): | One representative: #12703, which links to a | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 45: Setting KCV accuracy (%): formed at 57.6%, suggesting that naı̈ve | CWET accuracy (%): retrieval can intro- | One representative: | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 46: Setting KCV accuracy (%): duce noisy or misleading context. The hybrid sparse–dense | CWET accuracy (%): | One representative: From the retrieved | example is: evidence, | provided: | below,: Document 1 | Unnamed: 0: | along with: explicitly
+Row 47: Setting KCV accuracy (%): retriever provided a modest gain, reaching 62.5%, while the | CWET accuracy (%): | One representative: states “This vulnerability | example is: affects | provided: . . . iOS < | below,: 12.6”, | Unnamed: 0: | along with: which
+Row 48: Setting KCV accuracy (%): hybrid model enhanced with regex achieved | CWET accuracy (%): the best per- | One representative: confirms the correct answer as true. Nevertheless, the LLM | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 49: Setting KCV accuracy (%): formance of 72.7% in a fully automated setting, narrowing | CWET accuracy (%): | One representative: outputs ‘F’ (false). This error is likely caused by noise in the | example is: | provided: | below,: | Unnamed: 0: | along with:
+Row 50: Setting KCV accuracy (%): the gap toward curated context. The low standard deviations | CWET accuracy (%): | One representative: retrieved context: the lack of sentence boundaries makes the | example is: | provided: | below,: | Unnamed: 0: | along with:
+[/TABLE]
+
+[PAGE 6]
+TABLE 2. KCV DATASETACCURACY FORLLAMA-3-8B-INSTRUCTMODEL UNDERVARYINGTEMPERATURES
+Evaluation Setting Accuracy (%) Accuracy (%) Accuracy (%)
+(Temp = 0.01) (Temp = 0.7) (Temp = 1.0)
+mean±σmean±σmean±σ
+LLM with Preformatted Context84.4±0.26 82.8±0.48 81.3±1.12
+LLM with Full Hybrid RAG67.3±0.27 62.5±0.78 57.1±2.02
+LLM with Full Hybrid + Regex76.3±0.36 72.7±1.37 67.2±2.13
+TABLE 3. PERFORMANCEACCURACY OFVARIOUSEMBEDDINGMODELS ON THECWET DATASET
+Model
+mixedbread-ai/
+mxbai-embedlarge-v1
+sentencetransformers/
+all-mpnet-base-v2
+sentencetransformers/
+multi-qa-MiniLML6-dot-v1
+sentencetransformers/
+msmarco-distilbert
+-base-v3
+hkunlp/
+instructor-large
+Accuracy (%)
+mean±σ92.23±0 88.35±0 90.29±0 91.26±0 89.32±0
+By contrast, CWET documents are provided in PDF
+form, with complete sentences and richer contextual descriptions. This structural difference reduces ambiguity, resulting
+in nearly identical performance for the LLM with and
+without the baseline RAG. However, the hybrid RAG model
+achieves a further 7% improvement, which we attribute to
+BM25’s ability to exploit longer, well-formed text windows.
+In this case, keyword matching complements semantic retrieval more effectively, suggesting that hybrid retrieval is
+helpful when document quality and structure vary across
+CTI datasets.
+6. Ablation Studies
+6.1. Temperature Setting
+We first examine the impact of the temperature parameter on model accuracy. Three values were tested: 0.01, 0.7
+(default), and 1.0. Table 2 shows how performance varied
+under these settings. Across all configurations, accuracy
+was consistently higher at lower temperatures, indicating
+that a more deterministic decoding strategy is beneficial
+for cybersecurity reasoning tasks. In contrast, increasing
+the temperature led to increased variability and less reliable
+outputs, often resulting in random responses. These findings
+suggest that creativity-oriented sampling is detrimental in
+this domain, where factual precision and consistency are
+critical.
+6.2. Embedding Models
+We also evaluate the effect of different embedding
+models on retrieval quality. Five models were compared:
+the default ‘mixedbread-ai/mxbai-embed-large-v1’ [33],
+‘sentence-transformers/all-mpnet-base-v2’ [35], ‘sentencetransformers/multi-qa-MiniLM-L6-dot-v1’ [36], ‘sentencetransformers/msmarco-distilbert-base-v3’ [37], and
+‘hkunlp/instructor-large’ [38]. Table 3 reports their
+performance on the CWET dataset. Overall, the results
+show relatively small differences across models: while
+‘mxbai-embed-large-v1’ consistently achieved the highest
+accuracy, its advantage over the much smaller ‘multi-qaMiniLM-L6-dot-v1’ was only 1.94%. Given that the former
+has 335M parameters compared to just 22.7M for the
+latter, this trade-off highlights the importance of resource
+constraints. In practice, the choice of embedding model may
+depend less on absolute accuracy and more on deployment
+requirements, such as memory footprint, inference speed,
+or scalability within large-scale CTI pipelines.
+7. Limitations and Future Work
+While our hybrid model demonstrates promising improvements, several limitations remain. First, the framework
+has been evaluated so far only on the KCV and CWET
+datasets, both of which focus on CVE and CWE contexts. To
+improve generalization, future work should test the approach
+in a broader range of security-related datasets, including
+those without explicit identifiers and those with short-answer
+or free-text formats. Expanding evaluation to other CTI
+datasets, such as threat advisories or malware reports, could
+help assess the framework’s robustness to different data
+distributions.
+Second, the current regex matcher is limited to CVE
+patterns. Extending this capability to include other identifiers such as CWE, ATT&CK, CAPEC, and additional
+vulnerability taxonomies could further enhance retrieval
+precision. Beyond identifier-based improvements, measuring faithfulness to retrieved context and developing more
+reliable retrieval metrics remain critical open challenges.
+Future studies could also explore automated faithfulness
+measures and retrieval calibration methods to better quantify
+the model’s trustworthiness.
+Finally, the current study is restricted to Llama-3-8BInstruct. Evaluating the framework across different model
+families and scales would provide more substantial evidence
+of the generalizability of the hybrid sparse–dense retriever.
+Longer-term directions include exploring lightweight postprocessing of retrieved context, integrating multimodal retrieval (for example, diagrams or vendor advisories), and
+assessing the feasibility of deployment in real-world CTI
+pipelines with respect to latency, cost, and reliability.
+
+[TABLE page=6 index=1]
+Columns: Evaluation Setting | Accuracy (%) | Accuracy (%).1 | Accuracy (%).2
+Row 1: Evaluation Setting: | Accuracy (%): (Temp = 0.01) | Accuracy (%).1: (Temp = 0.7) | Accuracy (%).2: (Temp = 1.0)
+Row 2: Evaluation Setting: | Accuracy (%): mean ±σ | Accuracy (%).1: mean ±σ | Accuracy (%).2: mean ±σ
+Row 3: Evaluation Setting: LLM with Preformatted Context | Accuracy (%): 84.4± 0.26 | Accuracy (%).1: 82.8± 0.48 | Accuracy (%).2: 81.3± 1.12
+Row 4: Evaluation Setting: LLM with Full Hybrid RAG | Accuracy (%): 67.3± 0.27 | Accuracy (%).1: 62.5± 0.78 | Accuracy (%).2: 57.1± 2.02
+Row 5: Evaluation Setting: LLM with Full Hybrid + Regex | Accuracy (%): 76.3± 0.36 | Accuracy (%).1: 72.7± 1.37 | Accuracy (%).2: 67.2± 2.13
+[/TABLE]
+
+[PAGE 7]
+8. Conclusion
+This paper introduced a hybrid sparse–dense retriever to
+address the inconsistency of standard RAG in cybersecurity,
+combining BM25 keyword matching with FAISS-based semantic retrieval and augmenting it with regular expression
+matching for CVE identifiers. Our experiments show that
+this framework consistently improves context retrieval and
+LLM accuracy compared to baseline methods. While the
+current evaluation is limited to CVE- and CWE-focused
+datasets, future work should extend the approach to broader
+security contexts, additional identifiers such as CWE and
+ATT&CK, and diverse model architectures. We believe these
+findings highlight the importance of robust retrieval strategies in advancing the integration of RAG into real-world
+CTI systems.
+Acknowledgment
+The first author would like to thank the research experience for undergraduates (REU) program at Rochester
+Institute of Technology for the opportunity to conduct this
+research. This material is based upon work supported by the
+National Science Foundation Award 2447631: Trustworthy
+AI. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the author(s) and
+do not necessarily reflect the views of the National Science
+Foundation.
+
+[PAGE 8]
+References
+[1] H. Xu, S. Wang, N. Li, K. Wang, Y . Zhao, K. Chen, T. Yu, Y . Liu, and
+H. Wang, “Large language models for cyber security: A systematic
+literature review,”arXiv preprint arXiv:2405.04760, 2024.
+[2] F. N. Motlagh, M. Hajizadeh, M. Majd, P. Najafi, F. Cheng, and
+C. Meinel, “Large language models in cybersecurity: State-of-theart,”arXiv preprint arXiv:2402.00891, 2024.
+[3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat
+intelligence using knowledge graphs and large language models,” in
+2024 IEEE European symposium on security and privacy workshops
+(EuroS&PW). IEEE, 2024, pp. 100–111.
+[4] A. Madaan and A. Yazdanbakhsh, “Text and patterns: For effective chain of thought, it takes two to tango,”arXiv preprint
+arXiv:2209.07686, 2022.
+[5] M. T. Alam, D. Bhusal, L. Nguyen, and N. Rastogi, “Ctibench: A
+benchmark for evaluating llms in cyber threat intelligence,”Advances
+in Neural Information Processing Systems, vol. 37, pp. 50 805–50 825,
+2024.
+[6] D. Bhusal, M. T. Alam, L. Nguyen, A. Mahara, Z. Lightcap,
+R. Frazier, R. Fieblinger, G. L. Torales, B. A. Blakely, and
+N. Rastogi, “Secure: Benchmarking large language models for
+cybersecurity,”arXiv preprint arXiv:2405.20441, 2024. [Online].
+Available: https://arxiv.org/abs/2405.20441
+[7] H. Ji, J. Yang, L. Chai, C. Wei, L. Yang, Y . Duan, Y . Wang,
+T. Sun, H. Guo, T. Liet al., “Sevenllm: Benchmarking, eliciting,
+and enhancing abilities of large language models in cyber threat
+intelligence,”arXiv preprint arXiv:2405.03446, 2024.
+[8] Y . Xia, J. Kim, Y . Chen, H. Ye, S. Kundu, C. C. Hao, and N. Talati, “Understanding the performance and estimating the cost of llm
+fine-tuning,” in2024 IEEE International Symposium on Workload
+Characterization (IISWC). IEEE, 2024, pp. 210–223.
+[9] P. Lewis, E. Perez, A. Piktus, F. Petroni, V . Karpukhin,
+N. Goyal, H. K ¨uttler, M. Lewis, W. tau Yih, T. Rockt ¨aschel,
+S. Riedel, and D. Kiela, “Retrieval-augmented generation for
+knowledge-intensive NLP tasks,” 2020. [Online]. Available: https:
+//arxiv.org/abs/2005.11401
+[10] S. Rajapaksha, R. Rani, and E. Karafili, “A rag-based questionanswering solution for cyber-attack investigation and attribution,”
+2024, accepted at SECAI 2024 (ESORICS 2024). [Online]. Available:
+https://arxiv.org/abs/2408.06272
+[11] CVE Project. (2024) Cves published in 2024. [Online]. Available:
+https://github.com/CVEProject/cvelistV5/tree/main/cves/2024
+[12] MITRE CWE. (2024) A community-developed list of sw & hw
+weaknesses that can become vulnerabilities. [Online]. Available:
+https://cwe.mitre.org/index.html
+[13] AI@Meta, “Llama 3 model card,” 2024. [Online]. Available:
+https://github.com/meta-llama/llama3/blob/main/MODEL CARD.md
+[14] M. Bhatt, S. Chennabasappa, Y . Li, C. Nikolaidis, D. Song,
+S. Wan, F. Ahmad, C. Aschermann, Y . Chen, D. Kapil,
+D. Molnar, S. Whitman, and J. Saxe, “Cyberseceval 2: A
+wide-ranging cybersecurity evaluation suite for large language
+models,”arXiv preprint arXiv:2404.13161, 2024. [Online]. Available:
+https://arxiv.org/abs/2404.13161
+[15] S. Wan, C. Nikolaidis, D. Song, D. Molnar, J. Crnkovich,
+J. Grace, M. Bhatt, S. Chennabasappa, S. Whitman, S. Ding,
+V . Ionescu, Y . Li, and J. Saxe, “Cyberseceval 3: Advancing the
+evaluation of cybersecurity risks and capabilities in large language
+models,”arXiv preprint arXiv:2408.01605, 2024. [Online]. Available:
+https://arxiv.org/abs/2408.01605
+[16] A. Ryd ´en, E. N ¨aslund, E. M. Schiller, and M. Almgren,
+“Llmseccode: Evaluating large language models for secure coding,”
+arXiv preprint arXiv:2408.16100, 2024. [Online]. Available: https:
+//arxiv.org/abs/2408.16100
+[17] N. Tihanyi, M. Ferrag, R. Jain, T. Bisztray, and M. Debbah,
+“Cybermetric: A benchmark dataset based on retrieval-augmented
+generation for evaluating llms in cybersecurity knowledge,”arXiv
+preprint arXiv:2402.07688, 2024. [Online]. Available: https://arxiv.
+org/abs/2402.07688
+[18] P. Jing, M. Tang, X. Shi, X. Zheng, S. Nie, S. Wu, Y . Yang,
+and X. Luo, “Secbench: A comprehensive multi-dimensional
+benchmarking dataset for llms in cybersecurity,”arXiv preprint
+arXiv:2412.20787, 2024. [Online]. Available: https://arxiv.org/abs/
+2412.20787
+[19] B. Fatemi, M. Kazemi, A. Tsitsulin, K. Malkan, J. Yim,
+J. Palowitch, S. Seo, J. Halcrow, and B. Perozzi, “Test of
+time: A benchmark for evaluating llms on temporal reasoning,”
+arXiv preprint arXiv:2406.09170, 2024. [Online]. Available: https:
+//arxiv.org/abs/2406.09170
+[20] Y . Gao, Y . Xiong, X. Gao, K. Jia, J. Pan, Y . Bi, Y . Dai, J. Sun,
+M. Wang, and H. Wang, “Retrieval-augmented generation for large
+language models: A survey,” 2023, arXiv:2312.10997. [Online].
+Available: https://arxiv.org/abs/2312.10997
+[21] S. Setty, H. Thakkar, A. Lee, E. Chung, and N. Vidra, “Improving
+retrieval for RAG based question answering models on financial
+documents,”arXiv preprint arXiv:2404.07221, 2024. [Online].
+Available: https://arxiv.org/abs/2404.07221
+[22] W. Fan, Y . Ding, L. Ning, S. Wang, H. Li, D. Yin, T.-S. Chua, and
+Q. Li, “A survey on rag meeting llms: Towards retrieval-augmented
+large language models,” inProceedings of the 30th ACM SIGKDD
+conference on knowledge discovery and data mining, 2024, pp. 6491–
+6501.
+[23] S. Es, J. James, L. Espinosa-Anke, and S. Schockaert, “Ragas:
+Automated evaluation of retrieval augmented generation,”arXiv
+preprint arXiv:2309.15217, 2023. [Online]. Available: https://arxiv.
+org/abs/2309.15217
+[24] M. Douze, A. Guzhva, C. Deng, J. Johnson, G. Szilvasy, P.-E.
+Mazar´e, M. Lomeli, L. Hosseini, and H. J ´egou, “The faiss
+library,”arXiv preprint arXiv:2401.08281, 2024. [Online]. Available:
+https://arxiv.org/abs/2401.08281
+[25] C. Vandeplas, A. Iklodyet al., “Misp threat sharing: Malware
+information sharing platform & threat sharing,” https://www.mispproject.org/, 2017, accessed: 2025-07-19.
+[26] Anonymous, “AttackER: NER Attack Attribution,” 2023. [Online].
+Available: https://zenodo.org/records/10276922
+[27] S. Barnett, S. Kurniawan, S. Thudumu, Z. Brannelly, and
+M. Abdelrazek, “Seven failure points when engineering a retrieval
+augmented generation system,”arXiv preprint arXiv:2401.05856,
+2024. [Online]. Available: https://arxiv.org/abs/2401.05856
+[28] V . Karpukhin, B. Oguz, S. Min, P. Lewis, L. Wu, S. Edunov,
+and W.-t. Yih, “Dense passage retrieval for open-domain question
+answering,” inProc. of the 2020 Conference on Empirical Methods
+in Natural Language Processing (EMNLP), 2020, pp. 6769–6781.
+[Online]. Available: https://arxiv.org/abs/2004.04906
+[29] S. Robertson and H. Zaragoza, “The probabilistic relevance framework: Bm25 and beyond,”Foundations and Trends® in Information
+Retrieval, vol. 3, no. 4, pp. 333–389, 2009.
+[30] Vespa.ai. (2025) Bm25 reference. [Online]. Available: https:
+//docs.vespa.ai/en/reference/bm25.html
+[31] AIforSec, “heuristics ner.py,” https://github.com/aiforsec/LADDER/
+blob/main/ner/heuristics ner.py, 2024, accessed: 2025-07-19.
+[32] LangChain. (2024) Introduction. [Online]. Available: https://python.
+langchain.com/v0.2/docs/introduction/
+[33] S. Lee, A. Shakir, D. Koenig, and J. Lipp. (2024) Open source
+strikes bread—new fluffy embeddings model. [Online]. Available:
+https://www.mixedbread.ai/blog/mxbai-embed-large-v1
+[34] Facebook AI. (2017) Faiss: A library for efficient similarity search
+by meta. [Online]. Available: https://engineering.fb.com/2017/03/29/
+data-infrastructure/faiss-a-library-for-efficient-similarity-search/
+
+[TABLE page=8 index=1]
+Columns: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat | Unnamed: 0 | 2412.20787 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5
+Row 1: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: intelligence using knowledge graphs and large language models,” in | Unnamed: 0: [19] | 2412.20787: B. Fatemi, M. | Unnamed: 1: Kazemi, A. Tsitsulin, | Unnamed: 2: K. | Unnamed: 3: Malkan, | Unnamed: 4: J. Yim, | Unnamed: 5:
+Row 2: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: 2024 IEEE European symposium on security and privacy workshops | Unnamed: 0: | 2412.20787: J. Palowitch, S. | Unnamed: 1: Seo, J. Halcrow, and | Unnamed: 2: B. | Unnamed: 3: Perozzi, | Unnamed: 4: “Test | Unnamed: 5: of
+Row 3: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: (EuroS&PW). IEEE, 2024, pp. 100–111. | Unnamed: 0: | 2412.20787: time: A benchmark | Unnamed: 1: for evaluating llms on | Unnamed: 2: | Unnamed: 3: temporal reasoning,” | Unnamed: 4: | Unnamed: 5:
+Row 4: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [4] A. Madaan and A. Yazdanbakhsh, “Text and patterns: For ef- | Unnamed: 0: | 2412.20787: arXiv preprint arXiv:2406.09170, | Unnamed: 1: 2024. [Online]. | Unnamed: 2: | Unnamed: 3: Available: | Unnamed: 4: https: | Unnamed: 5:
+Row 5: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: fective chain of thought, it takes two to tango,” arXiv preprint | Unnamed: 0: | 2412.20787: //arxiv.org/abs/2406.09170 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 6: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: arXiv:2209.07686, 2022. | Unnamed: 0: [20] | 2412.20787: Y. Gao, Y. Xiong, | Unnamed: 1: X. Gao, K. Jia, J. Pan, | Unnamed: 2: Y. | Unnamed: 3: Bi, Y. Dai, | Unnamed: 4: J. Sun, | Unnamed: 5:
+Row 7: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [5] M. T. Alam, D. Bhusal, L. Nguyen, and N. Rastogi, “Ctibench: A | Unnamed: 0: | 2412.20787: M. Wang, and H. | Unnamed: 1: Wang, “Retrieval-augmented | Unnamed: 2: | Unnamed: 3: generation | Unnamed: 4: for large | Unnamed: 5:
+Row 8: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: benchmark for evaluating llms in cyber threat intelligence,” Advances | Unnamed: 0: | 2412.20787: language models: | Unnamed: 1: A survey,” 2023, arXiv:2312.10997. | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: [Online]. | Unnamed: 5:
+Row 9: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: in Neural Information Processing Systems, vol. 37, pp. 50 805–50 825, | Unnamed: 0: | 2412.20787: Available: https://arxiv.org/abs/2312.10997 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 10: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: 2024. | Unnamed: 0: [21] | 2412.20787: S. Setty, H. Thakkar, | Unnamed: 1: A. Lee, E. Chung, and | Unnamed: 2: | Unnamed: 3: N. Vidra, “Improving | Unnamed: 4: | Unnamed: 5:
+Row 11: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: financial[6] D. Bhusal, M. T. Alam, L. Nguyen, A. Mahara, Z. Lightcap, | Unnamed: 0: | 2412.20787: retrieval for RAG | Unnamed: 1: based question answering | Unnamed: 2: | Unnamed: 3: models on | Unnamed: 4: | Unnamed: 5:
+Row 12: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [Online].R. Frazier, R. Fieblinger, G. L. Torales, B. A. Blakely, and | Unnamed: 0: | 2412.20787: documents,” arXiv | Unnamed: 1: preprint arXiv:2404.07221, | Unnamed: 2: | Unnamed: 3: 2024. | Unnamed: 4: | Unnamed: 5:
+Row 13: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: Available: https://arxiv.org/abs/2404.07221N. Rastogi, “Secure: Benchmarking large language models for | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 14: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: cybersecurity,” arXiv preprint arXiv:2405.20441, 2024. [Online]. | Unnamed: 0: [22] | 2412.20787: W. Fan, Y. Ding, L. Ning, S. Wang, H. Li, D. Yin, T.-S. Chua, and | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 15: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: Available: https://arxiv.org/abs/2405.20441 | Unnamed: 0: | 2412.20787: Q. Li, “A survey on rag meeting | Unnamed: 1: llms: Towards | Unnamed: 2: | Unnamed: 3: retrieval-augmented | Unnamed: 4: | Unnamed: 5:
+Row 16: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: large language models,” | Unnamed: 1: in Proceedings of the | Unnamed: 2: | Unnamed: 3: 30th ACM | Unnamed: 4: SIGKDD | Unnamed: 5:
+Row 17: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [7] H. Ji, J. Yang, L. Chai, C. Wei, L. Yang, Y. Duan, Y. Wang, | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 18: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: conference on knowledge discovery and data mining, 2024, pp. 6491– | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 19: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: T. Sun, H. Guo, T. Li et al., “Sevenllm: Benchmarking, eliciting, | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 20: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: 6501. | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 21: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: and enhancing abilities of large language models in cyber threat | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 22: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: intelligence,” arXiv preprint arXiv:2405.03446, 2024. | Unnamed: 0: [23] | 2412.20787: S. Es, J. James, | Unnamed: 1: L. Espinosa-Anke, and S. | Unnamed: 2: | Unnamed: 3: Schockaert, | Unnamed: 4: “Ragas: | Unnamed: 5:
+Row 23: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: Automated evaluation | Unnamed: 1: of retrieval augmented | Unnamed: 2: | Unnamed: 3: generation,” | Unnamed: 4: arXiv | Unnamed: 5:
+Row 24: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [8] Y. Xia, J. Kim, Y. Chen, H. Ye, S. Kundu, C. C. Hao, and N. Ta- | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 25: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: preprint arXiv:2309.15217, | Unnamed: 1: 2023. [Online]. | Unnamed: 2: Available: | Unnamed: 3: https://arxiv. | Unnamed: 4: | Unnamed: 5:
+Row 26: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: lati, “Understanding the performance and estimating the cost of llm | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 27: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: org/abs/2309.15217 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 28: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: fine-tuning,” in 2024 IEEE International Symposium on Workload | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 29: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: Characterization (IISWC). IEEE, 2024, pp. 210–223. | Unnamed: 0: [24] | 2412.20787: M. Douze, A. Guzhva, | Unnamed: 1: C. Deng, J. Johnson, | Unnamed: 2: | Unnamed: 3: G. Szilvasy, | Unnamed: 4: P.-E. | Unnamed: 5:
+Row 30: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: Mazaré, M. Lomeli, | Unnamed: 1: L. Hosseini, and H. | Unnamed: 2: | Unnamed: 3: Jégou, “The | Unnamed: 4: faiss | Unnamed: 5:
+Row 31: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [9] P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 32: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: library,” arXiv preprint arXiv:2401.08281, 2024. [Online]. Available: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 33: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: N. Goyal, H. Küttler, M. Lewis, W. tau Yih, T. Rocktäschel, | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 34: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: https://arxiv.org/abs/2401.08281 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 35: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: S. Riedel, and D. Kiela, “Retrieval-augmented generation for | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 36: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: knowledge-intensive NLP tasks,” 2020. [Online]. Available: https: | Unnamed: 0: [25] | 2412.20787: C. Vandeplas, A. | Unnamed: 1: Iklody et al., “Misp threat | Unnamed: 2: | Unnamed: 3: sharing: | Unnamed: 4: Malware | Unnamed: 5:
+Row 37: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: //arxiv.org/abs/2005.11401 | Unnamed: 0: | 2412.20787: information sharing | Unnamed: 1: platform & threat sharing,” | Unnamed: 2: | Unnamed: 3: https://www.misp- | Unnamed: 4: | Unnamed: 5:
+Row 38: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: project.org/, 2017, accessed: 2025-07-19. | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 39: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [10] S. Rajapaksha, R. Rani, and E. Karafili, “A rag-based question- | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 40: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: answering solution for cyber-attack investigation and attribution,” | Unnamed: 0: [26] | 2412.20787: Anonymous, “AttackER: | Unnamed: 1: NER Attack Attribution,” | Unnamed: 2: | Unnamed: 3: 2023. | Unnamed: 4: [Online]. | Unnamed: 5:
+Row 41: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: 2024, accepted at SECAI 2024 (ESORICS 2024). [Online]. Available: | Unnamed: 0: | 2412.20787: Available: https://zenodo.org/records/10276922 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 42: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: https://arxiv.org/abs/2408.06272 | Unnamed: 0: [27] | 2412.20787: S. Barnett, S. | Unnamed: 1: Kurniawan, S. Thudumu, | Unnamed: 2: | Unnamed: 3: Z. Brannelly, | Unnamed: 4: | Unnamed: 5: and
+Row 43: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: retrieval[11] CVE Project. (2024) Cves published in 2024. [Online]. Available: | Unnamed: 0: | 2412.20787: M. Abdelrazek, “Seven | Unnamed: 1: failure points when | Unnamed: 2: engineering | Unnamed: 3: a | Unnamed: 4: | Unnamed: 5:
+Row 44: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: arXiv:2401.05856,https://github.com/CVEProject/cvelistV5/tree/main/cves/2024 | Unnamed: 0: | 2412.20787: augmented generation | Unnamed: 1: system,” arXiv preprint | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 45: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: 2024. [Online]. Available: https://arxiv.org/abs/2401.05856 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 46: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [12] MITRE CWE. (2024) A community-developed list of sw & hw | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 47: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: [28] | 2412.20787: V. Karpukhin, B. | Unnamed: 1: Oguz, S. Min, P. Lewis, | Unnamed: 2: | Unnamed: 3: L. Wu, S. | Unnamed: 4: Edunov, | Unnamed: 5:
+Row 48: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: weaknesses that can become vulnerabilities. [Online]. Available: | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 49: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: and W.-t. Yih, “Dense | Unnamed: 1: passage retrieval for | Unnamed: 2: | Unnamed: 3: open-domain | Unnamed: 4: question | Unnamed: 5:
+Row 50: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: https://cwe.mitre.org/index.html | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 51: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: answering,” in Proc. | Unnamed: 1: of the 2020 Conference | Unnamed: 2: on | Unnamed: 3: Empirical | Unnamed: 4: Methods | Unnamed: 5:
+Row 52: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [13] AI@Meta, “Llama 3 model card,” 2024. [Online]. Available: | Unnamed: 0: | 2412.20787: in Natural Language | Unnamed: 1: Processing (EMNLP), | Unnamed: 2: 2020, | Unnamed: 3: pp. 6769–6781. | Unnamed: 4: | Unnamed: 5:
+Row 53: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: https://github.com/meta-llama/llama3/blob/main/MODEL CARD.md | Unnamed: 0: | 2412.20787: [Online]. Available: https://arxiv.org/abs/2004.04906 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 54: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [14] M. Bhatt, S. Chennabasappa, Y. Li, C. Nikolaidis, D. Song, | Unnamed: 0: [29] | 2412.20787: S. Robertson and | Unnamed: 1: H. Zaragoza, “The probabilistic | Unnamed: 2: | Unnamed: 3: relevance | Unnamed: 4: frame- | Unnamed: 5:
+Row 55: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: S. Wan, F. Ahmad, C. Aschermann, Y. Chen, D. Kapil, | Unnamed: 0: | 2412.20787: work: Bm25 and beyond,” Foundations and Trends® in Information | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 56: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: D. Molnar, S. Whitman, and J. Saxe, “Cyberseceval 2: A | Unnamed: 0: | 2412.20787: Retrieval, vol. 3, no. 4, pp. 333–389, 2009. | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 57: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: wide-ranging cybersecurity evaluation suite for large language | Unnamed: 0: [30] | 2412.20787: Vespa.ai. (2025) | Unnamed: 1: Bm25 reference. [Online]. | Unnamed: 2: | Unnamed: 3: Available: | Unnamed: 4: https: | Unnamed: 5:
+Row 58: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: models,” arXiv preprint arXiv:2404.13161, 2024. [Online]. Available: | Unnamed: 0: | 2412.20787: //docs.vespa.ai/en/reference/bm25.html | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 59: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: https://arxiv.org/abs/2404.13161 | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 60: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: [31] | 2412.20787: AIforSec, “heuristics | Unnamed: 1: ner.py,” https://github.com/aiforsec/LADDER/ | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 61: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [15] S. Wan, C. Nikolaidis, D. Song, D. Molnar, J. Crnkovich, | Unnamed: 0: | 2412.20787: blob/main/ner/heuristics | Unnamed: 1: ner.py, 2024, accessed: 2025-07-19. | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 62: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: J. Grace, M. Bhatt, S. Chennabasappa, S. Whitman, S. Ding, | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 63: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: V. Ionescu, Y. Li, and J. Saxe, “Cyberseceval 3: Advancing the | Unnamed: 0: [32] | 2412.20787: LangChain. (2024) | Unnamed: 1: Introduction. [Online]. Available: | Unnamed: 2: | Unnamed: 3: https://python. | Unnamed: 4: | Unnamed: 5:
+Row 64: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: evaluation of cybersecurity risks and capabilities in large language | Unnamed: 0: | 2412.20787: langchain.com/v0.2/docs/introduction/ | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 65: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: models,” arXiv preprint arXiv:2408.01605, 2024. [Online]. Available: | Unnamed: 0: [33] | 2412.20787: S. Lee, A. Shakir, | Unnamed: 1: D. Koenig, and J. Lipp. | Unnamed: 2: | Unnamed: 3: (2024) Open | Unnamed: 4: source | Unnamed: 5:
+Row 66: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: https://arxiv.org/abs/2408.01605 | Unnamed: 0: | 2412.20787: strikes bread—new | Unnamed: 1: fluffy embeddings model. | Unnamed: 2: | Unnamed: 3: [Online]. Available: | Unnamed: 4: | Unnamed: 5:
+Row 67: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: | Unnamed: 0: | 2412.20787: https://www.mixedbread.ai/blog/mxbai-embed-large-v1 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 68: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: [16] A. Rydén, E. Näslund, E. M. Schiller, and M. Almgren, | Unnamed: 0: | 2412.20787: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 69: [3] R. Fieblinger, M. T. Alam, and N. Rastogi, “Actionable cyber threat: “Llmseccode: Evaluating large language models for secure coding,” | Unnamed: 0: [34] | 2412.20787: Facebook AI. (2017) | Unnamed: 1: Faiss: A library for efficient | Unnamed: 2: | Unnamed: 3: similarity | Unnamed: 4: search | Unnamed: 5:
+[/TABLE]
+
+[PAGE 9]
+[35] Sentence-Transformers. (2021) all-mpnet-base-v2. [Online]. Available: https://huggingface.co/sentence-transformers/all-mpnet-base-v2
+[36] ——. (2021) multi-qa-minilm-l6-dot-v1. [Online]. Available: https:
+//huggingface.co/sentence-transformers/multi-qa-MiniLM-L6-dot-v1
+[37] ——. (2022) msmarco-distilbert-base-v3. [Online]. Available: https:
+//huggingface.co/sentence-transformers/msmarco-distilbert-base-v3
+[38] HKUNLP. (2023) instructor-large. [Online]. Available: https://
+huggingface.co/hkunlp/instructor-large

@@ -1,0 +1,765 @@
+[PAGE 1]
+A GENERAL RETRIEVAL -AUGMENTED GENERATION
+FRAMEWORK FOR MULTIMODAL CASE -BASED REASONING
+APPLICATIONS
+A PREPRINT
+Ofir Marom
+Independent Researcher
+ofiremarom@gmail.com
+ABSTRACT
+Case-based reasoning (CBR) is an experience-based approach to problem solving, where a repository of solved cases is adapted to solve new cases. Recent research shows that Large Language
+Models (LLMs) with Retrieval-Augmented Generation (RAG) can support the Retrieve and Reuse
+stages of the CBR pipeline by retrieving similar cases and using them as additional context to an
+LLM query. Most studies have focused on text-only applications, however, in many real-world
+problems the components of a case are multimodal. In this paper we present MCBR-RAG, a general
+RAG framework for multimodal CBR applications. The MCBR-RAG framework converts non-text
+case components into text-based representations, allowing it to: 1) learn application-specific latent
+representations that can be indexed for retrieval, and 2) enrich the query provided to the LLM by
+incorporating all case components for better context. We demonstrate MCBR-RAG’s effectiveness
+through experiments conducted on a simplified Math-24 application and a more complex Backgammon application. Our empirical results show that MCBR-RAG improves generation quality compared to a baseline LLM with no contextual information provided.
+1 Introduction
+Case-based reasoning (CBR) is an experience-based approach to problem solving, utilizing a repository of previously
+solved cases to address new problems through a four-phase pipeline: Retrieve, Reuse, Revise, and Retain [1, 2]. A
+solved case consists of a problem and a solution, while a new case includes only a problem. The first two phases aim
+to retrieve similar cases from the repository and adapt their solutions for the new problem. The Revise phase then
+ensures the correctness of the new solution, while the Retain phase expands the repository by incorporating newly
+solved cases.
+Recent advancements in Large Language Models (LLMs), particularly those enhanced with Retrieval-Augmented
+Generation (RAG), demonstrate significant promise in supporting the Retrieve and Reuse stages of the CBR pipeline
+[3, 4, 5, 6]. While these studies employ varied methodologies tailored for specific applications, they fundamentally
+share the same core principles.
+The Retrieve stage utilizes RAG retrieval, indexing solved case problems as neural embeddings. When a new case is
+presented, its problem is also converted to an embedding, enabling a similarity measure to identify related cases. The
+Reuse phase then employs RAG generation, crafting a query for the LLM to produce a solution for the new case while
+integrating knowledge from retrieved cases as additional context.
+While promising results have emerged from this research, the focus has primarily been on text-only applications such
+as legal Q&A, medical diagnostics, code generation, and logical fallacy detection [3, 4, 5, 6]. In such applications, case
+problems can be effectively converted to neural embeddings using pretrained transformer-based language models, such
+as BERT or GPT [7, 8]. However, many CBR applications naturally encompass data other than text such as image,
+audio, and video formats [9, 10, 11].
+arXiv:2501.05030v1 [cs.AI] 9 Jan 2025
+
+[PAGE 2]
+arXiv Template A PREPRINT
+In this paper we introduce MCBR-RAG, a general RAG framework designed for multimodal CBR applications. Previous research has explored multimodal RAG for various modalities, including image, audio, and video [12, 13, 14, 15].
+These models typically encode multimodal documents into a latent space for retrieval, and subsequently transform
+them into text-based representations to provide context for LLM queries. Adopting this methodology, our framework
+accommodates cases with non-text modalities, requiring additional processing steps within the CBR pipeline.
+Although models like BLIP-2 [13] facilitate the conversion of multimodal documents to text, CBR applications often
+necessitate the development of application-specific models. In this paper, we present two multimodal CBR applications
+that exemplify this need: a simplified Math-24 domain which integrates text and image components to illustrate our
+framework’s operation in a controlled setting, and a more complex Backgammon application that demonstrates the
+framework’s efficacy in addressing real-world tasks involving similar textual and visual interactions.
+In summary, the contributions of this paper are twofold: first, we formalize the MCBR-RAG framework in an
+application-agnostic manner that is suitable for various multimodal CBR scenarios. Secondly, we illustrate the practical implementation of this framework by training the necessary text generation and latent representation models for
+our Math-24 and Backgammon applications.
+The remainder of this paper is organized as follows: in Section 2, we provide additional background on CBR and
+RAG. In Section 3, we formalize our proposed MCBR-RAG framework. In Section 4, we detail our Math-24 and
+Backgammon CBR applications. In Section 5, we run experiments showing that our framework improves generation
+quality over a baseline LLM that uses no additional context. We conclude with our final remarks in Section 6.
+2 Background
+2.1 Case-Based Reasoning
+In case-based reasoning (CBR) [1, 2] a case is a tupleC = (P, S, R) where P = (p1, p2, . . . , pn) denotes the problem
+made up of n components, S is the solution, and R is the result of S. Let C = ( C1, C2, . . . , CN ) denote a repository
+of N solved cases. Given a case Ci for i ∈ [1, N] denote by Pi, Si and Ri the problem, solution and result of Ci
+respectively; furthermore, denote by pi,j the problem component j ∈ [1, n] for case i. Let ˜C = ( ˜P , ϕ, ϕ) be a new
+case with ˜P = (˜p1, ˜p2, . . . , ˜pn), where ϕ denotes that we do not yet have a solution or result for the new case. Then
+the CBR pipeline operates in four phases:
+Retrieve: the system searches its case repository for cases that are similar to the new case. Formally, let ρ( ˜P , Pi)
+denote a similarity function that measures how similar the problem of cases ˜C and case Ci are. Then the k > 0 most
+similar cases, denoted Ck, are given by:
+Ck = arg topk
+Ci∈C
+ρ( ˜P , Pi). (1)
+Reuse: the retrieved cases are reused to find a solution to the new case. Formally, let Reuse be a function that reuses
+the solutions of similar cases Ck to find a solution ˜S to ˜P . Then
+˜S = Reuse( ˜P , Ck). (2)
+Revise: the result of the proposed solution is obtained and, if found to be incorrect, revised. Formally, let R∗ denote
+the correct result of ˜C and Eval be a function that evaluates a given solution to produce a result. Then, if Eval ( ˜S) =
+˜R ̸= R∗, revise ˜S using a revision function Revise:
+˜S ← Revise( ˜S), (3)
+such that ˜R = R∗.
+Retain: once the new case is solved, add it to the repository of solved cases. Formally, if ˜R = R∗ then add ˜C =
+( ˜P , ˜S, ˜R) to C:
+C ← C ∪ { ˜C}. (4)
+
+[PAGE 3]
+arXiv Template A PREPRINT
+2.2 Retrieval-Augmented Generation
+Let x be a sequence of input tokens, and let q = Query(x) represent a function that generates a query q from x. Let L
+denote a Large Language Model (LLM), such that y = L(q) corresponds to the LLM’s response given the queryq.
+Retrieval-Augmented Generation (RAG) [16] is a technique designed to enhance the quality of the LLM’s response by
+incorporating additional context from an external document memory. Specifically, given a collection ofM documents
+D = {d1, d2, . . . , dM }, the method retrieves the top k > 0 most similar documents to the query, denoted Dk, using:
+Dk = arg topk
+d∈D
+CosineSim(E(q), E(d)), (5)
+where E is a function that maps text to an embedding space, and CosineSim (a, b) = a·b
+∥a∥∥b∥ is the cosine similarity
+between vectors a and b.
+Once the relevant documents are retrieved, an augmented query can be constructed: qRAG = Query(x, Dk). This
+query incorporates both the input tokens x as well as Dk as additional context. The LLM then generates a response
+based on this augmented query:
+yRAG = L(qRAG). (6)
+3 Methodology
+Research has demonstrated that RAG can be used to handle the first two phases of the CBR pipeline [3, 4, 5, 6]. In
+particular, if we consider cases that are text-only, then RAG retrieval, given by Equation 5, can cater for the CBR
+Retrieve phase, given by Equation 1, by converting case problems to embeddings. Meanwhile, RAG generation, given
+by Equation 6, can cater for the CBR Reuse phase, given by Equation 2, by passing an augmented query to an LLM
+that generates a solution to a new case and providing the retrieved solved cases as additional context.
+Unfortunately, the Revise and Retain phases cannot be handled generally, as automatically inferring whether an LLM
+has generated an incorrect solution and then revising the solution accordingly is not necessarily straightforward.1 For
+the purposes of this paper, we focus on the Retrieve and Reuse phases in presenting our general framework, leaving
+the latter two phases as application specific.
+To formalize MCBR-RAG, we assume a multimodal CBR setting where the components pj of a case problem P =
+(p1, p2, . . . , pn) each has arbitrary modality, while the solution.S, of a case is text-based. Let {Tj}n
+j=1 be a collection
+of n text generation functions, such that Tj(pj) = tj returns a text-based representation of pj. Let {Lj}n
+j=1 be a
+collection of n latent representation functions, such that Lj(pj) = lj returns a latent representation of pj.
+Retrieve: to process this phase under our proposed setting, we convert the problem components of a case to their
+latent representations and compute a weighted average over the cosine similarities of the individual components.
+Ck = arg topk
+Ci∈C
+nX
+j=1
+wjCosineSim(Lj(˜pj), Lj(pi,j)), (7)
+where wj > 0 and Pn
+j=1 wj = 1 . Using a weighted average allows control over the importance of the different
+problem components.
+Reuse: to process this phase under our proposed setting, we convert the problem components of a case to their textbased representations and pass these as additional context to an LLM.
+Let T(P ) = ( T1(p1), T2(p2), . . . ,Tn(pn)) be a text-based representation of a case problem. Let T(C) =
+(T(P ), S, R) be a case whose problem has been converted to text. Then we can build an augmented query
+qRAG = Query(T( ˜P ), T(Ck)), where T(Ck) = {T(C)}C∈Ck, and obtain a solution to a new case
+˜S = L(qRAG). (8)
+1Some applications are more amenable to this. For example, DS-agent is a CBR application that solves Machine Learning tasks
+[5]. This application can implement a Revise phase by evaluating how well a proposed solution performs on a test set, and then
+retaining cases with solutions that improve test set performance.
+
+[PAGE 4]
+arXiv Template A PREPRINT
+4 Applications
+4.1 Math-24
+We first introduce a simplified Math-24 application that serves to illustrate the fundamental aspects of MCBR-RAG.
+A Math-24 puzzle is comprised of a card that contains 4 numbers (a, b, c, d) with 1 ≤ a ≤ b ≤ c ≤ d ≤ 13. The goal
+is to use these four numbers to make 24, where all four numbers must be used exactly once and one may use any of
+the addition, subtraction, multiplication and division operators. Figure 1 shows four examples of Math-24 puzzles.
+Figure 1: Four Math-24 puzzle cards. The bottom right card is (4, 5, 9, 10) and has solutions (10 − 4) × (9 − 5) and
+(10 + 5 − 9) × 4.
+In total, there are 1362 puzzles with at least one solution [17]. However, for the purposes of this application, we
+restrict our attention to the subset of puzzles that have a solution in the form (x1 ⊙ x2) × (x3 ⊙ x4) = 24 where
+⊙ ∈ { +, −, ×, ÷}. This is a common strategy to solve Math-24 puzzles and involves figuring out how to obtain
+{1, 24}, {2, 12}, {3, 8}, or {4, 6} from pairs of puzzle numbers, then multiplying them together to get 24. This leaves
+us with a total of 466 puzzles.
+In transforming Math-24 into a CBR application, a case is defined as a tuple (P, S, R). Here, P represents an image
+of a Math-24 puzzle card; S is a set containing the solutions to P ,2; and R is a set of the results for these solutions,
+with each result being 24 if the solution is correct. To handle this application within the MCBR-RAG framework, we
+require functions for both text generation and latent representation.
+Text generation: We generate 40, 000 card images, each with 4 random numbers between 1 and 13. We then train
+a convolutional neural network (CNN) that takes as input an image of a card and has four softmax outputs. Each
+softmax output has 13 units that predicts a respective number on the card. Due the simple nature of this task, our
+model achieves 100% accuracy on an independent test set of 10, 000 cards. Once the CNN is trained we can pass
+a Math-24 card image to the model and, from the resulting predictions, generate a text-based representation for the
+puzzle numbers on the card. See Figure 2 for an illustration of the CNN.
+90 × 90 Image 3 x Conv + MaxPool Flatten Dense
+4 x Softmax Outputs
+Figure 2: CNN for learning text generation in Math-24. Once the model is trained, the predictions can be used to
+generate a text-based representation of a Math-24 card image i.e. ‘4 5 9 10’ for the image in this figure.
+Latent representation: to learn a useful latent representation for this application, we train a fully-connected feedforward neural network (FFNN) treating the problem as a multi-label classification task. The input to the network is the
+text-based representation of the puzzle, which we predict using our text generator 3. Given our small dataset of only
+466 cases, we include additional aggregate features to aid classification. In particular, we count the number of pairs
+that can make 1, 2, 3, 4, 6, 8, 12, or 24 using any of the allowed operations. We do this both globally and per puzzle
+number. For example, consider the puzzle (4, 5, 9, 10). If we compute all pair combinations that can make 1, we find
+2In Section 2.1 we formally presented CBR as having a single solution per case. However, extending to a multi-solution setting
+is straightforward.
+3In Section 3 our notation suggested that the latent functions take in as input the modal problem components, but in many
+applications it is beneficial to work with the text-based representations from the text generation functions.
+
+[PAGE 5]
+arXiv Template A PREPRINT
+that (5 − 4) = 1 and 10 − 9 = 1 , so the global count of all pair combinations that can make 1 is equal to 2. We
+repeat this over all our candidates giving 8 features. Next, suppose we take the first puzzle number, 4, and compute
+which other puzzle numbers can be used with it to make 1. Then we find that (5 − 4) = 1 , so the count of all pair
+combinations that can make 1 with the first puzzle number is equal to 1. We repeat this over all four puzzle numbers
+and all candidates giving 32 features. In total, we have 40 input features.
+The output to the network consists of twenty sigmoid functions. Each batch of five sigmoids encodes 1) a solution
+category; and 2) the decomposition of the given solution category given by the location of the first two puzzle numbers
+used to make the larger number in the given solution category, in ascending order. For example, a solution(10 − 4) ×
+(9 − 5) implies a solution category {4, 6}, and the first sigmoid in the batch of five would activate to encode this.
+Then, to make the larger number, 6, we use 4 and 10 which are the first and fourth numbers of the puzzle. Thus, we
+can encode this solution as [1, 1, 0, 0, 1]. Since we have four solution categories, we need twenty sigmoid outputs in
+total. See Figure 3 for an illustration of the FFNN.
+4 Puzzle Numbers + 40 Features Latent (64 Units)
+4 x 5 Sigmoids
+Figure 3: FFNN for learning latent representations in Math-24.
+As a result of this architecture, the latent representation produced by this model can be used to find puzzles with both
+similar solution categories as well as similar decompositions, ensuring that similar retrieved cases are useful in solving
+new cases.
+4.2 Backgammon
+In this section, we introduce a more complex Backgammon application. Backgammon is a two-player game where
+players (O and X) move their pieces (called checkers) around triangles (called points) on a board. Given the current
+checker configuration (called a position), the player whose turn it is rolls a pair of dice, selects a move from the
+resulting legal set of moves and reconfigures the checkers accordingly. After playing their move, a new position is
+reached and the turn switches to the opposing player.
+Numerous books have been written on Backgammon by expert players. Such books often structure their lessons by
+showing an image of a board position and a roll for a given player, then provide an analysis of the pros and cons of a
+subset of legal moves. Figure 4 presents a typical example 4.
+Figure 4: An example of a Backgammon lesson [18]. The board image represents the current position, and the image
+caption indicates that player X rolls a 3-1. The expert’s analysis below the image discusses the move 16/13, 2/1.
+Considering this typical structure, we can convert Backgammon lessons into a CBR applications by defining a case
+C = ( P, S, R). Here, P = ( z, p, r, m), where z the image of the current position p is the player on roll, r is the
+4All Backgammon board images in this paper are taken from [18].
+
+[PAGE 6]
+arXiv Template A PREPRINT
+rolled dice and m is the move; S represents the expert analysis of move m given z, p and r; and R is a binary variable
+indicating whether the analysis is accurate. To build a repository of cases, we have collected the necessary data from
+three Backgammon books [18, 19, 20], giving us a total of 1015 cases. As with the previous application, we need
+functions for text generation and latent representation.
+Text generation: to convert a Backgammon board image into a text-based representation, we break the problem up
+into two parts. We first note that, due to the symmetry in a Backgammon board, one only needs4 landmark coordinates
+to slice up the board into its constituent parts. See Figure 5 for an illustration.
+Figure 5: Given the 4 landmark coordinates, as shown by the red dots on the left image, we can slice up the image
+to obtain the 24 points, as well as the centrally located bar point, as illustrated on the right. For example, given the
+bottom two coordinates, we compute the distance, d, between the start of the 1-point and the end of the 6-point along
+the x-axis. As there are 6 points per quadrant in Backgammon, we can infer that the width of each point is d
+6 . We can
+then use this to find the start location of the 6-point along the x-axis. The other locations can also be inferred using
+similar logic.
+For our procedure, we simulate 100, 000 random Backgammon board images and train a CNN that takes in as input
+a board image and predicts the 4 landmark coordinates. We then train a separate CNN that takes in as input a part
+image and predicts the number of checkers as well as the player who owns those checkers. At test time, given a new
+board image, we pass this image to the first CNN and get the landmark predictions. Next, we slice up the image into
+its constituent parts and predict each part with the second CNN. We then combine the part predictions to obtain a
+text-based representation of the board image. See Figure 6 for an illustration.
+This procedure has two sources of potential error: landmark prediction and part prediction. After converting a board
+image to text, we validate that the resulting position is legal and that the associated move can be legally applied. If one
+of these conditions fails, we discard the case. Our case retention rate with this procedure is approximately 90%.
+160 × 160 Image 3 x Conv Flatten 3 x Dense
+8 x Linear
+(x1, y1)
+(x2, y2)
+(x3, y3)
+(x4, y4)
+Sequence of 24 × 72 Images 3 x Conv + BatchNorm + MaxPool Flatten 3 x Dense
+2 x Softmax
+Figure 6: CNNs for learning text generation in Backgammon. Once the models are trained, the predictions can be
+used to generate a text-based representation of a Backgammon board image i.e. ‘1X2 2X3 3O2 4X2 5X2 6X2 7X2
+11O3 16X1 19O2 20O3 21O2 22O1 23O2 24X1’ for the image in this figure.
+
+[PAGE 7]
+arXiv Template A PREPRINT
+Latent representation: To learn a useful latent representation for this application, we train a multi-task FFNN. The
+input to the network is an encoded position, where we use an encoding similar to TD-Gammon [21]. For the output,
+we have two tasks: the first is the value of the position 5 and the second is a decoder that predicts the encoded input.
+The value measures the relative positional strength between the two players, while the decoder ensures that the model
+optimizes for the precise checker configuration. In totality these two objectives encourage the model to consider
+positions as similar when they have both similar checker configuration and strategic value. See Figure 7 for an
+illustration.
+Encoded Position Latent (64 Units)
+Value
+Decoder
+Figure 7: Multi-task FFNN for learning latent representations in Backgammon.
+Once the FFNN is trained, then given a case with problem P = ( z, p, r, m) we can use our text generator to get a
+text-based representation, tz, of z and pass that to our latent model to get a latent representation, lz. It is beneficial
+to also take into account the position after applying the move m. Let g(z, m) = tz′ be a function that returns tz′, the
+text-based representation of the position after applying movem to position z. The corresponding latent representation
+is denoted lz′. Then we can measure case similarity by using lz+lz′
+2 as our combined latent representation.6
+5 Experiments
+In this section, we run experiments on our Math-24 and Backgammon applications introduced in Section 4 to evaluate
+retrieval and generation quality. 7 All our reported results average over 10 independent runs where, in each run, we
+randomly hold back30 cases for testing. For retrieval quality we use the metrics Precision@k, Recall@k, F1-Score@k,
+NDCG@k (Normalized Discounted Cumulative Gain) and MRR@k (Mean Reciprocal Rank) where we average each
+metric over k ∈ {1, 2, 3, 4, 5}.
+For Backgammon, in order to prevent data leakage when evaluating a test case, we exclude all solved cases whose
+moves originate from the same analysis as that test case. This ensures that our test cases are not influenced by their
+own analysis, which we assume to be unknown.
+5.1 Math-24
+For retrieval quality, we consider two labeling schemes to determine if a retrieved case is relevant:
+a) Solution Category Only (SCO): a retrieved case is classified relevant if it contains any solution category
+present in the test case.
+b) Solution Category & Decomposition (SCD): a retrieved case is classified as relevant if it contains any
+solution category and decomposition present test case.
+We also consider two similarity measures using different inputs for cosine similarity as described in Section 4.1:
+a) Features: this measure uses the 40 input features of the retrieved case and test case.
+b) Latent: this measure uses the latent representations of the retrieved case and test case.
+5In Backgammon, the value of a position is its win / loss probability. A public dataset with positions and their corresponding
+values has been released by GNU Backgammon [22].
+6This approach deviates from Equation 7, which compares latent representations solely between individual problem components. However, extending this to functions over problem components is straightforward, and potentially useful across various
+applications. For example, in text-only applications it may be beneficial to concatenate the individual text components and compute
+a single embedding over the concatenated output, rather than average across individual component embeddings.
+7We provide a Python implementation for the Math-24 application, available at https://github.com/OfirMarom/Math24.
+
+[PAGE 8]
+arXiv Template A PREPRINT
+Labeling Similarity Precision Recall F1-Score NDCG MRR
+SCO Features 71.9 1.5 2.9 72.6 81.5
+Latent 82.0 1.8 3.4 82.4 87.2
+SCD Features 45.4 4.2 7.1 46.5 58.1
+Latent 64.2 6.5 10.9 65.1 73.4
+Table 1: Retrieval quality metrics for Math-24 expressed as percentages (%).
+Table 1 shows that SCD labeling produces lower precision but higher recall compared to SCO labeling. For example,
+with latent similarity, SCD labeling achieves 64.2% precision and 6.5% recall compared to SCO labeling with 82.0%
+precision and 1.8% recall. This occurs because correctly classifying a case based on both solution category and
+decomposition is more challenging. However, SCD labeling also results in fewer total relevant cases per solution
+class, thus increasing recall.
+Notably, across both labeling schemes, using latent similarity yields stronger performance on all metrics compared
+to feature similarity. For instance, with SCD labeling, latent similarity achieves an NDCG score of 65.1%, significantly higher than 46.5% achieved by feature similarity. This demonstrates the effectiveness of leveraging latent
+representations, and justifies the additional steps required to learn a latent space for retrieval.
+For measuring generation quality, we consider three query types:
+a) No Context (NC): this query uses no context and asks an LLM to solve the puzzle directly.
+b) General Context (GC): this query uses a general execution plan as context that applies to all puzzles in our
+test set.
+c) Top Context (TC): this query uses the most relevant retrieved case as context to provide an LLM with a
+precise execution plan based on the solution category and decomposition of that case.
+An example of the three query types can be found in Appendix A.
+For this CBR application, it is straightforward to measure the result of an LLM solution as the final answer, if correct,
+must form an expression using all four puzzle numbers that evaluates to 24.
+LLM Query Accuracy Faithfulness Negative Rejection
+Llama-3.1-405B-Instruct-Turbo
+NC 34.0
+GC 30.0
+TC 61.3 73.8 33.5
+Qwen2-72B-Instruct
+NC 16.7
+GC 22.0
+TC 47.3 59.2 18.2
+Llama-3.1-70B-Instruct-Turbo
+NC 17.0
+GC 25.3
+TC 45.3 56.2 18.8
+Llama-3-70b-chat-hf
+NC 6.0
+GC 12.3
+TC 53.3 69.4 15.9
+Mixtral-8x7B-Instruct-v0.1
+NC 7.3
+GC 4.0
+TC 14.7 20.5 2.1
+Llama-3.1-8B-Instruct-Turbo
+NC 10.7
+GC 0.7
+TC 14.3 19.4 2.8
+Table 2: Generation quality metrics for Math-24 expressed as percentages (%).
+
+[TABLE page=8 index=1]
+Columns: Labeling | Similarity | Precision | Recall | F1-Score | NDCG | MRR
+Row 1: Labeling: | Similarity: Features | Precision: 71.9 | Recall: 1.5 | F1-Score: 2.9 | NDCG: 72.6 | MRR: 81.5
+Row 2: Labeling: SCO | Similarity: | Precision: | Recall: | F1-Score: | NDCG: | MRR:
+Row 3: Labeling: | Similarity: Latent | Precision: 82.0 | Recall: 1.8 | F1-Score: 3.4 | NDCG: 82.4 | MRR: 87.2
+Row 4: Labeling: | Similarity: Features | Precision: 45.4 | Recall: 4.2 | F1-Score: 7.1 | NDCG: 46.5 | MRR: 58.1
+Row 5: Labeling: SCD | Similarity: | Precision: | Recall: | F1-Score: | NDCG: | MRR:
+Row 6: Labeling: | Similarity: Latent | Precision: 64.2 | Recall: 6.5 | F1-Score: 10.9 | NDCG: 65.1 | MRR: 73.4
+[/TABLE]
+
+[TABLE page=8 index=2]
+Columns: LLM | Query | Accuracy | Faithfulness | Negative Rejection
+Row 1: LLM: | Query: NC | Accuracy: 34.0 | Faithfulness: | Negative Rejection:
+Row 2: LLM: Llama-3.1-405B-Instruct-Turbo | Query: GC | Accuracy: 30.0 | Faithfulness: | Negative Rejection:
+Row 3: LLM: | Query: TC | Accuracy: 61.3 | Faithfulness: 73.8 | Negative Rejection: 33.5
+Row 4: LLM: | Query: NC | Accuracy: 16.7 | Faithfulness: | Negative Rejection:
+Row 5: LLM: Qwen2-72B-Instruct | Query: GC | Accuracy: 22.0 | Faithfulness: | Negative Rejection:
+Row 6: LLM: | Query: TC | Accuracy: 47.3 | Faithfulness: 59.2 | Negative Rejection: 18.2
+Row 7: LLM: | Query: NC | Accuracy: 17.0 | Faithfulness: | Negative Rejection:
+Row 8: LLM: Llama-3.1-70B-Instruct-Turbo | Query: GC | Accuracy: 25.3 | Faithfulness: | Negative Rejection:
+Row 9: LLM: | Query: TC | Accuracy: 45.3 | Faithfulness: 56.2 | Negative Rejection: 18.8
+Row 10: LLM: | Query: NC | Accuracy: 6.0 | Faithfulness: | Negative Rejection:
+Row 11: LLM: Llama-3-70b-chat-hf | Query: GC | Accuracy: 12.3 | Faithfulness: | Negative Rejection:
+Row 12: LLM: | Query: TC | Accuracy: 53.3 | Faithfulness: 69.4 | Negative Rejection: 15.9
+Row 13: LLM: | Query: NC | Accuracy: 7.3 | Faithfulness: | Negative Rejection:
+Row 14: LLM: Mixtral-8x7B-Instruct-v0.1 | Query: GC | Accuracy: 4.0 | Faithfulness: | Negative Rejection:
+Row 15: LLM: | Query: TC | Accuracy: 14.7 | Faithfulness: 20.5 | Negative Rejection: 2.1
+Row 16: LLM: | Query: NC | Accuracy: 10.7 | Faithfulness: | Negative Rejection:
+Row 17: LLM: Llama-3.1-8B-Instruct-Turbo | Query: GC | Accuracy: 0.7 | Faithfulness: | Negative Rejection:
+Row 18: LLM: | Query: TC | Accuracy: 14.3 | Faithfulness: 19.4 | Negative Rejection: 2.8
+[/TABLE]
+
+[PAGE 9]
+arXiv Template A PREPRINT
+In Table 2 we report Accuracy, Faithfulness and Negative Rejection for a range of LLMs [23, 24, 25]. 8 Our results
+show that larger LLMs are generally better at solving Math-24 puzzles. For instance, Llama-3.1-405B-Instruct-Turbo
+outperforms Llama-3.1-8B-Instruct-Turbo by 23.3% even when no context is provided. Across all LLMs, the TC
+query type consistently yields the highest accuracy. For example,Qwen2-72B-Instruct demonstrates a 25.3% accuracy
+improvement compared the GC query type and a 30.6% improvement over the NC query type.
+Interestingly, GC does not consistently outperform NC across all models. For instance, Llama-3.1-405B-InstructTurbo has 4% higher accuracy with NC compared to GC. This suggests that, while context can be beneficial, it
+may also lead LLMs to fixate on provided information, potentially overlooking alternative problem-solving strategies.
+Furthermore, Faithfulness is notably higher than Negative Rejection across all models. For example, Llama-3.1-70BInstruct-Turbo achieves 56.2% Faithfulness while only managing 18.8% Negative Rejection. This indicates that when
+accurate context is supplied, the LLM effectively follows the execution plan to find a solution. Conversely, when
+presented with incorrect context, the LLM struggles to bypass it and find a correct solution.
+5.2 Backgammon
+For retrieval quality, we label cases using the chapter names of the Backgammon book from which the cases originate.
+As each book uses different chapter names, we manually group similar chapters together. To ensure diversification, we
+only consider chapters that can be grouped with at least one other chapter. Using this approach, we are able to label
+approximately 75% of our cases.9 See Appendix B for our grouping categories.
+For similarity, we use the encoded board position as well as our latent representation as described in Section 4.2. For
+the latent representation we further consider different weights to the multi-task FFNN that control the importance of
+the value and decoder objectives when training the network. In particular we test weights(0, 1), (1, 0), (1, 1), (1, 0.1),
+(1, 0.01), (1, 0.001), (1, 0.0001) for the value and decoder respectively. For example, the weights (1, 0) will give a
+weight 1 to the value objective and a weight of 0 to the decoder objective, effectively disconnecting the decoder from
+the network.
+Similarity Precision Recall F1-Score NDCG MRR
+Encoding 35.3 2.5 4.4 36.6 46.6
+Latent(0, 1) 36.6 2.6 4.6 38.0 47.9
+Latent(1, 0) 44.4 3.5 6.1 45.5 53.7
+Latent(1, 1) 40.9 3.0 5.3 42.2 51.8
+Latent(1, 0.1) 40.9 3.1 5.5 42.3 51.8
+Latent(1, 0.01) 44.4 3.4 6.0 45.6 54.2
+Latent(1, 0.001) 43.1 3.4 6.0 44.0 52.7
+Latent(1, 0.0001) 44.2 3.5 6.1 45.4 54.3
+Table 3: Retrieval quality metrics for Backgammon expressed as percentages (%).
+Our results are presented in Table 3. We first note that Encoding and Latent(0, 1) exhibit the worst performance across
+all metrics. This is because they focus solely on checker configuration, ignoring value. However, these methods still
+demonstrate some retrieval capability with NDCG scores of 36.6% and 38.0% respectively. In contrast, Latent(1, 0),
+which incorporates only value, demonstrates stronger performance with an NDCG of 45.5%. This finding suggests
+that value is a more effective measure of position similarity compared to checker configuration.
+Given that both value and checker configuration demonstrate retrieval capabilities, it makes sense to combine them.
+Experimenting with different weights, we find that Latent(1, 0.01) outperforms Latent(1, 0) with slightly higher NDCG
+and MMR scores of45.6% and 54.2% respectively. While it has slightly lower recall of3.4% compared to Latent(1, 0),
+that has recall 3.5%, generation quality tends to benefit from systems that prioritize relevance of retrieved documents
+[26]. Hence we consider Latent(1, 0.01) our best model for similarity and use it in our subsequent generation quality
+experiments.
+For generation quality, we consider two query types:
+8Faithfulness measures how often a solution is correct given the context contains at least one correct solution, while Negative
+Rejection measures how often a solution is correct given the context contains no correct solutions.
+9Given that each book follows a different curriculum, the grouping of similar chapters involves some level of overgeneralization,
+which may lead to cases being labeled together that do not align. Furthermore, it is possible that two cases in unrelated chapters
+are, in fact, similar and will be incorrectly counted as false negatives. Nevertheless, this approach allows us to label Backgammon
+lessons across different sources in a largely objective manner.
+
+[TABLE page=9 index=1]
+Columns: Similarity | Precision | Recall | F1-Score | NDCG | MRR
+Row 1: Similarity: Encoding | Precision: 35.3 | Recall: 2.5 | F1-Score: 4.4 | NDCG: 36.6 | MRR: 46.6
+Row 2: Similarity: Latent(0, 1) | Precision: 36.6 | Recall: 2.6 | F1-Score: 4.6 | NDCG: 38.0 | MRR: 47.9
+Row 3: Similarity: Latent(1, 0) | Precision: 44.4 | Recall: 3.5 | F1-Score: 6.1 | NDCG: 45.5 | MRR: 53.7
+Row 4: Similarity: Latent(1, 1) | Precision: 40.9 | Recall: 3.0 | F1-Score: 5.3 | NDCG: 42.2 | MRR: 51.8
+Row 5: Similarity: Latent(1, 0.1) | Precision: 40.9 | Recall: 3.1 | F1-Score: 5.5 | NDCG: 42.3 | MRR: 51.8
+Row 6: Similarity: Latent(1, 0.01) | Precision: 44.4 | Recall: 3.4 | F1-Score: 6.0 | NDCG: 45.6 | MRR: 54.2
+Row 7: Similarity: Latent(1, 0.001) | Precision: 43.1 | Recall: 3.4 | F1-Score: 6.0 | NDCG: 44.0 | MRR: 52.7
+Row 8: Similarity: Latent(1, 0.0001) | Precision: 44.2 | Recall: 3.5 | F1-Score: 6.1 | NDCG: 45.4 | MRR: 54.3
+[/TABLE]
+
+[PAGE 10]
+arXiv Template A PREPRINT
+a) No Context (NC): this base query provides the LLM with a Backgammon position, encoded in JSON format,
+along with the player on roll, the dice rolled, and the move played. The query then asks the LLM to generate
+an analysis of the move.
+b) With Context (WC): this query appends the base query with additional context from the top three most
+similar cases. This includes the same information as the base query for each retrieved case (position, player,
+dice, and move), along with the corresponding expert analysis.
+One challenge in specialized applications, such as Backgammon, is that token-level evaluation metrics, such as
+BERTScore [27], may not be as effective. The problem with such metrics is that a response may be deemed similar merely due to its heavy use of jargon, even if the response itself lacks coherence. To overcome this, we employ
+sentence transformers that measure semantic similarity across sequences of words, providing a richer comprehension
+of textual meaning. We provide qualitative examples supporting this claim in Appendix C. Specifically, we compute
+cosine similarity between sentence embeddings with the following sentence transformer models: all-mpnet-base-v2
+[28], all-roberta-large-v1 [29], and all-MiniLM-L12-v1 [30].
+LLM Query BERTScore (F1) MPNet RoBERTa MiniLM Avg
+Meta-Llama-3.1-405B-Instruct-Turbo NC 83.9 60.4 63.9 58.3 60.9
+WC 83.3 61.8 65.1 60.3 62.4
+Qwen2-72B-Instruct NC 83.9 58.0 62.3 55.5 58.6
+WC 84.1 58.9 63.5 56.7 59.7
+Meta-Llama-3.1-70B-Instruct-Turbo NC 84.0 58.3 61.5 55.2 58.3
+WC 84.1 63.2 66.5 61.7 63.8
+Llama-3-70b-chat-hf NC 83.8 57.2 59.2 54.4 56.9
+WC 84.1 62.7 65.8 61.3 63.3
+Mixtral-8x7B-Instruct-v0.1 NC 83.0 58.3 62.4 56.9 59.2
+WC 83.0 60.2 64.1 59.6 61.3
+Meta-Llama-3.1-8B-Instruct-Turbo NC 83.3 57.0 60.7 55.1 57.6
+WC 81.5 61.4 65.0 59.8 62.1
+Table 4: Generation quality metrics for Backgammon expressed as percentages (%). BERTScore uses roberta-large
+for embeddings [29]. The Avg column is the average of MPNet, RoBERTa and MiniLM.
+Our results are presented in Table 4. We observe that BERTScore demonstrates inconsistent improvement for NC
+and WC query types. For example, Meta-Llama-3.1-405B-Instruct-Turbo achieves a higher BERTScore with the NC
+query type, while Qwen2-72B-Instruct performs better with WC query type. In contrast,all three sentence transformer
+metrics consistently improve when context is provided compared to when it is absent. For example, Meta-Llama-3.170B-Instruct-Turbo, the best-performing LLM, achieves an average score of 63.8% with context, compared to 58.3%
+without. These results indicate that generated answers with context are able to leverage this additional knowledge to
+produce higher-quality analysis of Backgammon positions.
+6 Final Remarks
+This paper introduced MCBR-RAG, a general RAG framework designed for multimodal CBR applications. The
+framework addresses multimodal problem components through two core functions: a text generation function, which
+transforms problem components into text, and a latent representation function, which produces latent representations
+of these components. These functions facilitate the Retrieve and Reuse phases of the CBR pipeline through RAG
+retrieval and RAG generation, respectively.
+We began by formalizing MCBR-RAG in an abstract setting to demonstrate its generalizability across various applications. This formalization provides a foundation for adapting the framework to a wide range of multimodal CBR
+scenarios. We then applied MCBR-RAG to two specific tasks: a simplified Math-24 application and a more complex
+Backgammon application, where we outlined practical methods for learning the necessary text generation and latent
+representation functions. Finally, our experiments demonstrated that, in both applications, MCBR-RAG produced
+higher generation quality across various LLMs compared to a baseline that did not incorporate contextual information
+in the LLM query.
+
+[TABLE page=10 index=1]
+Columns: LLM | Query | BERTScore (F1) | MPNet | RoBERTa | MiniLM | Avg
+Row 1: LLM: | Query: NC | BERTScore (F1): 83.9 | MPNet: 60.4 | RoBERTa: 63.9 | MiniLM: 58.3 | Avg: 60.9
+Row 2: LLM: Meta-Llama-3.1-405B-Instruct-Turbo | Query: | BERTScore (F1): | MPNet: | RoBERTa: | MiniLM: | Avg:
+Row 3: LLM: | Query: WC | BERTScore (F1): 83.3 | MPNet: 61.8 | RoBERTa: 65.1 | MiniLM: 60.3 | Avg: 62.4
+Row 4: LLM: | Query: NC | BERTScore (F1): 83.9 | MPNet: 58.0 | RoBERTa: 62.3 | MiniLM: 55.5 | Avg: 58.6
+Row 5: LLM: Qwen2-72B-Instruct | Query: | BERTScore (F1): | MPNet: | RoBERTa: | MiniLM: | Avg:
+Row 6: LLM: | Query: WC | BERTScore (F1): 84.1 | MPNet: 58.9 | RoBERTa: 63.5 | MiniLM: 56.7 | Avg: 59.7
+Row 7: LLM: | Query: NC | BERTScore (F1): 84.0 | MPNet: 58.3 | RoBERTa: 61.5 | MiniLM: 55.2 | Avg: 58.3
+Row 8: LLM: Meta-Llama-3.1-70B-Instruct-Turbo | Query: | BERTScore (F1): | MPNet: | RoBERTa: | MiniLM: | Avg:
+Row 9: LLM: | Query: WC | BERTScore (F1): 84.1 | MPNet: 63.2 | RoBERTa: 66.5 | MiniLM: 61.7 | Avg: 63.8
+Row 10: LLM: | Query: NC | BERTScore (F1): 83.8 | MPNet: 57.2 | RoBERTa: 59.2 | MiniLM: 54.4 | Avg: 56.9
+Row 11: LLM: Llama-3-70b-chat-hf | Query: | BERTScore (F1): | MPNet: | RoBERTa: | MiniLM: | Avg:
+Row 12: LLM: | Query: WC | BERTScore (F1): 84.1 | MPNet: 62.7 | RoBERTa: 65.8 | MiniLM: 61.3 | Avg: 63.3
+Row 13: LLM: | Query: NC | BERTScore (F1): 83.0 | MPNet: 58.3 | RoBERTa: 62.4 | MiniLM: 56.9 | Avg: 59.2
+Row 14: LLM: Mixtral-8x7B-Instruct-v0.1 | Query: | BERTScore (F1): | MPNet: | RoBERTa: | MiniLM: | Avg:
+Row 15: LLM: | Query: WC | BERTScore (F1): 83.0 | MPNet: 60.2 | RoBERTa: 64.1 | MiniLM: 59.6 | Avg: 61.3
+Row 16: LLM: | Query: NC | BERTScore (F1): 83.3 | MPNet: 57.0 | RoBERTa: 60.7 | MiniLM: 55.1 | Avg: 57.6
+Row 17: LLM: Meta-Llama-3.1-8B-Instruct-Turbo | Query: | BERTScore (F1): | MPNet: | RoBERTa: | MiniLM: | Avg:
+Row 18: LLM: | Query: WC | BERTScore (F1): 81.5 | MPNet: 61.4 | RoBERTa: 65.0 | MiniLM: 59.8 | Avg: 62.1
+[/TABLE]
+
+[PAGE 11]
+arXiv Template A PREPRINT
+Acknowledgments
+I would like to thank Professor Benjamin Rosman for his insightful suggestions and valuable discussions, particularly
+in framing this research as a broader methodology applicable to multiple domains.
+References
+[1] Agnar Aamodt and Enric Plaza. Case-based reasoning: Foundational issues, methodological variations, and
+system approaches. AI Communications, 7(1):39–59, 1994.
+[2] Itzhak Gilboa and David Schmeidler. Case-based decision theory. The Quarterly Journal of Economics ,
+110(3):605–639, 1995.
+[3] Nirmalie Wiratunga, Ramitha Abeyratne, Lasal Jayawardena, Kyle Martin, Stewart Massie, Ikechukwu NkisiOrji, Ruvan Weerasinghe, Anne Liret, and Bruno Fleisch. Cbr-rag: Case-based reasoning for retrieval augmented
+generation in llms for legal question answering. In Proceedings of the 32nd International Conference on CaseBased Reasoning, volume 14775, pages 445–460. ICCBR, 2024.
+[4] Rui Yang. Casegpt: A case reasoning framework based on language models and retrieval-augmented generation.
+arXiv preprint arXiv:2407.07913, 2024.
+[5] Siyuan Guo, Cheng Deng, Ying Wen, Hechang Chen, Yi Chang, and Jun Wang. Ds-agent: Automated data science by empowering large language models with case-based reasoning. In Proceedings of the 41st International
+Conference on Machine Learning. ICML, 2024.
+[6] Zhivar Sourati, Filip Ilievski, H ˆong- ˆAn Sandlin, and Alain Mermoud. Case-based reasoning with language
+models for classification of logical fallacies. In Proceedings of the 32nd International Joint Conference on
+Artificial Intelligence, pages 5188–5196. IJCAI, 2023.
+[7] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidirectional
+transformers for language understanding. In Proceedings of the 2019 Conference of the North American Chapter
+of the Association for Computational Linguistics: Human Language Technologies , pages 4171–4186. NAACL,
+2019.
+[8] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. Language models are
+unsupervised multitask learners. OpenAI Blog, 2019.
+[9] Rainer Schmidt and Lothar Gierl. Case-based reasoning for medical knowledge-based systems. International
+Journal of Medical Informatics, 64(2-3):355–367, 2001.
+[10] John Zeleznikow, George V ossos, and Daniel Hunter. The ikbals project: Multimodal reasoning in legal
+knowledge-based systems. Artificial Intelligence and Law, 2(3):169–203, 1993.
+[11] Luigi Portinale, Diego Magro, and Pietro Torasso. Multi-modal diagnosis combining case-based and modelbased reasoning: a formal and experimental analysis. Artificial Intelligence, 158(2):109–153, 2004.
+[12] Michihiro Yasunaga, Armen Aghajanyan, Weijia Shi, Rich James, Jure Leskovec, Percy Liang, Mike Lewis,
+Luke Zettlemoyer, and Wen-tau Yih. Retrieval-augmented multimodal language modeling. In Proceedings of
+the 40th International Conference on Machine Learning, pages 39755–39769. ICML, 2023.
+[13] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. Blip-2: Bootstrapping language-image pre-training
+with frozen image encoders and large language models. In Proceedings of the 40th International Conference on
+Machine Learning, pages 19730–19742. ICML, 2023.
+[14] Sreyan Ghosh, Sonal Kumar, Chandra Kiran Reddy Evuru, Ramani Duraiswami, and Dinesh Manocha. Recap:
+Retrieval-augmented audio captioning. arXiv preprint arXiv:2309.09836, 2023.
+[15] Jilan Xu, Yifei Huang, Junlin Hou, Guo Chen, Yuejie Zhang, Rui Feng, and Weidi Xie. Retrieval-augmented
+egocentric video captioning. In Proceedings of the 2024 IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 13525–13536. CVPR, 2024.
+[16] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich
+K¨uttler, Mike Lewis, Wen-tau Yih, Tim Rockt¨aschel, Sebastian Riedel, and Douwe Kiela. Retrieval-augmented
+generation for knowledge-intensive nlp tasks. In Proceedings of the 34th International Conference on Neural
+Information Processing Systems, pages 9459–9474. NeurIPS, 2020.
+[17] https://web.archive.org/web/20220330060550/https://www.4nums.com/24_game/facts.
+Archived from the original on 2022-03-30. Retrieved 2021-12-29.
+
+[PAGE 12]
+arXiv Template A PREPRINT
+[18] Paul Magriel. Backgammon. X-22 Publishing, 1997.
+[19] Bill Robertie. 501 Essential Backgammon Problems. Cardoza Publishing, 2022.
+[20] Walter Trice. Backgammon Bootcamp. The Fortuitous Press, 2004.
+[21] Gerald Tesauro. Temporal difference learning and td-gammon. Communications of the ACM, 38(3):58–68, 1995.
+[22] https://alpha.gnu.org/gnu/backgammon/nn-training/1.00/training_data. Accessed: 2024-1005.
+[23] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timoth ´ee Lacroix,
+Baptiste Rozi `ere, Naman Goyal, Eric Hambro, Faisal Azhar, Aurelien Rodriguez, Armand Joulin, Edouard
+Grave, and Guillaume Lample. Llama: Open and efficient foundation language models. arXiv preprint
+arXiv:2302.13971, 2023.
+[24] Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang, Xiaodong Deng, Yang Fan, Wenbin Ge, Yu Han, Fei
+Huang, Binyuan Hui, Luo Ji, Mei Li, Junyang Lin, Runji Lin, Dayiheng Liu, Gao Liu, Chengqiang Lu, Keming
+Lu, Jianxin Ma, Rui Men, Xingzhang Ren, Xuancheng Ren, Chuanqi Tan, Sinan Tan, Jianhong Tu, Peng Wang,
+Shijie Wang, Wei Wang, Shengguang Wu, Benfeng Xu, Jin Xu, An Yang, Hao Yang, Jian Yang, Shusheng Yang,
+Yang Yao, Bowen Yu, Hongyi Yuan, Zheng Yuan, Jianwei Zhang, Xingxuan Zhang, Yichang Zhang, Zhenru
+Zhang, Chang Zhou, Jingren Zhou, Xiaohuan Zhou, and Tianhang Zhu. Qwen technical report. arXiv preprint
+arXiv:2309.16609, 2023.
+[25] Albert Q. Jiang, Alexandre Sablayrolles, Antoine Roux, Arthur Mensch, Blanche Savary, Chris Bamford, Devendra Singh Chaplot, Diego de las Casas, Emma Bou Hanna, Florian Bressand, Gianna Lengyel, Guillaume
+Bour, Guillaume Lample, L ´elio Renard Lavaud, Lucile Saulnier, Marie-Anne Lachaux, Pierre Stock, Sandeep
+Subramanian, Sophia Yang, Szymon Antoniak, Teven Le Scao, Th´eophile Gervet, Thibaut Lavril, Thomas Wang,
+Timoth´ee Lacroix, and William El Sayed. Mixtral of experts. arXiv preprint arXiv:2401.04088, 2024.
+[26] Vladimir Karpukhin, Barlas O ˘guz, Sewon Min, Patrick Lewis, Ledell Wu, Sergey Edunov, Danqi Chen, and Wentau Yih. Dense passage retrieval for open-domain question answering. In Proceedings of the 2020 Conference
+on Empirical Methods in Natural Language Processing, pages 6769–6781. EMNLP, 2020.
+[27] Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q. Weinberger, and Yoav Artzi. Bertscore: Evaluating text
+generation with bert. In 8th International Conference on Learning Representations. ICLR, 2020.
+[28] Kaitao Song, Xu Tan, Tao Qin, Jianfeng Lu, and Tie-Yan Liu. Mpnet: Masked and permuted pre-training for
+language understanding. In Proceedings of the 34th International Conference on Neural Information Processing
+Systems, pages 16857–16867. NeurIPS, 2020.
+[29] Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike Lewis, Luke
+Zettlemoyer, and Veselin Stoyanov. Roberta: A robustly optimized bert pretraining approach. arXiv preprint
+arXiv:1907.11692, 2019.
+[30] Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan Yang, and Ming Zhou. Minilm: Deep self-attention
+distillation for task-agnostic compression of pre-trained transformers. In Proceedings of the 34th International
+Conference on Neural Information Processing Systems, pages 5776–5788. NeurIPS, 2020.
+A Math-24 Queries
+Consider the test problem (1, 3, 7, 12) with solution (7 − 1) × (12 ÷ 3). Suppose the most similar retrieved case is
+(1, 3, 6, 7) that has the following solutions: (7−3)×(6×1) and (7+1) ×(6−3). Then below are the three constructed
+queries.
+No Context:
+START QUESTION
+Solve the following Math-24 puzzle:
+1 3 7 12
+END QUESTION
+General Context:
+START QUESTION
+Solve the following Math-24 puzzle:
+1 3 7 12
+END QUESTION
+
+[PAGE 13]
+arXiv Template A PREPRINT
+START CONTEXT
+To help you answer the question, below is a tip that may help:
+a) use a pair of numbers to make 24, 12, 8 or 6
+b) use the remaining pair of numbers to make 1, 2, 3 or 4 respectively
+c) then the product of step a) and step b) equals 24
+END CONTEXT
+Top Context:
+START QUESTION
+Solve the following Math-24 puzzle:
+1 3 7 12
+END QUESTION
+START CONTEXT
+To help you answer the question, below is a tip that may help:
+a) use the pair (1, 7) to make 6. If this is impossible, try to make 6 using some other
+pair
+b) then use the remaining pair to make 4
+c) then 6 * 4 = 24
+OR
+a) use the pair (1, 12) to make 8. If this is impossible, try to make 8 using some other
+pair
+b) then use the remaining pair to make 3
+c) then 8 * 3 = 24
+END CONTEXT
+We note that in this example, only the first solution can be correctly applied to the test case.
+All queries use the same system prompt that encourages an LLM response to conform to a convention that we can
+easily parse to ascertain the correctness of its proposed solution.
+You are a student taking a test to solve a Math-24 puzzle. A Math-24 puzzle requires you
+to use 4 numbers to make 24. Each number must be used exactly once, and may use the +
+- * / operators. Once you have solved the puzzle, you must end your answer with "Final
+Answer: [LHS] = 24" where [LHS] is uses ALL 4 numbers EXACTLY once to get to 24. For
+example, if the puzzle is 1 2 9 13 then ending with "Final Answer: (13 + 9 + 2) * 1 =
+24" will get you full marks. If you end your answer using any other convention you will
+get no marks, even if your final answer is correct. For example, if you end with "Final
+Answer: (13+9+2)=24; 24*1=24", this will get you no marks because your format is wrong,
+even though your answer is correct. If you end with "Final Answer: (13 + 9 + 2) = 24",
+this will also get you no marks because you have omitted the 1, even though your answer
+is correct. When giving your final answer, do not use any special formatting such as bold
+or italics, latex, etc. You must use only plain text.
+B Backgammon Chapter Groupings
+Book Chapter Group
+[18]
+Builders and Flexibility Builders and Flexibility
+Duplication and Diversification Duplication and Diversification
+When You Are Forced to Leave Shots Risk and Safety
+Modern Opening Theory Early Game Strategy
+Safe Play vs. Bold Play Risk and Safety
+Slotting Builders and Flexibility
+Action Play Risk and Safety
+One Man Back One Man Back
+Golden Point Anchor Plays
+Splitting Builders and Flexibility
+
+[PAGE 14]
+arXiv Template A PREPRINT
+Doubling Theory Doubling Theory
+No Possible Contact Endgame No Contact
+Avoiding Contact Endgame Against Contact
+After Contact Containment
+Priming and Blocking Priming Strategy
+Control of the Outside Containment
+Timing Timing
+Holding Game and Backgame Backgames and Holding Games
+[19]
+The Opening Early Game Strategy
+Flexibility Builders and Flexibility
+The Blitz Blitz Strategy
+One Man Back One Man Back
+Holding Games Backgames and Holding Games
+Priming Games Priming Strategy
+Connectivity Connectivity
+Hit or Not? Hitting Decisions
+Breaking Anchor Anchor Plays
+Action Doubles Doubling Theory
+Late-Game Blitz Blitz Strategy
+Too Good to Double Doubling Theory
+Ace Point Games Defensive Ace Point Games
+Back Games Backgames and Holding Games
+The Containment Game Containment
+Post-Ace-Point Games Containment
+Playing for a Gammon Gammon Strategy
+Saving the Gammon Gammon Strategy
+Bearing off Against Contact Endgame Against Contact
+The Race Endgame No Contact
+The Bearoff Endgame No Contact
+[20]
+Primes And The Closeout Priming Strategy
+Blitz Blitz Strategy
+Anchors Anchor Plays
+The Defensive Ace Point Defensive Ace Point Games
+High Anchors And Holding Games Backgames and Holding Games
+The Opening Roll Early Game Strategy
+Blots, Shots, And Odds Risk and Safety
+To Hit Or Not To Hit? Hitting Decisions
+Staying Connected Connectivity
+Bringing It Home Endgame Against Contact
+Gaining Time Timing
+Duplication Duplication and Diversification
+Diversification Duplication and Diversification
+Backgames Backgames and Holding Games
+Primes Priming Strategy
+Table 5: Chapter groupings for three Backgammon books.
+C Backgammon Qualitative Examples
+Example 1
+This example serves to illustrate that high similarity with sentence transformers correlates with high-quality generated
+Backgammon analysis. Consider the following actual analysis from [18] followed by a generated answer with high
+sentence transformer score of 77.3%.
+We see that both analyses focus on the same underlying strategic concept of maximising coverage so that, if O tries to
+escape, X has a double shot.
+Actual:
+
+[PAGE 15]
+arXiv Template A PREPRINT
+Position 1 is a typical case which illustrates both these principles. The correct play
+is 17/14. By keeping your men spread out, you insure at least a double shot should O run
+with a 6. Although you may be tempted to button up to block 6-6 by playing 16/13, this
+would be a serious mistake. In positions where you are trying to catch one last man, it
+is much more important to be diversified to insure getting the maximum number of return
+shots, rather than to try to avoid being hit at all costs. By playing 16/13; you may only
+get a single direct shot at O if he runs with a 6 on his next roll.
+Generated:
+In this position, X’s move 17/14 is correct. The main goal is to maximize coverage and
+create the possibility of a double shot when O runs. By moving 17/14, X is insuring
+maximum coverage and putting pressure on O’s potential rollouts. Moving 17/14 also takes
+into account O’s potential rolls, such as 6-1, which would force O to come into direct
+range of X’s men on the 14 and 16 points. This move is in line with the expert analysis
+from Example 1, where 18/14 is considered the correct play to ensure maximum coverage and
+create a double shot opportunity. In contrast, moving 17/13 would not achieve the same
+level of coverage and would leave X’s men more exposed to O’s potential rolls. Therefore,
+17/14 is the correct play in this position.
+Example 2
+This example serves to illustrate that high similarity with token-level metrics, like BERTScore, does not correlate with
+high-quality generated Backgammon analysis. Consider the actual analysis from [19] followed by a generated answer
+with high BERTScore of 86.6% and low sentence transformer score of 46.7%.
+We see that while the analyses contain similar Backgammon jargon, resulting in high BERTScore, the underlying
+explanations are very different. The actual analysis criticizes the move 8/4, 6/4, as it gives O a slim chance to win with
+a lucky roll next turn. Meanwhile, the generated answer misses this completely and praises the move for extending
+X’s prime. The low sentence transformer score reflects this deeper semantic mismatch.
+Actual:
+Weigh risks carefully. Black can play 8/4 6/4, or 13/9 11/9. The 4-point is a better
+point than the 9-point, without doubt. But it comes at a price - allowing White a 17-1
+shot at Black’s loose blot. Is it worth it? No. A 17-1 shot means giving your Opponent
+an extra 5.5% chance to win the game right on the spot. Making a better point picks up
+some winning chances, but not nearly that much. Play completely safe here by making the
+9-point.
+Generated:
+A fascinating position! With the roll of 4-2, X has made a solid move by playing 8/4 and
+6/4. This decision aims to improve X’s prime, creating a strong foundation for future
+rolls. By moving two checkers from the 8-point to the 4-point, X is building a flexible
+anchor that can be utilized to attack O’s checkers or create a potential escape route.
+The secondary effect of this move is to slightly weaken O’s anchor on the 12-point, as X
+now has more options to potentially hit an O checker on the 11-point. Additionally, X’s
+4-point anchor makes it more difficult for O to establish a strong prime in the future.
+Overall, this move is a well-thought-out strategic decision, as it improves X’s board
+control, flexibility, and attacking potential while limiting O’s options.

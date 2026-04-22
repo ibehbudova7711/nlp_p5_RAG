@@ -1,0 +1,1323 @@
+[PAGE 1]
+Retrieval augmented generation based dynamic
+prompting for few-shot biomedical named entity
+recognition using large language models
+Yao Ge1,2,3,*, Sudeshna Das1, Yuting Guo1,2, and Abeed Sarker1,4
+1Department of Biomedical Informatics, School of Medicine, Emory University, Atlanta, GA, USA
+2Department of Computer Science, Emory University, Atlanta, GA, USA
+3National Library of Medicine, National Institutes of Health, Bethesda, MD
+4Department of Biomedical Engineering, Georgia Institute of Technology and Emory University, Atlanta, GA, USA
+*Corresponding author: Y ao Ge, Ph.D, Department of Biomedical Informatics, School of Medicine, Emory University,
+Atlanta, GA, USA, yao.ge@emory.edu
+ABSTRACT
+Biomedical named entity recognition (NER) is a high-utility natural language processing (NLP) task, and large
+language models (LLMs) show promise particularly in few-shot settings (i.e., limited training data). In this article, we
+address the performance challenges of LLMs for few-shot biomedical NER by investigating a dynamic prompting
+strategy involving retrieval-augmented generation (RAG). In our approach, the annotated in-context learning
+examples are selected based on their similarities with the input texts, and the prompt is dynamically updated for
+each instance during inference. We implemented and optimized static and dynamic prompt engineering techniques
+and evaluated them on five biomedical NER datasets. Static prompting with structured components increased
+average F1-scores by 12% for GPT -4, and 11% for GPT -3.5 and LLaMA 3-70B, relative to basic static prompting.
+Dynamic prompting further improved performance, with TF-IDF and SBERT retrieval methods yielding the best
+results, improving average F1-scores by 7.3% and 5.6% in 5-shot and 10-shot settings, respectively. These findings
+highlight the utility of contextually adaptive prompts via RAG for biomedical NER.
+arXiv:2508.06504v1 [cs.CL] 25 Jul 2025
+
+[PAGE 2]
+Introduction
+Named entity recognition (NER) is a fundamental natural language processing (NLP) task, involving the extraction of
+predefined entities from free text, with a wide range of application in digital medicine. Within the broader biomedical
+domain, NER methods can be applied to detect entities such as diseases, adverse drug reactions, treatments, and
+symptoms. Biomedical NER often presents unique challenges due to the sparsity of certain medical concepts (e.g.,
+rare health conditions), and the specialized language used in clinical and social health contexts. While some deep
+neural network based NER methods have achieved human-like performance, they require large amounts of training
+data, which is often not available for specialized biomedical problems. Furthermore, NER systems trained on
+open domain (as opposed to restricted domain) data are typically not transferrable to biomedical domain-specific
+tasks without additional training or manual annotation. Manually annotating data for targeted biomedical NLP
+problems is expensive (e.g., when they involve medical experts) or infeasible (e.g., for sparsely-occurring medical
+conditions). Even when studies invest time in annotating biomedical data, the datasets cannot be publicly shared
+(e.g., electronic health record data for privacy compliance). Thus, there is a need to develop few-shot learning (FSL)
+based NER solutions that can generalize effectively from a small number of examples1. In this paper, we describe
+the development and evaluation of an NER approach that leverages a large language model (LLM) and retrieval
+augmented generation (RAG) for improving the state of the art in few-shot biomedical NER.
+The emergence of generative LLMs such as the GPT and LLaMA series has enabled the research community to
+achieve large performance gains in FSL-based NLP methods. Generic LLMs are adaptable to biomedical domain
+NLP tasks in zero-shot and few-shot settings2, and their ability to adapt to new tasks with minimal examples has
+been transformative, particularly for restricted domains such as biomedical. By leveraging in-context learning (i.e.,
+training examples are provided as part of the prompt), current state-of-the-art LLMs can readily adapt to diverse
+text structures and vocabularies3. A major focus of recent biomedical NLP research has been prompt engineering
+methods4, 5, as carefully designed prompts can help align an LLM’s understanding and outputs with task-specific
+requirements.
+The typical approach in prompt-driven methods is to optimize predefined,static prompts for a target task. Static,
+in this context, refers to the use of the same, consistent prompt for every instance in a dataset during inference. Thus,
+regardless of the content of the input text, the model applies the same fixed prompt and in-context examples. This
+lack of flexibility to adjust to specific input data potentially leads to sub-optimal performance6. Their fixed format
+restricts performance potential, as they do not adjust based on context, even when more suitable annotated examples
+are present in the training data. Consequently, approaches employing static prompts exhibit high variance depending
+2/31
+
+[PAGE 3]
+on the relevance of the in-context examples to the unlabeled input texts7.
+More sophisticated architectures include approaches such as retrieval-augmented generation (RAG) and chain-ofthought (CoT) prompting8. CoT is a reasoning paradigm that enables models to generate intermediate reasoning steps,
+mimicking human-like problem-solving processes9. It enhances performance on complex tasks by decomposing
+problems into sequential, logical steps, improving both accuracy and interpretability in multi-step reasoning scenarios.
+RAG involves retrieving query-relevant information, and enriching the context of the LLMs with retrieved contents
+prior to generation10. The retrieval process is typically guided by similarity measures11, such as cosine similarity
+between embeddings, which helps the model access contextually relevant examples or documents tailored to the
+input query. Once these relevant texts are retrieved, they are integrated into the prompt or used as additional context
+to aid the model’s response generation, resulting in a more contextually informed output.
+The motivation behind RAG is to address the limitations of LLMs in handling tasks that require specialized or
+up-to-date information12. Even with extensive training data, LLMs may struggle with domain-specific concepts or
+recent developments due to knowledge cutoffs and lack of domain specificity in training corpora13. By introducing
+contextually relevant information at inference time, RAG can significantly improve performance in specialized
+applications14, such as biomedical text analysis, where precision and relevance are critical. In biomedical NER,
+RAG can improve the adaptability of a model by retrieving examples or contexts that closely resemble the input text,
+thereby increasing the identification accuracy of entities14. In FSL settings, RAG architectures have the potential to
+reduce reliance on large annotated datasets by dynamically selecting relevant data15, making it particularly useful
+for domains where annotated data is limited. Additionally, RAG complements prompting techniques, like CoT
+prompting, by enabling stepwise reasoning based on retrieved information16, which may lead to better precision and
+recall for complex, sparse entities.
+With the aim of addressing the inherent limitations of static prompts and improving biomedical NER performance
+in FSL settings, we explore dynamic prompting techniques, which involve automatically retrieving suitable training
+examples and adjusting prompts based on contextual similarity. Following the optimization of prompts, we evaluate
+the effectiveness of the two types of prompting—static and dynamic—using three LLMs: GPT-3.5, GPT-4, and
+LLaMA 3 (open source), on five datasets. We investigate the effectiveness of both static and dynamic prompt
+engineering strategies, integrated with retrieval mechanisms, to improve few-shot NER. We systematically evaluate
+multiple retrieval mechanisms and investigate how prompt design choices affect model performance. Our results
+demonstrate the potential of these techniques to enhance entity recall and precision in biomedical NER, offering
+insights into the optimization of LLMs for biomedical applications.
+3/31
+
+[PAGE 4]
+The primary contributions of this work are as follows:
+• Development of a structured static prompt optimization framework, incorporating task-relevant instructions,
+entity definitions, and dataset contextualization to improve few-shot biomedical NER.
+• Integration and evaluation of RAG, assessing how distinct retrieval mechanisms (TF-IDF, SBERT, ColBERT,
+and DPR) enhance dynamic prompting by selecting contextually relevant examples.
+• Comparative analysis of static and dynamic prompting strategies, benchmarking their effectiveness in few-shot
+biomedical NER, and offering insights into their strengths across different datasets.
+Results
+Task-specific Static Prompting
+The results in Table 1 demonstrate consistent performance improvements across the five biomedical datasets when
+multiple components of the static prompting strategy are combined for all three LLMs. Compared to the baseline
+prompt, the addition of task-specific components, such as dataset descriptions, high-frequency instances, error
+analysis, and few-shot examples, led to significant improvements in precision, recall, and F 1-score across all
+datasets. GPT-4 showed the largest improvements when the full structured prompt was used. For GPT-4, the average
+F1-score increased by 12.0% across datasets, ranging from 6.95% for MIMIC III to 23.7% for Med-Mentions.
+GPT-3.5 obtained an average F1-score increase of 11.4%, with gains ranging from 7.1% for BC5CDR to 22.9% for
+Med-Mentions. LLaMA 3-70B, which started with the lowest baseline performance, showed an average F1-score
+increase of 11.1%, with its largest improvement also observed in the Med-Mentions dataset (21.44%).
+GPT-4 consistently outperformed GPT-3.5 and LLaMA 3-70B in all configurations, benefiting more from the
+integration of task-specific components, particularly in datasets such as BC5CDR and Med-Mentions, where it
+achieved the highest F1-score. GPT-3.5 and LLaMA 3, while achieving slightly lower overall performance still
+exhibited performance improvements relative to the baseline. This is evident in datasets such as REDDIT -IMPACTS ,
+where its F1-score exhibited significant improvement with the integration of additional components.
+As illustrated in Table 1, high-frequency instances (see Section Static Prompt Engineering), and dataset
+descriptions had the most notable impact on recall. For example, in the Med-Mentions dataset, adding highfrequency instances improved recall for GPT-4 by 6.57%. Few-shot examples at the token level provided the most
+significant increase in precision across models. For instance, precision in the NCBI dataset increased by 21.9% for
+GPT-3.5 and by 15.6% for GPT-4.
+4/31
+
+[PAGE 5]
+Table 1. Performance comparison of various prompting strategies across different datasets in terms of F1-score
+(F1), Precision (P), and Recall (R). The row "BP + All components" represents the combination of all strategies,
+with the best performance across datasets highlighted in bold. The red bold font indicates the best F 1 score achieved
+by an individual component, while black bold font highlights the highest Precision, and underlined text denotes the
+best Recall for a single component. Additionally, green bold font is used to mark F1 scores that are lower than the
+baseline performance (BP).
+Reddit_Impacts BC5CDR MIMIC III NCBI Med-Mentions
+P R F 1 P R F 1 P R F 1 P R F 1 P R F 1
+GPT-3.5
+Basic Prompt (BP) 10.3743.2616.7355.6476.8864.5655.3154.1154.7018.2851.3326.96 8.55 10.12 9.27
+BP + Description of datasets13.25 52.38 21.1559.25 81.47 68.6159.54 54.18 56.7326.24 50.25 34.4816.52 10.33 12.71
+BP + High-frequency instances13.40 50.13 21.1559.08 82.96 69.0159.93 55.66 57.7226.5455.68 35.9520.16 15.03 17.22
+BP + UMLS knowledge 10.17 42.8616.4454.24 80.57 64.8347.16 54.5050.5723.93 43.02 30.7510.26 11.58 10.88
+BP + Error analysis 12.02 48.21 19.2457.36 82.49 67.6764.63 55.16 59.5225.23 48.31 33.1518.74 13.24 15.52
+BP + 5-shot learning with sentences12.33 44.42 19.3059.30 82.04 68.8453.09 53.37 57.0337.09 43.78 40.1617.28 25.54 20.61
+BP + 5-shot learning with tokens 13.6353.1121.6962.2782.0270.7967.5055.9761.2140.1546.3243.0120.5430.5724.57
+BP + All above 15.3653.9223.9163.6484.8672.7367.7757.1061.9942.7348.0745.2422.1555.3231.63
+GPT-4
+Basic Prompt (BP) 12.7548.1520.1659.5683.2269.4357.5755.7256.6325.1350.4833.5618.2711.1213.83
+BP + Description of datasets15.12 52.94 23.5260.66 84.58 70.6563.35 56.42 59.6826.4355.22 35.7521.23 11.96 15.30
+BP + High-frequency instances15.9853.75 24.6463.89 84.06 72.6064.6156.14 60.0835.02 41.44 37.9621.72 17.69 19.50
+BP + UMLS knowledge 12.85 50.14 20.4659.48 84.63 69.8655.37 54.9055.1322.80 47.9230.9018.72 11.83 14.50
+BP + Error analysis 14.87 52.04 23.1367.92 82.75 74.6163.93 56.72 60.1134.86 41.38 37.8420.28 16.59 18.25
+BP + 5-shot learning with sentences14.71 51.48 22.8865.04 83.18 73.0058.49 55.03 58.2536.96 45.67 40.8627.42 30.33 28.80
+BP + 5-shot learning with tokens 17.2352.5725.9568.1087.6676.6563.4062.4962.9440.7248.4244.2427.7141.4133.20
+BP + All above 18.8752.0127.6068.6290.3278.0363.0664.1263.5845.0249.0246.9327.2660.0637.49
+Llama3-70B
+Basic Prompt (BP) 9.93 36.4215.6152.5276.0462.1346.5755.6450.7015.6324.3719.1519.5923.1721.23
+BP + Description of datasets13.27 35.26 19.2858.53 80.22 67.6856.64 55.81 56.2217.30 36.43 21.4423.59 19.87 21.57
+BP + High-frequency instances 14.5234.5320.4460.85 78.05 68.3955.65 56.47 56.0621.11 42.97 26.6223.9931.20 27.12
+BP + UMLS knowledge 7.87 35.8812.9157.11 74.63 64.7146.78 51.6348.9214.95 34.72 20.9122.09 25.51 23.68
+BP + Error analysis 12.46 38.86 18.8758.9680.52 68.0763.18 55.20 58.9216.84 44.65 24.4622.64 29.92 25.78
+BP + 5-shot learning with sentences11.35 39.71 17.6565.16 77.28 70.7062.90 51.61 56.8521.9749.94 30.5223.87 64.66 34.87
+BP + 5-shot learning with tokens13.3340.32 20.0466.0378.5771.7663.8960.1961.9834.4932.4133.4223.7268.4535.23
+BP + All above 13.1657.8621.4368.9778.3673.3259.3067.2762.9435.8134.7134.8025.8967.0537.26
+Figure 1. Performance distribution of prompting strategies across datasets (F1-score). The box plots depict the
+performance of various prompting strategies applied to five biomedical datasets, highlighting the range, median, and
+distribution of F1-scores for each strategy.
+5/31
+
+[TABLE page=5 index=1]
+Columns: Unnamed: 0 | Reddit_Impacts | Unnamed: 1 | BC5CDR | Unnamed: 2 | Unnamed: 3 | MIMIC III | Unnamed: 4 | NCBI | Unnamed: 5 | Unnamed: 6 | Med-Mentions
+Row 1: Unnamed: 0: P | Reddit_Impacts: R F1 | Unnamed: 1: P | BC5CDR: R | Unnamed: 2: F1 | Unnamed: 3: P | MIMIC III: R F1 | Unnamed: 4: P | NCBI: R | Unnamed: 5: F1 | Unnamed: 6: P | Med-Mentions: R F1
+[/TABLE]
+
+[TABLE page=5 index=2]
+Columns: Basic Prompt (BP) | 10.37 | 43.26 | 16.73 | 55.64 | 76.88 | 64.56 | 55.31 | 54.11 | 54.70 | 18.28 | 51.33 | 26.96 | 8.55 | 10.12 | 9.27
+Row 1: Basic Prompt (BP): BP + Description of datasets | 10.37: 13.25 | 43.26: 52.38 | 16.73: 21.15 | 55.64: 59.25 | 76.88: 81.47 | 64.56: 68.61 | 55.31: 59.54 | 54.11: 54.18 | 54.70: 56.73 | 18.28: 26.24 | 51.33: 50.25 | 26.96: 34.48 | 8.55: 16.52 | 10.12: 10.33 | 9.27: 12.71
+Row 2: Basic Prompt (BP): BP + High-frequency instances | 10.37: 13.4 | 43.26: 50.13 | 16.73: 21.15 | 55.64: 59.08 | 76.88: 82.96 | 64.56: 69.01 | 55.31: 59.93 | 54.11: 55.66 | 54.70: 57.72 | 18.28: 26.54 | 51.33: 55.68 | 26.96: 35.95 | 8.55: 20.16 | 10.12: 15.03 | 9.27: 17.22
+Row 3: Basic Prompt (BP): BP + UMLS knowledge | 10.37: 10.17 | 43.26: 42.86 | 16.73: 16.44 | 55.64: 54.24 | 76.88: 80.57 | 64.56: 64.83 | 55.31: 47.16 | 54.11: 54.5 | 54.70: 50.57 | 18.28: 23.93 | 51.33: 43.02 | 26.96: 30.75 | 8.55: 10.26 | 10.12: 11.58 | 9.27: 10.88
+Row 4: Basic Prompt (BP): BP + Error analysis | 10.37: 12.02 | 43.26: 48.21 | 16.73: 19.24 | 55.64: 57.36 | 76.88: 82.49 | 64.56: 67.67 | 55.31: 64.63 | 54.11: 55.16 | 54.70: 59.52 | 18.28: 25.23 | 51.33: 48.31 | 26.96: 33.15 | 8.55: 18.74 | 10.12: 13.24 | 9.27: 15.52
+Row 5: Basic Prompt (BP): BP + 5-shot learning with sentences | 10.37: 12.33 | 43.26: 44.42 | 16.73: 19.3 | 55.64: 59.3 | 76.88: 82.04 | 64.56: 68.84 | 55.31: 53.09 | 54.11: 53.37 | 54.70: 57.03 | 18.28: 37.09 | 51.33: 43.78 | 26.96: 40.16 | 8.55: 17.28 | 10.12: 25.54 | 9.27: 20.61
+Row 6: Basic Prompt (BP): BP + 5-shot learning with tokens | 10.37: 13.63 | 43.26: 53.11 | 16.73: 21.69 | 55.64: 62.27 | 76.88: 82.02 | 64.56: 70.79 | 55.31: 67.5 | 54.11: 55.97 | 54.70: 61.21 | 18.28: 40.15 | 51.33: 46.32 | 26.96: 43.01 | 8.55: 20.54 | 10.12: 30.57 | 9.27: 24.57
+Row 7: Basic Prompt (BP): BP + All above | 10.37: 15.36 | 43.26: 53.92 | 16.73: 23.91 | 55.64: 63.64 | 76.88: 84.86 | 64.56: 72.73 | 55.31: 67.77 | 54.11: 57.1 | 54.70: 61.99 | 18.28: 42.73 | 51.33: 48.07 | 26.96: 45.24 | 8.55: 22.15 | 10.12: 55.32 | 9.27: 31.63
+[/TABLE]
+
+[TABLE page=5 index=3]
+Columns: Basic Prompt (BP) | 12.75 | 48.15 | 20.16 | 59.56 | 83.22 | 69.43 | 57.57 | 55.72 | 56.63 | 25.13 | 50.48 | 33.56 | 18.27 | 11.12 | 13.83
+Row 1: Basic Prompt (BP): BP + Description of datasets | 12.75: 15.12 | 48.15: 52.94 | 20.16: 23.52 | 59.56: 60.66 | 83.22: 84.58 | 69.43: 70.65 | 57.57: 63.35 | 55.72: 56.42 | 56.63: 59.68 | 25.13: 26.43 | 50.48: 55.22 | 33.56: 35.75 | 18.27: 21.23 | 11.12: 11.96 | 13.83: 15.3
+Row 2: Basic Prompt (BP): BP + High-frequency instances | 12.75: 15.98 | 48.15: 53.75 | 20.16: 24.64 | 59.56: 63.89 | 83.22: 84.06 | 69.43: 72.6 | 57.57: 64.61 | 55.72: 56.14 | 56.63: 60.08 | 25.13: 35.02 | 50.48: 41.44 | 33.56: 37.96 | 18.27: 21.72 | 11.12: 17.69 | 13.83: 19.5
+Row 3: Basic Prompt (BP): BP + UMLS knowledge | 12.75: 12.85 | 48.15: 50.14 | 20.16: 20.46 | 59.56: 59.48 | 83.22: 84.63 | 69.43: 69.86 | 57.57: 55.37 | 55.72: 54.9 | 56.63: 55.13 | 25.13: 22.8 | 50.48: 47.92 | 33.56: 30.9 | 18.27: 18.72 | 11.12: 11.83 | 13.83: 14.5
+Row 4: Basic Prompt (BP): BP + Error analysis | 12.75: 14.87 | 48.15: 52.04 | 20.16: 23.13 | 59.56: 67.92 | 83.22: 82.75 | 69.43: 74.61 | 57.57: 63.93 | 55.72: 56.72 | 56.63: 60.11 | 25.13: 34.86 | 50.48: 41.38 | 33.56: 37.84 | 18.27: 20.28 | 11.12: 16.59 | 13.83: 18.25
+Row 5: Basic Prompt (BP): BP + 5-shot learning with sentences | 12.75: 14.71 | 48.15: 51.48 | 20.16: 22.88 | 59.56: 65.04 | 83.22: 83.18 | 69.43: 73.0 | 57.57: 58.49 | 55.72: 55.03 | 56.63: 58.25 | 25.13: 36.96 | 50.48: 45.67 | 33.56: 40.86 | 18.27: 27.42 | 11.12: 30.33 | 13.83: 28.8
+Row 6: Basic Prompt (BP): BP + 5-shot learning with tokens | 12.75: 17.23 | 48.15: 52.57 | 20.16: 25.95 | 59.56: 68.1 | 83.22: 87.66 | 69.43: 76.65 | 57.57: 63.4 | 55.72: 62.49 | 56.63: 62.94 | 25.13: 40.72 | 50.48: 48.42 | 33.56: 44.24 | 18.27: 27.71 | 11.12: 41.41 | 13.83: 33.2
+Row 7: Basic Prompt (BP): BP + All above | 12.75: 18.87 | 48.15: 52.01 | 20.16: 27.6 | 59.56: 68.62 | 83.22: 90.32 | 69.43: 78.03 | 57.57: 63.06 | 55.72: 64.12 | 56.63: 63.58 | 25.13: 45.02 | 50.48: 49.02 | 33.56: 46.93 | 18.27: 27.26 | 11.12: 60.06 | 13.83: 37.49
+[/TABLE]
+
+[TABLE page=5 index=4]
+Columns: Basic Prompt (BP) | 9.93 | 36.42 | 15.61 | 52.52 | 76.04 | 62.13 | 46.57 | 55.64 | 50.70 | 15.63 | 24.37 | 19.15 | 19.59 | 23.17 | 21.23
+Row 1: Basic Prompt (BP): BP + Description of datasets | 9.93: 13.27 | 36.42: 35.26 | 15.61: 19.28 | 52.52: 58.53 | 76.04: 80.22 | 62.13: 67.68 | 46.57: 56.64 | 55.64: 55.81 | 50.70: 56.22 | 15.63: 17.3 | 24.37: 36.43 | 19.15: 21.44 | 19.59: 23.59 | 23.17: 19.87 | 21.23: 21.57
+Row 2: Basic Prompt (BP): BP + High-frequency instances | 9.93: 14.52 | 36.42: 34.53 | 15.61: 20.44 | 52.52: 60.85 | 76.04: 78.05 | 62.13: 68.39 | 46.57: 55.65 | 55.64: 56.47 | 50.70: 56.06 | 15.63: 21.11 | 24.37: 42.97 | 19.15: 26.62 | 19.59: 23.99 | 23.17: 31.2 | 21.23: 27.12
+Row 3: Basic Prompt (BP): BP + UMLS knowledge | 9.93: 7.87 | 36.42: 35.88 | 15.61: 12.91 | 52.52: 57.11 | 76.04: 74.63 | 62.13: 64.71 | 46.57: 46.78 | 55.64: 51.63 | 50.70: 48.92 | 15.63: 14.95 | 24.37: 34.72 | 19.15: 20.91 | 19.59: 22.09 | 23.17: 25.51 | 21.23: 23.68
+Row 4: Basic Prompt (BP): BP + Error analysis | 9.93: 12.46 | 36.42: 38.86 | 15.61: 18.87 | 52.52: 58.96 | 76.04: 80.52 | 62.13: 68.07 | 46.57: 63.18 | 55.64: 55.2 | 50.70: 58.92 | 15.63: 16.84 | 24.37: 44.65 | 19.15: 24.46 | 19.59: 22.64 | 23.17: 29.92 | 21.23: 25.78
+Row 5: Basic Prompt (BP): BP + 5-shot learning with sentences | 9.93: 11.35 | 36.42: 39.71 | 15.61: 17.65 | 52.52: 65.16 | 76.04: 77.28 | 62.13: 70.7 | 46.57: 62.9 | 55.64: 51.61 | 50.70: 56.85 | 15.63: 21.97 | 24.37: 49.94 | 19.15: 30.52 | 19.59: 23.87 | 23.17: 64.66 | 21.23: 34.87
+Row 6: Basic Prompt (BP): BP + 5-shot learning with tokens | 9.93: 13.33 | 36.42: 40.32 | 15.61: 20.04 | 52.52: 66.03 | 76.04: 78.57 | 62.13: 71.76 | 46.57: 63.89 | 55.64: 60.19 | 50.70: 61.98 | 15.63: 34.49 | 24.37: 32.41 | 19.15: 33.42 | 19.59: 23.72 | 23.17: 68.45 | 21.23: 35.23
+Row 7: Basic Prompt (BP): BP + All above | 9.93: 13.16 | 36.42: 57.86 | 15.61: 21.43 | 52.52: 68.97 | 76.04: 78.36 | 62.13: 73.32 | 46.57: 59.3 | 55.64: 67.27 | 50.70: 62.94 | 15.63: 35.81 | 24.37: 34.71 | 19.15: 34.8 | 19.59: 25.89 | 23.17: 67.05 | 21.23: 37.26
+[/TABLE]
+
+[PAGE 6]
+Figure 1 highlights the performance changes associated with different prompting strategies across datasets.
+The incorporation of knowledge from the unified medical language system (UMLS) improved recall in certain
+datasets such as BC5CDR but underperformed compared to the baseline prompt for datasets like REDDIT -I MPACTS
+and NCBI. This component aimed to provide foundational biomedical knowledge by introducing descriptions and
+context derived from UMLS. However, this approach may have introduced noise, particularly in datasets that are
+not strongly aligned with UMLS’s predefined biomedical concepts. For example, in theREDDIT -I MPACTS dataset,
+GPT-3.5’s F1-score decreased slightly from 16.7 to 16.4, suggesting that the background information from UMLS
+diluted the model’s ability to capture task-specific cues. 95% confidence intervals (CIs) for each metric are provided
+in Table 6 in Supplementary Materials.
+Dynamic Prompting with RAG
+The results in Table 2 demonstrate the effectiveness of dynamic prompting in multiple FSL settings (5-shot, 10-shot,
+and 20-shot) for GPT-4 and LLaMA 3 across five biomedical datasets*. As described in the Section Experimental
+Setup, the baseline prompts used randomly selected examples, and the results were averaged over four random
+runs. Detailed results for each random run, along with the averaged results, are presented in Table 1 to Table 5 in
+Supplementary Materials. 95% confidence intervals (CIs) for each metric are provided in Table 7 in Supplementary
+Materials. We also provided examples of predictions in Supplementary Materials.
+Both LLMs benefit significantly from retrieval-augmented methods. TF-IDF and ColBERT frequently produce
+the highest F1-scores for both models. SBERT also consistently improves over the base method, especially for
+GPT-4. For GPT-4, TF-IDF retrieval outperforms other methods in most cases. For example, on the BC5CDR
+dataset, TF-IDF achieves the highest F1-score of 85.9% in the 5-shot setting, 86.6% in the 10-shot setting, and 87.2%
+in the 20-shot setting. Similarly, for the MIMIC III dataset, TF-IDF achieves the top F1-score of 76.2% in the 5-shot
+setting and 77.7% in the 20-shot setting. In contrast, SBERT exhibits strong performance on the REDDIT -IMPACTS
+dataset, where it achieves the highest F1-scores of 33.7% (5-shot) and 35.5% (10-shot). Moreover, SBERT achieves
+an F1-score of 41.43% on REDDIT -IMPACTS in the 20-shot setting, outperforming TF-IDF by a margin of 3.08%.
+For LLaMA 3, DPR retrieval achieves competitive results, particularly on BC5CDR, where it achieves the highest
+F1-scores of 84.8% (10-shot) and 74.8% (20-shot). SBERT also performs strongly on the REDDIT -I MPACTS dataset,
+achieving F1-scores of 34.4% (5-shot) and 41.4% (20-shot).
+Figure 2 presents the F1-scores of five biomedical datasets by using different retrieval methods compared to
+static prompting for multiple shot settings: 5-shot, 10-shot, and 20-shot. The results are averaged across evaluations
+*We excluded GPT-3.5 due to its consistent underperformance relative to GPT-4 in the previous experiments.
+6/31
+
+[PAGE 7]
+Table 2. Evaluation of dynamic prompting strategies (5-shot, 10-shot, and 20-shot) using GPT-4 and Llama 3
+across five biomedical datasets. The table presents F1-score, precision, and recall for each retrieval method: Base
+Prompt, TF-IDF, SBERT, ColBERT, and DPR. The row "Base" represents using static prompts we proposed in the
+former section.
+Reddit_Impacts BC5CDR MIMIC III NCBI Med-Mentions
+P R F 1 P R F 1 P R F 1 P R F 1 P R F 1
+GPT-4
+Base 18.87 52.01 27.60 68.62 90.32 78.03 63.06 64.12 63.58 45.02 49.02 46.93 27.26 60.06 37.49
+TF-IDF 19.71 51.25 28.47 82.31 89.76 85.88 74.43 78.14 76.24 56.86 63.68 60.08 27.22 62.68 37.96
+SBERT 24.31 55.00 33.72 76.63 91.41 83.37 72.63 74.27 73.44 55.05 60.30 57.56 28.05 64.65 39.12
+ColBERT22.66 56.79 32.39 78.64 81.03 79.82 74.14 77.02 75.56 50.43 54.48 52.38 28.14 68.69 39.93
+5-shot
+DPR 22.60 58.79 32.64 79.39 88.24 83.58 69.77 70.00 69.89 46.67 52.39 49.37 27.90 65.49 39.13
+Base 22.25 56.66 31.92 75.33 88.31 81.27 66.38 74.24 70.09 53.23 52.13 52.67 26.67 59.20 36.74
+TF-IDF 21.53 56.25 31.14 83.81 89.67 86.64 73.85 77.29 75.53 58.81 65.66 62.05 28.14 71.42 40.37
+SBERT 25.41 58.75 35.47 83.94 87.99 85.92 72.73 75.08 73.89 58.79 63.02 60.83 28.32 70.26 40.37
+ColBERT23.86 58.02 33.81 83.49 88.05 85.71 74.69 78.06 76.34 55.12 59.56 57.25 28.15 71.99 40.48
+10-shot
+DPR 22.96 56.25 32.61 85.16 84.42 84.79 71.84 72.42 72.13 56.82 60.72 58.70 28.25 70.04 40.25
+Base 27.74 58.75 37.67 74.57 89.18 81.15 70.65 71.32 70.98 51.68 52.29 51.98 28.10 60.78 38.39
+TF-IDF 27.72 62.20 38.35 85.41 88.98 87.16 75.81 79.61 77.66 61.80 67.13 64.36 28.20 77.30 41.32
+SBERT 28.44 59.50 38.22 85.37 89.57 87.42 73.79 76.54 75.14 60.89 63.59 62.21 26.81 74.09 39.37
+ColBERT 31.1966.67 42.49 82.09 83.94 83.00 75.27 78.19 76.70 56.13 59.35 57.69 27.70 75.47 40.53
+20-shot
+DPR 28.55 60.75 38.84 85.81 85.40 85.60 71.82 72.74 72.28 59.00 61.74 60.34 27.16 69.37 39.23
+Llama3-70B
+Base 13.16 57.86 21.43 68.97 78.36 73.32 59.30 67.27 62.94 35.81 34.71 34.80 25.89 67.05 37.26
+TF-IDF 18.89 58.62 28.57 78.49 81.78 80.11 66.48 74.84 70.41 48.93 50.70 49.80 26.46 72.06 38.68
+SBERT 23.20 66.67 34.42 77.26 83.79 80.39 64.04 72.21 67.88 50.66 49.59 50.12 26.15 68.92 37.91
+ColBERT22.05 65.12 32.94 71.21 72.33 71.76 68.37 75.32 71.68 44.93 46.08 45.50 26.68 72.38 38.99
+5-shot
+DPR 19.20 59.26 29.00 74.47 76.91 75.67 65.74 72.54 68.97 41.06 48.66 44.54 26.51 71.38 38.66
+Base 22.37 59.94 32.50 72.56 77.91 75.15 59.13 71.63 63.77 39.67 31.49 35.60 25.57 64.33 36.50
+TF-IDF 23.53 62.65 34.21 80.82 80.32 80.57 55.79 55.34 55.56 49.59 49.41 49.50 24.03 68.00 35.51
+SBERT 22.27 59.76 32.45 77.72 84.94 81.17 67.67 76.09 71.63 52.84 49.94 51.35 27.61 66.88 39.08
+ColBERT22.58 60.50 32.89 78.40 82.37 80.34 69.65 76.37 72.85 38.72 38.81 38.77 26.49 67.58 38.06
+10-shot
+DPR 24.37 57.83 34.29 85.16 84.42 84.79 65.85 73.68 69.54 47.60 45.04 46.28 25.80 70.97 37.85
+Base 24.52 53.81 33.67 75.42 75.58 75.50 62.01 62.12 62.05 40.71 42.58 41.62 26.57 64.79 37.67
+TF-IDF 27.62 66.95 39.11 74.64 82.47 78.36 55.95 58.51 57.66 45.39 49.83 47.50 27.80 64.39 38.83
+SBERT 29.93 68.06 41.43 75.04 80.75 76.85 65.90 64.77 65.35 42.09 46.40 44.14 25.48 61.36 36.01
+ColBERT23.57 65.48 34.66 73.74 70.70 72.19 58.25 57.03 57.63 47.08 49.88 48.44 25.41 66.98 36.85
+20-shot
+DPR 26.15 65.04 37.30 72.58 77.15 74.80 62.72 69.19 65.80 37.18 44.13 40.36 26.10 62.88 36.89
+7/31
+
+[TABLE page=7 index=1]
+Columns: Unnamed: 0 | Reddit_Impacts | Unnamed: 1 | BC5CDR | Unnamed: 2 | Unnamed: 3 | MIMIC III | Unnamed: 4 | NCBI | Unnamed: 5 | Unnamed: 6 | Med-Mentions
+Row 1: Unnamed: 0: P | Reddit_Impacts: R F1 | Unnamed: 1: P | BC5CDR: R | Unnamed: 2: F1 | Unnamed: 3: P | MIMIC III: R F1 | Unnamed: 4: P | NCBI: R | Unnamed: 5: F1 | Unnamed: 6: P | Med-Mentions: R F1
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: Unnamed: 0 | Base | 18.87 | 52.01 | 27.60 | 68.62 | 90.32 | 78.03 | 63.06 | 64.12 | 63.58 | 45.02 | 49.02 | 46.93 | 27.26 | 60.06 | 37.49
+Row 1: Unnamed: 0: | Base: TF-IDF | 18.87: 19.71 | 52.01: 51.25 | 27.60: 28.47 | 68.62: 82.31 | 90.32: 89.76 | 78.03: 85.88 | 63.06: 74.43 | 64.12: 78.14 | 63.58: 76.24 | 45.02: 56.86 | 49.02: 63.68 | 46.93: 60.08 | 27.26: 27.22 | 60.06: 62.68 | 37.49: 37.96
+Row 2: Unnamed: 0: 5-shot | Base: SBERT | 18.87: 24.31 | 52.01: 55.0 | 27.60: 33.72 | 68.62: 76.63 | 90.32: 91.41 | 78.03: 83.37 | 63.06: 72.63 | 64.12: 74.27 | 63.58: 73.44 | 45.02: 55.05 | 49.02: 60.3 | 46.93: 57.56 | 27.26: 28.05 | 60.06: 64.65 | 37.49: 39.12
+Row 3: Unnamed: 0: | Base: ColBERT | 18.87: 22.66 | 52.01: 56.79 | 27.60: 32.39 | 68.62: 78.64 | 90.32: 81.03 | 78.03: 79.82 | 63.06: 74.14 | 64.12: 77.02 | 63.58: 75.56 | 45.02: 50.43 | 49.02: 54.48 | 46.93: 52.38 | 27.26: 28.14 | 60.06: 68.69 | 37.49: 39.93
+Row 4: Unnamed: 0: | Base: DPR | 18.87: 22.6 | 52.01: 58.79 | 27.60: 32.64 | 68.62: 79.39 | 90.32: 88.24 | 78.03: 83.58 | 63.06: 69.77 | 64.12: 70.0 | 63.58: 69.89 | 45.02: 46.67 | 49.02: 52.39 | 46.93: 49.37 | 27.26: 27.9 | 60.06: 65.49 | 37.49: 39.13
+Row 5: Unnamed: 0: | Base: Base | 18.87: 22.25 | 52.01: 56.66 | 27.60: 31.92 | 68.62: 75.33 | 90.32: 88.31 | 78.03: 81.27 | 63.06: 66.38 | 64.12: 74.24 | 63.58: 70.09 | 45.02: 53.23 | 49.02: 52.13 | 46.93: 52.67 | 27.26: 26.67 | 60.06: 59.2 | 37.49: 36.74
+Row 6: Unnamed: 0: | Base: TF-IDF | 18.87: 21.53 | 52.01: 56.25 | 27.60: 31.14 | 68.62: 83.81 | 90.32: 89.67 | 78.03: 86.64 | 63.06: 73.85 | 64.12: 77.29 | 63.58: 75.53 | 45.02: 58.81 | 49.02: 65.66 | 46.93: 62.05 | 27.26: 28.14 | 60.06: 71.42 | 37.49: 40.37
+Row 7: Unnamed: 0: 10-shot | Base: SBERT | 18.87: 25.41 | 52.01: 58.75 | 27.60: 35.47 | 68.62: 83.94 | 90.32: 87.99 | 78.03: 85.92 | 63.06: 72.73 | 64.12: 75.08 | 63.58: 73.89 | 45.02: 58.79 | 49.02: 63.02 | 46.93: 60.83 | 27.26: 28.32 | 60.06: 70.26 | 37.49: 40.37
+Row 8: Unnamed: 0: | Base: ColBERT | 18.87: 23.86 | 52.01: 58.02 | 27.60: 33.81 | 68.62: 83.49 | 90.32: 88.05 | 78.03: 85.71 | 63.06: 74.69 | 64.12: 78.06 | 63.58: 76.34 | 45.02: 55.12 | 49.02: 59.56 | 46.93: 57.25 | 27.26: 28.15 | 60.06: 71.99 | 37.49: 40.48
+Row 9: Unnamed: 0: | Base: DPR | 18.87: 22.96 | 52.01: 56.25 | 27.60: 32.61 | 68.62: 85.16 | 90.32: 84.42 | 78.03: 84.79 | 63.06: 71.84 | 64.12: 72.42 | 63.58: 72.13 | 45.02: 56.82 | 49.02: 60.72 | 46.93: 58.7 | 27.26: 28.25 | 60.06: 70.04 | 37.49: 40.25
+Row 10: Unnamed: 0: | Base: Base | 18.87: 27.74 | 52.01: 58.75 | 27.60: 37.67 | 68.62: 74.57 | 90.32: 89.18 | 78.03: 81.15 | 63.06: 70.65 | 64.12: 71.32 | 63.58: 70.98 | 45.02: 51.68 | 49.02: 52.29 | 46.93: 51.98 | 27.26: 28.1 | 60.06: 60.78 | 37.49: 38.39
+Row 11: Unnamed: 0: | Base: TF-IDF | 18.87: 27.72 | 52.01: 62.2 | 27.60: 38.35 | 68.62: 85.41 | 90.32: 88.98 | 78.03: 87.16 | 63.06: 75.81 | 64.12: 79.61 | 63.58: 77.66 | 45.02: 61.8 | 49.02: 67.13 | 46.93: 64.36 | 27.26: 28.2 | 60.06: 77.3 | 37.49: 41.32
+Row 12: Unnamed: 0: 20-shot | Base: SBERT | 18.87: 28.44 | 52.01: 59.5 | 27.60: 38.22 | 68.62: 85.37 | 90.32: 89.57 | 78.03: 87.42 | 63.06: 73.79 | 64.12: 76.54 | 63.58: 75.14 | 45.02: 60.89 | 49.02: 63.59 | 46.93: 62.21 | 27.26: 26.81 | 60.06: 74.09 | 37.49: 39.37
+Row 13: Unnamed: 0: | Base: ColBERT | 18.87: 31.19 | 52.01: 66.67 | 27.60: 42.49 | 68.62: 82.09 | 90.32: 83.94 | 78.03: 83.0 | 63.06: 75.27 | 64.12: 78.19 | 63.58: 76.7 | 45.02: 56.13 | 49.02: 59.35 | 46.93: 57.69 | 27.26: 27.7 | 60.06: 75.47 | 37.49: 40.53
+Row 14: Unnamed: 0: | Base: DPR | 18.87: 28.55 | 52.01: 60.75 | 27.60: 38.84 | 68.62: 85.81 | 90.32: 85.4 | 78.03: 85.6 | 63.06: 71.82 | 64.12: 72.74 | 63.58: 72.28 | 45.02: 59.0 | 49.02: 61.74 | 46.93: 60.34 | 27.26: 27.16 | 60.06: 69.37 | 37.49: 39.23
+[/TABLE]
+
+[TABLE page=7 index=3]
+Columns: Unnamed: 0 | Base | 13.16 | 57.86 | 21.43 | 68.97 | 78.36 | 73.32 | 59.30 | 67.27 | 62.94 | 35.81 | 34.71 | 34.80 | 25.89 | 67.05 | 37.26
+Row 1: Unnamed: 0: | Base: TF-IDF | 13.16: 18.89 | 57.86: 58.62 | 21.43: 28.57 | 68.97: 78.49 | 78.36: 81.78 | 73.32: 80.11 | 59.30: 66.48 | 67.27: 74.84 | 62.94: 70.41 | 35.81: 48.93 | 34.71: 50.7 | 34.80: 49.8 | 25.89: 26.46 | 67.05: 72.06 | 37.26: 38.68
+Row 2: Unnamed: 0: 5-shot | Base: SBERT | 13.16: 23.2 | 57.86: 66.67 | 21.43: 34.42 | 68.97: 77.26 | 78.36: 83.79 | 73.32: 80.39 | 59.30: 64.04 | 67.27: 72.21 | 62.94: 67.88 | 35.81: 50.66 | 34.71: 49.59 | 34.80: 50.12 | 25.89: 26.15 | 67.05: 68.92 | 37.26: 37.91
+Row 3: Unnamed: 0: | Base: ColBERT | 13.16: 22.05 | 57.86: 65.12 | 21.43: 32.94 | 68.97: 71.21 | 78.36: 72.33 | 73.32: 71.76 | 59.30: 68.37 | 67.27: 75.32 | 62.94: 71.68 | 35.81: 44.93 | 34.71: 46.08 | 34.80: 45.5 | 25.89: 26.68 | 67.05: 72.38 | 37.26: 38.99
+Row 4: Unnamed: 0: | Base: DPR | 13.16: 19.2 | 57.86: 59.26 | 21.43: 29.0 | 68.97: 74.47 | 78.36: 76.91 | 73.32: 75.67 | 59.30: 65.74 | 67.27: 72.54 | 62.94: 68.97 | 35.81: 41.06 | 34.71: 48.66 | 34.80: 44.54 | 25.89: 26.51 | 67.05: 71.38 | 37.26: 38.66
+Row 5: Unnamed: 0: | Base: Base | 13.16: 22.37 | 57.86: 59.94 | 21.43: 32.5 | 68.97: 72.56 | 78.36: 77.91 | 73.32: 75.15 | 59.30: 59.13 | 67.27: 71.63 | 62.94: 63.77 | 35.81: 39.67 | 34.71: 31.49 | 34.80: 35.6 | 25.89: 25.57 | 67.05: 64.33 | 37.26: 36.5
+Row 6: Unnamed: 0: | Base: TF-IDF | 13.16: 23.53 | 57.86: 62.65 | 21.43: 34.21 | 68.97: 80.82 | 78.36: 80.32 | 73.32: 80.57 | 59.30: 55.79 | 67.27: 55.34 | 62.94: 55.56 | 35.81: 49.59 | 34.71: 49.41 | 34.80: 49.5 | 25.89: 24.03 | 67.05: 68.0 | 37.26: 35.51
+Row 7: Unnamed: 0: 10-shot | Base: SBERT | 13.16: 22.27 | 57.86: 59.76 | 21.43: 32.45 | 68.97: 77.72 | 78.36: 84.94 | 73.32: 81.17 | 59.30: 67.67 | 67.27: 76.09 | 62.94: 71.63 | 35.81: 52.84 | 34.71: 49.94 | 34.80: 51.35 | 25.89: 27.61 | 67.05: 66.88 | 37.26: 39.08
+Row 8: Unnamed: 0: | Base: ColBERT | 13.16: 22.58 | 57.86: 60.5 | 21.43: 32.89 | 68.97: 78.4 | 78.36: 82.37 | 73.32: 80.34 | 59.30: 69.65 | 67.27: 76.37 | 62.94: 72.85 | 35.81: 38.72 | 34.71: 38.81 | 34.80: 38.77 | 25.89: 26.49 | 67.05: 67.58 | 37.26: 38.06
+Row 9: Unnamed: 0: | Base: DPR | 13.16: 24.37 | 57.86: 57.83 | 21.43: 34.29 | 68.97: 85.16 | 78.36: 84.42 | 73.32: 84.79 | 59.30: 65.85 | 67.27: 73.68 | 62.94: 69.54 | 35.81: 47.6 | 34.71: 45.04 | 34.80: 46.28 | 25.89: 25.8 | 67.05: 70.97 | 37.26: 37.85
+Row 10: Unnamed: 0: | Base: Base | 13.16: 24.52 | 57.86: 53.81 | 21.43: 33.67 | 68.97: 75.42 | 78.36: 75.58 | 73.32: 75.5 | 59.30: 62.01 | 67.27: 62.12 | 62.94: 62.05 | 35.81: 40.71 | 34.71: 42.58 | 34.80: 41.62 | 25.89: 26.57 | 67.05: 64.79 | 37.26: 37.67
+Row 11: Unnamed: 0: | Base: TF-IDF | 13.16: 27.62 | 57.86: 66.95 | 21.43: 39.11 | 68.97: 74.64 | 78.36: 82.47 | 73.32: 78.36 | 59.30: 55.95 | 67.27: 58.51 | 62.94: 57.66 | 35.81: 45.39 | 34.71: 49.83 | 34.80: 47.5 | 25.89: 27.8 | 67.05: 64.39 | 37.26: 38.83
+Row 12: Unnamed: 0: 20-shot | Base: SBERT | 13.16: 29.93 | 57.86: 68.06 | 21.43: 41.43 | 68.97: 75.04 | 78.36: 80.75 | 73.32: 76.85 | 59.30: 65.9 | 67.27: 64.77 | 62.94: 65.35 | 35.81: 42.09 | 34.71: 46.4 | 34.80: 44.14 | 25.89: 25.48 | 67.05: 61.36 | 37.26: 36.01
+Row 13: Unnamed: 0: | Base: ColBERT | 13.16: 23.57 | 57.86: 65.48 | 21.43: 34.66 | 68.97: 73.74 | 78.36: 70.7 | 73.32: 72.19 | 59.30: 58.25 | 67.27: 57.03 | 62.94: 57.63 | 35.81: 47.08 | 34.71: 49.88 | 34.80: 48.44 | 25.89: 25.41 | 67.05: 66.98 | 37.26: 36.85
+Row 14: Unnamed: 0: | Base: DPR | 13.16: 26.15 | 57.86: 65.04 | 21.43: 37.3 | 68.97: 72.58 | 78.36: 77.15 | 73.32: 74.8 | 59.30: 62.72 | 67.27: 69.19 | 62.94: 65.8 | 35.81: 37.18 | 34.71: 44.13 | 34.80: 40.36 | 25.89: 26.1 | 67.05: 62.88 | 37.26: 36.89
+[/TABLE]
+
+[PAGE 8]
+Figure 2. Comparison of average F1-scores for GPT-4 and LLaMA 3 models across different datasets under
+varying shot settings.
+8/31
+
+[PAGE 9]
+conducted using GPT-4 and LLaMA 3 models. Across all settings, all retrieval-based methods show significant
+improvements, demonstrating the benefit of incorporating retrieval methods into the prompting strategy.
+1. 5-shot Analysis: The SBERT retrieval engine achieves the highest average F1-score for the REDDIT -IMPACTS
+dataset (34.1%), while TF-IDF performs best on BC5CDR (83.0%) and NCBI (54.9%). For MIMIC III, ColBERT
+leads with an F1-score of 73.6%, and on Med-Mentions, ColBERT also stands out with a top score of 39.5%. TF-IDF
+achieved an average F1-score improvement of 7.28% across all datasets in the 5-shot setting, followed closely by
+SBERT with 7.46%. ColBERT and DPR showed more modest improvements, with 5.76% and 4.81%, respectively.
+These results highlight the dataset-specific strengths of different retrieval methods, with TF-IDF showing strong
+performance on entity-rich datasets like BC5CDR and NCBI.
+2. 10-shot Analysis: The SBERT engine again stands out as the best-performing retrieval method overall,
+achieving the highest F1-scores on three datasets: REDDIT -IMPACTS (34.0%), Med-Mentions (39.7%), and NCBI
+(56.1%). DPR achieves the top score on BC5CDR (84.8%), while ColBERT performs best on MIMIC III with an
+F1-score of 74.6%. Consistent with these findings, SBERT also demonstrates the largest overall improvement over
+the base method, with an average gain of 5.59%. It is followed by ColBERT with 4.87% and DPR with 4.50%, while
+TF-IDF shows the smallest improvement in the 10-shot setting, with an average increase of 3.49%. These results
+highlight a departure from the 5-shot setting, where TF-IDF dominated, indicating that SBERT is better suited for
+slightly larger data scenarios.
+3. 20-shot Analysis: TF-IDF once again demonstrates strong performance, achieving the highest F1-scores on
+three datasets: BC5CDR (82.8%), NCBI (55.9%), and Med-Mentions (40.1%). SBERT leads on REDDIT -IMPACTS
+with a top score of 39.8%, while it also performs best on MIMIC III with an F1-score of 70.2%. Among the retrieval
+approaches, in the 20-shot setting, TF-IDF achieves the highest average improvement with 3.96%, followed closely
+by SBERT with 3.55%. DPR shows a moderate improvement with 2.08%, while ColBERT exhibits the lowest
+increase of 1.95%. These results highlight TF-IDF’s and SBERT’s consistent robustness across multiple datasets as
+the top-performing retrieval method.
+Overall, GPT-4 consistently achieves higher F1-scores compared to LLaMA 3 across most datasets and retrieval
+methods, particularly in 5-shot setting, with an average F 1 score 17.3% higher than LLaMA 3. In the 10-shot
+setting, this gap narrows to 5.47%, but GPT-4 still maintains a clear advantage. Finally, in the 20-shot setting, GPT-4
+surpasses LLaMA 3 by an average F1 score of 8.30%. This improvement becomes even more significant in datasets
+with sparse or noisy data, where retrieval-augmented methods play a critical role. LLaMA 3 shows comparable
+9/31
+
+[PAGE 10]
+performance in 20-shot setting but struggles to close the gap with GPT-4 in scenarios with fewer examples or more
+noisy data. This highlights GPT-4’s robustness in leveraging limited training data.
+Across all datasets and shot settings on GPT 4, larger training sizes (20-shot) tend to yield higher F 1-scores,
+precision, and recall. Specifically, from 5-shot to 10-shot, the mean F1-score increases by 2.51%, while precision
+and recall improve by 2.22% and 1.02%, respectively. However, from 10-shot to 20-shot, the performance gains
+are notably smaller, with F1-score increasing by 1.64%, precision by 0.16%, and recall by only 0.05%. Overall,
+comparing 5-shot to 20-shot, the models achieve a cumulative improvement of 4.16% in F 1-score, 2.38% in
+precision, and 1.07% in recall. However, on LLaMA 3, this increase is less consistent, with the best performance
+observed at the 10-shot setting across all datasets except for the REDDIT -I MPACTS dataset. From 10-shot to 20-shot,
+mean F1-score decreases by -1.46%, mean precision drops by -1.36%, and mean recall declines by -1.75%. The
+combination of effective retrieval methods and larger shot sizes (more examples) contributes significantly to the
+overall improvements observed in model performance across all datasets.
+Discussion
+NER is one of the most commonly applied NLP tasks, and while the emergence of LLMs have led to substantial
+leaps in few-shot NER performance, innovative strategies are needed to address some of their limitations for real-life
+application in biomedicine. Improving FSL NER methods involving LLMs has the potential to substantially reduce
+the time and cost required for manual annotation. The methods proposed in this paper, validated on multiple
+standardized datasets with differing characteristics, present an important step towards operationalizing automated
+NER from biomedical texts, including in healthcare settings.
+Our extensive empirical explorations revealed findings that will be useful for future research and application in
+this space. First, GPT-4 consistently outperforms GPT-3.5 and LLaMA 3-70B across datasets and configurations,
+demonstrating its robustness in understanding nuanced biomedical information. The consistent high performance
+of GPT-4 may be attributable to several factors. GPT-4 has significantly more parameters compared to GPT-3.5
+and LLaMA 3-70B, enabling it to capture finer-grained contextual nuances, especially in complex and domainspecific tasks. Furthermore, in datasets with sparse or ambiguous annotations, such as REDDIT -IMPACTS or
+Med-Mentions, GPT-4 achieves higher recall, indicating its ability to identify relevant entities and relationships
+more comprehensively. Further, retrieval engines improve performance by providing task-relevant context that
+enhances the model’s understanding of the input, effectively bridging the gap between the model’s general pretraining
+knowledge and the specific requirements of the task. Our results broadly show that TF-IDF based retrieval works
+well for datasets that have low noise and limited out-of-vocabulary expressions, despite its simplicity. In contrast,
+10/31
+
+[PAGE 11]
+engines like SBERT perform better on linguistically diverse datasets, especially onREDDIT -IMPACTS dataset, by
+leveraging semantic embeddings, which capture nuanced relationships between words and phrases. Advanced
+retrieval methods like ColBERT and DPR generally underperformed compared to TF-IDF and SBERT. This may be
+due to several reasons. ColBERT and DPR rely on dense representations, which, while powerful for general-purpose
+semantic matching, may fail to capture the precise, domain-specific distinctions critical in biomedical datasets.
+Furthermore, their reliance on dense embeddings can sometimes overfit to irrelevant semantic similarities, retrieving
+documents that are semantically related but not contextually relevant to the query.
+Given these findings, our results suggest that TF-IDF is the most efficient option for retrieval in datasets with
+low noise, while SBERT is better suited for handling linguistically diverse data. ColBERT and DPR, despite their
+strengths in general-purpose retrieval, do not provide substantial advantages in this domain and may introduce
+unnecessary computational overhead. Thus, for biomedical applications requiring high precision and efficiency,
+TF-IDF and SBERT offer the best balance of performance and efficiency. The effect of shot size on performance
+is not uniform, as observed in the results across datasets. While increasing the shot size from 5 to 20 generally
+improves F1-scores, the extent of improvement is dataset-dependent. Datasets with formal texts, like BC5CDR,
+which already benefit from the inclusion of the retrieval engine, exhibit marginal gains with additional examples. In
+contrast, noisy datasets like REDDIT -IMPACTS are more sensitive to shot size, as more examples help the model
+adapt to diverse linguistic patterns and reduce misclassifications. 20-shot does not always yield the best results.
+One reason is diminishing returns: as the number of examples increases, redundancy or noise may be introduced,
+especially in datasets where retrieval engines already provide strong task-specific context. Another potential reason
+arises from the inherent constraints of LLMs, such as input token limits. As the shot size grows, the available space
+for processing task-specific context diminishes, potentially diluting the effectiveness of the prompt or truncating
+important information. Our findings suggest that for NER tasks involving sparsely-occurring entities, RAG-based
+dynamic prompting is likely to obtain better performance compared to optimized, static prompts. For retrieval,
+performances of the different engines were mostly comparable, and TF-IDF and SBERT consistently performed
+well. As the number of training instances increased, the impact of dynamic prompting over static prompting
+(Base), became less visible. This is expected since in high-shot settings, random draws of training instances contain
+considerable diversity to enable model generalization. It is also possible that as the number of examples provided for
+in-context learning increases, the overall increase in the length of the prompt diminishes the performance of the
+LLMs. The influence of input text length and LLM performance is an area of active research17.
+11/31
+
+[PAGE 12]
+Methods
+Static Prompt Engineering
+Baseline prompt with task description, entity
+types with definitions, and format specification
+Task-specific static prompt framework
+Description of datasets
+High-frequency instances
+Background knowledge from the UMLS
+Examples as few-shot learning
+GPT-3.5-turbo-16k
+Reddit-Impacts
+Datasets
+Precision,
+Recall,
+F1-score
+Role: system
+Content: Prompt with
+different strategies
+Error analysis and feedback
+Large Language Models GPT-4
+Meta Llama3
+Figure 3. An overview of the NER strategy based on static prompting on three LLMs. Static prompts containing
+different information are provided to the LLMs, which, in turn, generate predictions for evaluation.
+Figure 3 presents the components of the static prompt we optimized for the LLMs. We systematically designed
+task-specific static prompts comprising the following components:
+1. Baseline prompt with task description, entity types with definitions, and format specification: The
+baseline component provides the LLM with essential information regarding the primary aims of the task, which is
+extracting and classifying entities. The categories of labels present in the dataset, along with their definitions. Entity
+definitions provide detailed and unequivocal explanations of an entity in the context of a specific task, crucially
+guiding the LLM toward accurately pinpointing entities within texts. Also, we provided the input, and instructions
+regarding the output format in the base prompt. For generative LLMs, NER presents greater challenges, relative to
+classification, as it is essentially a sequence-to-sequence problem, where each token is assigned a corresponding
+label. However, when a prompt includes a sentence as is, we found that LLMs may struggle to accurately assign
+labels to each token, resulting in mismatches in the number of input tokens (as annotated in the dataset) and output
+tokens. This issue is exacerbated by the fact that LLMs have their own tokenization mechanisms, which may differ
+12/31
+
+[PAGE 13]
+from the tokenization in the annotated data. If the input and labels are provided in the BIO format instead, it often
+results in degraded performance due to the LLM’s inability to fully understand the text.
+One input approach is to provide a text and indicate the entities within it18. For example, in the sentence ’I was a
+codeine addict,’ the phrase ’codeine addict’ is identified as an entity and is annotated as ‘Clinical Impacts’. However,
+this format can become ambiguous when faced with long sentences that contain the same word or phrase multiple
+times, each with different contextual meanings, not all of which may be labeled as the relevant entity. Another input
+method involves providing spans corresponding to the entities19, but this also causes mismatches between spans and
+entities frequently when generative LLMs are used.
+To address these challenges, we adopt a new format for constructing the input and output for the LLMs. We
+provide LLMs with a list of tokens that have already been tokenized. For the output, we instruct the model to return
+each token ,concatenated with its corresponding label. This method allows us to easily extract labels for evaluation,
+and it ensures a one-to-one correspondence between the predicted labels and tokens, with the number of labels
+always consistent with the number of tokens in the input sentence.
+For example:
+Input: [‘I’, ‘was’, ‘a’, ‘codeine’, ‘addict.’]
+Output: [‘I-O’, ‘was-O’, ‘a-O’, ‘codeine-B-Clinical_Impacts’, ‘addict.I-Clinical_Impacts’]
+To minimize the potential loss of sentence context caused using only tokens, we also explored the effectiveness
+of using the untokenized sentences as input, and tagged tokens as output:
+Input: [‘I was a codeine addict.’]
+Output: [‘I-O’, ‘was-O’, ‘a-O’, ‘codeine-B-Clinical_Impacts’, ‘addict.I-Clinical_Impacts’]
+2. Description of datasets: By describing a dataset’s origin, content, and themes, we aim to provide LLMs with a
+basic understanding of the dataset. For example, for the REDDIT -IMPACTS dataset, we described that it focuses on
+individuals who use opioids, and we are interested in the impact of opioid use on their health and lives.
+3. High-frequency instances: Some entities do not have clear definitions, and the determination is more
+ambiguous. Therefore, we provide the most frequently occurring words or phrases in each entity type within the
+training dataset to assist LLMs in understanding the potential distribution of entities and the theme of the text for
+this task. Specifically, we selected high-frequency instances for each class by computing word frequencies from
+13/31
+
+[PAGE 14]
+lexicon-annotated data, ranking them by occurrence, and choosing the top 6 high-frequency words as label words for
+each class. This approach ensures that the selected label words effectively reflect the data distribution and help the
+model predict appropriate class labels at entity positions. By adding high-frequency instances, we tried to provide a
+LLM with a lexicon of the concepts of interest.
+4. Incorporation of background knowledge from the UMLS: We provide LLMs with comprehensive and
+structured information we obtained from the UMLS. Our intuition, based on the findings reported in prior work, was
+that this knowledge could enhance the understanding and interpretation of biomedical concepts, relationships, and
+terminologies.
+5. Error analysis and feedback: To improve the model’s accuracy and address prediction errors, we provide an
+error analysis and feedback mechanism. After an initial set of predictions was made by LLMs on unseen training set
+instances, we manually reviewed the errors by comparing the model’s predictions with the gold standard annotations.
+For each incorrect prediction, we analyze the type and cause of the error, such as misclassification, missed entities,
+or spurious entities. Based on this analysis, we provide a summarization of feedback to the model. This feedback
+includes only general descriptions of errors without any examples. While this element of the prompt requires
+preliminary explorations of the dataset, common possible errors can be identified easily using a small set of training
+examples (e.g., 5-shot), and this enables a mechanism of incorporating expert feedback into the process.
+6. Annotated samples: We provide k annotated instances within the prompt for in-context learning. Samples are
+randomly selected and formatted according to the task description and entity markup guide.
+We compared the effectiveness of different components of static prompting by incrementally incorporating
+descriptions of datasets, high-frequency instances, background knowledge from the UMLS, error analysis and
+feedback, and varying k-shot annotated samples. Detailed prompts used for each dataset are provided in Table 8 to
+Table 12 in Supplementary Materials.
+Dynamic Prompt Engineering
+In prompt-based strategies using LLMs for in-context learning, the common approach has been to provide the model
+with a static prompt to guide its predictions. These prompts often include example instances, and CoT prompting.
+However, a significant limitation of this approach is that the provided examples may differ substantially from the texts
+from which the model is expected to extract named entities. Note that even in the presence of additional annotated
+samples, the LLMs context window size may limit the number of instances that can be embedded in a prompt for
+in-context learning. A static prompt, thus, does not generalize well, leading to high variance in performance.
+14/31
+
+[PAGE 15]
+To address this issue, we attempted to improve upon static prompting and adopted a dynamic approach involving
+RAG. In our proposed approach, a retrieval engine is first indexed with the annotated examples from the training set.
+Upon receiving an input sentence, the system first retrieves the top n annotated examples using the retrieval engine.
+The retrieved examples are then embedded into the prompt, which is then passed to the LLM along with the input
+text. Figure 4 presents an overview of the system architecture.
+Figure 4. Overview of Retrieval-based Dynamic Prompting model. First the training data are provided to the
+retrieval engine for indexing. During inference, the system first ranks all training examples based on contextual
+similarity with the input text. Finally, the top n retrieved instances are embedded in the prompt, which is passed to
+the LLM (e.g., GPT-4, LLaMA 3).
+Retrieval Engines
+Selecting an effective retrieval engine is crucial since the examples embedded in the prompt influence the model’s
+performance. We considered several retrieval methods, each chosen for its unique strengths in handling diverse
+biomedical texts, and applicability in FSL settings. The engines we selected are: TF-IDF 20, Sentence-BERT
+(SBERT)21, ColBERT22, and Dense Passage Retrieval (DPR)23. These search mechanisms offer a range of capabilities, from efficient keyword matching to advanced deep-learning-based retrieval. We provide further details
+below.
+1. TF-IDF: Term Frequency-Inverse Document Frequency (TF-IDF) scores the relevance of documents based on
+the frequency of terms. We included TF-IDF due to its efficiency and simplicity, which allows for rapid retrieval of
+relevant examples based on keyword overlap. While it lacks semantic understanding, it serves as a strong baseline,
+15/31
+
+[PAGE 16]
+particularly when the input contains well-defined biomedical terminologies.
+2. Sentence-BERT (SBERT): SBERT leverages a pre-trained BERT model fine-tuned for semantic similarity
+tasks. By encoding input sentences into dense embeddings, SBERT can capture the semantic relationships between
+sentences, making it well-suited for identifying contextually similar examples even when the input phrasing differs
+from the training data. This capability is particularly advantageous in the biomedical domain, where synonymous
+terms and varied expressions are common.
+3. ColBERT: ColBERT (Contextualized Late Interaction over BERT) enhances retrieval performance by focusing
+on contextualized token representations. It uses a late-interaction mechanism that allows for more nuanced matching
+of query and document tokens. We selected ColBERT for its ability to capture fine-grained semantic details, which
+is essential for handling complex biomedical texts with diverse and context-dependent entity mentions.
+4. Dense Passage Retrieval (DPR): DPR employs a dual-encoder architecture, where separate encoders are
+used for queries and documents. It uses deep neural networks to learn dense embeddings, optimizing for maximum
+similarity between relevant query-document pairs. DPR’s strength lies in its ability to handle open-domain retrieval
+tasks effectively, making it a powerful choice for dynamically selecting annotated examples that are highly relevant
+to the input text, thus improving the contextual adaptability of our dynamic prompts.
+In our experiments, we evaluated the performance of each retrieval method, assessing their impact on few-shot
+NER across multiple biomedical datasets.
+Experimental Setup
+Below, we report our experimental setup for the two prompting strategies—Static Prompting and Dynamic Prompting.
+1. Static Prompting: For static prompting, we evaluated three language models: GPT-3.5, GPT-4, and LLaMA
+3. We used prompts containing five examples per label to provide context and guide the models’ predictions.
+For GPT-3.5, we used the OpenAI API version "2023-07-01-preview", and for GPT-4, we used the version
+"2024-02-15-preview". Both models were configured with the following settings: temperature = 0.2, top_p = 0.1,
+frequency_penalty = 0, presence_penalty = 0, and no stop tokens specified.
+For LLaMA 3, we used the Meta-Llama-3-70B-Instruct model, with a temperature of 0.5 and top_p of 0.95.
+Preliminary experiments (reported later in this chapter) revealed that GPT-3.5 consistently performed significantly
+worse compared to GPT-4. Hence, we excluded GPT-3.5 from further experiments in the dynamic prompting phase
+to limit API usage costs. To ensure robustness in the static prompting phase, the few-shot examples were randomly
+16/31
+
+[PAGE 17]
+selected four times, and the reported results are the average of these four random selections.
+2. Dynamic Prompting: In the dynamic prompting phase, we focused on evaluating GPT-4 and LLaMA 3 on
+multiple datasets. We conducted experiments using three different in-context settings: 5-shot, 10-shot, and 20-shot,
+to assess the impact of increasing the number of examples on the model’s performance. The baseline prompts in this
+phase also used randomly selected examples, with the results averaged over four random runs.
+The evaluations were conducted on five biomedical datasets: MIMIC-III (clinical notes dataset), BC5CDR
+(disease and chemical entity recognition), NCBI-Disease (disease annotations from PubMed abstracts), MedMentions (large-scale UMLS concepts dataset), and our REDDIT -I MPACTS dataset (annotated for clinical and social
+impacts entity extraction). Further details about these datasets are provided in Chapter 3. We used precision (P),
+recall (R), and F1-score (F1) as evaluation metrics to comprehensively asses the models’ performance across different
+datasets. In addition, to account for the variability in performance across different experimental runs, we include
+95% confidence intervals (CIs)24 for each metric, providing a measure of the statistical robustness of the results. The
+confidence intervals were computed via bootstrap resampling25 with 1000 samples with replacement.
+Data availability
+We utilized five distinct medical text datasets as benchmarks to evaluate the performance of our models and to
+support the development of new approaches. These datasets provide a diverse range of clinical narratives and
+biomedical information, allowing for a comprehensive assessment of our methods.
+MIMIC III26. The MIMIC III dataset is a large, publicly available database with patient data from critical care units,
+including medications, lab results, clinical notes, diagnostic codes, imaging reports, and survival data. It is widely
+used for few-shot classification and NER tasks.
+BC5CDR27. This resource extracts relationships between chemicals and diseases from annotated biomedical
+articles, aimed at developing systems to automatically identify these interactions for applications like drug discovery,
+toxicology, and understanding disease mechanisms.
+Med-Mentions28. Med-Mentions is a large biomedical corpus annotated with UMLS concepts, containing PubMed
+articles linked to entities like diseases, chemicals, genes, and anatomical terms. It supports tasks such as information
+extraction, literature mining, and knowledge base construction.
+NCBI-Disease29. This dataset contains PubMed abstracts annotated with disease names, linked to standardized
+concepts in MeSH and OMIM databases. It is used to train and evaluate models for recognizing and normalizing
+17/31
+
+[PAGE 18]
+disease names in biomedical texts.
+REDDIT-IMPACTS 30. a challenging NER dataset curated from subreddits dedicated to discussions on prescription and
+illicit opioids, as well as medications for opioid use disorder. This dataset includes posts from 14 opioid-related
+subreddits, and specifically focuses on the clinical and social impacts of nonmedical substance use.
+Table 3. Statistics of the eight standardized biomedical datasets we used, including the source and aim of their tasks,
+training and test sizes (number of tokens), the number of entity types and the number of entities in each dataset.
+Datasets Training Size Test Size Entity Types Entities
+MIMIC III (information relating to patients) 36.4k 6.4k 12 8.7k
+BC5CDR (extracting relationships between chemicals and diseases)228.8k 122.2k 2 28.8k
+Med-Mentions (annotated with UMLS concepts) 847.9k 593.6k 1 340.9k
+NCBI Disease (PubMed abstracts annotated with disease names)134.0k 20.5k 4 6.3k
+REDDIT-IMPACTS(clinical impacts and social impacts collected from Reddit)30.0k 6.0k 2 0.2k
+Table 3 presents relevant statistics for all publicly available datasets we used in this study, including the source
+and aim of each dataset, training and test set sizes, the number of entity types and the number of entities in each
+dataset.
+Code availability
+All data used in this study was publicly available. The code used for the experiments can be accessed at
+https://github.com/Yao-Ge-1218AM/RAG-based-Dynamic-Prompting/.
+Acknowledgments
+Research reported in this publication was supported by the National Institute on Drug Abuse of the National Institutes
+of Health (NIH) under award number R01DA057599. The content is solely the responsibility of the authors and
+does not necessarily represent the official views of the NIH.
+Author contributions
+YGe led model design and implementation, analysis, evaluation, visualization, and original draft preparation. YGuo
+contributed to the software development and implementation. SD assisted with analysis, evaluation, and manuscript
+preparation. AS conceptualized the study and supervised the study. All authors contributed to the writing of the final
+article.
+18/31
+
+[TABLE page=18 index=1]
+Columns: Datasets | Training Size | Test Size | Entity Types | Entities
+Row 1: Datasets: MIMIC III (information relating to patients) | Training Size: 36.4k | Test Size: 6.4k | Entity Types: 12 | Entities: 8.7k
+Row 2: Datasets: BC5CDR (extracting relationships between chemicals and diseases) | Training Size: 228.8k | Test Size: 122.2k | Entity Types: 2 | Entities: 28.8k
+Row 3: Datasets: Med-Mentions (annotated with UMLS concepts) | Training Size: 847.9k | Test Size: 593.6k | Entity Types: 1 | Entities: 340.9k
+Row 4: Datasets: NCBI Disease (PubMed abstracts annotated with disease names) | Training Size: 134.0k | Test Size: 20.5k | Entity Types: 4 | Entities: 6.3k
+Row 5: Datasets: REDDIT-IMPACTS (clinical impacts and social impacts collected from Reddit) | Training Size: 30.0k | Test Size: 6.0k | Entity Types: 2 | Entities: 0.2k
+[/TABLE]
+
+[PAGE 19]
+Competing Interests
+All authors declare no competing interests.
+19/31
+
+[PAGE 20]
+References
+1. Ge, Y ., Guo, Y ., Das, S., Al-Garadi, M. A. & Sarker, A. Few-shot learning for medical text: A review of
+advances, trends, and opportunities. J. Biomed. Informatics 104458 (2023).
+2. Labrak, Y ., Rouvier, M. & Dufour, R. A zero-shot and few-shot study of instruction-finetuned large language
+models applied to clinical and biomedical tasks. In Calzolari, N. et al. (eds.) Proceedings of the 2024 Joint
+International Conference on Computational Linguistics, Language Resources and Evaluation (LREC-COLING
+2024), 2049–2066 (ELRA and ICCL, Torino, Italia, 2024).
+3. Brown, T. et al. Language models are few-shot learners. Adv. neural information processing systems 33,
+1877–1901 (2020).
+4. Zaghir, J. et al. Prompt engineering paradigms for medical applications: Scoping review. J. Med. Internet Res.
+26, e60501 (2024).
+5. Yeh, H.-S., Lavergne, T. & Zweigenbaum, P. Decorate the examples: A simple method of prompt design for
+biomedical relation extraction. In Calzolari, N. et al. (eds.) Proceedings of the Thirteenth Language Resources
+and Evaluation Conference, 3780–3787 (European Language Resources Association, Marseille, France, 2022).
+6. Ye, Q., Axmed, M., Pryzant, R. & Khani, F. Prompt engineering a prompt engineer. arXiv preprint
+arXiv:2311.05661 (2023).
+7. Chang, T.-Y . & Jia, R. Data curation alone can stabilize in-context learning. In Rogers, A., Boyd-Graber, J. &
+Okazaki, N. (eds.) Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics
+(V olume 1: Long Papers), 8123–8144, DOI: 10.18653/v1/2023.acl-long.452 (Association for Computational
+Linguistics, Toronto, Canada, 2023).
+8. Li, M., Zhou, H., Yang, H. & Zhang, R. Rt: a retrieving and chain-of-thought framework for few-shot medical
+named entity recognition. J. Am. Med. Informatics Assoc. ocae095 (2024).
+9. Wei, J. et al. Chain-of-thought prompting elicits reasoning in large language models. Adv. neural information
+processing systems 35, 24824–24837 (2022).
+10. Lewis, P. et al. Retrieval-augmented generation for knowledge-intensive nlp tasks. Adv. Neural Inf. Process.
+Syst. 33, 9459–9474 (2020).
+11. Liao, T. W., Zhang, Z. & Mount, C. R. Similarity measures for retrieval in case-based reasoning systems. Appl.
+Artif. Intell. 12, 267–288 (1998).
+20/31
+
+[PAGE 21]
+12. Gao, Y . et al. Retrieval-augmented generation for large language models: A survey. arXiv preprint
+arXiv:2312.10997 (2023).
+13. Jin, Q., Yang, Y ., Chen, Q. & Lu, Z. Genegpt: Augmenting large language models with domain tools for
+improved access to biomedical information. Bioinformatics 40, btae075 (2024).
+14. Xiong, G., Jin, Q., Lu, Z. & Zhang, A. Benchmarking retrieval-augmented generation for medicine. arXiv
+preprint arXiv:2402.13178 (2024).
+15. Jeong, S., Baek, J., Cho, S., Hwang, S. J. & Park, J. C. Adaptive-rag: Learning to adapt retrieval-augmented
+large language models through question complexity. arXiv preprint arXiv:2403.14403 (2024).
+16. Sahoo, P. et al. A systematic survey of prompt engineering in large language models: Techniques and
+applications. arXiv preprint arXiv:2402.07927 (2024).
+17. Levy, M., Jacoby, A. & Goldberg, Y . Same task, more tokens: the impact of input length on the reasoning
+performance of large language models. arXiv preprint arXiv:2402.14848 (2024).
+18. Xie, T. et al. Empirical study of zero-shot NER with ChatGPT. In Bouamor, H., Pino, J. & Bali, K. (eds.)
+Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , 7935–7956, DOI:
+10.18653/v1/2023.emnlp-main.493 (Association for Computational Linguistics, Singapore, 2023).
+19. Hu, Y .et al. Improving large language models for clinical named entity recognition via prompt engineering. J.
+Am. Med. Informatics Assoc. ocad259, DOI: 10.1093/jamia/ocad259 (2024). https://academic.oup.com/jamia/
+advance-article-pdf/doi/10.1093/jamia/ocad259/56437671/ocad259.pdf.
+20. Sparck Jones, K. A statistical interpretation of term specificity and its application in retrieval. J. documentation
+28, 11–21 (1972).
+21. Reimers, N. Sentence-bert: Sentence embeddings using siamese bert-networks.arXiv preprint arXiv:1908.10084
+(2019).
+22. Khattab, O. & Zaharia, M. Colbert: Efficient and effective passage search via contextualized late interaction
+over bert. In Proceedings of the 43rd International ACM SIGIR conference on research and development in
+Information Retrieval, 39–48 (2020).
+23. Karpukhin, V . et al. Dense passage retrieval for open-domain question answering. arXiv preprint
+arXiv:2004.04906 (2020).
+21/31
+
+[PAGE 22]
+24. Morey, R. D. et al. Confidence intervals from normalized data: A correction to cousineau (2005). Tutorials
+quantitative methods for psychology 4, 61–64 (2008).
+25. Efron, B. Bootstrap methods: another look at the jackknife. In Breakthroughs in statistics: Methodology and
+distribution, 569–593 (Springer, 1992).
+26. Johnson, A. E. et al. Mimic-iii, a freely accessible critical care database. Sci. data 3, 1–9, DOI: 10.1038/sdata.
+2016.35 (2016).
+27. Li, J. et al. BioCreative V CDR task corpus: a resource for chemical disease relation extraction. Database 2016,
+baw068, DOI: 10.1093/database/baw068 (2016). https://academic.oup.com/database/article-pdf/doi/10.1093/
+database/baw068/8224483/baw068.pdf.
+28. Mohan, S. & Li, D. Medmentions: A large biomedical corpus annotated with {umls} concepts. In Automated
+Knowledge Base Construction (AKBC) (2019).
+29. Do˘gan, R. I., Leaman, R. & Lu, Z. Ncbi disease corpus: A resource for disease name recognition and concept
+normalization. J. Biomed. Informatics 47, 1–10, DOI: https://doi.org/10.1016/j.jbi.2013.12.006 (2014).
+30. Ge, Y .et al. Reddit-impacts: A named entity recognition dataset for analyzing clinical and social effects of
+substance use derived from social media. arXiv preprint arXiv:2405.06145 (2024).
+22/31
+
+[PAGE 23]
+A Averaged Performance of the Baseline Dynamic Prompt Model
+Precision Recall F 1 -score Precision Recall F 1 -score
+16.40 50.00 24.70 12.56 56.32 20.55
+17.67 50.62 26.20 13.68 55.81 21.97
+17.48 53.09 26.30 12.14 59.52 20.16
+5-shot
+23.91 54.32 33.20
+5-shot
+14.25 59.79 23.02
+A VG 18.865 52.0075 27.60 A VG 13.1575 57.86 21.425
+25.41 58.75 35.47 24.51 59.52 34.72
+21.67 54.32 30.99 19.63 62.35 29.86
+21.43 59.26 31.48 23.96 57.44 33.81
+10-shot
+20.47 54.32 29.73
+10-shot
+21.38 60.43 31.59
+A VG 22.245 56.6625 31.9175 A VG 22.37 59.935 32.495
+28.74 58.63 38.57 27.22 57.65 36.98
+27.03 57.54 36.78 23.24 52.44 32.21
+26.52 59.79 36.74 22.12 52.08 31.06
+20-shot
+28.65 59.02 38.57
+20-shot
+25.49 53.06 34.44
+GPT 4
+A VG 27.735 58.745 37.665
+Llama3
+A VG 24.5175 53.8075 33.6725
+Table 4. Averaged performance of the baseline dynamic prompt model on the REDDIT -I MPACTS dataset across
+different shot settings.
+23/31
+
+[TABLE page=23 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | 16.40 | 50.00 | 24.70 | Unnamed: 2 | Unnamed: 3 | 12.56 | 56.32 | 20.55
+Row 1: Unnamed: 0: | Unnamed: 1: | 16.40: 17.67 | 50.00: 50.62 | 24.70: 26.2 | Unnamed: 2: | Unnamed: 3: | 12.56: 13.68 | 56.32: 55.81 | 20.55: 21.97
+Row 2: Unnamed: 0: | Unnamed: 1: 5-shot | 16.40: | 50.00: | 24.70: | Unnamed: 2: | Unnamed: 3: 5-shot | 12.56: | 56.32: | 20.55:
+Row 3: Unnamed: 0: | Unnamed: 1: | 16.40: 17.48 | 50.00: 53.09 | 24.70: 26.3 | Unnamed: 2: | Unnamed: 3: | 12.56: 12.14 | 56.32: 59.52 | 20.55: 20.16
+Row 4: Unnamed: 0: | Unnamed: 1: | 16.40: 23.91 | 50.00: 54.32 | 24.70: 33.2 | Unnamed: 2: | Unnamed: 3: | 12.56: 14.25 | 56.32: 59.79 | 20.55: 23.02
+Row 5: Unnamed: 0: | Unnamed: 1: AVG | 16.40: 18.865 | 50.00: 52.0075 | 24.70: 27.6 | Unnamed: 2: | Unnamed: 3: AVG | 12.56: 13.1575 | 56.32: 57.86 | 20.55: 21.425
+Row 6: Unnamed: 0: | Unnamed: 1: | 16.40: 25.41 | 50.00: 58.75 | 24.70: 35.47 | Unnamed: 2: | Unnamed: 3: | 12.56: 24.51 | 56.32: 59.52 | 20.55: 34.72
+Row 7: Unnamed: 0: | Unnamed: 1: | 16.40: 21.67 | 50.00: 54.32 | 24.70: 30.99 | Unnamed: 2: | Unnamed: 3: | 12.56: 19.63 | 56.32: 62.35 | 20.55: 29.86
+Row 8: Unnamed: 0: | Unnamed: 1: 10-shot | 16.40: | 50.00: | 24.70: | Unnamed: 2: | Unnamed: 3: 10-shot | 12.56: | 56.32: | 20.55:
+Row 9: Unnamed: 0: GPT 4 | Unnamed: 1: | 16.40: 21.43 | 50.00: 59.26 | 24.70: 31.48 | Unnamed: 2: Llama3 | Unnamed: 3: | 12.56: 23.96 | 56.32: 57.44 | 20.55: 33.81
+Row 10: Unnamed: 0: | Unnamed: 1: | 16.40: 20.47 | 50.00: 54.32 | 24.70: 29.73 | Unnamed: 2: | Unnamed: 3: | 12.56: 21.38 | 56.32: 60.43 | 20.55: 31.59
+Row 11: Unnamed: 0: | Unnamed: 1: AVG | 16.40: 22.245 | 50.00: 56.6625 | 24.70: 31.9175 | Unnamed: 2: | Unnamed: 3: AVG | 12.56: 22.37 | 56.32: 59.935 | 20.55: 32.495
+Row 12: Unnamed: 0: | Unnamed: 1: | 16.40: 28.74 | 50.00: 58.63 | 24.70: 38.57 | Unnamed: 2: | Unnamed: 3: | 12.56: 27.22 | 56.32: 57.65 | 20.55: 36.98
+Row 13: Unnamed: 0: | Unnamed: 1: | 16.40: 27.03 | 50.00: 57.54 | 24.70: 36.78 | Unnamed: 2: | Unnamed: 3: | 12.56: 23.24 | 56.32: 52.44 | 20.55: 32.21
+Row 14: Unnamed: 0: | Unnamed: 1: 20-shot | 16.40: | 50.00: | 24.70: | Unnamed: 2: | Unnamed: 3: 20-shot | 12.56: | 56.32: | 20.55:
+Row 15: Unnamed: 0: | Unnamed: 1: | 16.40: 26.52 | 50.00: 59.79 | 24.70: 36.74 | Unnamed: 2: | Unnamed: 3: | 12.56: 22.12 | 56.32: 52.08 | 20.55: 31.06
+Row 16: Unnamed: 0: | Unnamed: 1: | 16.40: 28.65 | 50.00: 59.02 | 24.70: 38.57 | Unnamed: 2: | Unnamed: 3: | 12.56: 25.49 | 56.32: 53.06 | 20.55: 34.44
+Row 17: Unnamed: 0: | Unnamed: 1: AVG | 16.40: 27.735 | 50.00: 58.745 | 24.70: 37.665 | Unnamed: 2: | Unnamed: 3: AVG | 12.56: 24.5175 | 56.32: 53.8075 | 20.55: 33.6725
+[/TABLE]
+
+[PAGE 24]
+Precision Recall F 1 -score Precision Recall F 1 -score
+69.97 91.43 79.27 68.09 84.35 75.35
+68.32 88.3 77.29 69.70 76.67 73.02
+64.58 90.15 75.25 71.00 79.15 74.86
+5-shot
+71.59 91.39 80.29
+5-shot
+67.10 73.25 70.04
+A VG 68.615 90.3175 78.025 A VG 68.9725 78.355 73.3175
+75.11 90.84 82.23 72.38 79.18 75.63
+74.41 90.32 81.60 73.31 74.24 73.77
+74.13 85.71 79.50 71.15 77.05 73.98
+10-shot
+77.65 86.35 81.73
+10-shot
+73.40 81.17 77.2
+A VG 75.325 88.305 81.265 A VG 72.56 77.91 75.145
+75.36 88.33 81.33 75.12 74.84 74.98
+73.13 91.74 81.38 72.03 71.88 71.96
+71.84 91.1 80.33 76.88 77.20 77.04
+20-shot
+77.94 85.54 81.57
+20-shot
+77.64 78.40 78.02
+GPT 4
+A VG 74.5675 89.1775 81.1525
+Llama3
+A VG 75.4175 75.58 75.5
+Table 5. Averaged performance of the baseline dynamic prompt model on the BC5CDR dataset across different
+shot settings.
+Precision Recall F 1 -score Precision Recall F 1 -score
+62.38 63.78 63.07 57.69 68.39 62.58
+61.88 62.19 62.03 61.83 61.33 61.58
+65.26 68.14 66.67 58.24 68.06 62.77
+5-shot
+62.71 62.36 62.54
+5-shot
+59.44 71.29 64.82
+A VG 63.0575 64.1175 63.5775 A VG 59.3 67.2675 62.9375
+66.38 74.24 70.09 59.13 71.63 64.78
+68.37 74.86 71.47 62.68 63.8 63.23
+66.72 75.33 70.77 61.71 67.58 64.51
+10-shot
+66.46 73.34 69.73
+10-shot
+62.24 62.84 62.54
+A VG 66.9825 74.4425 70.515 A VG 61.44 66.4625 63.765
+70.41 69.84 70.12 63.89 62.04 62.95
+70.11 71.24 70.67 63.96 62.83 63.39
+71.45 73.39 72.41 59.22 61.71 60.44
+20-shot
+70.64 70.80 70.72
+20-shot
+60.96 61.88 61.42
+GPT 4
+A VG 70.6525 71.3175 70.98
+Llama3
+A VG 62.0075 62.115 62.05
+Table 6. Averaged performance of the baseline dynamic prompt model on the MIMIC III dataset across different
+shot settings.
+24/31
+
+[TABLE page=24 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | 69.97 | 91.43 | 79.27 | Unnamed: 2 | Unnamed: 3 | 68.09 | 84.35 | 75.35
+Row 1: Unnamed: 0: | Unnamed: 1: | 69.97: 68.32 | 91.43: 88.3 | 79.27: 77.29 | Unnamed: 2: | Unnamed: 3: | 68.09: 69.7 | 84.35: 76.67 | 75.35: 73.02
+Row 2: Unnamed: 0: | Unnamed: 1: 5-shot | 69.97: | 91.43: | 79.27: | Unnamed: 2: | Unnamed: 3: 5-shot | 68.09: | 84.35: | 75.35:
+Row 3: Unnamed: 0: | Unnamed: 1: | 69.97: 64.58 | 91.43: 90.15 | 79.27: 75.25 | Unnamed: 2: | Unnamed: 3: | 68.09: 71.0 | 84.35: 79.15 | 75.35: 74.86
+Row 4: Unnamed: 0: | Unnamed: 1: | 69.97: 71.59 | 91.43: 91.39 | 79.27: 80.29 | Unnamed: 2: | Unnamed: 3: | 68.09: 67.1 | 84.35: 73.25 | 75.35: 70.04
+Row 5: Unnamed: 0: | Unnamed: 1: AVG | 69.97: 68.615 | 91.43: 90.3175 | 79.27: 78.025 | Unnamed: 2: | Unnamed: 3: AVG | 68.09: 68.9725 | 84.35: 78.355 | 75.35: 73.3175
+Row 6: Unnamed: 0: | Unnamed: 1: | 69.97: 75.11 | 91.43: 90.84 | 79.27: 82.23 | Unnamed: 2: | Unnamed: 3: | 68.09: 72.38 | 84.35: 79.18 | 75.35: 75.63
+Row 7: Unnamed: 0: | Unnamed: 1: | 69.97: 74.41 | 91.43: 90.32 | 79.27: 81.6 | Unnamed: 2: | Unnamed: 3: | 68.09: 73.31 | 84.35: 74.24 | 75.35: 73.77
+Row 8: Unnamed: 0: | Unnamed: 1: 10-shot | 69.97: | 91.43: | 79.27: | Unnamed: 2: | Unnamed: 3: 10-shot | 68.09: | 84.35: | 75.35:
+Row 9: Unnamed: 0: GPT 4 | Unnamed: 1: | 69.97: 74.13 | 91.43: 85.71 | 79.27: 79.5 | Unnamed: 2: Llama3 | Unnamed: 3: | 68.09: 71.15 | 84.35: 77.05 | 75.35: 73.98
+Row 10: Unnamed: 0: | Unnamed: 1: | 69.97: 77.65 | 91.43: 86.35 | 79.27: 81.73 | Unnamed: 2: | Unnamed: 3: | 68.09: 73.4 | 84.35: 81.17 | 75.35: 77.2
+Row 11: Unnamed: 0: | Unnamed: 1: AVG | 69.97: 75.325 | 91.43: 88.305 | 79.27: 81.265 | Unnamed: 2: | Unnamed: 3: AVG | 68.09: 72.56 | 84.35: 77.91 | 75.35: 75.145
+Row 12: Unnamed: 0: | Unnamed: 1: | 69.97: 75.36 | 91.43: 88.33 | 79.27: 81.33 | Unnamed: 2: | Unnamed: 3: | 68.09: 75.12 | 84.35: 74.84 | 75.35: 74.98
+Row 13: Unnamed: 0: | Unnamed: 1: | 69.97: 73.13 | 91.43: 91.74 | 79.27: 81.38 | Unnamed: 2: | Unnamed: 3: | 68.09: 72.03 | 84.35: 71.88 | 75.35: 71.96
+Row 14: Unnamed: 0: | Unnamed: 1: 20-shot | 69.97: | 91.43: | 79.27: | Unnamed: 2: | Unnamed: 3: 20-shot | 68.09: | 84.35: | 75.35:
+Row 15: Unnamed: 0: | Unnamed: 1: | 69.97: 71.84 | 91.43: 91.1 | 79.27: 80.33 | Unnamed: 2: | Unnamed: 3: | 68.09: 76.88 | 84.35: 77.2 | 75.35: 77.04
+Row 16: Unnamed: 0: | Unnamed: 1: | 69.97: 77.94 | 91.43: 85.54 | 79.27: 81.57 | Unnamed: 2: | Unnamed: 3: | 68.09: 77.64 | 84.35: 78.4 | 75.35: 78.02
+Row 17: Unnamed: 0: | Unnamed: 1: AVG | 69.97: 74.5675 | 91.43: 89.1775 | 79.27: 81.1525 | Unnamed: 2: | Unnamed: 3: AVG | 68.09: 75.4175 | 84.35: 75.58 | 75.35: 75.5
+[/TABLE]
+
+[TABLE page=24 index=2]
+Columns: Unnamed: 0 | Unnamed: 1 | 62.38 | 63.78 | 63.07 | Unnamed: 2 | Unnamed: 3 | 57.69 | 68.39 | 62.58
+Row 1: Unnamed: 0: | Unnamed: 1: | 62.38: 61.88 | 63.78: 62.19 | 63.07: 62.03 | Unnamed: 2: | Unnamed: 3: | 57.69: 61.83 | 68.39: 61.33 | 62.58: 61.58
+Row 2: Unnamed: 0: | Unnamed: 1: 5-shot | 62.38: | 63.78: | 63.07: | Unnamed: 2: | Unnamed: 3: 5-shot | 57.69: | 68.39: | 62.58:
+Row 3: Unnamed: 0: | Unnamed: 1: | 62.38: 65.26 | 63.78: 68.14 | 63.07: 66.67 | Unnamed: 2: | Unnamed: 3: | 57.69: 58.24 | 68.39: 68.06 | 62.58: 62.77
+Row 4: Unnamed: 0: | Unnamed: 1: | 62.38: 62.71 | 63.78: 62.36 | 63.07: 62.54 | Unnamed: 2: | Unnamed: 3: | 57.69: 59.44 | 68.39: 71.29 | 62.58: 64.82
+Row 5: Unnamed: 0: | Unnamed: 1: AVG | 62.38: 63.0575 | 63.78: 64.1175 | 63.07: 63.5775 | Unnamed: 2: | Unnamed: 3: AVG | 57.69: 59.3 | 68.39: 67.2675 | 62.58: 62.9375
+Row 6: Unnamed: 0: | Unnamed: 1: | 62.38: 66.38 | 63.78: 74.24 | 63.07: 70.09 | Unnamed: 2: | Unnamed: 3: | 57.69: 59.13 | 68.39: 71.63 | 62.58: 64.78
+Row 7: Unnamed: 0: | Unnamed: 1: | 62.38: 68.37 | 63.78: 74.86 | 63.07: 71.47 | Unnamed: 2: | Unnamed: 3: | 57.69: 62.68 | 68.39: 63.8 | 62.58: 63.23
+Row 8: Unnamed: 0: | Unnamed: 1: 10-shot | 62.38: | 63.78: | 63.07: | Unnamed: 2: | Unnamed: 3: 10-shot | 57.69: | 68.39: | 62.58:
+Row 9: Unnamed: 0: GPT 4 | Unnamed: 1: | 62.38: 66.72 | 63.78: 75.33 | 63.07: 70.77 | Unnamed: 2: Llama3 | Unnamed: 3: | 57.69: 61.71 | 68.39: 67.58 | 62.58: 64.51
+Row 10: Unnamed: 0: | Unnamed: 1: | 62.38: 66.46 | 63.78: 73.34 | 63.07: 69.73 | Unnamed: 2: | Unnamed: 3: | 57.69: 62.24 | 68.39: 62.84 | 62.58: 62.54
+Row 11: Unnamed: 0: | Unnamed: 1: AVG | 62.38: 66.9825 | 63.78: 74.4425 | 63.07: 70.515 | Unnamed: 2: | Unnamed: 3: AVG | 57.69: 61.44 | 68.39: 66.4625 | 62.58: 63.765
+Row 12: Unnamed: 0: | Unnamed: 1: | 62.38: 70.41 | 63.78: 69.84 | 63.07: 70.12 | Unnamed: 2: | Unnamed: 3: | 57.69: 63.89 | 68.39: 62.04 | 62.58: 62.95
+Row 13: Unnamed: 0: | Unnamed: 1: | 62.38: 70.11 | 63.78: 71.24 | 63.07: 70.67 | Unnamed: 2: | Unnamed: 3: | 57.69: 63.96 | 68.39: 62.83 | 62.58: 63.39
+Row 14: Unnamed: 0: | Unnamed: 1: 20-shot | 62.38: | 63.78: | 63.07: | Unnamed: 2: | Unnamed: 3: 20-shot | 57.69: | 68.39: | 62.58:
+Row 15: Unnamed: 0: | Unnamed: 1: | 62.38: 71.45 | 63.78: 73.39 | 63.07: 72.41 | Unnamed: 2: | Unnamed: 3: | 57.69: 59.22 | 68.39: 61.71 | 62.58: 60.44
+Row 16: Unnamed: 0: | Unnamed: 1: | 62.38: 70.64 | 63.78: 70.8 | 63.07: 70.72 | Unnamed: 2: | Unnamed: 3: | 57.69: 60.96 | 68.39: 61.88 | 62.58: 61.42
+Row 17: Unnamed: 0: | Unnamed: 1: AVG | 62.38: 70.6525 | 63.78: 71.3175 | 63.07: 70.98 | Unnamed: 2: | Unnamed: 3: AVG | 57.69: 62.0075 | 68.39: 62.115 | 62.58: 62.05
+[/TABLE]
+
+[PAGE 25]
+Precision Recall F 1 -score Precision Recall F 1 -score
+46.17 50.52 48.25 33.88 40.67 36.97
+45.69 49.07 47.32 32.26 39.14 35.37
+40.24 43.65 41.88 36.38 28.49 31.95
+5-shot
+47.96 52.83 50.28
+5-shot
+40.73 30.53 34.9
+A VG 45.015 49.0175 46.9325 A VG 35.8125 34.7075 34.7975
+52.98 52.67 52.82 42.79 31.08 35.66
+53.71 53.36 53.54 40.18 28.73 36.27
+52.99 50.35 51.64 35.75 32.05 33.76
+10-shot
+53.85 52.3 53.06
+10-shot
+39.95 34.11 36.71
+A VG 53.3825 52.17 52.765 A VG 39.6675 31.4925 35.6
+54.57 54.73 54.65 40.59 42.07 41.32
+44.86 45.43 45.14 40.87 42.8 41.81
+51.6 51.75 51.68 41.48 43.02 42.24
+20-shot
+55.7 57.24 56.46
+20-shot
+39.88 42.41 41.1
+GPT 4
+A VG 51.6825 52.2875 51.9825
+Llama3
+A VG 40.705 42.575 41.6175
+Table 7. Averaged performance of the baseline dynamic prompt model on the NCBI dataset across different shot
+settings.
+Precision Recall F 1 -score Precision Recall F 1 -score
+27.24 62.73 37.99 24.94 73.03 37.18
+26.71 58.58 36.69 25.95 61.96 36.58
+29.23 60.47 39.41 26.11 73.57 38.54
+5-shot
+25.86 58.41 35.85
+5-shot
+26.55 59.62 36.74
+A VG 27.26 60.0475 37.485 A VG 25.8875 67.045 37.26
+26.92 58.26 36.82 25.67 70.61 37.65
+26.1 59.15 36.22 25.1 59.19 35.15
+24.41 58.56 34.46 25.76 70.06 37.67
+10-shot
+29.19 60.82 39.45
+10-shot
+25.73 57.46 35.54
+A VG 26.655 59.1975 36.7375 A VG 25.565 64.33 36.5025
+27.86 59.12 37.87 26.18 63.59 37.09
+25.02 60.64 35.42 26.63 61.14 37.1
+29.33 61.71 39.76 25.93 63.57 36.84
+20-shot
+30.18 61.66 40.52
+20-shot
+27.54 70.85 39.66
+GPT 4
+A VG 28.0975 60.7825 38.3925
+Llama3
+A VG 26.57 64.7875 37.6725
+Table 8. Averaged performance of the baseline dynamic prompt model on the Med-Mentions dataset across
+different shot settings.
+25/31
+
+[TABLE page=25 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | 46.17 | 50.52 | 48.25 | Unnamed: 2 | Unnamed: 3 | 33.88 | 40.67 | 36.97
+Row 1: Unnamed: 0: | Unnamed: 1: | 46.17: 45.69 | 50.52: 49.07 | 48.25: 47.32 | Unnamed: 2: | Unnamed: 3: | 33.88: 32.26 | 40.67: 39.14 | 36.97: 35.37
+Row 2: Unnamed: 0: | Unnamed: 1: 5-shot | 46.17: | 50.52: | 48.25: | Unnamed: 2: | Unnamed: 3: 5-shot | 33.88: | 40.67: | 36.97:
+Row 3: Unnamed: 0: | Unnamed: 1: | 46.17: 40.24 | 50.52: 43.65 | 48.25: 41.88 | Unnamed: 2: | Unnamed: 3: | 33.88: 36.38 | 40.67: 28.49 | 36.97: 31.95
+Row 4: Unnamed: 0: | Unnamed: 1: | 46.17: 47.96 | 50.52: 52.83 | 48.25: 50.28 | Unnamed: 2: | Unnamed: 3: | 33.88: 40.73 | 40.67: 30.53 | 36.97: 34.9
+Row 5: Unnamed: 0: | Unnamed: 1: AVG | 46.17: 45.015 | 50.52: 49.0175 | 48.25: 46.9325 | Unnamed: 2: | Unnamed: 3: AVG | 33.88: 35.8125 | 40.67: 34.7075 | 36.97: 34.7975
+Row 6: Unnamed: 0: | Unnamed: 1: | 46.17: 52.98 | 50.52: 52.67 | 48.25: 52.82 | Unnamed: 2: | Unnamed: 3: | 33.88: 42.79 | 40.67: 31.08 | 36.97: 35.66
+Row 7: Unnamed: 0: | Unnamed: 1: | 46.17: 53.71 | 50.52: 53.36 | 48.25: 53.54 | Unnamed: 2: | Unnamed: 3: | 33.88: 40.18 | 40.67: 28.73 | 36.97: 36.27
+Row 8: Unnamed: 0: | Unnamed: 1: 10-shot | 46.17: | 50.52: | 48.25: | Unnamed: 2: | Unnamed: 3: 10-shot | 33.88: | 40.67: | 36.97:
+Row 9: Unnamed: 0: GPT 4 | Unnamed: 1: | 46.17: 52.99 | 50.52: 50.35 | 48.25: 51.64 | Unnamed: 2: Llama3 | Unnamed: 3: | 33.88: 35.75 | 40.67: 32.05 | 36.97: 33.76
+Row 10: Unnamed: 0: | Unnamed: 1: | 46.17: 53.85 | 50.52: 52.3 | 48.25: 53.06 | Unnamed: 2: | Unnamed: 3: | 33.88: 39.95 | 40.67: 34.11 | 36.97: 36.71
+Row 11: Unnamed: 0: | Unnamed: 1: AVG | 46.17: 53.3825 | 50.52: 52.17 | 48.25: 52.765 | Unnamed: 2: | Unnamed: 3: AVG | 33.88: 39.6675 | 40.67: 31.4925 | 36.97: 35.6
+Row 12: Unnamed: 0: | Unnamed: 1: | 46.17: 54.57 | 50.52: 54.73 | 48.25: 54.65 | Unnamed: 2: | Unnamed: 3: | 33.88: 40.59 | 40.67: 42.07 | 36.97: 41.32
+Row 13: Unnamed: 0: | Unnamed: 1: | 46.17: 44.86 | 50.52: 45.43 | 48.25: 45.14 | Unnamed: 2: | Unnamed: 3: | 33.88: 40.87 | 40.67: 42.8 | 36.97: 41.81
+Row 14: Unnamed: 0: | Unnamed: 1: 20-shot | 46.17: | 50.52: | 48.25: | Unnamed: 2: | Unnamed: 3: 20-shot | 33.88: | 40.67: | 36.97:
+Row 15: Unnamed: 0: | Unnamed: 1: | 46.17: 51.6 | 50.52: 51.75 | 48.25: 51.68 | Unnamed: 2: | Unnamed: 3: | 33.88: 41.48 | 40.67: 43.02 | 36.97: 42.24
+Row 16: Unnamed: 0: | Unnamed: 1: | 46.17: 55.7 | 50.52: 57.24 | 48.25: 56.46 | Unnamed: 2: | Unnamed: 3: | 33.88: 39.88 | 40.67: 42.41 | 36.97: 41.1
+Row 17: Unnamed: 0: | Unnamed: 1: AVG | 46.17: 51.6825 | 50.52: 52.2875 | 48.25: 51.9825 | Unnamed: 2: | Unnamed: 3: AVG | 33.88: 40.705 | 40.67: 42.575 | 36.97: 41.6175
+[/TABLE]
+
+[TABLE page=25 index=2]
+Columns: Unnamed: 0 | Unnamed: 1 | 27.24 | 62.73 | 37.99 | Unnamed: 2 | Unnamed: 3 | 24.94 | 73.03 | 37.18
+Row 1: Unnamed: 0: | Unnamed: 1: | 27.24: 26.71 | 62.73: 58.58 | 37.99: 36.69 | Unnamed: 2: | Unnamed: 3: | 24.94: 25.95 | 73.03: 61.96 | 37.18: 36.58
+Row 2: Unnamed: 0: | Unnamed: 1: 5-shot | 27.24: | 62.73: | 37.99: | Unnamed: 2: | Unnamed: 3: 5-shot | 24.94: | 73.03: | 37.18:
+Row 3: Unnamed: 0: | Unnamed: 1: | 27.24: 29.23 | 62.73: 60.47 | 37.99: 39.41 | Unnamed: 2: | Unnamed: 3: | 24.94: 26.11 | 73.03: 73.57 | 37.18: 38.54
+Row 4: Unnamed: 0: | Unnamed: 1: | 27.24: 25.86 | 62.73: 58.41 | 37.99: 35.85 | Unnamed: 2: | Unnamed: 3: | 24.94: 26.55 | 73.03: 59.62 | 37.18: 36.74
+Row 5: Unnamed: 0: | Unnamed: 1: AVG | 27.24: 27.26 | 62.73: 60.0475 | 37.99: 37.485 | Unnamed: 2: | Unnamed: 3: AVG | 24.94: 25.8875 | 73.03: 67.045 | 37.18: 37.26
+Row 6: Unnamed: 0: | Unnamed: 1: | 27.24: 26.92 | 62.73: 58.26 | 37.99: 36.82 | Unnamed: 2: | Unnamed: 3: | 24.94: 25.67 | 73.03: 70.61 | 37.18: 37.65
+Row 7: Unnamed: 0: | Unnamed: 1: | 27.24: 26.1 | 62.73: 59.15 | 37.99: 36.22 | Unnamed: 2: | Unnamed: 3: | 24.94: 25.1 | 73.03: 59.19 | 37.18: 35.15
+Row 8: Unnamed: 0: | Unnamed: 1: 10-shot | 27.24: | 62.73: | 37.99: | Unnamed: 2: | Unnamed: 3: 10-shot | 24.94: | 73.03: | 37.18:
+Row 9: Unnamed: 0: GPT 4 | Unnamed: 1: | 27.24: 24.41 | 62.73: 58.56 | 37.99: 34.46 | Unnamed: 2: Llama3 | Unnamed: 3: | 24.94: 25.76 | 73.03: 70.06 | 37.18: 37.67
+Row 10: Unnamed: 0: | Unnamed: 1: | 27.24: 29.19 | 62.73: 60.82 | 37.99: 39.45 | Unnamed: 2: | Unnamed: 3: | 24.94: 25.73 | 73.03: 57.46 | 37.18: 35.54
+Row 11: Unnamed: 0: | Unnamed: 1: AVG | 27.24: 26.655 | 62.73: 59.1975 | 37.99: 36.7375 | Unnamed: 2: | Unnamed: 3: AVG | 24.94: 25.565 | 73.03: 64.33 | 37.18: 36.5025
+Row 12: Unnamed: 0: | Unnamed: 1: | 27.24: 27.86 | 62.73: 59.12 | 37.99: 37.87 | Unnamed: 2: | Unnamed: 3: | 24.94: 26.18 | 73.03: 63.59 | 37.18: 37.09
+Row 13: Unnamed: 0: | Unnamed: 1: | 27.24: 25.02 | 62.73: 60.64 | 37.99: 35.42 | Unnamed: 2: | Unnamed: 3: | 24.94: 26.63 | 73.03: 61.14 | 37.18: 37.1
+Row 14: Unnamed: 0: | Unnamed: 1: 20-shot | 27.24: | 62.73: | 37.99: | Unnamed: 2: | Unnamed: 3: 20-shot | 24.94: | 73.03: | 37.18:
+Row 15: Unnamed: 0: | Unnamed: 1: | 27.24: 29.33 | 62.73: 61.71 | 37.99: 39.76 | Unnamed: 2: | Unnamed: 3: | 24.94: 25.93 | 73.03: 63.57 | 37.18: 36.84
+Row 16: Unnamed: 0: | Unnamed: 1: | 27.24: 30.18 | 62.73: 61.66 | 37.99: 40.52 | Unnamed: 2: | Unnamed: 3: | 24.94: 27.54 | 73.03: 70.85 | 37.18: 39.66
+Row 17: Unnamed: 0: | Unnamed: 1: AVG | 27.24: 28.0975 | 62.73: 60.7825 | 37.99: 38.3925 | Unnamed: 2: | Unnamed: 3: AVG | 24.94: 26.57 | 73.03: 64.7875 | 37.18: 37.6725
+[/TABLE]
+
+[PAGE 26]
+B Results of 95% CIs for Each Metric
+Reddit_Impacts BC5CDR MIMIC III NCBI Med-Mentions
+GPT-3.5
+Basic Prompt (BP) 16.73 [11.53, 22.83]64.56 [61.55, 67.73]54.70 [49.60, 58.73]26.96 [24.43, 30.98]9.27 [7.81, 12.22]
+BP + Description of datasets21.15 [14.88, 26.64] 68.61 [66.74, 70.72] 56.73 [52.58, 61.22] 34.48 [31.08, 39.25] 12.71 [10.93, 15.65]
+BP + High-frequency instances21.15 [15.75, 27.40] 69.01 [66.24, 70.98] 57.72 [52.75, 62.26] 35.95 [33.36, 38.44] 17.22 [14.47, 19.80]
+BP + UMLS knowledge 16.44 [8.43, 23.07] 64.83 [61.83, 66.41] 50.57 [46.17, 55.04] 30.75 [27.73, 33.26] 10.88 [8.81, 12.29]
+BP + Error analysis 19.24 [12.91, 26.17] 67.67 [65.53, 70.32] 59.52 [54.96, 64.47] 33.15 [31.24, 38.87] 15.52 [13.14, 17.20]
+BP + 5-shot learning with sentences19.30 [12.26, 25.78] 68.84 [67.25, 70.49] 57.03 [53.06, 62.85] 40.16 [38.78, 46.45] 20.61 [17.58, 22.29]
+BP + 5-shot learning with tokens 21.69 [15.92, 28.89] 70.79 [68.87, 73.15] 61.21 [56.81, 66.05] 43.01 [41.43, 48.21] 24.57 [22.88, 26.64]
+BP + All above 23.91 [15.87, 30.97]72.73 [70.32, 74.86]61.99 [57.24, 66.38]45.24 [42.64, 50.58]31.63 [29.36, 34.74]
+GPT-4
+Basic Prompt (BP) 20.16 [13.29, 26.54]69.43 [66.28, 72.44]56.63 [51.27, 60.83]33.56 [31.59, 37.25]13.83 [11.85, 15.09]
+BP + Description of datasets23.52 [16.46, 30.84] 70.65 [67.47, 72.72] 59.68 [55.18, 64.09] 35.75 [33.54, 40.58] 15.30 [13.61, 17.15]
+BP + High-frequency instances24.64 [17.72, 31.11] 72.60 [71.17, 74.28] 60.08 [56.33, 65.37] 37.96 [36.95, 41.73] 19.50 [17.11, 22.97]
+BP + UMLS knowledge 20.46 [13.84, 27.07] 69.86 [66.05, 72.62] 55.13 [50.20, 60.29] 30.90 [28.68, 34.30] 14.50 [12.57, 16.46]
+BP + Error analysis 23.13 [16.65, 30.69] 74.61 [71.44, 77.29] 60.11 [55.44, 64.72] 37.84 [34.13, 42.71] 18.25 [15.06, 20.43]
+BP + 5-shot learning with sentences22.88 [16.23, 30.59] 73.00 [71.26, 76.22] 58.25 [53.28, 63.95] 40.86 [39.37, 45.36] 28.80 [26.71, 30.20]
+BP + 5-shot learning with tokens 25.95 [18.50, 32.07] 76.65 [74.15, 77.92] 62.94 [57.56, 66.87] 44.24 [42.93, 48.28] 33.20 [31.64, 35.70]
+BP + All above 27.60 [19.43, 33.80]78.03 [75.51, 80.02]63.58 [58.73, 67.18]46.93 [44.85, 51.58]37.95 [35.88, 39.90]
+Llama3
+Basic Prompt (BP) 15.61 [8.20, 22.12]62.13 [59.24, 63.58]50.70 [45.93, 54.19]19.15 [15.21, 21.38]21.23 [19.24, 23.42]
+BP + Description of datasets19.28 [11.71, 25.96] 67.68 [64.86, 69.10] 56.22 [52.77, 60.25] 21.44 [20.80, 24.65] 21.57 [19.30, 24.76]
+BP + High-frequency instances 20.44 [13.79, 27.51]68.39 [66.48, 70.35] 56.06 [52.62, 61.42] 26.62 [22.16, 28.31] 27.12 [26.37, 29.35]
+BP + UMLS knowledge 12.91 [7.40, 18.71] 64.71 [61.44, 67.01] 48.92 [44.75, 53.37] 20.91 [17.07, 22.61] 23.68 [20.59, 25.17]
+BP + Error analysis 18.87 [13.34, 25.13] 68.07 [65.41, 70.58] 58.92 [53.90, 63.84] 24.46 [20.97, 25.20] 25.78 [23.48, 27.56]
+BP + 5-shot learning with sentences17.65 [13.62, 24.69] 70.70 [69.36, 72.83] 56.85 [52.32, 61.33] 30.52 [26.50, 33.96] 34.87 [32.18, 37.25]
+BP + 5-shot learning with tokens20.04 [14.81, 27.29]71.76 [69.58, 73.51] 61.98 [56.59, 65.18] 33.42 [28.72, 35.12] 35.23 [33.17, 37.08]
+BP + All above 21.43 [14.24, 28.80]73.32 [72.27, 74.26]62.94 [57.07, 65.79]34.80 [28.57, 35.44]37.26 [35.45, 39.08]
+Table 9. Evaluation of static prompting strategies using GPT-3.5, GPT-4 and Llama 3 across five biomedical
+datasets. The table presents F1-score with 95% confidence intervals reported for each metric to indicate the
+statistical reliability of the results.
+26/31
+
+[TABLE page=26 index=1]
+Columns: Unnamed: 0 | Reddit_Impacts | BC5CDR | MIMIC III | NCBI | Med-Mentions
+Row 1: Unnamed: 0: GPT-3.5 | Reddit_Impacts: | BC5CDR: | MIMIC III: | NCBI: | Med-Mentions:
+Row 2: Unnamed: 0: Basic Prompt (BP) | Reddit_Impacts: 16.73 [11.53, 22.83] | BC5CDR: 64.56 [61.55, 67.73] | MIMIC III: 54.70 [49.60, 58.73] | NCBI: 26.96 [24.43, 30.98] | Med-Mentions: 9.27 [7.81, 12.22]
+Row 3: Unnamed: 0: BP + Description of datasets | Reddit_Impacts: 21.15 [14.88, 26.64] | BC5CDR: 68.61 [66.74, 70.72] | MIMIC III: 56.73 [52.58, 61.22] | NCBI: 34.48 [31.08, 39.25] | Med-Mentions: 12.71 [10.93, 15.65]
+Row 4: Unnamed: 0: BP + High-frequency instances | Reddit_Impacts: 21.15 [15.75, 27.40] | BC5CDR: 69.01 [66.24, 70.98] | MIMIC III: 57.72 [52.75, 62.26] | NCBI: 35.95 [33.36, 38.44] | Med-Mentions: 17.22 [14.47, 19.80]
+Row 5: Unnamed: 0: BP + UMLS knowledge | Reddit_Impacts: 16.44 [8.43, 23.07] | BC5CDR: 64.83 [61.83, 66.41] | MIMIC III: 50.57 [46.17, 55.04] | NCBI: 30.75 [27.73, 33.26] | Med-Mentions: 10.88 [8.81, 12.29]
+Row 6: Unnamed: 0: BP + Error analysis | Reddit_Impacts: 19.24 [12.91, 26.17] | BC5CDR: 67.67 [65.53, 70.32] | MIMIC III: 59.52 [54.96, 64.47] | NCBI: 33.15 [31.24, 38.87] | Med-Mentions: 15.52 [13.14, 17.20]
+Row 7: Unnamed: 0: BP + 5-shot learning with sentences | Reddit_Impacts: 19.30 [12.26, 25.78] | BC5CDR: 68.84 [67.25, 70.49] | MIMIC III: 57.03 [53.06, 62.85] | NCBI: 40.16 [38.78, 46.45] | Med-Mentions: 20.61 [17.58, 22.29]
+Row 8: Unnamed: 0: BP + 5-shot learning with tokens | Reddit_Impacts: 21.69 [15.92, 28.89] | BC5CDR: 70.79 [68.87, 73.15] | MIMIC III: 61.21 [56.81, 66.05] | NCBI: 43.01 [41.43, 48.21] | Med-Mentions: 24.57 [22.88, 26.64]
+Row 9: Unnamed: 0: BP + All above | Reddit_Impacts: 23.91 [15.87, 30.97] | BC5CDR: 72.73 [70.32, 74.86] | MIMIC III: 61.99 [57.24, 66.38] | NCBI: 45.24 [42.64, 50.58] | Med-Mentions: 31.63 [29.36, 34.74]
+Row 10: Unnamed: 0: GPT-4 | Reddit_Impacts: | BC5CDR: | MIMIC III: | NCBI: | Med-Mentions:
+Row 11: Unnamed: 0: Basic Prompt (BP) | Reddit_Impacts: 20.16 [13.29, 26.54] | BC5CDR: 69.43 [66.28, 72.44] | MIMIC III: 56.63 [51.27, 60.83] | NCBI: 33.56 [31.59, 37.25] | Med-Mentions: 13.83 [11.85, 15.09]
+Row 12: Unnamed: 0: BP + Description of datasets | Reddit_Impacts: 23.52 [16.46, 30.84] | BC5CDR: 70.65 [67.47, 72.72] | MIMIC III: 59.68 [55.18, 64.09] | NCBI: 35.75 [33.54, 40.58] | Med-Mentions: 15.30 [13.61, 17.15]
+Row 13: Unnamed: 0: BP + High-frequency instances | Reddit_Impacts: 24.64 [17.72, 31.11] | BC5CDR: 72.60 [71.17, 74.28] | MIMIC III: 60.08 [56.33, 65.37] | NCBI: 37.96 [36.95, 41.73] | Med-Mentions: 19.50 [17.11, 22.97]
+Row 14: Unnamed: 0: BP + UMLS knowledge | Reddit_Impacts: 20.46 [13.84, 27.07] | BC5CDR: 69.86 [66.05, 72.62] | MIMIC III: 55.13 [50.20, 60.29] | NCBI: 30.90 [28.68, 34.30] | Med-Mentions: 14.50 [12.57, 16.46]
+Row 15: Unnamed: 0: BP + Error analysis | Reddit_Impacts: 23.13 [16.65, 30.69] | BC5CDR: 74.61 [71.44, 77.29] | MIMIC III: 60.11 [55.44, 64.72] | NCBI: 37.84 [34.13, 42.71] | Med-Mentions: 18.25 [15.06, 20.43]
+Row 16: Unnamed: 0: BP + 5-shot learning with sentences | Reddit_Impacts: 22.88 [16.23, 30.59] | BC5CDR: 73.00 [71.26, 76.22] | MIMIC III: 58.25 [53.28, 63.95] | NCBI: 40.86 [39.37, 45.36] | Med-Mentions: 28.80 [26.71, 30.20]
+Row 17: Unnamed: 0: BP + 5-shot learning with tokens | Reddit_Impacts: 25.95 [18.50, 32.07] | BC5CDR: 76.65 [74.15, 77.92] | MIMIC III: 62.94 [57.56, 66.87] | NCBI: 44.24 [42.93, 48.28] | Med-Mentions: 33.20 [31.64, 35.70]
+Row 18: Unnamed: 0: BP + All above | Reddit_Impacts: 27.60 [19.43, 33.80] | BC5CDR: 78.03 [75.51, 80.02] | MIMIC III: 63.58 [58.73, 67.18] | NCBI: 46.93 [44.85, 51.58] | Med-Mentions: 37.95 [35.88, 39.90]
+Row 19: Unnamed: 0: Llama3 | Reddit_Impacts: | BC5CDR: | MIMIC III: | NCBI: | Med-Mentions:
+Row 20: Unnamed: 0: Basic Prompt (BP) | Reddit_Impacts: 15.61 [8.20, 22.12] | BC5CDR: 62.13 [59.24, 63.58] | MIMIC III: 50.70 [45.93, 54.19] | NCBI: 19.15 [15.21, 21.38] | Med-Mentions: 21.23 [19.24, 23.42]
+Row 21: Unnamed: 0: BP + Description of datasets | Reddit_Impacts: 19.28 [11.71, 25.96] | BC5CDR: 67.68 [64.86, 69.10] | MIMIC III: 56.22 [52.77, 60.25] | NCBI: 21.44 [20.80, 24.65] | Med-Mentions: 21.57 [19.30, 24.76]
+Row 22: Unnamed: 0: BP + High-frequency instances | Reddit_Impacts: 20.44 [13.79, 27.51] | BC5CDR: 68.39 [66.48, 70.35] | MIMIC III: 56.06 [52.62, 61.42] | NCBI: 26.62 [22.16, 28.31] | Med-Mentions: 27.12 [26.37, 29.35]
+Row 23: Unnamed: 0: BP + UMLS knowledge | Reddit_Impacts: 12.91 [7.40, 18.71] | BC5CDR: 64.71 [61.44, 67.01] | MIMIC III: 48.92 [44.75, 53.37] | NCBI: 20.91 [17.07, 22.61] | Med-Mentions: 23.68 [20.59, 25.17]
+Row 24: Unnamed: 0: BP + Error analysis | Reddit_Impacts: 18.87 [13.34, 25.13] | BC5CDR: 68.07 [65.41, 70.58] | MIMIC III: 58.92 [53.90, 63.84] | NCBI: 24.46 [20.97, 25.20] | Med-Mentions: 25.78 [23.48, 27.56]
+Row 25: Unnamed: 0: BP + 5-shot learning with sentences | Reddit_Impacts: 17.65 [13.62, 24.69] | BC5CDR: 70.70 [69.36, 72.83] | MIMIC III: 56.85 [52.32, 61.33] | NCBI: 30.52 [26.50, 33.96] | Med-Mentions: 34.87 [32.18, 37.25]
+Row 26: Unnamed: 0: BP + 5-shot learning with tokens | Reddit_Impacts: 20.04 [14.81, 27.29] | BC5CDR: 71.76 [69.58, 73.51] | MIMIC III: 61.98 [56.59, 65.18] | NCBI: 33.42 [28.72, 35.12] | Med-Mentions: 35.23 [33.17, 37.08]
+Row 27: Unnamed: 0: BP + All above | Reddit_Impacts: 21.43 [14.24, 28.80] | BC5CDR: 73.32 [72.27, 74.26] | MIMIC III: 62.94 [57.07, 65.79] | NCBI: 34.80 [28.57, 35.44] | Med-Mentions: 37.26 [35.45, 39.08]
+[/TABLE]
+
+[PAGE 27]
+Reddit_Impacts BC5CDR MIMIC III NCBI Med-Mentions
+GPT-4
+Base 27.60 [19.43, 33.80]78.03 [75.51, 80.02]63.58 [58.73, 67.18]46.93 [44.85, 51.58]37.95 [35.88, 39.90]
+TF-IDF 28.47 [21.78, 35.47]85.88 [84.53, 86.42] 76.24 [72.98, 79.63] 60.08 [56.70, 63.32]37.96 [35.90, 39.84]
+SBERT 33.72 [26.28, 42.20] 83.37 [82.51, 84.22] 73.44 [69.91, 76.81] 57.56 [54.05, 60.73] 39.12 [36.84, 41.34]
+ColBERT32.39 [25.10, 39.85] 79.82 [78.24, 80.98] 75.56 [72.06, 78.94] 52.38 [49.06, 55.55]39.93 [37.93, 41.73]
+5-shot
+DPR 32.64 [25.42, 40.17] 83.58 [82.30, 84.88] 69.89 [65.75, 73.63] 49.37 [45.37, 52.94] 39.13 [34.44, 41.35]
+Base 31.92 [23.77, 38.44]81.27 [80.81, 82.37]70.52 [66.10, 73.81]52.67 [49.36, 56.76]36.74 [32.29, 38.83]
+TF-IDF 31.14 [24.33, 38.13]86.64 [85.15, 88.09]75.53 [72.18, 79.10]62.05 [58.79, 65.11]40.37 [38.23, 42.43]
+SBERT 35.47 [27.17, 43.21] 85.92 [83.09, 87.27] 73.89 [70.22, 77.80] 60.83 [57.47, 64.03] 40.37 [38.23, 42.39]
+ColBERT33.81 [26.24, 41.55] 85.71 [84.42, 86.07]76.34 [73.01, 79.68]57.25 [53.75, 60.72]40.48 [38.13, 42.54]
+10-shot
+DPR 32.61 [24.50, 40.33] 84.79 [82.96, 86.78] 72.13 [68.06, 75.85] 58.70 [54.99, 61.91] 40.25 [30.83, 50.75]
+Base 37.67 [30.04, 43.44]81.15 [80.40, 82.24]70.98 [65.77, 73.82]51.98 [50.33, 58.84]38.39 [35.26, 40.29]
+TF-IDF 38.35 [30.77, 46.28] 87.16 [85.77, 88.62]77.66 [71.91, 78.88] 64.36 [61.18, 67.87] 41.32 [39.21, 43.26]
+SBERT 38.22 [28.57, 44.90]87.42 [85.26, 89.12]75.14 [71.77, 78.75] 62.21 [59.01, 65.18] 39.37 [35.05, 40.39]
+ColBERT 42.49 [32.52, 48.33]83.00 [81.39, 84.40] 76.70 [73.11, 79.89] 57.69 [54.22, 61.18] 40.53 [37.61, 43.26]
+20-shot
+DPR 38.84 [29.01, 44.44] 85.60 [84.28, 86.93] 72.28 [68.56, 75.95] 60.34 [56.54, 63.72] 39.23 [34.22, 41.56]
+Llama3
+Base 21.43 [14.24, 28.80]73.32 [72.27, 74.26]62.94 [57.07, 65.79]34.80 [28.57, 35.44]37.26 [35.45, 39.08]
+TF-IDF 28.57 [21.74, 36.06] 80.11 [79.25, 81.00] 70.41 [66.87, 73.76] 49.80 [46.38, 53.03] 38.68 [35.67, 40.81]
+SBERT 34.42 [26.28, 41.52] 80.39 [79.50, 81.33]67.88 [64.09, 71.69]50.12 [46.89, 53.66]37.91 [36.02, 39.81]
+ColBERT32.94 [25.00, 39.84] 71.76 [70.75, 72.69]71.68 [68.08, 75.21]45.50 [41.95, 49.49]38.99 [36.15, 41.34]
+5-shot
+DPR 29.00 [22.86, 36.36] 75.67 [74.67, 76.70] 68.97 [65.05, 72.70] 44.54 [41.24, 48.25] 38.66 [36.78, 40.50]
+Base 32.50 [26.94, 42.26]75.15 [74.65, 76.67]63.77 [58.59, 67.75]35.60 [32.17, 39.12]36.50 [35.73, 39.57]
+TF-IDF 34.21 [27.24, 42.03]80.57 [79.65, 81.47]55.56 [53.11, 60.44] 49.50 [46.05, 52.92] 35.51 [34.75, 37.45]
+SBERT 32.45 [25.33, 39.63] 81.17 [80.26, 82.03] 71.63 [67.75, 75.15]51.35 [47.49, 55.16] 39.08 [36.39, 41.38]
+ColBERT32.89 [20.35, 35.05] 80.34 [79.53, 81.24]72.85 [69.46, 76.49]38.77 [34.91, 42.29] 38.06 [35.52, 40.71]
+10-shot
+DPR 34.29 [26.11, 41.98] 74.72 [73.77, 75.73] 69.54 [65.61, 73.17] 46.28 [42.77, 49.65] 37.85 [36.06, 39.69]
+Base 33.67 [24.09, 40.88]75.50 [73.57, 76.36]62.05 [58.23, 67.15]41.62 [38.83, 45.71]37.67 [35.22, 40.57]
+TF-IDF 39.11 [31.34, 47.70]78.36 [77.42, 79.30]57.66 [51.19, 59.80] 47.50 [43.87, 50.84]38.83 [37.54, 39.11]
+SBERT 41.43 [31.58, 48.98] 76.85 [74.86, 78.96] 65.35 [60.44, 70.40] 44.14 [40.57, 47.86] 36.01 [34.16, 37.75]
+ColBERT34.66 [24.07, 36.31] 72.19 [71.17, 73.20] 57.63 [53.19, 61.93]48.44 [45.07, 51.78]36.85 [34.10, 39.29]
+20-shot
+DPR 37.30 [27.13, 44.76] 74.80 [72.49, 76.36]65.80 [61.82, 69.69]40.36 [36.96, 43.96] 36.89 [34.46, 38.84]
+Table 10. Evaluation of dynamic prompting strategies (5-shot, 10-shot, and 20-shot) using GPT-4 and Llama 3
+across five biomedical datasets. The table presents F1-score for each retrieval method: Base Prompt, TF-IDF,
+SBERT, ColBERT, and DPR, with 95% confidence intervals reported for each metric to indicate the statistical
+reliability of the results.
+27/31
+
+[TABLE page=27 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Reddit_Impacts | BC5CDR | MIMIC III | NCBI | Med-Mentions
+Row 1: Unnamed: 0: GPT-4 | Unnamed: 1: | Reddit_Impacts: | BC5CDR: | MIMIC III: | NCBI: | Med-Mentions:
+Row 2: Unnamed: 0: | Unnamed: 1: Base | Reddit_Impacts: 27.60 [19.43, 33.80] | BC5CDR: 78.03 [75.51, 80.02] | MIMIC III: 63.58 [58.73, 67.18] | NCBI: 46.93 [44.85, 51.58] | Med-Mentions: 37.95 [35.88, 39.90]
+Row 3: Unnamed: 0: | Unnamed: 1: TF-IDF | Reddit_Impacts: 28.47 [21.78, 35.47] | BC5CDR: 85.88 [84.53, 86.42] | MIMIC III: 76.24 [72.98, 79.63] | NCBI: 60.08 [56.70, 63.32] | Med-Mentions: 37.96 [35.90, 39.84]
+Row 4: Unnamed: 0: 5-shot | Unnamed: 1: SBERT | Reddit_Impacts: 33.72 [26.28, 42.20] | BC5CDR: 83.37 [82.51, 84.22] | MIMIC III: 73.44 [69.91, 76.81] | NCBI: 57.56 [54.05, 60.73] | Med-Mentions: 39.12 [36.84, 41.34]
+Row 5: Unnamed: 0: | Unnamed: 1: ColBERT | Reddit_Impacts: 32.39 [25.10, 39.85] | BC5CDR: 79.82 [78.24, 80.98] | MIMIC III: 75.56 [72.06, 78.94] | NCBI: 52.38 [49.06, 55.55] | Med-Mentions: 39.93 [37.93, 41.73]
+Row 6: Unnamed: 0: | Unnamed: 1: DPR | Reddit_Impacts: 32.64 [25.42, 40.17] | BC5CDR: 83.58 [82.30, 84.88] | MIMIC III: 69.89 [65.75, 73.63] | NCBI: 49.37 [45.37, 52.94] | Med-Mentions: 39.13 [34.44, 41.35]
+Row 7: Unnamed: 0: | Unnamed: 1: Base | Reddit_Impacts: 31.92 [23.77, 38.44] | BC5CDR: 81.27 [80.81, 82.37] | MIMIC III: 70.52 [66.10, 73.81] | NCBI: 52.67 [49.36, 56.76] | Med-Mentions: 36.74 [32.29, 38.83]
+Row 8: Unnamed: 0: | Unnamed: 1: TF-IDF | Reddit_Impacts: 31.14 [24.33, 38.13] | BC5CDR: 86.64 [85.15, 88.09] | MIMIC III: 75.53 [72.18, 79.10] | NCBI: 62.05 [58.79, 65.11] | Med-Mentions: 40.37 [38.23, 42.43]
+Row 9: Unnamed: 0: 10-shot | Unnamed: 1: SBERT | Reddit_Impacts: 35.47 [27.17, 43.21] | BC5CDR: 85.92 [83.09, 87.27] | MIMIC III: 73.89 [70.22, 77.80] | NCBI: 60.83 [57.47, 64.03] | Med-Mentions: 40.37 [38.23, 42.39]
+Row 10: Unnamed: 0: | Unnamed: 1: ColBERT | Reddit_Impacts: 33.81 [26.24, 41.55] | BC5CDR: 85.71 [84.42, 86.07] | MIMIC III: 76.34 [73.01, 79.68] | NCBI: 57.25 [53.75, 60.72] | Med-Mentions: 40.48 [38.13, 42.54]
+Row 11: Unnamed: 0: | Unnamed: 1: DPR | Reddit_Impacts: 32.61 [24.50, 40.33] | BC5CDR: 84.79 [82.96, 86.78] | MIMIC III: 72.13 [68.06, 75.85] | NCBI: 58.70 [54.99, 61.91] | Med-Mentions: 40.25 [30.83, 50.75]
+Row 12: Unnamed: 0: | Unnamed: 1: Base | Reddit_Impacts: 37.67 [30.04, 43.44] | BC5CDR: 81.15 [80.40, 82.24] | MIMIC III: 70.98 [65.77, 73.82] | NCBI: 51.98 [50.33, 58.84] | Med-Mentions: 38.39 [35.26, 40.29]
+Row 13: Unnamed: 0: | Unnamed: 1: TF-IDF | Reddit_Impacts: 38.35 [30.77, 46.28] | BC5CDR: 87.16 [85.77, 88.62] | MIMIC III: 77.66 [71.91, 78.88] | NCBI: 64.36 [61.18, 67.87] | Med-Mentions: 41.32 [39.21, 43.26]
+Row 14: Unnamed: 0: 20-shot | Unnamed: 1: SBERT | Reddit_Impacts: 38.22 [28.57, 44.90] | BC5CDR: 87.42 [85.26, 89.12] | MIMIC III: 75.14 [71.77, 78.75] | NCBI: 62.21 [59.01, 65.18] | Med-Mentions: 39.37 [35.05, 40.39]
+Row 15: Unnamed: 0: | Unnamed: 1: ColBERT | Reddit_Impacts: 42.49 [32.52, 48.33] | BC5CDR: 83.00 [81.39, 84.40] | MIMIC III: 76.70 [73.11, 79.89] | NCBI: 57.69 [54.22, 61.18] | Med-Mentions: 40.53 [37.61, 43.26]
+Row 16: Unnamed: 0: | Unnamed: 1: DPR | Reddit_Impacts: 38.84 [29.01, 44.44] | BC5CDR: 85.60 [84.28, 86.93] | MIMIC III: 72.28 [68.56, 75.95] | NCBI: 60.34 [56.54, 63.72] | Med-Mentions: 39.23 [34.22, 41.56]
+Row 17: Unnamed: 0: Llama3 | Unnamed: 1: | Reddit_Impacts: | BC5CDR: | MIMIC III: | NCBI: | Med-Mentions:
+Row 18: Unnamed: 0: | Unnamed: 1: Base | Reddit_Impacts: 21.43 [14.24, 28.80] | BC5CDR: 73.32 [72.27, 74.26] | MIMIC III: 62.94 [57.07, 65.79] | NCBI: 34.80 [28.57, 35.44] | Med-Mentions: 37.26 [35.45, 39.08]
+Row 19: Unnamed: 0: | Unnamed: 1: TF-IDF | Reddit_Impacts: 28.57 [21.74, 36.06] | BC5CDR: 80.11 [79.25, 81.00] | MIMIC III: 70.41 [66.87, 73.76] | NCBI: 49.80 [46.38, 53.03] | Med-Mentions: 38.68 [35.67, 40.81]
+Row 20: Unnamed: 0: 5-shot | Unnamed: 1: SBERT | Reddit_Impacts: 34.42 [26.28, 41.52] | BC5CDR: 80.39 [79.50, 81.33] | MIMIC III: 67.88 [64.09, 71.69] | NCBI: 50.12 [46.89, 53.66] | Med-Mentions: 37.91 [36.02, 39.81]
+Row 21: Unnamed: 0: | Unnamed: 1: ColBERT | Reddit_Impacts: 32.94 [25.00, 39.84] | BC5CDR: 71.76 [70.75, 72.69] | MIMIC III: 71.68 [68.08, 75.21] | NCBI: 45.50 [41.95, 49.49] | Med-Mentions: 38.99 [36.15, 41.34]
+Row 22: Unnamed: 0: | Unnamed: 1: DPR | Reddit_Impacts: 29.00 [22.86, 36.36] | BC5CDR: 75.67 [74.67, 76.70] | MIMIC III: 68.97 [65.05, 72.70] | NCBI: 44.54 [41.24, 48.25] | Med-Mentions: 38.66 [36.78, 40.50]
+Row 23: Unnamed: 0: | Unnamed: 1: Base | Reddit_Impacts: 32.50 [26.94, 42.26] | BC5CDR: 75.15 [74.65, 76.67] | MIMIC III: 63.77 [58.59, 67.75] | NCBI: 35.60 [32.17, 39.12] | Med-Mentions: 36.50 [35.73, 39.57]
+Row 24: Unnamed: 0: | Unnamed: 1: TF-IDF | Reddit_Impacts: 34.21 [27.24, 42.03] | BC5CDR: 80.57 [79.65, 81.47] | MIMIC III: 55.56 [53.11, 60.44] | NCBI: 49.50 [46.05, 52.92] | Med-Mentions: 35.51 [34.75, 37.45]
+Row 25: Unnamed: 0: 10-shot | Unnamed: 1: SBERT | Reddit_Impacts: 32.45 [25.33, 39.63] | BC5CDR: 81.17 [80.26, 82.03] | MIMIC III: 71.63 [67.75, 75.15] | NCBI: 51.35 [47.49, 55.16] | Med-Mentions: 39.08 [36.39, 41.38]
+Row 26: Unnamed: 0: | Unnamed: 1: ColBERT | Reddit_Impacts: 32.89 [20.35, 35.05] | BC5CDR: 80.34 [79.53, 81.24] | MIMIC III: 72.85 [69.46, 76.49] | NCBI: 38.77 [34.91, 42.29] | Med-Mentions: 38.06 [35.52, 40.71]
+Row 27: Unnamed: 0: | Unnamed: 1: DPR | Reddit_Impacts: 34.29 [26.11, 41.98] | BC5CDR: 74.72 [73.77, 75.73] | MIMIC III: 69.54 [65.61, 73.17] | NCBI: 46.28 [42.77, 49.65] | Med-Mentions: 37.85 [36.06, 39.69]
+Row 28: Unnamed: 0: | Unnamed: 1: Base | Reddit_Impacts: 33.67 [24.09, 40.88] | BC5CDR: 75.50 [73.57, 76.36] | MIMIC III: 62.05 [58.23, 67.15] | NCBI: 41.62 [38.83, 45.71] | Med-Mentions: 37.67 [35.22, 40.57]
+Row 29: Unnamed: 0: | Unnamed: 1: TF-IDF | Reddit_Impacts: 39.11 [31.34, 47.70] | BC5CDR: 78.36 [77.42, 79.30] | MIMIC III: 57.66 [51.19, 59.80] | NCBI: 47.50 [43.87, 50.84] | Med-Mentions: 38.83 [37.54, 39.11]
+Row 30: Unnamed: 0: 20-shot | Unnamed: 1: SBERT | Reddit_Impacts: 41.43 [31.58, 48.98] | BC5CDR: 76.85 [74.86, 78.96] | MIMIC III: 65.35 [60.44, 70.40] | NCBI: 44.14 [40.57, 47.86] | Med-Mentions: 36.01 [34.16, 37.75]
+Row 31: Unnamed: 0: | Unnamed: 1: ColBERT | Reddit_Impacts: 34.66 [24.07, 36.31] | BC5CDR: 72.19 [71.17, 73.20] | MIMIC III: 57.63 [53.19, 61.93] | NCBI: 48.44 [45.07, 51.78] | Med-Mentions: 36.85 [34.10, 39.29]
+Row 32: Unnamed: 0: | Unnamed: 1: DPR | Reddit_Impacts: 37.30 [27.13, 44.76] | BC5CDR: 74.80 [72.49, 76.36] | MIMIC III: 65.80 [61.82, 69.69] | NCBI: 40.36 [36.96, 43.96] | Med-Mentions: 36.89 [34.46, 38.84]
+[/TABLE]
+
+[PAGE 28]
+C Detailed Task-specific Static Prompts
+Prompt Strategies Reddit-Impacts
+[Task Description]:You are a medical AI trained to identify and classify tokens into three categories: Clinical Impacts, Social Impacts, and Outside (’O’).
+Your task is to extract and classify the clinical and social impacts from this dataset, considering your knowledge of the lifestyle of this population and the
+potential clinical and social impacts they might experience.
+[Entity Types with Definitions]:’Clinical Impacts’ refer to tokens describing the effects, consequences, or impacts of substance use on individual health or
+well-being, as defined in UMLS. ’Social Impacts’ describe the societal, interpersonal, or community-level effects, also based on UMLS definitions. Any token
+not falling into these categories should be labeled as ’O’.
+Basic Prompt [Format Specification]:For example, the sentence ’I was a codeine addict.’ is tokenized and labeled as follows: [’I’, ’was’, ’a’, ’codeine’, ’addict’, ’.’]
+with labels [’O’, ’O’, ’O’, ’Clinical Impacts’, ’Clinical Impacts’, ’O’]. Your task is to predict and return the label for each provided token, ensuring the number of
+output labels matches the number of input tokens exactly. The output format should be tokens with their labels: [’I-O’, ’was-O’, ’a-O’, ’codeine-Clinical Impacts’,
+’addict-Clinical Impacts’, ’.-O’].
+Description of datasetsThe data you are working with has been collected from 14 forums on Reddit (subreddits) that focused on prescription and illicit opioids, and medications
+for opioid use disorder. This dataset represents a social media context, coming from individuals who may use prescription and illicit opioids and stimulants.
+High-frequency instancesIn this dataset, high-frequency clinical impacts include ’withdrawal’, ’rehab’, ’addicted’, ’detox’, ’overdosed’, and ’rehabs’. High-frequency social impacts include
+’lost’, ’homeless’, ’charged’, ’streets’, ’jail’, and ’disorderly’.
+UMLS knowledge
+The Unified Medical Language System (UMLS) is developed by the U.S. National Library of Medicine (NLM) to integrate and standardize diverse medical
+terminologies and coding systems. It consists of three main components: the Metathesaurus, Semantic Network, and SPECIALIST Lexicon, supporting medical
+information retrieval and semantic analysis. You understand medical terminology and concepts from UMLS.
+Error analysis
+Possible analysis of prediction errors: If a sentence describes the background information of an event, facility, or project, then even if it mentions keywords
+related to social impact like ’at jail’, it still cannot be determined as describing a patient being in jail. It is essential to clearly determine whether the sentence is
+describing the patient’s condition. Second, if the sentence is about the usage, operation, or introduction of a drug or medicine, it does not belong to the patient’s
+clinical impacts, even if it mentions some symptoms. Pay attention to whether the sentence contains words like ’if’ that indicate conditions.
+Table 11. Specific static prompts for each component we used for the REDDIT -I MPACTS dataset.
+28/31
+
+[PAGE 29]
+Prompt Strategies BC5CDR
+[Task Description]:You are a medical AI trained to identify and classify tokens into three categories: ’Disease’, ’Chemical’ and Outside (’O’). Your task is to extract
+and classify the Disease and Chemical related concepts from this dataset.
+[Entity Types with Definitions]:’Disease’ is a particular abnormal condition that adversely affects the structure or function of all or part of an organism and is
+not immediately due to any external injury. Diseases are often known to be medical conditions that are associated with specific signs and symptoms. A disease
+may be caused by external factors such as pathogens or by internal dysfunctions. For example, internal dysfunctions of the immune system can produce a variety
+of different diseases, including various forms of immunodeficiency, hypersensitivity, allergies, and autoimmune disorders. ’Chemical’ in this context refers to
+substances or compounds with specific chemical properties and structures. These can include drugs, neurotransmitters, elements or ions, vitamins, and other
+medically relevant chemicals. Any token not falling into Disease categories should be labeled as ’O’.
+Basic Prompt [Format Specification]:For example, the sentence ’The hypotensive effect of 100 mg / kg alpha-methyldopa was also partially reversed by naloxone .’ is
+tokenized and labeled as follows: [’The’, ’hypotensive’, ’effect’, ’of’, ’100’, ’mg’, ’/’, ’kg’, ’alpha-methyldopa’, ’was’, ’also’, ’partially’, ’reversed’, ’by’, ’naloxone’, ’.’] with
+labels [’O’, ’Disease’, ’O’, ’O’, ’O’, ’O’, ’O’, ’O’, ’Chemical’, ’O’, ’O’, ’O’, ’O’, ’O’, ’Chemical’, ’O’]. Your task is to predict and return the label for each provided token,
+ensuring the number of output labels matches the number of input tokens exactly. The output format should include tokens with their labels: [’The-O’, ’hypotensiveDisease’, ’effect-O’, ’of-O’, ’100-O’, ’mg-O’, ’/-O’, ’kg-O’, ’alpha-methyldopa-Chemical’, ’was-O’, ’also-O’, ’partially-O’, ’reversed-O’, ’by-O’, ’naloxone-Chemical’, ’.-O’].
+Description of datasetsThe data you are working with is BC5CDR dataset, a benchmark dataset for biomedical natural language processing, created from PubMed abstracts. It includes
+annotations for two entity types—chemicals and diseases—and their relationships, specifically chemical-induced disease interactions. The dataset is widely used
+for tasks such as named entity recognition and relation extraction, supporting research in biomedical text mining and information extraction.
+High-frequency instancesIn this dataset, high frequency of ’Disease’ include ’pain’, ’toxicity’, ’renal’, ’failure’, ’disease’, ’hypotension’; high frequency of ’Chemical’ include ’cocaine’, ’acid’,
+’dopamine’, ’nicotine’, ’morphine’, ’lithium’.
+UMLS knowledgeThe Unified Medical Language System (UMLS) is developed by the U.S. National Library of Medicine (NLM) to integrate and standardize diverse medical
+terminologies and coding systems. It consists of three main components: the Metathesaurus, Semantic Network, and SPECIALIST Lexicon, supporting medical
+information retrieval and semantic analysis. You understand medical terminology and concepts from UMLS.
+Error analysis
+Possible analysis of prediction errors: The prediction errors mainly stem from challenges in distinguishing between entity boundaries and contextual usage. For
+instance, multi-token entities were partially labeled, causing boundary mismatches. Additionally, certain terms such as "receptor" or "antagonist" were incorrectly
+labeled as ’O,’ despite being part of chemical-related entities. Misclassification also occurred in sentences with conditional phrases or background information,
+where the relation between entities was not accurately captured. Furthermore, entities mentioned in descriptive or abstract contexts, were sometimes overlooked.
+These errors highlight difficulties in handling complex sentence structures, context-specific classification, and multi-token entity recognition.
+Table 12. Specific static prompts for each component we used for the BC5CDR dataset.
+29/31
+
+[PAGE 30]
+Prompt Strategies MIMIC III
+[Task Description]:You are a medical AI trained to identify and classify tokens into 13 categories: ’CONDITION/SYMPTOM’, ’DRUG’, ’AMOUNT’, ’TIME’,
+’MEASUREMENT’, ’LOCATION’, ’EVENT’, ’FREQUENCY’, ’ORGANIZATION’, ’DATE’, ’AGE’, ’GENDER’ and Outside (’O’). Your task is to extract and
+classify the concepts from this dataset.
+[Entity Types with Definitions]:’ORGANIZATION’ refers to entities or groups associated with healthcare or emergency medical services. These could be specific
+departments, teams, or services within a medical or emergency response organization. ’DATE’ in this context refers to specific calendar dates. These dates are
+typically used to mark particular events, appointments, or deadlines. ’AGE’ in this context refers to the length of time that a person has lived or the number of years
+since their birth. It can be expressed in various formats, including numerical values, abbreviated forms, or written out in words. ’GENDER’ in this context refers to
+the socially constructed roles, behaviors, activities, and attributes that a given society considers appropriate for men and women. It encompasses the identities of
+’male’ and ’female,’ which are often associated with biological sex but are also shaped by cultural and social factors. ’FREQUENCY’ in this context refers to the rate
+or regularity at which an event or phenomenon occurs. It can describe how often something happens, ranging from sporadic or irregular occurrences to more regular
+or constant patterns. ’EVENT’ in this context refers to specific occurrences or actions that take place, particularly in a medical or clinical setting. These can include
+procedures, assessments, or other significant incidents. ’LOCATION’ in this context refers to specific places or areas, particularly within a healthcare or medical
+setting. These can include types of facilities, specific locations within a facility, or other relevant places. ’MEASUREMENT’ in this context refers to quantitative
+assessments or values used to evaluate specific physiological or medical parameters. These can include vital signs, laboratory test results, numerical values, or
+other metrics related to patient health. ’TIME’ in this context refers to specific points or periods in the temporal continuum, particularly as they relate to healthcare or
+medical events. These can include general time references, specific durations, or events tied to time. ’AMOUNT’ in this context refers to specific quantities or
+dosages, particularly in a medical or pharmaceutical setting. These can include measurements of medication, frequency or number of administrations, and methods of
+delivery. ’DRUG’ in this context refers to specific medications or pharmaceutical substances used in the treatment, prevention, or diagnosis of diseases. These can
+include brand names, generic names, or forms of administration. ’CONDITION/SYMPTOM’ in this context refers to physical or subjective signs that indicate a medical
+condition or disease. These can include sensations of discomfort, specific types of pain or discomfort, respiratory issues, or gastrointestinal symptoms. Any token not
+falling into categories above should be labeled as ’O’.
+Basic Prompt
+[Format Specification]:For example, the sentence ’The patient was readmitted to the hospital on 2195-6-6 due to fevers to 103 at the rehabilitation facility despite
+being on intravenous antibiotics HISTORY OF PRESENT ILLNESS 55 year-old female presents with 2/5 week history of non-bloody diarrhea’ is tokenized and
+labeled as follows: [’The’, ’patient’, ’was’, ’readmitted’, ’to’, ’the’, ’hospital’, ’on’, ’2195-6-6’, ’due’, ’to’, ’fevers’, ’to’, ’103’, ’at’, ’the’, ’rehabilitation’, ’facility’, ’despite’,
+’being’, ’on’, ’intravenous’, ’antibiotics’, ’HISTORY’, ’OF’, ’PRESENT’, ’ILLNESS’, ’55’, ’year-old’, ’female’, ’presents’, ’with’, ’2/5’, ’week’, ’history’, ’of’, ’non-bloody’,
+’diarrhea’] with labels [’O’, ’O’, ’O’, ’EVENT’, ’O’, ’LOCATION’, ’LOCATION’, ’O’, ’O’, ’O’, ’O’, ’MEASUREMENT’, ’MEASUREMENT’, ’MEASUREMENT’, ’O’,
+’LOCATION’, ’LOCATION’, ’LOCATION’, ’O’, ’O’, ’O’, ’DRUG’, ’DRUG’, ’O’, ’O’, ’O’, ’O’, ’AGE’, ’O’, ’GENDER’, ’O’, ’O’, ’AMOUNT’, ’AMOUNT’, ’O’, ’O’,
+’CONDITION/SYMPTOM’, ’CONDITION/SYMPTOM’]. Your task is to predict and return the label for each provided token, ensuring the number of output labels
+matches the number of input tokens exactly. The output format should include tokens with their labels: [’The-O’, ’patient-O’, ’was-O’, ’readmitted-EVENT’, ’to-O’,
+’the-LOCATION’, ’hospital-LOCATION’, ’on-O’, ’2195-6-6-O’, ’due-O’, ’to-O’, ’fevers-MEASUREMENT’, ’to-MEASUREMENT’, ’103-MEASUREMENT’, ’at-O’,
+’the-LOCATION’, ’rehabilitation-LOCATION’, ’facility-LOCATION’, ’despite-O’, ’being-O’, ’on-O’, ’intravenous-DRUG’, ’antibiotics-DRUG’, ’HISTORY-O’, ’OF-O’,
+’PRESENT-O’, ’ILLNESS-O’, ’55-AGE’, ’year-old-O’, ’female-GENDER’, ’presents-O’, ’with-O’, ’2/5-AMOUNT’, ’week-AMOUNT’, ’history-O’, ’of-O’, ’non-bloodyCONDITION/SYMPTOM’, ’diarrhea-CONDITION/SYMPTOM’].
+Description of datasets
+The data you are working with is MIMIC-III (Medical Information Mart for Intensive Care) dataset, a large, publicly available database containing de-identified
+health data from critical care patients at the Beth Israel Deaconess Medical Center. It includes structured data, such as demographics, lab results, and vital signs, as
+well as unstructured data, such as clinical notes and discharge summaries. The dataset is widely used for research in machine learning, natural language processing,
+and clinical decision support to improve healthcare outcomes.
+High-frequency instances
+In this dataset, high frequency of ’CONDITION/SYMPTOM’ include ’pain’, ’chest’, ’cough’, ’breath’, ’nausea’, ’abdominal’; high frequency of ’DRUG’ include ’iv’,
+’lasix’, ’ceftriaxone’, ’oxygen’, ’ns’, ’coumadin’; high frequency of ’AMOUNT’ include ’iv’, ’2’, ’1’, ’mg’, ’days’, ’one’; high frequency of ’TIME’ include ’day’, ’admission’,
+’prior’, ’last’, ’ago’, ’morning’; high frequency of ’MEASUREMENT’ include ’bp’, ’hr’, ’pressure’, ’blood’, ’rr’, ’rate’, ’heart’; high frequency of ’LOCATION’ include
+’hospital’, ’right’, ’home’, ’floor’, ’emergency’, ’micu’; high frequency of ’EVENT’ include ’ct’, ’placed’, ’cxr’, ’intubated’, ’exam’, ’review’; high frequency of ’FREQUENCY’
+include ’chronic’, ’intermittent’, ’daily’, ’occasionally’, ’frequent’, ’intermittently’; high frequency of ’ORGANIZATION’ include ’ems’, ’service’, ’surgery’, ’pcp’,
+’emergency’, ’neuro’, ’medicine’; high frequency of ’DATE’ include ’2171114’, ’21491117’; high frequency of ’AGE’ include ’60’, ’80yo’, ’78’, ’61’, ’seventyeightyearold’,
+’69’; high frequency of ’GENDER’ include ’man’, ’woman’, ’f’, ’male’, ’female’, ’m’.
+UMLS knowledgeThe Unified Medical Language System (UMLS) is developed by the U.S. National Library of Medicine (NLM) to integrate and standardize diverse medical
+terminologies and coding systems. It consists of three main components: the Metathesaurus, Semantic Network, and SPECIALIST Lexicon, supporting medical
+information retrieval and semantic analysis. You understand medical terminology and concepts from UMLS.
+Error analysis
+The prediction errors stem from several factors. Entity boundary recognition issues were common, particularly with multi-token entities like "shortness of breath"
+or "paroxysmal nocturnal dyspnea," where some tokens were missed or incorrectly labeled as ’O.’ Additionally, the model struggled with entity type confusion,
+such as distinguishing "pain" as a symptom versus its contextual use related to location. Context-dependent misinterpretations also contributed to errors, especially
+in handling negations like "denies chest pain" or temporal references such as "last few months." Overlapping entities posed further challenges, where closely related
+terms (e.g., "MI" and "CABG") interfered with accurate classification. Finally, rare or unseen entities in the training data led to occasional misclassifications,
+highlighting gaps in the model’s ability to generalize.
+Table 13. Specific static prompts for each component we used for the MIMIC III dataset.
+30/31
+
+[PAGE 31]
+Prompt Strategies NCBI
+[Task Description]:You are a medical AI trained to identify and classify tokens into five categories: DiseaseClass, SpecificDisease, Modifier, CompositeMention
+and Outside (’O’). Your task is to extract and classify the DiseaseClass, SpecificDisease, Modifier and CompositeMention from this dataset.
+[Entity Types with Definitions]:’DiseaseClass’ refers to a classification system or category used to group various medical conditions or diseases based on certain
+characteristics, such as their nature, affected biological systems, or underlying causes. ’SpecificDisease’ appears to describe particular diseases that are identified and
+classified based on their specific clinical features, genetic origins, or biochemical abnormalities. ’Modifier’ refers to specific attributes or variations or conditions that
+can modify or influence the presentation, progression, or characteristics of a disease, alter the manifestation or course of a disease, potentially affecting its diagnosis,
+treatment, and prognosis. ’CompositeMention’ describes medical conditions or characteristics that are composed of several elements or features, often involving
+multiple tissues, organs, or systems. Any token not falling into these categories should be labeled as ’O’.
+Basic Prompt [Format Specification]:For example, the sentence ’Histidinemia. Classical and atypical form in siblings.’ is tokenized and labeled as follows: [’Histidinemia.’,
+’Classical’, ’and’, ’atypical’, ’form’, ’in’, ’siblings.’] with labels [’SpecificDisease’, ’O’, ’O’, ’O’, ’O’, ’O’, ’O’]. Your task is to predict and return the label for each provided
+token, ensuring the number of output labels matches the number of input tokens exactly. The output format should include tokens with their labels: [’Histidinemia.SpecificDisease’, ’Classical-O’, ’and-O’, ’atypical-O’, ’form-O’, ’in-O’, ’siblings.-O’].
+Description of datasets
+The data you are working with is NCBI disease corpus, a collection of 793 PubMed abstracts fully annotated at the mention and concept level to serve as a research
+resource for the biomedical natural language processing community. Each PubMed abstract was manually annotated by two annotators with disease mentions and
+their corresponding concepts in Medical Subject Headings (MeSH) or Online Mendelian Inheritance in Man (OMIM). The public release of the NCBI disease corpus
+contains 6892 disease mentions, which are mapped to 790 unique disease concepts. Of these, 88 percent link to a MeSH identifier, while the rest contain an OMIM
+identifier. We were able to link 91 percent of the mentions to a single disease concept, while the rest are described as a combination of concepts.
+High-frequency instancesIn this dataset, high-frequency ’DiseaseClass’ include ’disorder’, ’abnormalities’, ’tumors’, ’mental’, ’disorders’, ’retardation’. High-frequency ’SpecificDisease’ include
+’deficiency’, ’syndrome’, ’dystrophy’, ’familial’, ’myotonic’, ’colorectal’. High-frequency ’Modifier’ include ’tumor’, ’tumour’, ’APC’, ’choroideremia’, ’DM’, ’DMD’.
+High-frequency ’CompositeMention’ include ’breast’, ’ovarian’, ’cancer’, ’muscular’, ’andor’, ’becker’.
+UMLS knowledgeThe Unified Medical Language System (UMLS) is developed by the U.S. National Library of Medicine (NLM) to integrate and standardize diverse medical
+terminologies and coding systems. It consists of three main components: the Metathesaurus, Semantic Network, and SPECIALIST Lexicon, supporting medical
+information retrieval and semantic analysis. You understand medical terminology and concepts from UMLS.
+Error analysis
+The prediction errors in the NCBI dataset primarily stem from challenges in distinguishing composite mentions and modifiers within complex biomedical contexts.
+For instance, entities like "BRCA1 gene" were incorrectly segmented, with "BRCA1" labeled as a modifier instead of being part of the composite mention.
+Additionally, multi-token composite mentions such as "breast and ovarian cancer" were not consistently labeled, with individual tokens occasionally missed or
+misclassified. Contextual ambiguity, such as distinguishing between mentions of general biological terms (e.g., "tumor") and their specific functional roles (e.g.,
+"tumor suppressor"), also contributed to errors.
+Table 14. Specific static prompts for each component we used for the NCBI dataset.
+Prompt Strategies Med-Mentions
+[Task Description]:You are a medical AI trained to identify and classify tokens into two categories: Disease and Outside (’O’). Your task is to extract and classify
+the Disease related concepts from this dataset.
+[Entity Types with Definitions]:’Disease’ is a particular abnormal condition that adversely affects the structure or function of all or part of an organism and is not
+immediately due to any external injury. Diseases are often known to be medical conditions that are associated with specific signs and symptoms. A disease may be
+caused by external factors such as pathogens or by internal dysfunctions. For example, internal dysfunctions of the immune system can produce a variety of
+different diseases, including various forms of immunodeficiency, hypersensitivity, allergies, and autoimmune disorders. Any token not falling into Disease categories
+should be labeled as ’O’.
+Basic Prompt
+[Format Specification]:For example, the sentence ’A total of 200 children and adolescents with type 1 diabetes, ages 9-18 years, completed the DEPS-R Turkish
+version.’ is tokenized and labeled as follows: [’A’, ’total’, ’of’, ’200’, ’children’, ’and’, ’adolescents’, ’with’, ’type’, ’1’, ’diabetes,’, ’ages’, ’9-18’, ’years,’, ’completed’, ’the’,
+’DEPS-R’, ’Turkish’, ’version.’] with labels [’O’, ’O’, ’O’, ’O’, ’Disease’, ’O’, ’Disease’, ’O’, ’Disease’, ’Disease’, ’Disease’, ’Disease’, ’O’, ’Disease’, ’O’, ’O’, ’Disease’,
+’Disease’, ’Disease’]. The output format should include tokens with their labels: [’A-O’, ’total-O’, ’of-O’, ’200-O’, ’children-Disease’, ’and-O’, ’adolescents-Disease’,
+’with-O’, ’type-Disease’, ’1-Disease’, ’diabetes,-Disease’, ’ages-Disease’, ’9-18-O’, ’years,-Disease’, ’completed-O’, ’the-O’, ’DEPS-R-Disease’, ’Turkish-Disease’,
+’version.-Disease’].
+Description of datasetsThe data you are working with is Med-Mentions, a new manually annotated resource for the recognition of biomedical concepts. What distinguishes Med-Mentions
+from other annotated biomedical corpora is its size (over 4,000 abstracts and over 350,000 linked mentions), as well as the size of the concept ontology (over 3
+million concepts from UMLS 2017) and its broad coverage of biomedical disciplines.
+High-frequency instancesIn this dataset, high frequency ’Disease’ related entities include ’patients’, ’cells’, ’treatment’, ’cancer’, ’analysis’, ’disease’, ’clinical’.
+UMLS knowledgeThe Unified Medical Language System (UMLS) is developed by the U.S. National Library of Medicine (NLM) to integrate and standardize diverse medical
+terminologies and coding systems. It consists of three main components: the Metathesaurus, Semantic Network, and SPECIALIST Lexicon, supporting medical
+information retrieval and semantic analysis. You understand medical terminology and concepts from UMLS.
+Error analysis
+The prediction errors in the Med-Mentions dataset are primarily due to challenges in identifying complex and overlapping disease mentions, as well as distinguishing
+between general biomedical terms and specific disease entities. Multi-token entities such as "renal pedicle occlusion" or "intention-to-treat analyses" were often
+partially labeled, with some tokens being misclassified or excluded. Additionally, the presence of nested or overlapping mentions, such as "prostate cancer" and its
+relationship to broader contexts like "treatment disparities," led to inconsistent labeling. The model also struggled with domain-specific terminology, misclassifying
+general terms like "maternal genotype" or "outcome" as disease mentions. These errors highlight limitations in handling nuanced biomedical language, especially
+when entities span multiple tokens or overlap with related terms.
+Table 15. Specific static prompts for each component we used for the Med-Mentions dataset.
+31/31

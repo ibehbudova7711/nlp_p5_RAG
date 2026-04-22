@@ -1,0 +1,566 @@
+[PAGE 1]
+arXiv:2411.08438v1 [cs.AI] 13 Nov 2024
+Towards Optimizing a Retrieval Augmented Generation
+using Large Language Model on Academic Data
+ANUM AFZAL, JURAJ VLADIKA, GENTRIT FAZLIJA, ANDREI STARADUBE TS, and FLORIAN MATTHES, Technical University of Munich, Germany
+Given the growing trend of many organizations integrating Retrieval Augmented Generation (RAG) into their
+operations, we assess RAG on domain-speciﬁc data and test st ate-of-the-art models across various optimization techniques. We incorporate four optimizations; Multi-Query, Child-Parent-Retriever, Ensemble Retriever,
+and In-Context-Learning, to enhance the functionality and performance in the academic domain. We focus
+on data retrieval, speciﬁcally targeting various study pro grams at a large technical university. We additionally introduce a novel evaluation approach, the RAG Confusi on Matrix designed to assess the eﬀectiveness
+of various conﬁgurations within the RAG framework. By explo ring the integration of both open-source (e.g.,
+Llama2, Mistral) and closed-source (GPT-3.5 and GPT-4) Lar ge Language Models, we oﬀer valuable insights
+into the application and optimization of RAG frameworks in domain-speciﬁc contexts. Our experiments show
+a signiﬁcant performance increase when including multi-qu ery in the retrieval phase.
+CCS Concepts: • Artiﬁcial intelligence ; • Information Retrieval;
+Additional Key Words and Phrases: Retrieval Augmented Gene ration, Large Language Models, Benchmark
+ACM Reference Format:
+Anum Afzal, Juraj Vladika, Gentrit Fazlija, Andrei Staradu bets, and Florian Matthes. 2024. Towards Optimizing a Retrieval Augmented Generation using Large Language Model on Academic Data. 1, 1 (November 2024),
+11 pages. https://doi.org/XXXXXXX.XXXXXXX
+1 INTRODUCTION
+Given the recent surge of Large Language Models (LLMs), they ha ve found application in many
+industrial use cases. Practitioners in various domains are incr easingly eager to harness the power
+of LLMs in their work and operations. However, the use of LLMs in a domain-speciﬁc context is
+not straightforward, as these models are predominantly trained on publicly available data, making them less suited for specialized domains. This challenge le d to the emergence of Retrieval
+Augmented Generation (RAG) frameworks, which oﬀer a solution by enabling the integration of
+domain-speciﬁc data with the expansive knowledge base of LLMs, thereby enhancing their utility
+and relevance in various applications.
+We opt for a study program use-case targeting university stude nts. The data distribution of this
+use case is potentially diﬀerent from what most LLMs are normall y trained on, hence making
+it a good test bed for testing RAG performance as well as its vari ous optimizations. The rapid
+development in all areas of research has given rise to many inter disciplinary and multifaceted
+university study programs, students are often left overwhelm ed with many diﬀerent programs to
+Authors’ address: Anum Afzal, anum.afzal@tum.de; Juraj Vlad ika, juraj.vladika@tum.de; Gentrit Fazlija, gentrit.fazlija@
+tum.de; Andrei Staradubets, ge89ped@mytum.de; Florian Matt hes, matthes@tum.de, Technical University of Munich,
+Boltzmannstr. 3, Munich, Germany.
+Permission to make digital or hard copies of all or part of this work f or personal or classroom use is granted without fee
+provided that copies are not made or distributed for proﬁt or comme rcial advantage and that copies bear this notice and
+the full citation on the ﬁrst page. Copyrights for components of th is work owned by others than ACM must be honored.
+Abstracting with credit is permitted. To copy otherwise, or republis h, to post on servers or to redistribute to lists, requires
+prior speciﬁc permission and/or a fee. Request permissions from perm issions@acm.org.
+© 2024 Association for Computing Machinery.
+XXXX-XXXX/2024/11-ART $15.00
+https://doi.org/XXXXXXX.XXXXXXX
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[PAGE 2]
+2 Anum Afzal, Juraj Vladika, Gentrit Fazlija, Andrei Starad ubets, and Florian Ma/t_thes
+choose from. Understanding the prerequisites, study regulati ons, and curricula of programs can
+pose a challenge, which encourages the students to use digital s olutions such as chatbots [ 7]. We
+take advantage of this use case and create a domain-speciﬁc data set for evaluating and optimizing
+RAG. For this purpose, we scrape the study program descripti ons from a university website and
+construct a Question Answering dataset of 200 questions and answers, along with relevant context
+to evaluate the performance of the RAG system with its various components. Since LLMs are
+not trained on the study program description and requirements, t his use case is ideal for RAG.
+Given a student query, it ﬁnds the relevant study program from th e Vector Database and uses that
+information to answer the student’s query. In this paper, we pre sent a comprehensive evaluation
+of RAG and its various optimizations on a question-answering task to evaluate its performance
+over domain-speciﬁc data. Our main contributions are as follow s:
+(1) We constructed a dataset CurriculumQA in English and German, which was used to get the
+ﬁrst insights into research and development of RAG pipelines for d omain-speciﬁc data.
+(2) We experiment with and evaluate various RAG enhancement approaches to ﬁnd the optimal
+conﬁguration for an RAG system over domain-speciﬁc data.
+(3) We evaluate the LLM responses based on Relevance, Coherence, Faithfulness, and Fluency. We
+compare the automatic and human evaluation metrics.
+2 RELATED WORK
+Early approaches to RAG involved relatively simple methods o f retrieving relevant documents
+based on the query and then processing these documents to come up with a response to a given
+question [
+6]. However, recent advancements have seen more sophisticated integration of retrieval
+and generation processes. Notable implementations of RAG have d emonstrated the ability to dynamically retrieve and incorporate relevant information during t he generation process, thereby
+signiﬁcantly enhancing the quality and relevance of the generated te xt [15]. These advancements
+have been facilitated by improvements in both the retrieval mechanisms, which have become more
+eﬃcient and eﬀective at ﬁnding relevant information, and the generati ve models, which have become better at integrating and contextualizing the retrieved info rmation [5]. A recent survey [ 9]
+separates RAG approaches into naive RAG and advanced RAG. The naive RAG approach follows a
+traditional process that includes indexing, retrieval, and generation, which is also characterized as
+a “Retrieve-and-Read” framework [ 29]. On one hand, advanced RAG introduces speciﬁc improvements to enhance the retrieval quality, by employing pre-retrie val and post-retrieval strategies.
+Pre-retrieval strategies include query rewriting with an LLM [19] or query expansion methods
+like HyDE [ 8], which generates a hypothetical response to the query ﬁrst and then uses the responses to search the database. On the other hand, post-retrie val methods focus on selecting the
+most essential information from retrieved documents, since feeding all of them at once to the LLM
+can lead to information overload and noisy context. This includes reranking the retrieved documents with neural models [ 10] or summarizing the context of retrieved documents before pass ing
+them as context [ 3]. Our study builds on top of these advancements by conducting a co mprehensive evaluation of the usefulness of recent retrieval augmenta tions like multi-query, child-parent,
+and ensemble retrieval, as well as the generation technique in-co ntext learning.
+Retrieval-augmented generation systems can be deployed for a wide variety of NLP tasks involving text generation. The most popular is open-domain question answering [23], where the task is to
+answer a given question with no provided context, i.e., the system has to ﬁrst search through large
+knowledge bases in order to ﬁnd an answer. Beyond QA, RAG can also be used for generative tasks
+like machine translation by retrieving example sentences from a c orpus in target language [ 4], or
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[PAGE 3]
+Towards Optimizing a Retrieval Augmented Generation using Large Language Model on Academic Data 3
+Table 1. Selected questions from the curated study program da taset.
+1) What are the tuition fees for international students in the Aer ospace Master of Science (M.Sc.)?
+2) How do I apply for the Master’s program in Management if I have an undergraduate degree from
+outside the EU?
+3) How many ECTS points do I need for Mathematics in Data Science?
+for dialogue generation by guiding the conversation with retrieved exemplar responses from previous dialogues [12]. Applying AI and NLP methods to help education and students has b een widely
+studied [14, 26]. Example use cases of NLP technologies for educational appli cations include language learning [ 22], grammatical error correction [ 11], and automated essay scoring [ 20]. There
+have also been QA systems, often based on retrieval and generat ion, developed and evaluated for
+various domains, including QA for compliance [ 1] and teaching assistance [ 30]. Still, to the best
+of our knowledge, our study presents the ﬁrst evaluation of a QA system designed speciﬁcally for
+answering university students’ questions about their study prog rams and requirements.
+3 DATASET CREATION
+The dataset consisted of study program descriptions and requir ements by scraping and cleaning
+72 university study program descriptions to be used a represent ative of a domain-speciﬁc dataset.
+We also generated an evaluation set consisting of question-answe r and Context triplets.
+The origin of documents used for corpus creation are the oﬃcia l websites of a large technical university in Germany. Every document describes a certain s tudy program at the bachelor’s
+or the master’s level, covering various ﬁelds like natural sci ences, engineering, and management.
+The documents contain information such as the name and overview of the study program, admission prerequisites, coursework, examinations, graduation requirements, credits earned, study fees,
+deadlines, etc. All the study program descriptions were scraped from the oﬃcial university website
+with the Python library BeautifulSoup and saved in a JSON format. In total, there were 72 diﬀerent
+study programs, with parallel text written in both German and English.
+Once the websites were scraped and a corpus of documents for each study program was created,
+a representative test set of questions that covered university students’ information needs was
+constructed. This process was done semi-automatically by com bination of GPT-4 and human-inthe-loop by scrapping frequently asked questions and also genera tion some new questions with
+the help of GPT-4. The whole process resulted in 500 QA pairs t hat served as the evaluation set.
+To ensure the quality and relevance of the generated QA pairs, the two authors manually went
+over all the questions and ﬁltered the dataset down to 200 QA pai rs. The questions that were kept
+aimed to cover a diverse range of students’ personalized informa tion needs [17]. Additionally, we
+consulted with students from both bachelor’s and master’s leve ls and inquired about the most
+common questions they have asked over the years related to the ir program’s regulations. All 200
+answers were checked and any observed errors that stem from GPT g eneration were manually
+corrected.
+The questions cover the most common information needs of the stu dents, focusing on factual
+knowledge such as duration of the study program, total credit s required to graduate, and admission requirements to programs; but also the more complex ques tions that require reasoning over
+multiple parts like future job prospects, knowledge gained in the program, or the diﬀerence in
+scope between to programs. Some example questions are displa yed in Table 1.
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[PAGE 4]
+4 Anum Afzal, Juraj Vladika, Gentrit Fazlija, Andrei Starad ubets, and Florian Ma/t_thes
+4 RAG FRAMEWORK
+This Framework is designed to explicate both the theoretical underpinnings and practical implementations of the RAG framework, encompassing both open-sourced and closed-sourced models
+in English and German. Key modules such as the Multi-Query modul e (Generation Phase), ChildParent Retriever and Ensemble Retriever (Retrieval Phase), and In-context-learning (Generation
+Phase) are discussed to highlight their roles in enhancing the f ramework’s performance. Each
+module’s inclusion reﬂects strategic choices made to enhance t he framework’s eﬃciency and effectiveness in generating contextually relevant answers.
+4.1 Models
+We incorporated both open-source models such as Llama 2 [
+24] including llama2:7b-chat and
+llama2:13b-chat, and Mistral AI [13] speciﬁcally the mistral:7b-instruct version. Given the
+success of closed-sourceOpenAI models, we includedgpt-3.5-turbo-1106 and GPT-4-0125-preview
+in our RAG framework due to their performance in language compr ehension, creativity, and complex query handling.
+4.2 Optimization Modules
+4.2.1 Pre-retrieval Phase. We follow a two-step approach for this such that we ﬁrst try to ﬁnd the
+respective study program and then the topic (Costs, Required Language Proﬁciency, Type of Study,
+etc) matching the student’s query. We Identify both through an L LM-based ﬁltering mechanism,
+that is later used in tandem with the Retriever. The selection of a study program is executed by
+correlating the user’s query with a predeﬁned list of programs . Combining the user query and the
+possible study programs in the following prompt template yie lds the answer.
+System : The following will be a query by a student about study programs of a
+Technical University . I want you to output the study program the student is having
+questions about . Only output the study program !
+Context : Please note , that we only need the study program . Do not self - reference ,
+comment or give any notes . Only output the study program . Her e are the possible
+study programs : { listed_root_l e ve l_ ke y s }
+Human : How many ECTS points do I need for Mathematics in Data S cience ?
+Response :
+We match the generated study program name with the exact study p rogram names embedded in
+our vectorstore using cosine similarity. Upon obtaining the study program from t he initial query,
+the next step is to put the user’s query in a structured templat e designed to direct the model’s
+focus toward generating topics relevant to the study program. We again match the predicted topic
+with one of the embedded chunks using cosine similarity.
+4.2.2 Retrieval Phase. We use Multi-Query 1, a module utilized to generate variations of the
+user’s original question, aiming to explore diﬀerent formulati ons that could prompt the LLM to
+provide a broader range of topics as context during the Generatio n Phase. In our implementation,
+the study program remains constant; only the user’s question is r ephrased. We use a prompt-based
+approach with GPT-4 to generate similar queries. This strategy ensures we can elicit more detailed
+or varied information relevant to the same study program without altering its core focus. Secondly,
+through the Child-Parent Retriever 2, we distinguish between two types of vector stores: the
+"memory store" for child chunks and the vectorstore for parent c hunks, each tailored for diﬀerent
+granularities of data. The memory store ingests data segmented into 300-character chunks, while
+1https://docs.llamaindex.ai/en/latest/examples/retrievers/reciprocal_rerank_fusion/
+2https://python.langchain.com/docs/modules/data_connection/retrievers/parent_document_retriever/
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[PAGE 5]
+Towards Optimizing a Retrieval Augmented Generation using Large Language Model on Academic Data 5
+the vectorstore processes larger 1500-character chunks. Al l embeddings for these vector stores
+are generated using the all-MiniLM-L6-v2 model, ensuring consistency across the embedding
+process. The challenge is to reconcile the need for small docume nt chunks, which allow for more
+accurate embeddings, with the requirement for maintaining suﬃci ent document size to ensure
+context is preserved. Each child chunk is assigned a unique ID, and corresponding parent chunks
+maintain a list of these IDs. During retrieval, the process ide ntiﬁes a relevant child chunk in the
+memory store, retrieves its unique ID, and then locates the par ent chunk containing that ID in
+its list. This approach ensures that while the embedding of sma ll chunks accurately reﬂects their
+content, the broader context is not lost, as parent chunks provide a comprehensive view necessary
+for subsequent processing steps. Lastly, theEnsemble Retriever integrates two retrieval methods:
+BM25, which prioritizes documents based on direct term match es, and cosine similarity, which
+focuses on the contextual relevance between texts. The Ensemble Retriever combines the BM25[21]
+retrieval function with cosine similarity, oﬀering adjustabl e weighting between the two methods
+to optimize search outcomes However, during our experiments w e assign equal weight to both.
+4.3 Generation Phase
+We use In-context learning, which allows LLMs to learn new tasks on run-time through examples
+passed as part of the input prompt. We explore three-shot lear ning in our experiments to evaluate
+if it would improve the performance of an RAG framework. A considerable challenge was selecting
+three Question-Answer pairs that exhibit a broad semantic diversity to prevent model bias towards
+the domains of the examples provided.
+4.4 Evaluation
+The growing importance of RAG-based applications requires a de tailed evaluation method that
+separates Retrieval Quality and Generation Quality.
+4.4.1 HIT Rate. Hit Rate measures the proportion of queries for which the correct answer is found
+within the top-5 retrieved documents. Scoring a hit implies not only detecting the correct document (study program) but also the topic of interest within that document.
+4.4.2 Reference-based Evaluation. We also employed some reference-based evaluation metrics
+like ROUGE[
+16] metric, which compares generated answers with a reference tex t, and assesses
+content overlap through n-grams and other sequences. Unfortunatel y, ROUGE’s approach may
+miss the mark in recognizing semantically accurate or contextua lly ﬁtting answers that don’t exactly replicate reference phrasing, pointing to a need for metric s that evaluate semantic and contextual accuracy in RAG systems. Hence, we also calculate the contextual similarity between the
+reference and generated answer through BERTScore[ 27]
+4.4.3 LLM-based Evaluation. State-of-the-art research revolves around evaluating LLM-generated
+text across multiple features [ 25, 28]. We explore the concept of using LLM as an evaluator as described in the G-eval[18] on a scale of 1 - 5 across Relevance, Coherence, Fluency, and Faithfulness.
+4.4.4 RAG Confusion Matrix. The traditional Confusion Matrix is a fundamental tool in machine
+learning for evaluating the performance of classiﬁcation model s. In the context of RAG systems,
+the Confusion Matrix concept is adapted to assess both the retrieval and generation phases of these
+models. We derive the confusion matrix for the same features a s the ones evaluated by LLM. We
+consider an answer to be acceptable if the evaluation score ass igned is above a threshold. Thus,
+the RAG Confusion Matrix evaluates:
+True Positive (TP): Relevant do is retrieved and an acceptable response is generated ,
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[PAGE 6]
+6 Anum Afzal, Juraj Vladika, Gentrit Fazlija, Andrei Starad ubets, and Florian Ma/t_thes
+True Negative (TN): Relevant document is not retrieved and an acceptable response is no t generated
+False Positive (FP): Relevant document is not retrieved and an acceptable response is g enerated
+False Negative (FN): Relevant document is retrieved and an acceptable response is not g enerated
+5 RESULTS AND DISCUSSION
+Given the information related to a study program, we asked LLM to generate question-answer
+pairs from it. After manual curation, 200 pairs were used for ev aluation involving 96 diﬀerent
+experiments, using a variety of LLMs, in both German and English.
+5.1 HIT Rate
+We measure the eﬀectiveness of a model in extracting relevant te xtual information from a dataset
+by calculating the Hit Rate for each experiment on a subset of 82 samples. Table 2 shows that any
+module iteration excluding the Multi-Query feature perform s signiﬁcantly worse than those that
+incorporate it, highlighting the critical role of Multi-Quer y in enhancing retrieval eﬀectiveness.
+Furthermore, only the closed-sourced models show competence in the German language while all
+open-source models except Mistral struggle with it.
+Table 2. Hit Rate over all RAG configurations where er = Ensem ble Retriever, cpr = Child-Parent-Retriever,
+icl = In-Context-Learning, mq = Multi-/Q_uery.
+Model er cpr icl icl-er mq-er mq-cpr mq-cpr-icl mq-icl-er
+Llama 2 7B de 8.64 8.64 8.64 7.41 13.58 13.58 13.58 13.58
+en 43.21 43.21 43.21 43.21 53.09 53.09 53.09 53.09
+Llama 2 13B de 28.40 28.40 28.40 28.40 34.57 34.57 34.57 34.57
+en 50.62 50.62 50.62 50.62 55.56 55.56 55.56 55.56
+GPT 3.5 de 56.79 56.79 58.02 55.56 66.67 64.20 70.37 65.43
+en 44.44 41.98 41.98 43.21 46.91 44.44 45.68 45.68
+GPT-4 de 61.73 61.73 61.73 61.73 69.14 66.67 65.43 66.67
+en 65.43 66.67 66.67 66.67 75.31 72.84 72.84 72.84
+Mistral 7B de 39.51 39.51 39.51 39.51 48.15 51.85 51.85 49.38
+en 51.85 51.85 53.09 51.85 56.79 56.79 56.79 56.79
+5.2 LLM as an evaluator
+LLM-based evaluation metrics are known to perform on par with human evaluation [
+2]. Since it
+is costly to perform human evaluation over such a wide range of heuristics, we employ GPT-4 for
+a proxy evaluator to narrow down the search space and hence ﬁnd the optimal conﬁgurations for
+RAG. To keep our analysis practical and cost-eﬀective, we inclu ded a sample of 20 answers, half
+with matches to the correct context (Match) and the other half t o incorrect context (No Match).
+5.2.1 Faithfulness over others. For our use case, Faithfulness holds slightly more weight than other
+metrics. As seen in Table 3, conﬁgurations incorporating the Ensemble Retriever demonstrat ed superior performance, with several conﬁgurations achieving aver age scores above 4, in both English
+and German. The most consistently high-performing combinations inv olve the Multi-Query and
+Ensemble Retriever, with or without the addition of ICL.
+3Unless speciﬁed otherwise, we used all methods in their default co nﬁgurations.
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[TABLE page=6 index=1]
+Columns: Model | Unnamed: 0 | er | cpr | icl | icl-er | mq-er | mq-cpr | mq-cpr-icl | mq-icl-er
+Row 1: Model: | Unnamed: 0: de | er: 8.64 | cpr: 8.64 | icl: 8.64 | icl-er: 7.41 | mq-er: 13.58 | mq-cpr: 13.58 | mq-cpr-icl: 13.58 | mq-icl-er: 13.58
+Row 2: Model: Llama 2 7B | Unnamed: 0: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 3: Model: | Unnamed: 0: en | er: 43.21 | cpr: 43.21 | icl: 43.21 | icl-er: 43.21 | mq-er: 53.09 | mq-cpr: 53.09 | mq-cpr-icl: 53.09 | mq-icl-er: 53.09
+Row 4: Model: | Unnamed: 0: de | er: 28.4 | cpr: 28.4 | icl: 28.4 | icl-er: 28.4 | mq-er: 34.57 | mq-cpr: 34.57 | mq-cpr-icl: 34.57 | mq-icl-er: 34.57
+Row 5: Model: Llama 2 13B | Unnamed: 0: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 6: Model: | Unnamed: 0: en | er: 50.62 | cpr: 50.62 | icl: 50.62 | icl-er: 50.62 | mq-er: 55.56 | mq-cpr: 55.56 | mq-cpr-icl: 55.56 | mq-icl-er: 55.56
+Row 7: Model: | Unnamed: 0: de | er: 56.79 | cpr: 56.79 | icl: 58.02 | icl-er: 55.56 | mq-er: 66.67 | mq-cpr: 64.2 | mq-cpr-icl: 70.37 | mq-icl-er: 65.43
+Row 8: Model: GPT 3.5 | Unnamed: 0: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 9: Model: | Unnamed: 0: en | er: 44.44 | cpr: 41.98 | icl: 41.98 | icl-er: 43.21 | mq-er: 46.91 | mq-cpr: 44.44 | mq-cpr-icl: 45.68 | mq-icl-er: 45.68
+Row 10: Model: | Unnamed: 0: de | er: 61.73 | cpr: 61.73 | icl: 61.73 | icl-er: 61.73 | mq-er: 69.14 | mq-cpr: 66.67 | mq-cpr-icl: 65.43 | mq-icl-er: 66.67
+Row 11: Model: GPT-4 | Unnamed: 0: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 12: Model: | Unnamed: 0: en | er: 65.43 | cpr: 66.67 | icl: 66.67 | icl-er: 66.67 | mq-er: 75.31 | mq-cpr: 72.84 | mq-cpr-icl: 72.84 | mq-icl-er: 72.84
+Row 13: Model: | Unnamed: 0: de | er: 39.51 | cpr: 39.51 | icl: 39.51 | icl-er: 39.51 | mq-er: 48.15 | mq-cpr: 51.85 | mq-cpr-icl: 51.85 | mq-icl-er: 49.38
+Row 14: Model: Mistral 7B | Unnamed: 0: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 15: Model: | Unnamed: 0: en | er: 51.85 | cpr: 51.85 | icl: 53.09 | icl-er: 51.85 | mq-er: 56.79 | mq-cpr: 56.79 | mq-cpr-icl: 56.79 | mq-icl-er: 56.79
+[/TABLE]
+
+[PAGE 7]
+Towards Optimizing a Retrieval Augmented Generation using Large Language Model on Academic Data 7
+Table 3. Metric: Faithfulness evaluated by GPT-4 on a scale o f 1 - 5.
+Model er cpr icl icl-er mq-er mq-cpr mq-cpr-icl mq-icl-er
+Llama 2 7B
+de Match 2.7 2.6 2.4 2.6 4.0 3.6 2.9 3.6
+No Match 1.5 1.6 2.1 2.0 1.9 2.0 3.1 3.1
+en Match 4.7 3.2 3.2 2.1 4.5 3.2 3.6 3.1
+No Match 3.5 2.5 2.3 2.8 2.6 2.4 3.2 2.5
+Llama 2 13B
+de Match 4.4 3.1 3.5 4.2 3.0 2.8 2.7 3.3
+No Match 3.3 3.1 2.4 3.6 2.0 3.3 2.8 2.9
+en Match 3.9 3.2 2.4 3.4 3.8 2.7 3.2 4.6
+No Match 2.6 2.6 1.4 3.0 2.7 2.1 2.3 2.7
+GPT 3.5
+de Match 4.2 3.2 2.9 3.8 3.9 3.2 3.6 3.9
+No Match 2.9 3.2 4.0 3.1 2.7 2.6 2.9 2.1
+en Match 4.3 2.8 2.5 3.1 3.6 3.4 3.1 4.0
+No Match 2.1 1.9 3.5 2.7 1.8 1.5 2.5 1.9
+GPT-4
+de Match 4.4 2.6 3.3 3.9 4.8 2.5 3.3 4.0
+No Match 3.2 4.0 3.8 3.0 3.4 3.1 3.1 3.2
+en Match 3.4 3.0 3.3 4.3 5.0 3.6 3.5 3.8
+No Match 2.3 2.6 2.7 2.7 3.3 2.2 2.7 2.9
+Mistral 7B
+de Match 4.7 2.9 3.2 4.5 4.4 4.0 2.6 4.1
+No Match 2.9 2.7 3.4 3.9 3.3 3.8 4.5 4.3
+en Match 3.7 2.4 3.5 4.4 4.6 2.3 3.2 4.2
+No Match 2.5 2.5 2.2 3.3 3.5 2.7 2.2 2.3
+Table 4. RAG confusion matrix across Faithfulness, Relevan ce, Coherence, and Fluency of top 3 configuration selected while using Faithfulness as a heuristic with a Threshold of 5. Match/No Match means that
+Correct/Incorrect context was retrieved.
+ChatGPT4 (en-mq-er) Llama2 7B (en-er) Mistral 7B (en-mq-er )
+Match Correct Incorrect Correct Incorrect Correct Incorrect
+Faithfulness
+1 10(TP) 0(FN) 9(TP) 1(FN) 9(TP) 1(FN)
+0 5(FP) 5(TN) 4(FP) 6(TN) 5(FP) 5(TN)
+Relevance
+1 7(TP) 3(FN) 7(TP) 3(FN) 9(TP) 1(FN)
+0 4(FP) 6(TN) 4(FP) 6(TN) 5(FP) 5(TN)
+Coherence
+1 10(TP) 0(FN) 8(TP) 2(FN) 9(TP) 1(FN)
+0 3(FP) 7(TN) 5(FP) 5(TN) 3(FP) 7(TN)
+Fluency
+1 10(TP) 0(FN) 8(TP) 2(FN) 10(TP) 0(FN)
+0 7(FP) 3(TN) 9(FP) 1(TN) 6(FP) 4(TN)
+5.2.2 Confusion Matrix. The proposed confusion matrix helps us decouple LLM’s generat ion abilities from the retriever and provides a deeper insight into both modules of RAG. Such an analysis
+helps us understand which parts of the retriever or generator nee ds to be improved. Based on
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[TABLE page=7 index=1]
+Columns: Model | Unnamed: 0 | Unnamed: 1 | er | cpr | icl | icl-er | mq-er | mq-cpr | mq-cpr-icl | mq-icl-er
+Row 1: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 2.7 | cpr: 2.6 | icl: 2.4 | icl-er: 2.6 | mq-er: 4.0 | mq-cpr: 3.6 | mq-cpr-icl: 2.9 | mq-icl-er: 3.6
+Row 2: Model: | Unnamed: 0: de | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 3: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 1.5 | cpr: 1.6 | icl: 2.1 | icl-er: 2.0 | mq-er: 1.9 | mq-cpr: 2.0 | mq-cpr-icl: 3.1 | mq-icl-er: 3.1
+Row 4: Model: Llama 2 7B | Unnamed: 0: | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 5: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 4.7 | cpr: 3.2 | icl: 3.2 | icl-er: 2.1 | mq-er: 4.5 | mq-cpr: 3.2 | mq-cpr-icl: 3.6 | mq-icl-er: 3.1
+Row 6: Model: | Unnamed: 0: en | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 7: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 3.5 | cpr: 2.5 | icl: 2.3 | icl-er: 2.8 | mq-er: 2.6 | mq-cpr: 2.4 | mq-cpr-icl: 3.2 | mq-icl-er: 2.5
+Row 8: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 4.4 | cpr: 3.1 | icl: 3.5 | icl-er: 4.2 | mq-er: 3.0 | mq-cpr: 2.8 | mq-cpr-icl: 2.7 | mq-icl-er: 3.3
+Row 9: Model: | Unnamed: 0: de | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 10: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 3.3 | cpr: 3.1 | icl: 2.4 | icl-er: 3.6 | mq-er: 2.0 | mq-cpr: 3.3 | mq-cpr-icl: 2.8 | mq-icl-er: 2.9
+Row 11: Model: Llama 2 13B | Unnamed: 0: | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 12: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 3.9 | cpr: 3.2 | icl: 2.4 | icl-er: 3.4 | mq-er: 3.8 | mq-cpr: 2.7 | mq-cpr-icl: 3.2 | mq-icl-er: 4.6
+Row 13: Model: | Unnamed: 0: en | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 14: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 2.6 | cpr: 2.6 | icl: 1.4 | icl-er: 3.0 | mq-er: 2.7 | mq-cpr: 2.1 | mq-cpr-icl: 2.3 | mq-icl-er: 2.7
+Row 15: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 4.2 | cpr: 3.2 | icl: 2.9 | icl-er: 3.8 | mq-er: 3.9 | mq-cpr: 3.2 | mq-cpr-icl: 3.6 | mq-icl-er: 3.9
+Row 16: Model: | Unnamed: 0: de | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 17: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 2.9 | cpr: 3.2 | icl: 4.0 | icl-er: 3.1 | mq-er: 2.7 | mq-cpr: 2.6 | mq-cpr-icl: 2.9 | mq-icl-er: 2.1
+Row 18: Model: GPT 3.5 | Unnamed: 0: | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 19: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 4.3 | cpr: 2.8 | icl: 2.5 | icl-er: 3.1 | mq-er: 3.6 | mq-cpr: 3.4 | mq-cpr-icl: 3.1 | mq-icl-er: 4.0
+Row 20: Model: | Unnamed: 0: en | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 21: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 2.1 | cpr: 1.9 | icl: 3.5 | icl-er: 2.7 | mq-er: 1.8 | mq-cpr: 1.5 | mq-cpr-icl: 2.5 | mq-icl-er: 1.9
+Row 22: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 4.4 | cpr: 2.6 | icl: 3.3 | icl-er: 3.9 | mq-er: 4.8 | mq-cpr: 2.5 | mq-cpr-icl: 3.3 | mq-icl-er: 4.0
+Row 23: Model: | Unnamed: 0: de | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 24: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 3.2 | cpr: 4.0 | icl: 3.8 | icl-er: 3.0 | mq-er: 3.4 | mq-cpr: 3.1 | mq-cpr-icl: 3.1 | mq-icl-er: 3.2
+Row 25: Model: GPT-4 | Unnamed: 0: | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 26: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 3.4 | cpr: 3.0 | icl: 3.3 | icl-er: 4.3 | mq-er: 5.0 | mq-cpr: 3.6 | mq-cpr-icl: 3.5 | mq-icl-er: 3.8
+Row 27: Model: | Unnamed: 0: en | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 28: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 2.3 | cpr: 2.6 | icl: 2.7 | icl-er: 2.7 | mq-er: 3.3 | mq-cpr: 2.2 | mq-cpr-icl: 2.7 | mq-icl-er: 2.9
+Row 29: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 4.7 | cpr: 2.9 | icl: 3.2 | icl-er: 4.5 | mq-er: 4.4 | mq-cpr: 4.0 | mq-cpr-icl: 2.6 | mq-icl-er: 4.1
+Row 30: Model: | Unnamed: 0: de | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 31: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 2.9 | cpr: 2.7 | icl: 3.4 | icl-er: 3.9 | mq-er: 3.3 | mq-cpr: 3.8 | mq-cpr-icl: 4.5 | mq-icl-er: 4.3
+Row 32: Model: Mistral 7B | Unnamed: 0: | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 33: Model: | Unnamed: 0: | Unnamed: 1: Match | er: 3.7 | cpr: 2.4 | icl: 3.5 | icl-er: 4.4 | mq-er: 4.6 | mq-cpr: 2.3 | mq-cpr-icl: 3.2 | mq-icl-er: 4.2
+Row 34: Model: | Unnamed: 0: en | Unnamed: 1: | er: | cpr: | icl: | icl-er: | mq-er: | mq-cpr: | mq-cpr-icl: | mq-icl-er:
+Row 35: Model: | Unnamed: 0: | Unnamed: 1: No Match | er: 2.5 | cpr: 2.5 | icl: 2.2 | icl-er: 3.3 | mq-er: 3.5 | mq-cpr: 2.7 | mq-cpr-icl: 2.2 | mq-icl-er: 2.3
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: Match | Correct | Incorrect | Correct Incorrect | Unnamed: 0 | Correct.1 | Incorrect.1
+Row 1: Match: | Correct: | Incorrect: | Correct Incorrect: Faithfulness | Unnamed: 0: | Correct.1: | Incorrect.1:
+Row 2: Match: 1.0 | Correct: 10(TP) | Incorrect: 0(FN) | Correct Incorrect: 9(TP) | Unnamed: 0: 1(FN) | Correct.1: 9(TP) | Incorrect.1: 1(FN)
+Row 3: Match: 0.0 | Correct: 5(FP) | Incorrect: 5(TN) | Correct Incorrect: 4(FP) | Unnamed: 0: 6(TN) | Correct.1: 5(FP) | Incorrect.1: 5(TN)
+Row 4: Match: | Correct: | Incorrect: | Correct Incorrect: Relevance | Unnamed: 0: | Correct.1: | Incorrect.1:
+Row 5: Match: 1.0 | Correct: 7(TP) | Incorrect: 3(FN) | Correct Incorrect: 7(TP) | Unnamed: 0: 3(FN) | Correct.1: 9(TP) | Incorrect.1: 1(FN)
+Row 6: Match: 0.0 | Correct: 4(FP) | Incorrect: 6(TN) | Correct Incorrect: 4(FP) | Unnamed: 0: 6(TN) | Correct.1: 5(FP) | Incorrect.1: 5(TN)
+Row 7: Match: | Correct: | Incorrect: | Correct Incorrect: Coherence | Unnamed: 0: | Correct.1: | Incorrect.1:
+Row 8: Match: 1.0 | Correct: 10(TP) | Incorrect: 0(FN) | Correct Incorrect: 8(TP) | Unnamed: 0: 2(FN) | Correct.1: 9(TP) | Incorrect.1: 1(FN)
+Row 9: Match: 0.0 | Correct: 3(FP) | Incorrect: 7(TN) | Correct Incorrect: 5(FP) | Unnamed: 0: 5(TN) | Correct.1: 3(FP) | Incorrect.1: 7(TN)
+Row 10: Match: | Correct: | Incorrect: | Correct Incorrect: Fluency | Unnamed: 0: | Correct.1: | Incorrect.1:
+Row 11: Match: 1.0 | Correct: 10(TP) | Incorrect: 0(FN) | Correct Incorrect: 8(TP) | Unnamed: 0: 2(FN) | Correct.1: 10(TP) | Incorrect.1: 0(FN)
+Row 12: Match: 0.0 | Correct: 7(FP) | Incorrect: 3(TN) | Correct Incorrect: 9(FP) | Unnamed: 0: 1(TN) | Correct.1: 6(FP) | Incorrect.1: 4(TN)
+[/TABLE]
+
+[PAGE 8]
+8 Anum Afzal, Juraj Vladika, Gentrit Fazlija, Andrei Starad ubets, and Florian Ma/t_thes
+Table 3, we compute the RAG confusion matrix on the best-performing co nﬁguration as per Faithfulness where "Match" means the correct context was retrieved b y the retriever and "no Match"
+means that an incorrect context was retrieved. For each evaluat ion feature from Relevance, Coherence, Fluency, and Faithfulness we set a threshold of 5 for our confusion matrix. We consider
+it a correct response if the LLM (GPT-4) rates the answers a scor e of 5. The Confusion matrix
+summarized in Table 4 provides interesting insights regarding high False Positive (F P) values. As
+expected, the Faithfulness scores for No Match samples are qu ite low since the incorrect context
+was provided to the LLM for generation. This suggests that LLMs tend to be much more Faithful
+if they are provided with the correct context; some more than t he other though.
+5.3 Further Enhancements and Evaluation of RAG
+Having found the top 3 optimal RAG conﬁgurations in the previous s et of experiments, we tried
+to optimize them. For the retriever part, our optimization e ﬀorts revolved around the ﬁltering
+steps in the pre-retrieval phase. We discovered that allowi ng the LLM to freely predict the study
+program instead of constraining it to a predeﬁned list helped incre ase the hit rate. We compute
+LLM-based evaluation scores, ROUGE, and BERTScores in
+Table 5 which shows the leading performance of GPT-4. ROUGE and BERTScore reﬂect GPT-4’s its stro ng ability to generate responses
+that closely align with the reference texts, both in detail and semantic relevance, indicating proﬁciency in producing contextually accurate and engaging content. In general, all models produce
+somewhat ﬂuent and coherent answers with some discrepancies in Faithfulness and Relevance. An
+answer can be faithful without being relevant but not the other way around. An example of this can
+seen in Mistral 7B which has a higher Faithfulness score but co mparatively low Relevance scores.
+Due to the limited data sample, deﬁnitive conclusions are chall enging to draw. GPT-4, however,
+maintained similar performance levels across all metrics. Thi s consistency is noteworthy, especially when considering the divergence in evaluations between h uman evaluators and GPT-4 for
+the optimized RAG frameworks. This ﬁnal interpretation aligns well with the ﬁndings that the
+performance of Llama 2 and Mistral dropped compared to the orig inal RAG framework.
+5.3.1 Correlation between LLM-based and Human Evaluation. We provide comparison of the evaluation scores between the normal/improved framework with GP T-4/human evaluation in Table 5
+calculated on a subset of 30 samples. Llama 2 and Mistral didn’t align with human preferences as
+well as GPT-4. This could indicate that GPT-4, having processed vast amounts of data, can present
+information in a manner more appealing to humans.
+6 CONCLUSION AND FUTURE WORK
+During our experiments, we investigated various optimizations over a RAG framework while employing Faithfulness as the most prominent evaluation criterio n. We evaluated the eﬀectiveness
+of the Multi-Query, Child-Parent-Retriever, Ensemble Retriever, and In-context learning. Additionally, we introduce two novel ideas; ﬁrst, the usage of LLM-based ﬁltering in the pre-retrieval phase
+that aids in the identiﬁcation of the correct study program & t opic, and second the adaptation of
+the confusion matrix for RAG evaluation. Our initial experiments show a signiﬁcant improvement
+in Hit Rate with the incorporation of Multi-Query techniques. Conversely, as per the LLM-based
+evaluation of the generated answer, Ensemble Retriever showed remarkable eﬀectiveness in terms
+of Faithfulness, particularly when paired with the Multi-Qu ery. While GPT-4 is a clear winner,
+there are notable competitors such as open-source Llama 2 13B f or the Retrieval Phase, leveraging
+Multi-Query, In-Context-Learning, and Ensemble Retriever. For the Generation Phase, the Original
+Mistral 7B with the same module iteration outperforms other models. Lastly, we found discrepancies between Human and LLM-based evaluation as the human annota tors as the humans almost
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[PAGE 9]
+Towards Optimizing a Retrieval Augmented Generation using Large Language Model on Academic Data 9
+Table 5. Faithfulness, Relevance, Coherence, and Fluency s cores with mq-icl-er where "x" represents evaluation by GPT-4 and "x/x" represent "evaluation by GPT-4 / Human"on English Dataset. ROUGE and BERTScore
+are computed using the reference answers. Retriever+ refers to the optimized version explained in Section5.3.
+Retriever Retriever+ Retriever Retriever+ Retriever Retr iever+
+Llama 2 13B Llama 2 13B GPT-4 GPT-4 Mistral 7B Mistral 7B
+Faithfulness
+Match 3.2 3.2/2.7 3.4 4.4/4.3 4.5 4.2/3.4
+No Match 2.0 2.1/2.2 2.9 3.5/3.3 2.5 3.3/2.6
+Relevance
+Match 3.5 3.3/3.0 3.4 4.4/4.1 4.6 3.9/2.9
+No Match 2.7 2.7/2.3 2.6 3.3/3.7 2.5 3.4/2.1
+Coherence
+Match 3.8 4.5/3.9 3.4 4.4/3.8 4.5 4.6 /4.0
+No Match 2.5 2.6/3.4 2.4 3.2/ 4.4 2.9 3.2/3.0
+Fluency
+Match 4.2 4.5/4.8 4.5 4.9/4.8 4.9 4.9 /4.9
+No Match 4.4 4.4/4.6 4.1 4.8/5.0 4.4 4.7/4.7
+ROUGE
+Match 0.239 0.306 0.538 0.484 0.314 0.288
+No Match 0.184 0.278 0.336 0.434 0.256 0.196
+BERTScore
+Match 0.881 0.883 0.930 0.910 0.887 0.893
+No Match 0.858 0.873 0.880 0.904 0.865 0.863
+always rated the answer lower than the LLM rating. Future work c ould include the incorporation
+of an even wider array of open-source models with larger sizes , to facilitate a fairer comparison
+to a model as large as GPT-4.
+REFERENCES
+[1] Sallam Abualhaija, Chetan Arora, Amin Sleimi, and Lionel C Briand. 2022. Automated question answering for improved understanding of compliance requirements: A multi-document st udy. In 2022 IEEE 30th International Requirements Engineering Conference (RE) . IEEE, 39–50.
+[2] Anum Afzal, Alexander Kowsik, Rajna Fani, and Florian Matthes. 20 24. Towards Optimizing and Evaluating a Retrieval Augmented QA Chatbot using LLMs with Human-in-the-Loop. In Proceedings of the Fifth Workshop on Data
+Science with Human-in-the-Loop (DaSH 2024) . Association for Computational Linguistics, Mexico City, Mexico.
+[3] Chenxin An, Ming Zhong, Zhichao Geng, Jianqiang Yang, and Xipeng Qiu. 2021. R etrievalSum: A Retrieval Enhanced
+Framework for Abstractive Summarization. arXiv:
+2109.07943 [cs.CL]
+[4] Deng Cai, Yan Wang, Huayang Li, Wai Lam, and Lemao Liu. 2021. Neura l Machine Translation with Monolingual
+Translation Memory. In Proceedings of the 59th Annual Meeting of the Association fo r Computational Linguistics and
+the 11th International Joint Conference on Natural Languag e Processing (Volume 1: Long Papers) . Association for Computational Linguistics, Online, 7307–7318.
+[5] Deng Cai, Yan Wang, Lemao Liu, and Shuming Shi. 2022. Recent advances in retrieval-augmented text generation. In
+Proceedings of the 45th international ACM SIGIR conference on research and development in information retrieval .
+[6] Danqi Chen, Adam Fisch, Jason Weston, and Antoine Bordes. 2017. Re ading Wikipedia to Answer Open-Domain
+Questions. In Proceedings of the 55th Annual Meeting of the Association fo r Computational Linguistics (Volume 1: Long
+Papers). Association for Computational Linguistics, Vancouver, Canada. https://doi.org/10.18653/v1/P17-1171
+[7] Yu Chen, Scott Jensen, Leslie J Albert, Sambhav Gupta, and Terr i Lee. 2023. Artiﬁcial intelligence (AI) student assistants in the classroom: Designing chatbots to support student suc cess. Information Systems Frontiers 25, 1 (2023),
+161–182.
+[8] Luyu Gao, Xueguang Ma, Jimmy Lin, and Jamie Callan. 2023. Precise Z ero-Shot Dense Retrieval without Relevance Labels. In Proceedings of the 61st Annual Meeting of the Association fo r Computational Linguistics (Volume 1: Long Papers).
+Association for Computational Linguistics, Toronto, Canada, 1762–17 77. https://doi.org/10.18653/v1/2023.acl-long.99
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[TABLE page=9 index=1]
+Columns: Unnamed: 0 | Retriever | Retriever+ Retriever | Unnamed: 1 | Retriever+ | Retriever.1 | Retriever+.1
+Row 1: Unnamed: 0: | Retriever: Llama 2 13B | Retriever+ Retriever: Llama 2 13B GPT-4 | Unnamed: 1: | Retriever+: GPT-4 | Retriever.1: Mistral 7B | Retriever+.1: Mistral 7B
+Row 2: Unnamed: 0: | Retriever: | Retriever+ Retriever: Faithfulness | Unnamed: 1: | Retriever+: | Retriever.1: | Retriever+.1:
+Row 3: Unnamed: 0: Match | Retriever: 3.2 | Retriever+ Retriever: 3.2/2.7 3.4 | Unnamed: 1: | Retriever+: 4.4/4.3 | Retriever.1: 4.5 | Retriever+.1: 4.2/3.4
+Row 4: Unnamed: 0: No Match | Retriever: 2.0 | Retriever+ Retriever: 2.1/2.2 2.9 | Unnamed: 1: | Retriever+: 3.5/3.3 | Retriever.1: 2.5 | Retriever+.1: 3.3/2.6
+Row 5: Unnamed: 0: | Retriever: | Retriever+ Retriever: Relevance | Unnamed: 1: | Retriever+: | Retriever.1: | Retriever+.1:
+Row 6: Unnamed: 0: Match | Retriever: 3.5 | Retriever+ Retriever: 3.3/3.0 3.4 | Unnamed: 1: | Retriever+: 4.4/4.1 | Retriever.1: 4.6 | Retriever+.1: 3.9/2.9
+Row 7: Unnamed: 0: No Match | Retriever: 2.7 | Retriever+ Retriever: 2.7/2.3 2.6 | Unnamed: 1: | Retriever+: 3.3/3.7 | Retriever.1: 2.5 | Retriever+.1: 3.4/2.1
+Row 8: Unnamed: 0: | Retriever: | Retriever+ Retriever: Coherence | Unnamed: 1: | Retriever+: | Retriever.1: | Retriever+.1:
+Row 9: Unnamed: 0: Match | Retriever: 3.8 | Retriever+ Retriever: 4.5/3.9 3.4 | Unnamed: 1: | Retriever+: 4.4/3.8 | Retriever.1: 4.5 | Retriever+.1: 4.6/4.0
+Row 10: Unnamed: 0: No Match | Retriever: 2.5 | Retriever+ Retriever: 2.6/3.4 2.4 | Unnamed: 1: | Retriever+: 3.2/4.4 | Retriever.1: 2.9 | Retriever+.1: 3.2/3.0
+Row 11: Unnamed: 0: | Retriever: | Retriever+ Retriever: Fluency | Unnamed: 1: | Retriever+: | Retriever.1: | Retriever+.1:
+Row 12: Unnamed: 0: Match | Retriever: 4.2 | Retriever+ Retriever: 4.5/4.8 4.5 | Unnamed: 1: | Retriever+: 4.9/4.8 | Retriever.1: 4.9 | Retriever+.1: 4.9/4.9
+Row 13: Unnamed: 0: No Match | Retriever: 4.4 | Retriever+ Retriever: 4.4/4.6 4.1 | Unnamed: 1: | Retriever+: 4.8/5.0 | Retriever.1: 4.4 | Retriever+.1: 4.7/4.7
+Row 14: Unnamed: 0: | Retriever: | Retriever+ Retriever: ROUGE | Unnamed: 1: | Retriever+: | Retriever.1: | Retriever+.1:
+Row 15: Unnamed: 0: Match | Retriever: 0.239 | Retriever+ Retriever: 0.306 0.538 | Unnamed: 1: | Retriever+: 0.484 | Retriever.1: 0.314 | Retriever+.1: 0.288
+Row 16: Unnamed: 0: No Match | Retriever: 0.184 | Retriever+ Retriever: 0.278 0.336 | Unnamed: 1: | Retriever+: 0.434 | Retriever.1: 0.256 | Retriever+.1: 0.196
+Row 17: Unnamed: 0: | Retriever: | Retriever+ Retriever: BERTScore | Unnamed: 1: | Retriever+: | Retriever.1: | Retriever+.1:
+Row 18: Unnamed: 0: Match | Retriever: 0.881 | Retriever+ Retriever: 0.883 0.930 | Unnamed: 1: | Retriever+: 0.910 | Retriever.1: 0.887 | Retriever+.1: 0.893
+Row 19: Unnamed: 0: No Match | Retriever: 0.858 | Retriever+ Retriever: 0.873 0.880 | Unnamed: 1: | Retriever+: 0.904 | Retriever.1: 0.865 | Retriever+.1: 0.863
+[/TABLE]
+
+[PAGE 10]
+10 Anum Afzal, Juraj Vladika, Gentrit Fazlija, Andrei Stara dubets, and Florian Ma/t_thes
+[9] Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jinliu Pan, Yuxi Bi, Yi Da i, Jiawei Sun, Meng Wang, and Haofen
+Wang. 2024. Retrieval-Augmented Generation for Large Language Mo dels: A Survey. arXiv: 2312.10997 [cs.CL]
+[10] Michael Glass, Gaetano Rossiello, Md Faisal Mahbub Chowdhu ry, Ankita Naik, Pengshan Cai, and Alﬁo Gliozzo.
+2022. Re2G: Retrieve, Rerank, Generate. In Proceedings of the 2022 Conference of the North American Cha pter of the
+Association for Computational Linguistics: Human Languag e Technologies. Association for Computational Linguistics,
+Seattle, United States, 2701–2715. https://doi.org/10.18653/v1/2022.naacl-main.194
+[11] Roman Grundkiewicz, Marcin Junczys-Dowmuntz, and Kenneth Heaﬁe ld. 2019. Neural grammatical error correction
+systems with unsupervised pre-training on synthetic data. In 14th Workshop on Innovative Use of NLP for Building
+Educational Applications. Association for Computational Linguistics, 252–263.
+[12] Prakhar Gupta, Jeﬀrey Bigham, Yulia Tsvetkov, and Amy Pave l. 2021. Controlling Dialogue Generation with Semantic
+Exemplars. In Proceedings of the 2021 Conference of the North American Cha pter of the Association for Computational
+Linguistics: Human Language Technologies . Association for Computational Linguistics, Online, 3018–3029.
+[13] Albert Q. Jiang, Alexandre Sablayrolles, Arthur Mensch, Ch ris Bamford, Devendra Singh Chaplot, Diego de las Casas,
+Florian Bressand, Gianna Lengyel, Guillaume Lample, Lucile Saulnier, Lélio Renard Lavaud, Marie-Anne Lachaux,
+Pierre Stock, Teven Le Scao, Thibaut Lavril, Thomas Wang, Timothé e Lacroix, and William El Sayed. 2023. Mistral
+7B.
+[14] Enkelejda Kasneci, Kathrin Seßler, Stefan Küchemann, Maria Ba nnert, Daryna Dementieva, Frank Fischer, Urs Gasser,
+Georg Groh, Stephan Günnemann, Eyke Hüllermeier, et al. 2023. ChatGPT for good? On opportunities and challenges
+of large language models for education. Learning and individual diﬀerences 103 (2023), 102274.
+[15] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler,
+Mike Lewis, Wen-tau Yih, Tim Rocktäschel, et al. 2020. Retrieval-a ugmented generation for knowledge-intensive nlp
+tasks. Advances in Neural Information Processing Systems 33 (2020), 9459–9474.
+[16] Chin-Yew Lin. 2004. ROUGE: A package for automatic evaluation of summaries. In Text summarization branches out.
+Association for Computational Linguistics, 74–81.
+[17] Jingjing Liu, Chang Liu, and Nicholas J. Belkin. 2020. Personalization in text information retrieval: A survey. Journal
+of the Association for Information Science and Technology 71, 3 (2020), 349–369.
+[18] Yang Liu, Dan Iter, Yichong Xu, Shuohang Wang, Ruochen Xu, and Ch enguang Zhu. 2023. G-Eval: NLG Evaluation
+using GPT-4 with Better Human Alignment. arXiv: 2303.16634 [cs.CL]
+[19] Xinbei Ma, Yeyun Gong, Pengcheng He, Hai Zhao, and Nan Duan. 2023 . Query Rewriting in Retrieval-Augmented
+Large Language Models. In Proceedings of the 2023 Conference on Empirical Methods in N atural Language Processing .
+Association for Computational Linguistics, Singapore, 5303–5315. https://doi.org/10.18653/v1/2023.emnlp-main.322
+[20] Dadi Ramesh and Suresh Kumar Sanampudi. 2022. An automated essay scoring systems: a systematic literature review.
+Artiﬁcial Intelligence Review 55, 3 (2022), 2495–2527.
+[21] Stephen Robertson and Hugo Zaragoza. 2009. The Probabilis tic Relevance Framework: BM25 and Beyond.Foundations
+and Trends in Information Retrieval 3, 4 (2009), 333–389. https://doi.org/10.1561/1500000019
+[22] Burr Settles, Chris Brust, Erin Gustafson, Masato Hagiwara , and Nitin Madnani. 2018. Second language acquisition
+modeling. In Proceedings of the thirteenth workshop on innovative use of NLP for building educational applications .
+56–65.
+[23] Shamane Siriwardhana, Rivindu Weerasekera, Elliott Wen, Tharindu Kaluarachchi, Rajib Rana, and Suranga
+Nanayakkara. 2023. Improving the domain adaptation of retrieval a ugmented generation (RAG) models for open
+domain question answering. Transactions of the Association for Computational Linguis tics 11 (2023), 1–17.
+[24] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad A lmahairi, Yasmine Babaei, Nikolay Bashlykov,
+Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, Dan Bikel, Lukas Blecher, Cristian Canton Ferrer, Moya Chen,
+Guillem Cucurull, David Esiobu, Jude Fernandes, Jeremy Fu, Wenyin Fu, Brian Fuller, Cynthia Gao, Vedanuj Goswami,
+Naman Goyal, Anthony Hartshorn, Saghar Hosseini, Rui Hou, Hakan Ina n, Marcin Kardas, Viktor Kerkez, Madian
+Khabsa, Isabel Kloumann, Artem Korenev, Punit Singh Koura, Marie-Anne Lachaux, Thibaut Lavril, Jenya Lee, Diana
+Liskovich, Yinghai Lu, Yuning Mao, Xavier Martinet, Todor Mihaylov, Pus hkar Mishra, Igor Molybog, Yixin Nie, Andrew Poulton, Jeremy Reizenstein, Rashi Rungta, Kalyan Saladi, Alan Schelten, Ruan Silva, Eric Michael Smith, Ranjan
+Subramanian, Xiaoqing Ellen Tan, Binh Tang, Ross Taylor, Adina Williams, Jia n Xiang Kuan, Puxin Xu, Zheng Yan,
+Iliyan Zarov, Yuchen Zhang, Angela Fan, Melanie Kambadur, Sharan N arang, Aurelien Rodriguez, Robert Stojnic,
+Sergey Edunov, and Thomas Scialom. 2023. Llama 2: Open Foundation and Fine-Tuned Chat Models.
+[25] Fangkai Yang, Pu Zhao, Zezhong Wang, Lu Wang, Jue Zhang, Mohit Ga rg, Qingwei Lin, Saravan Rajmohan, and
+Dongmei Zhang. 2023. Empower Large Language Model to Perform Be tter on Industrial Domain-Speciﬁc Question
+Answering. arXiv: 2305.11541
+[26] Ke Zhang and Ayse Begum Aslan. 2021. AI technologies for educa tion: Recent research & future directions. Computers
+and Education: Artiﬁcial Intelligence 2 (2021), 100025.
+, Vol. 1, No. 1, Article . Publication date: November 2024.
+
+[PAGE 11]
+Towards Optimizing a Retrieval Augmented Generation using Large Language Model on Academic Data 11
+[27] Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q. Weinberger, and Y oav Artzi. 2020. BERTScore: Evaluating Text
+Generation with BERT. arXiv: 1904.09675 [cs.CL]
+[28] Tianyi Zhang, Faisal Ladhak, Esin Durmus, Percy Liang, Kathlee n McKeown, and Tatsunori B. Hashimoto. 2023.
+Benchmarking Large Language Models for News Summarization. arXiv: 2301.13848 [cs.CL]
+[29] Fengbin Zhu, Wenqiang Lei, Chao Wang, Jianming Zheng, Soujanya Poria, a nd Tat-Seng Chua. 2021. Retrieving and
+Reading: A Comprehensive Survey on Open-domain Question Answering. ar Xiv:2101.00774 [cs.AI]
+[30] Brian Zylich, Adam Viola, Brokk Toggerson, Lara Al-Hariri, and Andrew Lan. 2020. Exploring automated question
+answering methods for teaching assistance. In Artiﬁcial Intelligence in Education: 21st International C onference, AIED
+2020, Ifrane, Morocco, July 6–10, 2020, Proceedings . Springer, 610–622.
+, Vol. 1, No. 1, Article . Publication date: November 2024.

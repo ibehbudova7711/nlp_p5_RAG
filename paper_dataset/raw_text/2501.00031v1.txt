@@ -1,0 +1,1169 @@
+[PAGE 1]
+Distilling Large Language Models
+for Efficient Clinical Information Extraction
+Karthik S. Vedula* †1, Annika Gupta* 2, Akshay Swaminathan* 3,
+Ivan Lopez 3, Suhana Bedi 3, and Nigam H. Shah 4,5,6
+1Poolesville High School, Poolesville, MD, USA
+2University of California Santa Cruz, Santa Cruz, CA, USA
+3Department of Biomedical Data Science, Stanford University School of Medicine, Stanford, CA, USA
+4Department of Medicine, Stanford University School of Medicine, Stanford, CA, USA
+5Clinical Excellence Research Center, Stanford University School of Medicine, Stanford, CA, USA
+6Technology and Digital Solutions, Stanford Health Care, Palo Alto, CA, USA
+January 3, 2025
+∗Equal Contribution †Corresponding Author: karthik@vedula.me
+Abstract
+Objective: Large language models (LLMs) excel at clinical information extraction but their computational
+demands limit practical deployment. Knowledge distillation—the process of transferring knowledge from larger
+to smaller models—offers a potential solution. We evaluate the performance of distilled BERT models, which
+are approximately 1,000 times smaller than modern LLMs, for clinical named entity recognition (NER) tasks.
+Materials and Methods: We leveraged state-of-the-art LLMs (Gemini and OpenAI models) and medical
+ontologies (RxNorm and SNOMED) as teacher labelers for medication, disease, and symptom extraction. We
+applied our approach to over 3,300 clinical notes spanning five publicly available datasets, comparing distilled
+BERT models against both their teacher labelers and BERT models fine-tuned on human labels. External
+validation was conducted using clinical notes from the MedAlign dataset.
+Results: For disease extraction, F1 scores were 0.82 (teacher model), 0.89 (BioBERT trained on human labels),
+and 0.84 (BioBERT-distilled). For medication, F1 scores were 0.84 (teacher model), 0.91 (BioBERT-human),
+and 0.87 (BioBERT-distilled). For symptoms: F1 score of 0.73 (teacher model) and 0.68 (BioBERT-distilled).
+Distilled BERT models had faster inference (12x, 4x, 8x faster than GPT-4o, o1-mini, and Gemini Flash
+respectively) and lower costs (85x, 101x, 2x cheaper than GPT-4o, o1-mini, and Gemini Flash respectively).
+On the external validation dataset, the distilled BERT model achieved F1 scores of 0.883 (medication), 0.726
+(disease), and 0.699 (symptom).
+Conclusions: Distilled BERT models were up to 101x cheaper and 12x faster than state-of-the-art LLMs
+while achieving similar performance on NER tasks. Distillation offers a computationally efficient and scalable
+alternative to large LLMs for clinical information extraction.
+arXiv:2501.00031v1 [cs.CL] 21 Dec 2024
+
+[PAGE 2]
+Introduction
+Clinical notes in electronic health records contain valuable unstructured information that often isn’t captured
+in structured fields [ 1]. Converting this free-text information into structured data enables cohort selection[ 2],
+observational analysis[3], and question-answering systems that enhance clinician efficiency.[4] However, extracting
+information from these clinical notes remains challenging.[ 5][6] Named entity recognition (NER), which classifies
+key entities in text into predefined categories like diseases, medications, or symptoms, is an important task in
+this process.[7]
+Traditional approaches to clinical NER include rule-based methods using string matching and medical ontologies
+like the Unified Medical Language System (UMLS).[ 8][9][10] While these approaches are interpretable and
+computationally efficient, they often fail to capture the diverse representations of clinical entities, including
+synonyms, abbreviations, nuanced descriptions, and misspellings.[9]
+Machine learning approaches, such as BERT-based models, have demonstrated superior performance.[ 11][12]
+Domain-specific BERT variants like BioBERT[13] and ClinicalBERT[14] have been developed to better handle
+biomedical and clinical terminology. However, current clinical NER models (fine-tuned BERT Models) tend to
+be narrowly focused on specific domains or entity types, like radiology, limiting their broad applicability.[ 15]
+Additionally, fine-tuning requires large amounts of annotated data, which is expensive and time-consuming to
+produce. Weak supervision using rule-based methods and ontologies—such as TROVE, which generates weak
+labels from UMLS ontologies to train a BERT-based model for NER—offers one solution.[12]
+Large language models (LLMs) have demonstrated strong performance in clinical NER tasks through zero-shot
+or few-shot prompting, reducing the need for extensive labeled data.[16] However, these models require significant
+computational resources for local deployment and can be costly.[17] Additionally, proprietary LLMs often require
+HIPAA-compliant endpoints to handle protected health information (PHI), which further complicates their
+deployment in healthcare settings. These challenges highlight the need for more efficient and compliant solutions
+in the healthcare domain.
+Knowledge distillation offers a promising solution to these challenges. This technique transfers knowledge from
+larger models to smaller ones, potentially addressing the limitations of both domain-specific BERT models and
+computationally expensive LLMs.[18] Recent studies have demonstrated successful distillation from large models
+such as GPT-4 into medium-sized LLMs such as LLaMA[ 19], and from BERT-based models to even smaller
+architectures.[20] In the medical domain, distilled models have achieved impressive results — DistilFLERT and
+distilled PubMedBERT models have shown success in various medical applications.[20][21]
+However, existing approaches have several limitations. First, they typically focus on single note type (e.g.,
+discharge summaries) or single entity type (e.g., medications only), limiting their practical utility across diverse
+clinical settings. Second, prior work has not rigorously investigated the generalizability of distilled models
+through external validation using notes from different health systems and note types. Third, existing approaches
+rely on single teacher models rather than exploring the potential benefits of combining multiple teacher labelers
+that leverage both LLMs and medical ontologies. This gap is particularly significant given that different teacher
+labelers may capture complementary aspects of clinical entities, potentially improving the robustness and
+accuracy of the distilled models. In this paper, we present a novel approach to clinical NER using BERT-based
+models distilled from multiple teacher labelers, addressing the computational and scalability challenges associated
+with deploying large LLMs in clinical settings. We make three key contributions:
+1. We develop teacher labelers combining state-of-the-art LLMs (Gemini and OpenAI models) with medical
+ontologies (RxNorm and SNOMED) for clinical NER across various note types, validated against expertlabeled datasets.
+2. We create and release distilled BERT-based models—approximately 1,000 times smaller than modern
+LLMs—trained on teacher labels from over 2,000 clinical documents, including oncology progress notes,
+discharge summaries, radiology reports, and scientific abstracts.
+3. We conduct a comprehensive evaluation of our distilled BERT models across five publicly available clinical
+datasets, including an analysis of model failure modes and an external validation analysis to evaluate the
+generalizability of our approach across health systems.
+
+[PAGE 3]
+Fine-Tuning
+The patient is
+currently taking
+metformin 500 mg
+BID for diabetes
+and atorvastatin
+20 mg daily for
+hyperlipidemia.
+She was recently
+started on
+amlodipine 5 mg
+daily for blood
+pressure control.
+For occasional
+acid reflux, she
+uses omeprazole 20
+mg PRN
+2,096 clinical
+documents Teacher labelers Labeled documents Distillation &
+Inference
+Ontology
+LLM 1
+LLM n
+LLM 2
+BERT
+medications
+diseases
+symptoms
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+____
+___________
+___________
+___________
+___________
+___________
+___________
+___________
+___________
+___________
+___________
+The patient is
+currently taking
+metformin 500 mg
+BID for diabetes
+and atorvastatin
+20 mg daily for
+hyperlipidemia.
+She was recently
+started on
+amlodipine 5 mg
+daily for blood
+pressure control.
+For occasional
+acid reflux, she
+uses omeprazole 20
+mg PRN
+Figure 1: Clinical documents were passed to teacher labelers—LLMs and ontologies—for medication, symptom,
+and disease entity recognition tasks. We selected the optimal combination of teacher labelers based on F1 score
+for subsequent experiments. BERT models were distilled from the teacher labels via supervised fine-tuning and
+performance was measured on in-distribution datasets as well as an external validation dataset.
+Methods
+This study follows the TRIPOD-LLM[ 22] reporting guidelines for the use of LLMs. All experiments were
+performed with publicly available, de-identified datasets that did not require IRB protocol approval.
+NER Tasks and Datasets
+We evaluated our approach on three distinct NER tasks, each utilizing different datasets to ensure comprehensive
+validation across various clinical contexts:
+For the medication extraction task, we used the National NLP Clinical Challenges (n2c2) 2018 Track 2 Medication
+Extraction dataset.[23] This dataset comprises 505 discharge summaries from MIMIC-III (Medical Information
+Mart for Intensive Care III)[ 24], with expert-annotated medication mentions. Following the n2c2 annotation
+guidelines, we used 202 notes for testing, 303 notes for training, and randomly sampled 25 notes from the
+training set for development purposes (Table 12). The disease extraction task utilized the National Center
+for Biotechnology Information (NCBI) Disease Corpus.[ 25] This corpus contains 793 PubMed abstracts with
+expert-annotated disease mentions. We adhered to the official dataset splits for training, development, and
+testing. For the symptom extraction task, we used the CORAL dataset[ 26], which consists of de-identified
+progress notes from 40 patients (20 with breast cancer and 20 with pancreatic cancer). These notes, collected
+at the University of California, San Francisco (UCSF) Information Commons between 2012 and 2022, were
+de-identified using the Philter tool and annotated at the entity level. We focused on symptoms as they were
+the most frequent entity type in the dataset. Since CORAL does not provide predefined splits, we randomly
+selected 5 notes for a development set and 35 for testing, while using the unannotated notes for training through
+teacher labeling.
+Teacher Labeling Dataset Construction Since teacher labeling does not require gold standard annotations,
+we combined data from all available datasets irrespective of their original annotation status, maximizing data
+diversity. We leveraged the training splits from our primary datasets (NCBI, n2c2, and CORAL) and augmented
+them with 1,000 clinical notes sampled from MIMIC-III using a stratified approach to ensure representation
+across different documentation styles: 250 notes each from progress notes, nursing notes, discharge summaries,
+and radiology reports. The final teacher labeling dataset used for model fine-tuning consisted of 2,096 documents
+
+[PAGE 4]
+drawn from NCBI, n2c2, CORAL, and MIMIC-III.
+External Validation To assess the generalizability of our distilled BERT models, we conducted an external
+validation study on clinical notes from the MedAlign dataset[ 27], a collection of de-identified electronic health
+records (EHRs) from Stanford Hospital and Lucile Packard Children’s Hospital. From this dataset of 276
+longitudinal patient records, we sampled notes across different types to ensure comprehensive evaluation: 250
+progress notes, 129 nursing notes, 117 discharge summaries, and 250 procedure notes. Since MedAlign lacks
+NER labels, two fourth year medical students (AS and IL) independently annotated 10 randomly selected
+notes, with 2 notes doubly annotated to assess inter-rater agreement. Following our model’s output format,
+annotators labeled each token using the Inside-Outside (IO) scheme: “I-MED” for medications, “I-DIS” for
+disease, “I-SYM” for symptoms, or “O” for all other entities.
+Teacher Labeling Pipeline
+LLM-based Labeling We evaluated four state-of-the-art LLMs as teacher labelers: GPT-4o (version 202408-06)[28], GPT-4o-mini (version 2024-07-18)[ 29], o1-mini (version 2024-09-12)[ 30], and Gemini 1.5 Flash
+(gemini-1.5-flash-002).[31] Each model was prompted to perform the NER tasks and return the extracted
+entities. All models were executed through HIPAA-compliant API endpoints with standardized parameters
+(temperature=0.01, top-p=0.9) to ensure consistent outputs. The final optimized prompts are provided in the
+Supplementary Material.
+Ontology-based Labeling We leveraged BioPortal[32] Annotator API for accessing comprehensive biomedical
+ontologies: RxNorm[ 33] for medication extraction and SNOMED CT[ 34] for disease and symptom extraction.
+For each NER task, we mapped the relevant semantic types to their respective tasks, ensuring that only
+task-relevant entities were extracted. A complete list of the semantic types assigned to each task is provided in
+the Supplementary Material.
+Optimal Teacher Labeling Regimen We hypothesized that different teacher labelers would exhibit varying
+levels of performance and that an optimal combination of labelers could maximize the F1 score for a given NER
+task. Our experiment evaluated all 31 possible subsets of five teacher labelers, comprising four LLM labelers
+and the ontology labeler. To combine teacher labelers, we took a union of the entities identified by each teacher
+labeler. For each task and dataset, the combination achieving the highest F1 score on the development set was
+selected for subsequent experiments.
+Model Distillation Implementation
+For each NER task (medication, disease, and symptom extraction), we implemented knowledge distillation
+using the optimal teacher labeling pipeline to generate training labels. These labels were converted into
+”Inside-Outside” (IO) format, where words belonging to an entity are labeled as “Inside,” while all other
+words are labeled as “Outside.” We then fine-tuned separate BERT models for each task using standardized
+hyperparameters: learning rate=2x10e-5, batch size=8, and weight decay=0.01. All models were trained for 10
+epochs on NVIDIA 4xH100 GPUs. The fine-tuned models were used to perform inference on the test sets for
+each NER task. We report token-level precision, recall, and F1 score, treating the human annotations as the
+gold standard. To assess the impact of domain-specific pretraining on downstream performance, we fine-tuned
+and compared three BERT variants:
+• BERT base[11], a general-purpose language model
+• BioBERT[13], pretrained on biomedical literature
+• BioClinBERT[35], specialized for clinical text
+We evaluated the quality of teacher labels by comparing the performance of distilled models fine-tuned on teacher
+labels with those fine-tuned on human labels. For the medication and disease tasks, we used human-labeled
+data from the n2c2 and NCBI training sets, respectively. Due to limited human-labeled data in the CORAL
+dataset, we could not perform this comparison for symptom extraction. We directly evaluated the teacher
+labeling pipelines by measuring their performance without model distillation.
+
+[PAGE 5]
+Task Teacher labeler(s) F1-Score Precision Recall
+Disease Extraction o1-mini 0.787 0.724 0.862
+o1-mini + ontology 0.773 0.686 0.885
+o1-mini + GPT-4o 0.760 0.652 0.911
+o1-mini + ontology + GPT-4o 0.748 0.629 0.923
+GPT-4o 0.748 0.717 0.781
+Medication Extraction Gemini-1.5-flash + GPT-4o 0.881 0.947 0.824
+Gemini-1.5-flash + GPT-4o + GPT-4o-mini 0.872 0.896 0.849
+Gemini-1.5-flash + ontology + GPT-4o 0.870 0.865 0.876
+Gemini-1.5-flash + ontology 0.862 0.876 0.848
+Gemini-1.5-flash + GPT-4o-mini 0.859 0.912 0.811
+Symptom Extraction Gemini-1.5-flash + GPT-4o 0.801 0.871 0.741
+GPT-4o 0.787 0.900 0.700
+Gemini-1.5-flash + GPT-4o + GPT-4o-mini 0.784 0.810 0.759
+o1-mini + GPT-4o 0.778 0.752 0.806
+o1-mini + Gemini-1.5-flash + GPT-4o 0.770 0.734 0.809
+Table 1: Top five teacher labeler combinations with highest F1 scores for each NER task.
+Error Analysis
+To better characterize model failure modes and estimate the prevalence of labeling errors in the test sets, we
+conducted an error analysis of the best-performing models for each task. For each false positive (model assigns
+a non-“O” label, ground truth is “O”) and false negative (model assigns “O”, ground truth is a non-“O” label),
+model labels were compared to ground truth labels by two annotators (AS and IL, fourth year medical students).
+Each false positive or false negative was categorized as either “incorrect”, indicating that the model label was
+truly incorrect; “partially correct”, indicating that the model labels partially overlapped with the ground truth
+labels for a given entity, but not completely; or “correct”, indicating that the model label was correct and that
+the ground truth label was incorrect. For each NER task, we randomly annotated 170 false negatives and false
+positives, including 90 instances that were doubly annotated for inter-rater agreement calculation.
+Inference Time and Cost Analysis
+To quantify the practical benefits of deploying smaller models for clinical NER, we compare inference time per
+note and cost per note between our distilled BERT models and LLM teacher labelers. To calculate cost per note
+for LLMs, we use input and output API pricing for OpenAI and Google, and we use the tiktoken[ 36] Python
+library to calculate token counts. We estimate cost per note for BERT models by multiplying inference time by
+$28/hour, which is the average cost of a virtual machine with 4xH100 (our compute resources) listed by six
+cloud vendors[37] as of September 2024 (Table 6).
+Results
+Performance of Teacher Labeler Combinations
+We evaluated all 31 possible combinations of LLM and ontology labelers across our three extraction tasks
+(Tables 7 8 9). For symptom extraction, the Gemini 1.5 flash + GPT-4o combination achieved the highest F1
+score of 0.801, notably outperforming other combinations including Gemini 1.5 flash + GPT-4o + GPT-4o-mini
+(F1 = 0.784) and o1-mini + GPT-4o (F1 = 0.778). Interestingly, none of the top-performing combinations for
+symptom extraction included the ontology-based labeler.
+The medication extraction task showed similar patterns, with Gemini 1.5 flash + GPT-4o achieving the highest
+F1 score of 0.881. This was followed closely by Gemini-1.5-flash + GPT-4o + GPT-4o-mini (F1 = 0.872) and
+Gemini-1.5-flash + ontology + GPT-4o (F1 = 0.870).
+For disease extraction, the single o1-mini model achieved the highest F1 score of 0.787, with combinations of
+o1-mini + ontology (F1 = 0.773) and o1-mini + GPT-4o (F1 = 0.760) performing slightly lower.
+
+[TABLE page=5 index=1]
+Columns: Task | Teacher labeler(s) | F1-Score | Precision | Recall
+Row 1: Task: Disease Extraction | Teacher labeler(s): o1-mini | F1-Score: 0.787 | Precision: 0.724 | Recall: 0.862
+Row 2: Task: | Teacher labeler(s): o1-mini + ontology | F1-Score: 0.773 | Precision: 0.686 | Recall: 0.885
+Row 3: Task: | Teacher labeler(s): o1-mini + GPT-4o | F1-Score: 0.76 | Precision: 0.652 | Recall: 0.911
+Row 4: Task: | Teacher labeler(s): o1-mini + ontology + GPT-4o | F1-Score: 0.748 | Precision: 0.629 | Recall: 0.923
+Row 5: Task: | Teacher labeler(s): GPT-4o | F1-Score: 0.748 | Precision: 0.717 | Recall: 0.781
+Row 6: Task: Medication Extraction | Teacher labeler(s): Gemini-1.5-flash + GPT-4o | F1-Score: 0.881 | Precision: 0.947 | Recall: 0.824
+Row 7: Task: | Teacher labeler(s): Gemini-1.5-flash + GPT-4o + GPT-4o-mini | F1-Score: 0.872 | Precision: 0.896 | Recall: 0.849
+Row 8: Task: | Teacher labeler(s): Gemini-1.5-flash + ontology + GPT-4o | F1-Score: 0.87 | Precision: 0.865 | Recall: 0.876
+Row 9: Task: | Teacher labeler(s): Gemini-1.5-flash + ontology | F1-Score: 0.862 | Precision: 0.876 | Recall: 0.848
+Row 10: Task: | Teacher labeler(s): Gemini-1.5-flash + GPT-4o-mini | F1-Score: 0.859 | Precision: 0.912 | Recall: 0.811
+Row 11: Task: Symptom Extraction | Teacher labeler(s): Gemini-1.5-flash + GPT-4o | F1-Score: 0.801 | Precision: 0.871 | Recall: 0.741
+Row 12: Task: | Teacher labeler(s): GPT-4o | F1-Score: 0.787 | Precision: 0.9 | Recall: 0.7
+Row 13: Task: | Teacher labeler(s): Gemini-1.5-flash + GPT-4o + GPT-4o-mini | F1-Score: 0.784 | Precision: 0.81 | Recall: 0.759
+Row 14: Task: | Teacher labeler(s): o1-mini + GPT-4o | F1-Score: 0.778 | Precision: 0.752 | Recall: 0.806
+Row 15: Task: | Teacher labeler(s): o1-mini + Gemini-1.5-flash + GPT-4o | F1-Score: 0.77 | Precision: 0.734 | Recall: 0.809
+[/TABLE]
+
+[PAGE 6]
+BERT Model Performance
+BioBERT demonstrated superior performance in disease extraction with an F1 score of 0.865, compared to
+0.830 for both BaseBERT and BioClinBERT (Table 10). For the medication extraction task, both BioBERT
+and BioClinBERT achieved an F1 of 0.89, slightly outperforming BaseBERT (F1 = 0.885). Symptom extraction
+proved more challenging across all models, with BioBERT and BioClinBERT achieving F1 scores of 0.34 and
+BaseBERT reaching 0.33.
+Task Model F1-Score NPV PPV Sensitivity Specificity
+Disease Extraction Human + BERT 0.89 0.99 0.87 0.92 0.99
+Teacher + BERT 0.84 0.99 0.78 0.90 0.98
+Teacher only 0.82 0.99 0.79 0.86 0.98
+Medication Extraction Human + BERT 0.91 1.00 0.89 0.93 1.00
+Teacher + BERT 0.87 1.00 0.89 0.85 1.00
+Teacher only 0.84 0.99 0.91 0.79 1.00
+Symptom Extraction Teacher + BERT 0.68 0.99 0.80 0.59 1.00
+Teacher only 0.73 0.99 0.78 0.69 1.00
+Table 2: Performance of BioBERT models fine-tuned on human labels, BioBERT models distilled from teacher
+labelers, and the teacher labelers themselves.
+Comparative Analysis of Label Sources
+Our analysis revealed that models fine-tuned on human labels consistently outperformed those using teacher
+labels, which in turn exceeded direct teacher labeler performance. For disease extraction, human-labeled models
+achieved an F1 of 0.89, compared to 0.84 for teacher-labeled models and 0.82 for direct teacher labelers (Table
+2. Similarly, in medication extraction, we observed F1 scores of 0.91, 0.87, and 0.84 respectively. For symptom
+extraction, where human-labeled comparison was not possible, teacher-labeled models achieved an F1 of 0.68,
+while direct teacher labelers reached 0.73.
+Error Analysis
+Across all three tasks, the majority of false positives were due to incorrect ground truth labels. For symptom
+extraction, 2.20% of false negatives and 82.05% of false positives had incorrect ground truth labels (Table 3).
+For medication extraction, 21.05% of false negatives and 62.93% of false positives had incorrect ground truth
+labels. For disease extraction, 4.08% of false negatives and 73.33% of false positives had incorrect ground truth
+labels. More analysis of specific cases for all three tasks are in the Supplementary Material.
+External Validation
+To evaluate the generalizability of our distilled BERT models for clinical NER tasks, we conducted an external
+validation study on clinical notes sampled from the MedAlign dataset. For disease extraction, the model
+demonstrated a recall of 89.0% and a precision of 61.3%, leading to an F1 of 0.726 (Table 11). For medication
+extraction, the distilled BERT model achieved a recall of 96.4%, precision of 81.5%, and F1 of 0.883. Symptom
+extraction showed the weakest performance, with a recall of 56.0%, a precision of 92.9%, and an F1 of 0.699.
+These results highlight the strong performance of the model for medication and disease extraction tasks, even
+when applied to an out-of-distribution dataset.
+Inference Time and Cost
+To quantify efficiency gains from our knowledge distillation approach, we compared the inference time per note
+and cost per note of our distilled BERT models against several teacher labelers, including state-of-the-art LLMs.
+The distilled BERT model demonstrated superior efficiency, with an average inference time of 0.14 seconds
+per note and a cost of $0.000187 per note, calculated based on an estimated $4.74/hour for a 4xH100 virtual
+machine (Tables 4 6). In contrast, teacher LLMs incurred significantly higher inference times and costs: GPT-4o
+required 1.66 seconds per note and cost $0.0159 per note; o1-mini model achieved slightly better performance
+
+[TABLE page=6 index=1]
+Columns: Task | Model | F1-Score | NPV | PPV | Sensitivity | Specificity
+Row 1: Task: Disease Extraction | Model: Human + BERT | F1-Score: 0.89 | NPV: 0.99 | PPV: 0.87 | Sensitivity: 0.92 | Specificity: 0.99
+Row 2: Task: | Model: Teacher + BERT | F1-Score: 0.84 | NPV: 0.99 | PPV: 0.78 | Sensitivity: 0.9 | Specificity: 0.98
+Row 3: Task: | Model: Teacher only | F1-Score: 0.82 | NPV: 0.99 | PPV: 0.79 | Sensitivity: 0.86 | Specificity: 0.98
+Row 4: Task: Medication Extraction | Model: Human + BERT | F1-Score: 0.91 | NPV: 1.0 | PPV: 0.89 | Sensitivity: 0.93 | Specificity: 1.0
+Row 5: Task: | Model: Teacher + BERT | F1-Score: 0.87 | NPV: 1.0 | PPV: 0.89 | Sensitivity: 0.85 | Specificity: 1.0
+Row 6: Task: | Model: Teacher only | F1-Score: 0.84 | NPV: 0.99 | PPV: 0.91 | Sensitivity: 0.79 | Specificity: 1.0
+Row 7: Task: Symptom Extraction | Model: Teacher + BERT | F1-Score: 0.68 | NPV: 0.99 | PPV: 0.8 | Sensitivity: 0.59 | Specificity: 1.0
+Row 8: Task: | Model: Teacher only | F1-Score: 0.73 | NPV: 0.99 | PPV: 0.78 | Sensitivity: 0.69 | Specificity: 1.0
+[/TABLE]
+
+[PAGE 7]
+Symptom Extraction Medication Extraction
+Disease Extraction
+False Negatives
+N 91 57 49
+Correct 2.20% 21.05% 4.08%
+Partially Correct 16.49% 14.04% 38.78%
+Incorrect 81.32% 64.91% 57.14%
+Examples “She is asymptomatic
+from bone lesions but
+we can. . . ”
+“. . . presented with
+acholic stool and dark
+urine”
+“. . . 3 years of hot
+flashes.”
+“. . . such as fatigue,
+neuropathy, skin and
+nail changes. . . ”
+“. . .Cardura 2 q.d. . . .”
+“DNR / DNI / no
+pressors. . . ”
+“NG SL PRN”
+“We generally recommend taking an over
+the counter stool
+softener. . . ”
+“. . . remarkable propensity to bacterial
+infections. . . ”
+“Royal National Hospital for Rheumatic
+Diseases database. . . ”
+“. . . in three prostate
+cancer cell lines. . . ”
+“. . . rescues the gastrulation defect.”
+False Positives
+N 78 116 120
+Correct 82.05% 62.93% 73.33%
+Partially Correct 15.38% 12.93% 20.00%
+Incorrect 2.56% 24.14% 6.67%
+Examples “. . . found to have sepsis. . . ”
+“. . . skin and nail changes,
+myalgias, alopecia,
+myelosuppression,
+nausea. . . ”
+“Bilateral injected
+sclera. . . ”
+“At initail [sic] deployment the patient. . . ”
+“. . . showed the father to
+be hypohaptoglobinemic. . . ”
+Table 3: Error analysis for all NER tasks. A random sample of false positives and false negatives were reviewed
+and categorized as “Correct” (model label is correct; ground truth label is incorrect), “Partially correct” (model
+label partially overlaps with ground truth label for the entity), or “Incorrect” (model label is incorrect; ground
+truth label is correct). Representative examples of false negatives and false positives for each task are shown
+above. Abbreviations: “NG SL PRN” = nitroglycerin sublingual pro re nata (as needed); “2 q.d.” = two per
+day.
+
+[TABLE page=7 index=1]
+Columns: Unnamed: 0 | Symptom Extraction Medication | Extrac- | Unnamed: 1 | Disease Extraction
+Row 1: Unnamed: 0: | Symptom Extraction Medication: tion | Extrac-: | Unnamed: 1: | Disease Extraction:
+Row 2: Unnamed: 0: | Symptom Extraction Medication: False Negatives | Extrac-: | Unnamed: 1: | Disease Extraction:
+Row 3: Unnamed: 0: N | Symptom Extraction Medication: 91 57 | Extrac-: | Unnamed: 1: | Disease Extraction: 49
+Row 4: Unnamed: 0: Correct | Symptom Extraction Medication: 2.20% 21.05% | Extrac-: | Unnamed: 1: | Disease Extraction: 4.08%
+Row 5: Unnamed: 0: Partially Correct | Symptom Extraction Medication: 16.49% 14.04% | Extrac-: | Unnamed: 1: | Disease Extraction: 38.78%
+Row 6: Unnamed: 0: Incorrect | Symptom Extraction Medication: 81.32% 64.91% | Extrac-: | Unnamed: 1: | Disease Extraction: 57.14%
+Row 7: Unnamed: 0: Examples | Symptom Extraction Medication: “She is asymptomatic “. . .Cardura 2 q.d. . . .” | Extrac-: | Unnamed: 1: | Disease Extraction: “. . . remarkable propenRow 8: Unnamed: 0: | Symptom Extraction Medication: from bone lesions but | Extrac-: | Unnamed: 1: | Disease Extraction: sity to bacterial
+Row 9: Unnamed: 0: | Symptom Extraction Medication: we can. . . ” “DNR / DNI | Extrac-: / no | Unnamed: 1: | Disease Extraction: infections. . . ”
+Row 10: Unnamed: 0: | Symptom Extraction Medication: pressors. . . ” | Extrac-: | Unnamed: 1: | Disease Extraction:
+Row 11: Unnamed: 0: | Symptom Extraction Medication: “. . . presented with | Extrac-: | Unnamed: 1: | Disease Extraction: “Royal National HosRow 12: Unnamed: 0: | Symptom Extraction Medication: acholic stool and dark “NG SL PRN” | Extrac-: | Unnamed: 1: | Disease Extraction: pital for Rheumatic
+Row 13: Unnamed: 0: | Symptom Extraction Medication: urine” | Extrac-: | Unnamed: 1: | Disease Extraction: Diseases database. . . ”
+Row 14: Unnamed: 0: | Symptom Extraction Medication: “We generally | Extrac-: recom- | Unnamed: 1: | Disease Extraction:
+Row 15: Unnamed: 0: | Symptom Extraction Medication: “. . . 3 years of hot mend taking | Extrac-: an over | Unnamed: 1: | Disease Extraction: “. . . in three prostate
+Row 16: Unnamed: 0: | Symptom Extraction Medication: flashes.” the counter | Extrac-: stool | Unnamed: 1: | Disease Extraction: cancer cell lines. . . ”
+Row 17: Unnamed: 0: | Symptom Extraction Medication: softener. . . ” | Extrac-: | Unnamed: 1: | Disease Extraction:
+Row 18: Unnamed: 0: | Symptom Extraction Medication: “. . . such as fatigue, | Extrac-: | Unnamed: 1: | Disease Extraction: “. . . rescues the gasRow 19: Unnamed: 0: | Symptom Extraction Medication: neuropathy, skin and | Extrac-: | Unnamed: 1: | Disease Extraction: trulation defect.”
+Row 20: Unnamed: 0: | Symptom Extraction Medication: nail changes. . . ” | Extrac-: | Unnamed: 1: | Disease Extraction:
+Row 21: Unnamed: 0: | Symptom Extraction Medication: False Positives | Extrac-: | Unnamed: 1: | Disease Extraction:
+Row 22: Unnamed: 0: N | Symptom Extraction Medication: 78 116 | Extrac-: | Unnamed: 1: | Disease Extraction: 120
+Row 23: Unnamed: 0: Correct | Symptom Extraction Medication: 82.05% 62.93% | Extrac-: | Unnamed: 1: | Disease Extraction: 73.33%
+Row 24: Unnamed: 0: Partially Correct | Symptom Extraction Medication: 15.38% 12.93% | Extrac-: | Unnamed: 1: | Disease Extraction: 20.00%
+Row 25: Unnamed: 0: Incorrect | Symptom Extraction Medication: 2.56% 24.14% | Extrac-: | Unnamed: 1: | Disease Extraction: 6.67%
+Row 26: Unnamed: 0: Examples | Symptom Extraction Medication: “. . . found to have sep- “Bilateral | Extrac-: injected | Unnamed: 1: | Disease Extraction: “. . . showed the father to
+Row 27: Unnamed: 0: | Symptom Extraction Medication: sis. . . ” sclera. . . ” | Extrac-: | Unnamed: 1: | Disease Extraction: be hypohaptoglobineRow 28: Unnamed: 0: | Symptom Extraction Medication: | Extrac-: | Unnamed: 1: | Disease Extraction: mic. . . ”
+Row 29: Unnamed: 0: | Symptom Extraction Medication: “. . . skin and nail changes, “At initail | Extrac-: [sic] de- | Unnamed: 1: | Disease Extraction:
+Row 30: Unnamed: 0: | Symptom Extraction Medication: myalgias, alopecia, ployment the patient. . . ” | Extrac-: | Unnamed: 1: | Disease Extraction:
+Row 31: Unnamed: 0: | Symptom Extraction Medication: myelosuppression, | Extrac-: | Unnamed: 1: | Disease Extraction:
+Row 32: Unnamed: 0: | Symptom Extraction Medication: nausea. . . ” | Extrac-: | Unnamed: 1: | Disease Extraction:
+[/TABLE]
+
+[PAGE 8]
+Model Total cost
+(USD)
+Total inference time (s)
+Cost per note
+(USD)
+Inference time
+per note (s)
+Distilled BioBERT 0.02 14 0.000187 0.14
+GPT-4o 1.59 (+7850%) 166 (+1086%) 0.0159
+(+8402%)
+1.66 (+1086%)
+o1-mini 1.89 (+9350%) 58 (+314.3%) 0.0189
+(+1001%)
+0.58 (+314.3%)
+Gemini 1.5 Flash 0.05 (+150%) 117 (+735.7%) 0.000460
+(+146.0%)
+1.17 (+735.7%)
+Table 4: On 100 notes sampled from the MedAlign dataset, we report average inference time per note and
+average cost per note aggregated across medication, disease, and symptom extraction tasks. Parentheses indicate
+percent difference compared to the Distilled BioBERT model. BioBERT was run on 1xA100 80GB, for which
+the average cost per hour was estimated at $4.74 (Table 6). For teacher LLMs, we use reported token pricing as
+of 12/11/2024.
+with 0.58 seconds per note and a cost of $0.0189 per note; and Gemini 1.5 Flash was the cheapest among the
+teacher labelers, with 1.17 seconds per note and $0.000460 per note.
+Discussion
+Our study found that distilled BERT models outperformed teacher labelers and approached the performance of
+BERT models fine tuned on human labels, highlighting the effectiveness of knowledge distillation for clinical
+NER. In external validation, the distilled BERT models demonstrated strong performance on the medication
+and disease extraction tasks. Importantly, the distilled BERT models were faster (2x, 4x, 8x faster than GPT-4o,
+o1-mini, and Gemini Flash respectively) and cheaper (85x, 101x, 2x cheaper than GPT-4o, o1-mini, and Gemini
+Flash respectively) than their LLM counterparts, making them a practical alternative for real-world clinical
+applications. Together, these findings highlight the potential of distillation to facilitate efficient and scalable
+clinical NER while maintaining high performance.
+Unlike other studies, which distilled from a single large model, our study assessed 31 different model combinations
+for different medical NER tasks, and used the best combinations to then distill down to smaller BERT-based
+models. Additionally, we assessed the effect of including ontology-outputs in the distillation process, finding
+that their inclusion resulted in poorer performance, due to increased false positives. We tested these models
+on discharge summary and medical research publication data, along with an external dataset, demonstrating
+generalizability.
+This study has several limitations. First, the quality of teacher LLMs used to fine-tune the distilled BERT
+models was often variable, particularly for symptoms. The inconsistency in symptom labeling, particularly
+between the development and test sets, likely contributed to the lower F1 scores observed for symptom extraction
+tasks. Second, we focus on only three types of entities; other entity types such as procedures, social determinants
+of health, diagnosis dates, lab values, and vital signs also need to be extracted for comprehensive clinical
+information extraction. Third, our approach did not address more complex NER tasks, such as capturing
+assertion status (e.g., negations or hypothetical statements) or relational extraction tasks (e.g., drug-dosage
+relationships). Fourth, we did not explore prompt engineering by model and used the same prompts for all
+LLMs.[38] Finally, the test sets for our three NER tasks have errors. As confirmed by others, they frequently
+contained labels that were inconsistent with the annotation guidelines of their respective datasets.[ 21][25] This
+inconsistency led to outputs that often did not align with the test set labels, leading to lower performance
+during evaluation.
+An error analysis of the model outputs revealed that human-labeled test sets for all three tasks—medication,
+disease, and symptom extraction—consistently missed several entities that were correctly identified by the
+models: 63–82% of the model’s false positives were actually correct, suggesting that the reported precision and
+F1 scores of our models may be lower bounds.
+
+[TABLE page=8 index=1]
+Columns: Model | Total cost | Unnamed: 0 | Total infer- | Unnamed: 1 | Cost per note | Inference time
+Row 1: Model: | Total cost: (USD) | Unnamed: 0: | Total infer-: ence time (s) | Unnamed: 1: | Cost per note: (USD) | Inference time: per note (s)
+Row 2: Model: Distilled BioBERT | Total cost: 0.02 | Unnamed: 0: | Total infer-: 14 | Unnamed: 1: | Cost per note: 0.000187 | Inference time: 0.14
+Row 3: Model: GPT-4o | Total cost: 1.59 (+7850%) | Unnamed: 0: | Total infer-: 166 (+1086%) | Unnamed: 1: | Cost per note: 0.0159 | Inference time: 1.66 (+1086%)
+Row 4: Model: | Total cost: | Unnamed: 0: | Total infer-: | Unnamed: 1: | Cost per note: (+8402%) | Inference time:
+Row 5: Model: o1-mini | Total cost: 1.89 (+9350%) | Unnamed: 0: | Total infer-: 58 (+314.3%) | Unnamed: 1: | Cost per note: 0.0189 | Inference time: 0.58 (+314.3%)
+Row 6: Model: | Total cost: | Unnamed: 0: | Total infer-: | Unnamed: 1: | Cost per note: (+1001%) | Inference time:
+Row 7: Model: Gemini 1.5 Flash | Total cost: 0.05 (+150%) | Unnamed: 0: | Total infer-: 117 (+735.7%) | Unnamed: 1: | Cost per note: 0.000460 | Inference time: 1.17 (+735.7%)
+Row 8: Model: | Total cost: | Unnamed: 0: | Total infer-: | Unnamed: 1: | Cost per note: (+146.0%) | Inference time:
+[/TABLE]
+
+[PAGE 9]
+Conclusion
+Our work provides a roadmap for leveraging state-of-the-art LLMs to develop efficient, performant, and
+generalizable clinical NER models through distillation. Ultimately, this study underscores the potential of
+distilled BERT models as a computationally efficient and scalable alternative to LLMs for clinical NER, paving
+the way for broader applications in healthcare information extraction.
+References
+[1] Ross, M. K., Wei, W. & Ohno-Machado, L. ”Big data” and the electronic health record. Yearbook of
+Medical Informatics 9, 97–104 (2014).
+[2] Wornow, M. et al. Zero-Shot Clinical Trial Patient Matching with LLMs (2024). URL http://arxiv.org/
+abs/2402.05125. ArXiv:2402.05125 [cs].
+[3] Callahan, A., Shah, N. H. & Chen, J. H. Research and Reporting Considerations for Observational Studies
+Using Electronic Health Record Data. Annals of Internal Medicine 172, S79–S84 (2020).
+[4] Lamurias, A. & Couto, F. M. LasigeBioTM at MEDIQA 2019: Biomedical Question Answering using
+Bidirectional Transformers and Named Entity Recognition. In Proceedings of the 18th BioNLP Workshop
+and Shared Task , 523–527 (Association for Computational Linguistics, Florence, Italy, 2019). URL
+https://www.aclweb.org/anthology/W19-5057.
+[5] Zweigenbaum, P., Demner-Fushman, D., Yu, H. & Cohen, K. B. Frontiers of biomedical text mining:
+current progress. Briefings in bioinformatics 8, 358–375 (2007). URL https://www.ncbi.nlm.nih.gov/
+pmc/articles/PMC2516302/.
+[6] Wang, Y. et al. Clinical information extraction applications: A literature review. Journal of Biomedical
+Informatics 77, 34–49 (2018).
+[7] Lample, G., Ballesteros, M., Subramanian, S., Kawakami, K. & Dyer, C. Neural Architectures for Named
+Entity Recognition (2016). URL http://arxiv.org/abs/1603.01360. ArXiv:1603.01360 [cs].
+[8] Bodenreider, O. The Unified Medical Language System (UMLS): integrating biomedical terminology.
+Nucleic Acids Research 32, D267–D270 (2004). URL https://www.ncbi.nlm.nih.gov/pmc/articles/
+PMC308795/.
+[9] Liao, K. P. et al. Development of phenotype algorithms using electronic medical records and incorporating
+natural language processing. The BMJ 350, h1885 (2015). URL https://www.ncbi.nlm.nih.gov/pmc/
+articles/PMC4707569/.
+[10] Campillos-Llanos, L., Valverde-Mateos, A., Capllonch-Carri´ on, A. & Moreno-Sandoval, A. A clinical trials
+corpus annotated with UMLS entities to enhance the access to evidence-based medicine. BMC Medical
+Informatics and Decision Making 21, 69 (2021). URL https://doi.org/10.1186/s12911-021-01395-z .
+[11] Devlin, J., Chang, M.-W., Lee, K. & Toutanova, K. BERT: Pre-training of Deep Bidirectional Transformers
+for Language Understanding. In Burstein, J., Doran, C. & Solorio, T. (eds.) Proceedings of the 2019
+Conference of the North American Chapter of the Association for Computational Linguistics: Human
+Language Technologies, Volume 1 (Long and Short Papers) , 4171–4186 (Association for Computational
+Linguistics, Minneapolis, Minnesota, 2019). URL https://aclanthology.org/N19-1423.pdf.
+[12] Fries, J. A. et al. Ontology-driven weak supervision for clinical entity classification in electronic
+health records. Nature Communications 12, 2017 (2021). URL https://www.nature.com/articles/
+s41467-021-22328-4 . Publisher: Nature Publishing Group.
+[13] Lee, J. et al. BioBERT: a pre-trained biomedical language representation model for biomedical text mining.
+Bioinformatics 36, 1234–1240 (2020). URL https://doi.org/10.1093/bioinformatics/btz682.
+[14] Huang, K., Altosaar, J. & Ranganath, R. ClinicalBERT: Modeling Clinical Notes and Predicting Hospital
+Readmission (2020). URL http://arxiv.org/abs/1904.05342. ArXiv:1904.05342 [cs].
+
+[PAGE 10]
+[15] Chaves, J. M. Z. et al. RaLEs: a Benchmark for Radiology Language Evaluations. In Thirty-seventh
+Conference on Neural Information Processing Systems Datasets and Benchmarks Track (2023). URL
+https://openreview.net/forum?id=PWLGrvoqiR.
+[16] Monajatipoor, M. et al. LLMs in Biomedicine: A study on clinical Named Entity Recognition (2024). URL
+http://arxiv.org/abs/2404.07376. ArXiv:2404.07376 [cs].
+[17] Pricing. URL https://openai.com/api/pricing/.
+[18] Hinton, G., Vinyals, O. & Dean, J. Distilling the Knowledge in a Neural Network (2015). URL http:
+//arxiv.org/abs/1503.02531. ArXiv:1503.02531 [stat].
+[19] Zhou, W., Zhang, S., Gu, Y., Chen, M. & Poon, H. UniversalNER: Targeted distillation from large
+language models for open named entity recognition. In The Twelfth International Conference on Learning
+Representations (2024). URL https://openreview.net/forum?id=r65xfUb76p.
+[20] Rhouma, R. et al. Leveraging mobile NER for real-time capture of symptoms, diagnoses, and treatments from
+clinical dialogues. Informatics in Medicine Unlocked 48, 101519 (2024). URL https://www.sciencedirect.
+com/science/article/pii/S2352914824000753.
+[21] Gu, Y. et al. Distilling Large Language Models for Biomedical Knowledge Extraction: A Case Study on
+Adverse Drug Events (2023). URL http://arxiv.org/abs/2307.06439. ArXiv:2307.06439 [cs].
+[22] Gallifant, J. et al. The TRIPOD-LLM Statement: A Targeted Guideline For Reporting Large Language
+Models Use. medRxiv: The Preprint Server for Health Sciences 2024.07.24.24310930 (2024).
+[23] Henry, S., Buchan, K., Filannino, M., Stubbs, A. & Uzuner, O. 2018 n2c2 shared task on adverse drug
+events and medication extraction in electronic health records. Journal of the American Medical Informatics
+Association: JAMIA 27, 3–12 (2020).
+[24] Johnson, A. E. et al. MIMIC-III, a freely accessible critical care database. Scientific Data 3, 160035 (2016).
+URL https://www.nature.com/articles/sdata201635.
+[25] Do˘ gan, R. I., Leaman, R. & Lu, Z. NCBI disease corpus: a resource for disease name recognition and
+concept normalization. Journal of Biomedical Informatics 47, 1–10 (2014).
+[26] Sushil, M. et al. CORAL: expert-Curated medical Oncology Reports to Advance Language model inference.
+URL https://physionet.org/content/curated-oncology-reports/1.0/.
+[27] Fleming, S. L. et al. MedAlign: A Clinician-Generated Dataset for Instruction Following with Electronic
+Medical Records (2023). URL http://arxiv.org/abs/2308.14089. ArXiv:2308.14089 [cs].
+[28] Hello GPT-4o. URL https://openai.com/index/hello-gpt-4o/.
+[29] GPT-4o mini: advancing cost-efficient intelligence. URL https://openai.com/index/
+gpt-4o-mini-advancing-cost-efficient-intelligence/ .
+[30] OpenAI o1-mini. URL https://openai.com/index/openai-o1-mini-advancing-cost-efficient-reasoning/ .
+[31] Georgiev, P. et al. Gemini 1.5: Unlocking multimodal understanding across millions of tokens of context
+(2024). URL http://arxiv.org/abs/2403.05530. ArXiv:2403.05530 [cs].
+[32] Whetzel, P. L. et al. BioPortal: enhanced functionality via new Web services from the National Center for
+Biomedical Ontology to access and use ontologies in software applications. Nucleic Acids Research 39,
+W541–545 (2011).
+[33] Liu, S., Wei Ma, Moore, R., Ganesan, V. & Nelson, S. RxNorm: prescription for electronic drug information
+exchange. IT Professional 7, 17–23 (2005). URL http://ieeexplore.ieee.org/document/1516084/.
+[34] Stearns, M. Q., Price, C., Spackman, K. A. & Wang, A. Y. SNOMED clinical terms: overview of the
+development process and project status. Proceedings of the AMIA Symposium 662–666 (2001). URL
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2243297/.
+
+[PAGE 11]
+[35] Alsentzer, E. et al. Publicly Available Clinical BERT Embeddings. In Rumshisky, A., Roberts, K.,
+Bethard, S. & Naumann, T. (eds.) Proceedings of the 2nd Clinical Natural Language Processing Workshop ,
+72–78 (Association for Computational Linguistics, Minneapolis, Minnesota, USA, 2019). URL https:
+//aclanthology.org/W19-1909.
+[36] openai/tiktoken (2024). URL https://github.com/openai/tiktoken. Original-date: 2022-1201T23:22:11Z.
+[37] Cloud GPU Pricing Comparison in 2024 (2024). URL https://datacrunch.io/blog/
+cloud-gpu-pricing-comparison-in-2024 . Section: GPUs.
+[38] Jeong, D. P., Garg, S., Lipton, Z. C. & Oberst, M. Medical Adaptation of Large Language and
+Vision-Language Models: Are We Making Progress? (2024). URL http://arxiv.org/abs/2411.04118.
+ArXiv:2411.04118 [cs].
+[39] TUI Semantic Type List. URL https://lhncbc.nlm.nih.gov/ii/tools/MetaMap/Docs/
+SemanticTypes_2018AB.txt.
+Author Contributions
+The study was conceptualized by KSV and AS. Coding and data analysis were performed by KSV, AS, and AG,
+while data annotation was carried out by AS and IL. All authors contributed to the interpretation of the data
+and the writing of the manuscript. Supervision was provided by NHS.
+Funding
+No funding was obtained for this study.
+Competing Interests
+AS is a paid advisor to Daybreak Health, holds stock options in Cerebral and Daybreak Health, and holds
+stock in Roche (RHHVF). NHS reported being a cofounder of Prealize Health (a predictive analytics company),
+Atropos Health (an on-demand evidence generation company) and serving on the Board of the Coalition for
+Healthcare AI (CHAI), a consensus-building organization providing guidelines for the responsible use of artificial
+intelligence in health care. NHS serves as a scientific advisor to Opala, Curai Health, Arsenal Capital and JnJ
+Innovative Medicines.
+Code Availability
+The code for our experiments can be found at https://github.com/som-shahlab/distill-ner.
+
+[PAGE 12]
+Supplementary Material
+Error Analysis of Selected Entities
+Disease Extraction False negatives like “remarkable propensity to bacterial infections” and “...rescues
+the gastrulation defect,” suggest difficulty in identifying generic disease categories. False positives, such as
+“hypohaptoglobinemic,” indicate challenges in distinguishing disease entities from lab findings.
+Medication Extraction False negatives like “Cardura 2 q.d.” may reflect difficulty in identifying uncommon
+medication names, while missed phrases like “NG SL PRN” suggest difficulty in identifying abbreviations.
+Descriptions of medication classes or types were also missed, such as “over-the-counter stool softener” or
+“pressors”. False positives such as “Bilateral injected sclera” reflect confusion of the anatomic sclera with an
+injected drug, while “At initail deployment” may indicate confusing a misspelling with a drug name.
+Symptom extraction False negatives like “acholic stool”, “dark urine”, and “hot flashes” suggest challenges
+in capturing less common symptoms, while partial mentions like “skin and nail changes” indicate difficulty
+in handling symptoms embedded within lists. False positives such as “sepsis” and “myelosuppression” reflect
+confusion between symptoms and diagnoses or treatment side effects.
+Semantic Type Unique Identifiers
+The following semantic type unique identifiers (TUIs) were used for the ontology teacher labelers.[39]
+Entity Type TUIs Ontology
+Medications • T195 - Antibiotic (antb)
+• T123 - Biologically Active Substance (bacs)
+• T200 - Clinical Drug (clnd)
+• T125 - Hormone (horm)
+• T121 - Pharmacologic Substance (phsu)
+RxNorm
+Diseases • T020 - Acquired Abnormality (acab)
+• T190 - Anatomical Abnormality (anab)
+• T019 - Congenital Abnormality (cgab)
+• T047 - Disease or Syndrome (dsyn)
+• T050 - Experimental Model of Disease
+(emod)
+• T037 - Injury or Poisoning (inpo)
+• T191 - Neoplastic Process (neop)
+• T046 - Pathologic Function (patf)
+SNOMED CT
+Symptoms • T184 - Sign or Symptom (sosy) SNOMED CT
+Table 5: TUIs used for each Semantic Type & Ontology
+
+[TABLE page=12 index=1]
+Columns: Entity Type | TUIs | Ontology
+Row 1: Entity Type: Medications | TUIs: | Ontology: RxNorm
+Row 2: Entity Type: | TUIs: • T195 - Antibiotic (antb) | Ontology:
+Row 3: Entity Type: | TUIs: • T123 - Biologically Active Substance (bacs) | Ontology:
+Row 4: Entity Type: | TUIs: • T200 - Clinical Drug (clnd) | Ontology:
+Row 5: Entity Type: | TUIs: • T125 - Hormone (horm) | Ontology:
+Row 6: Entity Type: | TUIs: • T121 - Pharmacologic Substance (phsu) | Ontology:
+Row 7: Entity Type: Diseases | TUIs: | Ontology: SNOMED CT
+Row 8: Entity Type: | TUIs: • T020 - Acquired Abnormality (acab) | Ontology:
+Row 9: Entity Type: | TUIs: • T190 - Anatomical Abnormality (anab) | Ontology:
+Row 10: Entity Type: | TUIs: • T019 - Congenital Abnormality (cgab) | Ontology:
+Row 11: Entity Type: | TUIs: • T047 - Disease or Syndrome (dsyn) | Ontology:
+Row 12: Entity Type: | TUIs: • T050 - Experimental Model of Disease | Ontology:
+Row 13: Entity Type: | TUIs: (emod) | Ontology:
+Row 14: Entity Type: | TUIs: • T037 - Injury or Poisoning (inpo) | Ontology:
+Row 15: Entity Type: | TUIs: • T191 - Neoplastic Process (neop) | Ontology:
+Row 16: Entity Type: | TUIs: • T046 - Pathologic Function (patf) | Ontology:
+Row 17: Entity Type: Symptoms | TUIs: | Ontology: SNOMED CT
+Row 18: Entity Type: | TUIs: • T184 - Sign or Symptom (sosy) | Ontology:
+[/TABLE]
+
+[PAGE 13]
+Data Tables
+Vendor 1xA100 80GB cost per hour (USD) Notes
+Google Cloud $5.58 Available in europe-west4 region.
+Amazon AWS $8.19 Based on pricing for A100 40GB x8 ( $32.77/hr)
+available in us-east-1 region.
+Microsoft Azure $3.67 Available in East US region.
+OVHcloud $3.07
+Paperspace $3.18 Based on pricing for A100 80GB x8 ( $25.44/hr).
+Average $4.74
+Table 6: GPU cost estimates across cloud vendors, published September 20, 2024 by Data Crunch.
+Model F1-Score Precision Recall
+o1-mini 0.787 0.724 0.862
+o1-mini + ontology 0.773 0.686 0.885
+o1-mini + gpt-4o 0.760 0.652 0.911
+o1-mini + ontology + gpt-4o 0.748 0.629 0.923
+gpt-4o 0.748 0.717 0.781
+ontology + gpt-4o 0.738 0.682 0.803
+o1-mini + gemini-1.5-flash 0.706 0.583 0.894
+o1-mini + gemini-1.5-flash + ontology 0.693 0.561 0.905
+o1-mini + gemini-1.5-flash + gpt-4o 0.686 0.547 0.918
+o1-mini + gemini-1.5-flash + ontology + gpt-4o 0.677 0.532 0.928
+gemini-1.5-flash + gpt-4o 0.664 0.562 0.811
+gemini-1.5-flash + ontology + gpt-4o 0.658 0.546 0.830
+gemini-1.5-flash + ontology 0.638 0.580 0.707
+gemini-1.5-flash 0.634 0.605 0.665
+o1-mini + gpt-4o-mini 0.632 0.487 0.901
+o1-mini + gpt-4o + gpt-4o-mini 0.622 0.469 0.924
+o1-mini + ontology + gpt-4o-mini 0.622 0.473 0.909
+o1-mini + ontology + gpt-4o + gpt-4o-mini 0.613 0.458 0.927
+o1-mini + gemini-1.5-flash + gpt-4o-mini 0.613 0.461 0.914
+o1-mini + gemini-1.5-flash + gpt-4o + gpt-4o-mini 0.603 0.446 0.928
+o1-mini + gemini-1.5-flash + ontology + gpt-4omini
+0.601 0.447 0.917
+gpt-4o + gpt-4o-mini 0.598 0.466 0.831
+o1-mini + gemini-1.5-flash + ontology + gpt-4o +
+gpt-4o-mini
+0.594 0.436 0.931
+ontology + gpt-4o + gpt-4o-mini 0.590 0.455 0.839
+gemini-1.5-flash + gpt-4o + gpt-4o-mini 0.581 0.443 0.846
+gemini-1.5-flash + ontology + gpt-4o + gpt-4omini
+0.575 0.433 0.854
+gemini-1.5-flash + gpt-4o-mini 0.566 0.450 0.762
+ontology + gpt-4o-mini 0.564 0.458 0.732
+gemini-1.5-flash + ontology + gpt-4o-mini 0.561 0.438 0.779
+gpt-4o-mini 0.557 0.466 0.694
+ontology 0.499 0.761 0.371
+Table 7: Performance metrics (F1-score, precision, and recall) for all model configurations evaluated on the
+Disease Extraction task, sorted by F1-score from highest to lowest.
+
+[TABLE page=13 index=1]
+Columns: Vendor | 1xA100 80GB cost per hour (USD) | Notes
+Row 1: Vendor: Google Cloud | 1xA100 80GB cost per hour (USD): $5.58 | Notes: Available in europe-west4 region.
+Row 2: Vendor: Amazon AWS | 1xA100 80GB cost per hour (USD): $8.19 | Notes: Based on pricing for A100 40GB x8 ($32.77/hr)
+Row 3: Vendor: | 1xA100 80GB cost per hour (USD): | Notes: available in us-east-1 region.
+Row 4: Vendor: Microsoft Azure | 1xA100 80GB cost per hour (USD): $3.67 | Notes: Available in East US region.
+Row 5: Vendor: OVHcloud | 1xA100 80GB cost per hour (USD): $3.07 | Notes:
+Row 6: Vendor: Paperspace | 1xA100 80GB cost per hour (USD): $3.18 | Notes: Based on pricing for A100 80GB x8 ($25.44/hr).
+Row 7: Vendor: Average | 1xA100 80GB cost per hour (USD): $4.74 | Notes:
+[/TABLE]
+
+[TABLE page=13 index=2]
+Columns: Model | F1-Score | Precision | Recall
+Row 1: Model: o1-mini | F1-Score: 0.787 | Precision: 0.724 | Recall: 0.862
+Row 2: Model: o1-mini + ontology | F1-Score: 0.773 | Precision: 0.686 | Recall: 0.885
+Row 3: Model: o1-mini + gpt-4o | F1-Score: 0.76 | Precision: 0.652 | Recall: 0.911
+Row 4: Model: o1-mini + ontology + gpt-4o | F1-Score: 0.748 | Precision: 0.629 | Recall: 0.923
+Row 5: Model: gpt-4o | F1-Score: 0.748 | Precision: 0.717 | Recall: 0.781
+Row 6: Model: ontology + gpt-4o | F1-Score: 0.738 | Precision: 0.682 | Recall: 0.803
+Row 7: Model: o1-mini + gemini-1.5-flash | F1-Score: 0.706 | Precision: 0.583 | Recall: 0.894
+Row 8: Model: o1-mini + gemini-1.5-flash + ontology | F1-Score: 0.693 | Precision: 0.561 | Recall: 0.905
+Row 9: Model: o1-mini + gemini-1.5-flash + gpt-4o | F1-Score: 0.686 | Precision: 0.547 | Recall: 0.918
+Row 10: Model: o1-mini + gemini-1.5-flash + ontology + gpt-4o | F1-Score: 0.677 | Precision: 0.532 | Recall: 0.928
+Row 11: Model: gemini-1.5-flash + gpt-4o | F1-Score: 0.664 | Precision: 0.562 | Recall: 0.811
+Row 12: Model: gemini-1.5-flash + ontology + gpt-4o | F1-Score: 0.658 | Precision: 0.546 | Recall: 0.83
+Row 13: Model: gemini-1.5-flash + ontology | F1-Score: 0.638 | Precision: 0.58 | Recall: 0.707
+Row 14: Model: gemini-1.5-flash | F1-Score: 0.634 | Precision: 0.605 | Recall: 0.665
+Row 15: Model: o1-mini + gpt-4o-mini | F1-Score: 0.632 | Precision: 0.487 | Recall: 0.901
+Row 16: Model: o1-mini + gpt-4o + gpt-4o-mini | F1-Score: 0.622 | Precision: 0.469 | Recall: 0.924
+Row 17: Model: o1-mini + ontology + gpt-4o-mini | F1-Score: 0.622 | Precision: 0.473 | Recall: 0.909
+Row 18: Model: o1-mini + ontology + gpt-4o + gpt-4o-mini | F1-Score: 0.613 | Precision: 0.458 | Recall: 0.927
+Row 19: Model: o1-mini + gemini-1.5-flash + gpt-4o-mini | F1-Score: 0.613 | Precision: 0.461 | Recall: 0.914
+Row 20: Model: o1-mini + gemini-1.5-flash + gpt-4o + gpt-4o-mini | F1-Score: 0.603 | Precision: 0.446 | Recall: 0.928
+Row 21: Model: o1-mini + gemini-1.5-flash + ontology + gpt-4o- | F1-Score: 0.601 | Precision: 0.447 | Recall: 0.917
+Row 22: Model: mini | F1-Score: | Precision: | Recall:
+Row 23: Model: gpt-4o + gpt-4o-mini | F1-Score: 0.598 | Precision: 0.466 | Recall: 0.831
+Row 24: Model: o1-mini + gemini-1.5-flash + ontology + gpt-4o + | F1-Score: 0.594 | Precision: 0.436 | Recall: 0.931
+Row 25: Model: gpt-4o-mini | F1-Score: | Precision: | Recall:
+Row 26: Model: ontology + gpt-4o + gpt-4o-mini | F1-Score: 0.59 | Precision: 0.455 | Recall: 0.839
+Row 27: Model: gemini-1.5-flash + gpt-4o + gpt-4o-mini | F1-Score: 0.581 | Precision: 0.443 | Recall: 0.846
+Row 28: Model: gemini-1.5-flash + ontology + gpt-4o + gpt-4o- | F1-Score: 0.575 | Precision: 0.433 | Recall: 0.854
+Row 29: Model: mini | F1-Score: | Precision: | Recall:
+Row 30: Model: gemini-1.5-flash + gpt-4o-mini | F1-Score: 0.566 | Precision: 0.45 | Recall: 0.762
+Row 31: Model: ontology + gpt-4o-mini | F1-Score: 0.564 | Precision: 0.458 | Recall: 0.732
+Row 32: Model: gemini-1.5-flash + ontology + gpt-4o-mini | F1-Score: 0.561 | Precision: 0.438 | Recall: 0.779
+Row 33: Model: gpt-4o-mini | F1-Score: 0.557 | Precision: 0.466 | Recall: 0.694
+Row 34: Model: ontology | F1-Score: 0.499 | Precision: 0.761 | Recall: 0.371
+[/TABLE]
+
+[PAGE 14]
+Model F1-Score Precision Recall
+gemini-1.5-flash + gpt-4o 0.881 0.947 0.824
+gemini-1.5-flash + gpt-4o + gpt-4o-mini 0.872 0.896 0.849
+gemini-1.5-flash + ontology + gpt-4o 0.870 0.865 0.876
+gemini-1.5-flash + ontology 0.862 0.876 0.848
+gemini-1.5-flash + gpt-4o-mini 0.859 0.912 0.811
+ontology + gpt-4o 0.857 0.869 0.845
+gemini-1.5-flash + ontology + gpt-4o + gpt-4omini
+0.856 0.824 0.889
+gemini-1.5-flash + ontology + gpt-4o-mini 0.854 0.835 0.874
+gemini-1.5-flash 0.852 0.969 0.760
+ontology + gpt-4o + gpt-4o-mini 0.848 0.826 0.872
+gpt-4o + gpt-4o-mini 0.848 0.897 0.804
+gpt-4o 0.838 0.955 0.747
+ontology + gpt-4o-mini 0.826 0.833 0.819
+ontology 0.766 0.868 0.684
+gpt-4o-mini 0.762 0.906 0.657
+o1-mini + gemini-1.5-flash + gpt-4o 0.707 0.597 0.867
+o1-mini + gemini-1.5-flash + gpt-4o + gpt-4o-mini 0.702 0.582 0.883
+o1-mini + gemini-1.5-flash + ontology + gpt-4o 0.699 0.571 0.900
+o1-mini + gemini-1.5-flash 0.696 0.595 0.839
+o1-mini + gemini-1.5-flash + ontology 0.696 0.572 0.890
+o1-mini + gemini-1.5-flash + gpt-4o-mini 0.694 0.581 0.862
+o1-mini + ontology + gpt-4o 0.693 0.570 0.885
+o1-mini + gemini-1.5-flash + ontology + gpt-4o +
+gpt-4o-mini
+0.691 0.557 0.910
+o1-mini + gemini-1.5-flash + ontology + gpt-4omini
+0.691 0.558 0.905
+o1-mini + gpt-4o + gpt-4o-mini 0.690 0.577 0.858
+o1-mini + gpt-4o 0.688 0.589 0.827
+o1-mini + ontology + gpt-4o + gpt-4o-mini 0.688 0.556 0.901
+o1-mini + ontology + gpt-4o-mini 0.685 0.557 0.891
+o1-mini + ontology 0.675 0.563 0.844
+o1-mini + gpt-4o-mini 0.669 0.569 0.811
+o1-mini 0.611 0.551 0.685
+Table 8: Performance metrics (F1-score, precision, and recall) for all model configurations evaluated on the
+Medication Extraction task, sorted by F1-score from highest to lowest.
+
+[TABLE page=14 index=1]
+Columns: Model | F1-Score | Precision | Recall
+Row 1: Model: gemini-1.5-flash + gpt-4o | F1-Score: 0.881 | Precision: 0.947 | Recall: 0.824
+Row 2: Model: gemini-1.5-flash + gpt-4o + gpt-4o-mini | F1-Score: 0.872 | Precision: 0.896 | Recall: 0.849
+Row 3: Model: gemini-1.5-flash + ontology + gpt-4o | F1-Score: 0.87 | Precision: 0.865 | Recall: 0.876
+Row 4: Model: gemini-1.5-flash + ontology | F1-Score: 0.862 | Precision: 0.876 | Recall: 0.848
+Row 5: Model: gemini-1.5-flash + gpt-4o-mini | F1-Score: 0.859 | Precision: 0.912 | Recall: 0.811
+Row 6: Model: ontology + gpt-4o | F1-Score: 0.857 | Precision: 0.869 | Recall: 0.845
+Row 7: Model: gemini-1.5-flash + ontology + gpt-4o + gpt-4o- | F1-Score: 0.856 | Precision: 0.824 | Recall: 0.889
+Row 8: Model: mini | F1-Score: | Precision: | Recall:
+Row 9: Model: gemini-1.5-flash + ontology + gpt-4o-mini | F1-Score: 0.854 | Precision: 0.835 | Recall: 0.874
+Row 10: Model: gemini-1.5-flash | F1-Score: 0.852 | Precision: 0.969 | Recall: 0.76
+Row 11: Model: ontology + gpt-4o + gpt-4o-mini | F1-Score: 0.848 | Precision: 0.826 | Recall: 0.872
+Row 12: Model: gpt-4o + gpt-4o-mini | F1-Score: 0.848 | Precision: 0.897 | Recall: 0.804
+Row 13: Model: gpt-4o | F1-Score: 0.838 | Precision: 0.955 | Recall: 0.747
+Row 14: Model: ontology + gpt-4o-mini | F1-Score: 0.826 | Precision: 0.833 | Recall: 0.819
+Row 15: Model: ontology | F1-Score: 0.766 | Precision: 0.868 | Recall: 0.684
+Row 16: Model: gpt-4o-mini | F1-Score: 0.762 | Precision: 0.906 | Recall: 0.657
+Row 17: Model: o1-mini + gemini-1.5-flash + gpt-4o | F1-Score: 0.707 | Precision: 0.597 | Recall: 0.867
+Row 18: Model: o1-mini + gemini-1.5-flash + gpt-4o + gpt-4o-mini | F1-Score: 0.702 | Precision: 0.582 | Recall: 0.883
+Row 19: Model: o1-mini + gemini-1.5-flash + ontology + gpt-4o | F1-Score: 0.699 | Precision: 0.571 | Recall: 0.9
+Row 20: Model: o1-mini + gemini-1.5-flash | F1-Score: 0.696 | Precision: 0.595 | Recall: 0.839
+Row 21: Model: o1-mini + gemini-1.5-flash + ontology | F1-Score: 0.696 | Precision: 0.572 | Recall: 0.89
+Row 22: Model: o1-mini + gemini-1.5-flash + gpt-4o-mini | F1-Score: 0.694 | Precision: 0.581 | Recall: 0.862
+Row 23: Model: o1-mini + ontology + gpt-4o | F1-Score: 0.693 | Precision: 0.57 | Recall: 0.885
+Row 24: Model: o1-mini + gemini-1.5-flash + ontology + gpt-4o + | F1-Score: 0.691 | Precision: 0.557 | Recall: 0.91
+Row 25: Model: gpt-4o-mini | F1-Score: | Precision: | Recall:
+Row 26: Model: o1-mini + gemini-1.5-flash + ontology + gpt-4o- | F1-Score: 0.691 | Precision: 0.558 | Recall: 0.905
+Row 27: Model: mini | F1-Score: | Precision: | Recall:
+Row 28: Model: o1-mini + gpt-4o + gpt-4o-mini | F1-Score: 0.69 | Precision: 0.577 | Recall: 0.858
+Row 29: Model: o1-mini + gpt-4o | F1-Score: 0.688 | Precision: 0.589 | Recall: 0.827
+Row 30: Model: o1-mini + ontology + gpt-4o + gpt-4o-mini | F1-Score: 0.688 | Precision: 0.556 | Recall: 0.901
+Row 31: Model: o1-mini + ontology + gpt-4o-mini | F1-Score: 0.685 | Precision: 0.557 | Recall: 0.891
+Row 32: Model: o1-mini + ontology | F1-Score: 0.675 | Precision: 0.563 | Recall: 0.844
+Row 33: Model: o1-mini + gpt-4o-mini | F1-Score: 0.669 | Precision: 0.569 | Recall: 0.811
+Row 34: Model: o1-mini | F1-Score: 0.611 | Precision: 0.551 | Recall: 0.685
+[/TABLE]
+
+[PAGE 15]
+Model F1-Score Precision Recall
+gemini-1.5-flash + gpt-4o 0.801 0.871 0.741
+gpt-4o 0.787 0.900 0.700
+gemini-1.5-flash + gpt-4o + gpt-4o-mini 0.784 0.810 0.759
+o1-mini + gpt-4o 0.778 0.752 0.806
+o1-mini + gemini-1.5-flash + gpt-4o 0.770 0.734 0.809
+gemini-1.5-flash + ontology + gpt-4o 0.768 0.787 0.750
+gpt-4o + gpt-4o-mini 0.767 0.819 0.722
+o1-mini + gpt-4o + gpt-4o-mini 0.764 0.716 0.819
+o1-mini + gpt-4o-mini 0.763 0.725 0.806
+o1-mini 0.763 0.772 0.753
+o1-mini + gemini-1.5-flash + gpt-4o + gpt-4o-mini 0.758 0.706 0.819
+ontology + gpt-4o 0.758 0.790 0.728
+o1-mini + gemini-1.5-flash + gpt-4o-mini 0.758 0.715 0.806
+gemini-1.5-flash + ontology + gpt-4o + gpt-4omini
+0.754 0.742 0.766
+o1-mini + gemini-1.5-flash 0.754 0.742 0.766
+o1-mini + ontology + gpt-4o 0.747 0.689 0.816
+gemini-1.5-flash + gpt-4o-mini 0.746 0.828 0.678
+ontology + gpt-4o + gpt-4o-mini 0.744 0.744 0.744
+o1-mini + gemini-1.5-flash + ontology + gpt-4o 0.744 0.683 0.816
+o1-mini + ontology + gpt-4o + gpt-4o-mini 0.738 0.668 0.825
+o1-mini + ontology + gpt-4o-mini 0.738 0.675 0.813
+o1-mini + gemini-1.5-flash + ontology + gpt-4o +
+gpt-4o-mini
+0.735 0.663 0.825
+o1-mini + gemini-1.5-flash + ontology + gpt-4omini
+0.734 0.670 0.813
+o1-mini + ontology 0.731 0.694 0.772
+gemini-1.5-flash + ontology + gpt-4o-mini 0.730 0.756 0.706
+o1-mini + gemini-1.5-flash + ontology 0.728 0.688 0.772
+gemini-1.5-flash 0.710 0.903 0.584
+gemini-1.5-flash + ontology 0.697 0.798 0.619
+ontology + gpt-4o-mini 0.648 0.728 0.584
+gpt-4o-mini 0.598 0.797 0.478
+ontology 0.480 0.723 0.359
+Table 9: Performance metrics (F1-score, precision, and recall) for all model configurations evaluated on the
+Symptom Extraction task, sorted by F1-score from highest to lowest.
+Task Model F1-Score NPV PPV Sensitivity Specificity
+Disease Extraction BaseBERT 0.830 0.990 0.785 0.890 0.980
+BioBERT 0.865 0.990 0.825 0.910 0.985
+BioClinBERT 0.830 0.990 0.780 0.890 0.975
+Medication Extraction BaseBERT 0.885 1.000 0.885 0.885 1.000
+BioBERT 0.890 1.000 0.890 0.890 1.000
+BioClinBERT 0.890 1.000 0.895 0.890 1.000
+Symptom Extraction BaseBERT 0.330 0.985 0.365 0.295 1.000
+BioBERT 0.340 0.985 0.400 0.295 1.000
+BioClinBERT 0.340 0.985 0.385 0.305 1.000
+Table 10: Performance of BaseBERT, BioBERT, and BioClinBERT for each NER task, averaged across teacher
+labels and human labels.
+
+[TABLE page=15 index=1]
+Columns: Model | F1-Score | Precision | Recall
+Row 1: Model: gemini-1.5-flash + gpt-4o | F1-Score: 0.801 | Precision: 0.871 | Recall: 0.741
+Row 2: Model: gpt-4o | F1-Score: 0.787 | Precision: 0.9 | Recall: 0.7
+Row 3: Model: gemini-1.5-flash + gpt-4o + gpt-4o-mini | F1-Score: 0.784 | Precision: 0.81 | Recall: 0.759
+Row 4: Model: o1-mini + gpt-4o | F1-Score: 0.778 | Precision: 0.752 | Recall: 0.806
+Row 5: Model: o1-mini + gemini-1.5-flash + gpt-4o | F1-Score: 0.77 | Precision: 0.734 | Recall: 0.809
+Row 6: Model: gemini-1.5-flash + ontology + gpt-4o | F1-Score: 0.768 | Precision: 0.787 | Recall: 0.75
+Row 7: Model: gpt-4o + gpt-4o-mini | F1-Score: 0.767 | Precision: 0.819 | Recall: 0.722
+Row 8: Model: o1-mini + gpt-4o + gpt-4o-mini | F1-Score: 0.764 | Precision: 0.716 | Recall: 0.819
+Row 9: Model: o1-mini + gpt-4o-mini | F1-Score: 0.763 | Precision: 0.725 | Recall: 0.806
+Row 10: Model: o1-mini | F1-Score: 0.763 | Precision: 0.772 | Recall: 0.753
+Row 11: Model: o1-mini + gemini-1.5-flash + gpt-4o + gpt-4o-mini | F1-Score: 0.758 | Precision: 0.706 | Recall: 0.819
+Row 12: Model: ontology + gpt-4o | F1-Score: 0.758 | Precision: 0.79 | Recall: 0.728
+Row 13: Model: o1-mini + gemini-1.5-flash + gpt-4o-mini | F1-Score: 0.758 | Precision: 0.715 | Recall: 0.806
+Row 14: Model: gemini-1.5-flash + ontology + gpt-4o + gpt-4o- | F1-Score: 0.754 | Precision: 0.742 | Recall: 0.766
+Row 15: Model: mini | F1-Score: | Precision: | Recall:
+Row 16: Model: o1-mini + gemini-1.5-flash | F1-Score: 0.754 | Precision: 0.742 | Recall: 0.766
+Row 17: Model: o1-mini + ontology + gpt-4o | F1-Score: 0.747 | Precision: 0.689 | Recall: 0.816
+Row 18: Model: gemini-1.5-flash + gpt-4o-mini | F1-Score: 0.746 | Precision: 0.828 | Recall: 0.678
+Row 19: Model: ontology + gpt-4o + gpt-4o-mini | F1-Score: 0.744 | Precision: 0.744 | Recall: 0.744
+Row 20: Model: o1-mini + gemini-1.5-flash + ontology + gpt-4o | F1-Score: 0.744 | Precision: 0.683 | Recall: 0.816
+Row 21: Model: o1-mini + ontology + gpt-4o + gpt-4o-mini | F1-Score: 0.738 | Precision: 0.668 | Recall: 0.825
+Row 22: Model: o1-mini + ontology + gpt-4o-mini | F1-Score: 0.738 | Precision: 0.675 | Recall: 0.813
+Row 23: Model: o1-mini + gemini-1.5-flash + ontology + gpt-4o + | F1-Score: 0.735 | Precision: 0.663 | Recall: 0.825
+Row 24: Model: gpt-4o-mini | F1-Score: | Precision: | Recall:
+Row 25: Model: o1-mini + gemini-1.5-flash + ontology + gpt-4o- | F1-Score: 0.734 | Precision: 0.67 | Recall: 0.813
+Row 26: Model: mini | F1-Score: | Precision: | Recall:
+Row 27: Model: o1-mini + ontology | F1-Score: 0.731 | Precision: 0.694 | Recall: 0.772
+Row 28: Model: gemini-1.5-flash + ontology + gpt-4o-mini | F1-Score: 0.73 | Precision: 0.756 | Recall: 0.706
+Row 29: Model: o1-mini + gemini-1.5-flash + ontology | F1-Score: 0.728 | Precision: 0.688 | Recall: 0.772
+Row 30: Model: gemini-1.5-flash | F1-Score: 0.71 | Precision: 0.903 | Recall: 0.584
+Row 31: Model: gemini-1.5-flash + ontology | F1-Score: 0.697 | Precision: 0.798 | Recall: 0.619
+Row 32: Model: ontology + gpt-4o-mini | F1-Score: 0.648 | Precision: 0.728 | Recall: 0.584
+Row 33: Model: gpt-4o-mini | F1-Score: 0.598 | Precision: 0.797 | Recall: 0.478
+Row 34: Model: ontology | F1-Score: 0.48 | Precision: 0.723 | Recall: 0.359
+[/TABLE]
+
+[TABLE page=15 index=2]
+Columns: Task | Model | F1-Score | NPV | PPV | Sensitivity | Specificity
+Row 1: Task: Disease Extraction | Model: BaseBERT | F1-Score: 0.83 | NPV: 0.99 | PPV: 0.785 | Sensitivity: 0.89 | Specificity: 0.98
+Row 2: Task: | Model: BioBERT | F1-Score: 0.865 | NPV: 0.99 | PPV: 0.825 | Sensitivity: 0.91 | Specificity: 0.985
+Row 3: Task: | Model: BioClinBERT | F1-Score: 0.83 | NPV: 0.99 | PPV: 0.78 | Sensitivity: 0.89 | Specificity: 0.975
+Row 4: Task: Medication Extraction | Model: BaseBERT | F1-Score: 0.885 | NPV: 1.0 | PPV: 0.885 | Sensitivity: 0.885 | Specificity: 1.0
+Row 5: Task: | Model: BioBERT | F1-Score: 0.89 | NPV: 1.0 | PPV: 0.89 | Sensitivity: 0.89 | Specificity: 1.0
+Row 6: Task: | Model: BioClinBERT | F1-Score: 0.89 | NPV: 1.0 | PPV: 0.895 | Sensitivity: 0.89 | Specificity: 1.0
+Row 7: Task: Symptom Extraction | Model: BaseBERT | F1-Score: 0.33 | NPV: 0.985 | PPV: 0.365 | Sensitivity: 0.295 | Specificity: 1.0
+Row 8: Task: | Model: BioBERT | F1-Score: 0.34 | NPV: 0.985 | PPV: 0.4 | Sensitivity: 0.295 | Specificity: 1.0
+Row 9: Task: | Model: BioClinBERT | F1-Score: 0.34 | NPV: 0.985 | PPV: 0.385 | Sensitivity: 0.305 | Specificity: 1.0
+[/TABLE]
+
+[PAGE 16]
+Task Precision (%) Recall (%) F1 (%)
+Disease 61.3 89.0 72.6
+Medication 81.5 96.4 88.3
+Symptom 92.9 56.0 69.9
+Table 11: Performance of the best performing distilled BioBERT model on the external validation dataset.
+Tokens per Document Labels
+Dataset Task Split N Min Median Max O Entity
+NCBI Disease Train 593 36 202 555 98637 7507
+Test 100 72 203.5 487 17832 1385
+Dev 100 83 202.5 366 17724 1185
+n2c2 Medication Train 303 159 2479 9285 642067 18099
+Test 202 191 2576 8705 419779 11995
+Dev 25 168 2560 5404 54512 1553
+CORAL Symptom Train 200 631 2224 6818 - Test 35 1087 2374 4939 78887 1402
+Dev 5 1762 2509 3167 10586 274
+MIMIC-III - Train 1000 42 315.5 3008 - Medalign All Test 746 20 378.5 3047 - Table 12: Summary statistics for all clinical document datasets, including document counts (N), token counts
+per document, and entity label counts based on ground truth human labels. Development splits were used for
+prompt engineering, training splits were used for generating teacher labels, and testing splits were used for
+evaluation. Abbreviations: “O” = “Outside” (indicating non-entity).
+Task Cohen’s Kappa
+NCBI 0.88
+n2c2 0.86
+CORAL 0.67
+MedAlign 0.61
+Table 13: Inter-rater reliability results for error analysis and external validation (MedAlign). Cohen’s Kappa for
+MedAlign is a multiclass metric.
+Prompts
+The following prompts yielded the highest F1 score on the development sets for each task. GPT-4o was used for
+all prompt tuning.
+
+[TABLE page=16 index=1]
+Columns: Task | Precision (%) | Recall (%) | F1 (%)
+Row 1: Task: Disease | Precision (%): 61.3 | Recall (%): 89.0 | F1 (%): 72.6
+Row 2: Task: Medication | Precision (%): 81.5 | Recall (%): 96.4 | F1 (%): 88.3
+Row 3: Task: Symptom | Precision (%): 92.9 | Recall (%): 56.0 | F1 (%): 69.9
+[/TABLE]
+
+[TABLE page=16 index=2]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Tokens per Document | Unnamed: 4 | Labels
+Row 1: Unnamed: 0: Dataset | Unnamed: 1: Task | Unnamed: 2: Split | Unnamed: 3: N | Tokens per Document: Min Median Max | Unnamed: 4: O | Labels: Entity
+Row 2: Unnamed: 0: NCBI | Unnamed: 1: Disease | Unnamed: 2: Train | Unnamed: 3: 593 | Tokens per Document: 36 202 555 | Unnamed: 4: 98637 | Labels: 7507
+Row 3: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: Test | Unnamed: 3: 100 | Tokens per Document: 72 203.5 487 | Unnamed: 4: 17832 | Labels: 1385
+Row 4: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: Dev | Unnamed: 3: 100 | Tokens per Document: 83 202.5 366 | Unnamed: 4: 17724 | Labels: 1185
+Row 5: Unnamed: 0: n2c2 | Unnamed: 1: Medication | Unnamed: 2: Train | Unnamed: 3: 303 | Tokens per Document: 159 2479 9285 | Unnamed: 4: 642067 | Labels: 18099
+Row 6: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: Test | Unnamed: 3: 202 | Tokens per Document: 191 2576 8705 | Unnamed: 4: 419779 | Labels: 11995
+Row 7: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: Dev | Unnamed: 3: 25 | Tokens per Document: 168 2560 5404 | Unnamed: 4: 54512 | Labels: 1553
+Row 8: Unnamed: 0: CORAL | Unnamed: 1: Symptom | Unnamed: 2: Train | Unnamed: 3: 200 | Tokens per Document: 631 2224 6818 | Unnamed: 4: - | Labels: Row 9: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: Test | Unnamed: 3: 35 | Tokens per Document: 1087 2374 4939 | Unnamed: 4: 78887 | Labels: 1402
+Row 10: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: Dev | Unnamed: 3: 5 | Tokens per Document: 1762 2509 3167 | Unnamed: 4: 10586 | Labels: 274
+Row 11: Unnamed: 0: MIMIC-III | Unnamed: 1: - | Unnamed: 2: Train | Unnamed: 3: 1000 | Tokens per Document: 42 315.5 3008 | Unnamed: 4: - | Labels: Row 12: Unnamed: 0: Medalign | Unnamed: 1: All | Unnamed: 2: Test | Unnamed: 3: 746 | Tokens per Document: 20 378.5 3047 | Unnamed: 4: - | Labels: -
+[/TABLE]
+
+[TABLE page=16 index=3]
+Columns: Task | Cohen’s Kappa
+Row 1: Task: NCBI | Cohen’s Kappa: 0.88
+Row 2: Task: n2c2 | Cohen’s Kappa: 0.86
+Row 3: Task: CORAL | Cohen’s Kappa: 0.67
+Row 4: Task: MedAlign | Cohen’s Kappa: 0.61
+[/TABLE]
+
+[PAGE 17]
+Medication Extraction
+List all medications, drugs, and drug classes mentioned in the following clinical note. Illicit drugs and alcohol
+should not be listed.
+1. Make sure to include:
+(a) Specific medication names (both brand and generic).
+• If present in the note, include the full name, like tiotropium bromide or albuterol sulfate, instead
+of just tiotropium or albuterol.
+(b) Drug class names, both singular and plural, including (but not limited to):
+• NSAID, anticoagulant, pain medication, PPI, steroids, antibiotics, ACE inhibitors, pressors,
+sedating medications, etc.
+(c) Substances that are injected or infused, such as:
+• Fluids, iron, contrast dye, red blood cells (pRBC), platelets, etc.
+(d) Substances that are inhaled, such as:
+• Oxygen, FIO2, nebulized medications, inhaled bronchodilators, etc.
+2. Do not include:
+(a) Medical devices or equipment, such as:
+• Inhaler, nebulizer, BiPAP machine, etc.
+(b) Modes of administration or formulations, such as:
+• IV, drip, gtt (drops), liquid form, transfused, supplement, etc.
+(c) Methods of delivery or routes of administration, unless part of the medication’s name.
+(d) General descriptors or measurements (e.g., units, mg, ml, 80, 30) unless these are part of a medication’s
+name.
+3. Additional Notes:
+• Avoid listing terms like increased, solution (Soln), isotonic, or daycare, which are not medications or
+drug classes.
+• Include only pharmacologically relevant terms (e.g., antibiotic, anticoagulant, steroid).
+4. Examples of Challenging Cases:
+(a) False Positives to Avoid:
+• Oxygen as a standalone word unless explicitly used as a therapy or treatment.
+• Do not list FIO2 unless explicitly described as oxygen therapy.
+• Avoid terms like isotonic or Sodium unless part of a drug name (e.g., heparin sodium).
+(b) False Negatives to Include:
+• Drug classes (e.g., steroids, antibiotics, ACE inhibitors).
+• Medications with brand or generic names (e.g., albuterol, tiotropium bromide, Zithromax).
+• Injectable medications (e.g., ceftriaxone, heparin).
+Output Format Output a string delimited by // to separate the medications. Write them exactly as they were
+written in the note. Do not output anything else.
+Example: Note: ”Patient is experiencing muscle pain, secondary to statin therapy for coronary artery disease.
+The patient suffers from steroid-induced hyperglycemia. Patient prescribed 1 x 20 mg Prednisone tablet daily
+for 5 days. Patient has been switched to lisinopril tablet 10mg 1 tablet PO QD. Patient received 100 Units/kg
+IV heparin sodium injection for treatment of deep vein thrombosis. Sulfa (sulfonamide antibiotics). Tylenol
+(Acetaminophen) B.i.d. (twice a day).”
+Output: {{”entities”: ”statin // steroid // Prednisone // lisinopril // heparin sodium // Sulfa (sulfonamide antibiotics) // Tylenol (Acetaminophen)”, ”rationale”: ”All medication names, including drug classes
+and drug names in parentheses, were extracted. Dosages (eg. 20mg) and other administration information (eg.
+injection) were not extracted as per the instructions.” }}
+Here is the note: {note}
+
+[PAGE 18]
+Symptom Extraction
+List all symptoms explicitly mentioned in the following clinical note.
+1. Include:
+• All mentions of symptoms or complaints, such as ”fatigue,” ”nausea,” ”vomiting,” or ”pain.”
+• Negated symptoms (e.g., ”denies nausea” should still include ”nausea”).
+• Minimal entity spans: Use the simplest terms that convey the symptom information (e.g., ”nausea”
+instead of ”the patient presents with nausea”).
+• Severity modifiers, when relevant (e.g., ”minor fatigue,” ”severe pain”).
+2. Do not include:
+• Signs or clinical findings that are not symptoms (e.g., ”hyperbilirubinemia,” ”ascites”).
+• Information about the location of the symptom (e.g., ”low back pain” → Include only ”pain”).
+• Adjectives or descriptors unrelated to the symptom itself (e.g., ”low,” ”new,” ”right-sided”).
+• Conjunctions, prepositions, or other grammatical words unrelated to the symptoms (e.g., ”and,” ”of,”
+”at”).
+3. Edge Cases:
+• For combinations of symptoms (e.g., ”nausea and vomiting”), list each symptom separately (e.g.,
+”nausea // vomiting”).
+• Avoid listing any context or causes of the symptom. For example:
+– ”pain secondary to surgery” → Include only ”pain.”
+– ”headache from dehydration” → Include only ”headache.”
+• Make sure to list any symptoms mentioned, even those that the patient is negative for.
+Output Format Output a JSON with two keys:
+1. ”entities”: a single string of symptoms, separated by ‘//‘. Write the symptoms exactly as they appear in
+the note.
+2. ”negated symptoms included”: a string, affirming that all negated symptoms were included
+Example: Note: ”Patient is experiencing muscle pain, lower back pain, and fatigue, secondary to statin therapy
+for coronary artery disease. Patient denies nausea and vomiting. The patient suffers from steroid-induced
+hyperglycemia. Negative for fever, weight loss, and dysuria. Patient prescribed 1 x 20 mg Prednisone tablet
+daily for 5 days. Patient has been switched to lisinopril tablet 10mg 1 tablet PO QD. Patient received 100
+Units/kg IV heparin sodium injection for treatment of deep vein thrombosis. Sulfa (sulfonamide antibiotics).
+Tylenol (Acetaminophen) B.i.d. (twice a day).”
+Output: ”entities”: ”pain // fatigue // nausea // vomiting // fever // weight loss // dysuria”,
+”negated˙symptoms˙included”: ”Yes, all negated symptoms were listed (nausea, vomiting, fever, weight loss,
+dysuria)”
+Here is the note: {note}
+
+[PAGE 19]
+Disease Extraction
+List all diseases, disorders, and clinical conditions mentioned in the following clinical note.
+1. Include:
+• Specific diseases and disorders
+– Examples: ”ataxia-telangiectasia”, ”Phenylketonuria”, ”Aniridia”
+• Disease categories or classes
+– Examples: ”Inherited human disease”, ”Chromosome abnormalities”, ”Cancer”
+• Composite mentions indicating diseases or conditions
+– Examples: ”Combined deficiency of C6 and C7”, ”Stage II colorectal carcinoma”, ”Segmental
+necrotizing glomerulonephritis”
+• Modifiers that describe diseases or conditions
+– Examples: ”Deficiency of hepatic phenylalanine hydroxylase”, ”Myocardial lesions”, ”DCCnegative tumors”
+• Abbreviations or acronyms referring to diseases or conditions
+– Examples: ”A-T” for ataxia-telangiectasia, ”HD” for Huntington’s disease
+• Plural forms and variations of disease terms
+– Examples: ”Lipomas”, ”Cancers”, ”Tumors”, ”Pleural effusions”
+• Symptoms, signs, and clinical findings
+– Examples: ”Bradycardia”, ”Hypotension”, ”Pleural effusion”, ”Tonic-clonic seizures”, ”Dyspnoea”, ”Chest pain”, ”Fever”, ”Neurologic impairment”, ”Fatiguability”, ”Dizziness”, ”Syncopal
+attacks”, ”Blindness”, ”Eosinophilia”, ”Urinary abnormalities”, ”Red eyes”, ”Asystolic”, ”Overdose”, ”Toxicity”, ”Stable angina”
+2. Exclude:
+• Genetic mutations or hypotheses without explicit disease mention
+– Examples: ”Disease-causing mutations”, ”Hypothesis of a defective gene”
+• Hypothetical or unconfirmed conditions
+– Examples: ”Hypothesis of a defective C9”, ”Compound heterozygote for uncharacterized genes”
+• Traits or responses not specifying a disease
+– Examples: ”Radio-sensitive phenotype”, ”Defective cell cycle checkpoints”
+• Descriptions of biological processes or impairments not representing a specific disease
+– Examples: ”Functional impairment”, ”T-cell-dependent immune responses”, ”Secretion abnormalities”
+• General observations or modifiers
+– Examples: ”Reduced immune function”, ”Impaired secretion”
+• Broad functional or descriptive terms unless tied directly to a disease
+– Examples: ”Impairment”, ”Deficiency” (unless part of a recognized condition like ”T-cell
+deficiency”)
+3. Additional Instructions for Acronyms:
+• Focus on identifying acronyms that represent diseases, disorders, and findings. Ensure no acronyms
+are omitted from the output.
+Output Format Output a string delimited by ‘//‘ to separate the diseases. Write them exactly as they were
+written in the note. Do not output anything else.
+Here is the note: {note}

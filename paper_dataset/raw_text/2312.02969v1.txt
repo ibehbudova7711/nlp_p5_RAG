@@ -1,0 +1,1809 @@
+[PAGE 1]
+Rank-without-GPT: Building GPT-Independent Listwise Rerankers on
+Open-Source Large Language Models
+Xinyu Zhang,1∗ Sebastian Hofstätter,2 Patrick Lewis,2 Raphael Tang,3 Jimmy Lin1
+1University of Waterloo 2Cohere 3Comcast Applied AI
+1{xinyucrystina.zhang, jimmylin}@uwaterloo.ca 2{sebastian, patrick}@cohere.com 3raphael_tang@comcast.com
+Abstract
+Listwise rerankers based on large language
+models (LLM) are the zero-shot state-of-theart. However, current works in this direction
+all depend on the GPT models, making it a
+single point of failure in scientific reproducibility. Moreover, it raises the concern that the
+current research findings only hold for GPT
+models but not LLM in general. In this work,
+we lift this pre-condition and build for the first
+time effective listwise rerankers without any
+form of dependency on GPT. Our passage retrieval experiments show that our best listwise
+reranker surpasses the listwise rerankers based
+on GPT-3.5 by 13% and achieves 97% effectiveness of the ones based on GPT-4. Our results
+also show that the existing training datasets,
+which were expressly constructed for pointwise
+ranking, are insufficient for building such listwise rerankers. Instead, high-quality listwise
+ranking data is required and crucial, calling
+for further work on building human-annotated
+listwise data resources.
+1 Introduction
+Given a user query, the objective of text retrieval
+is to fetch a list of documents among potentially
+billions of documents, ranked in descending order
+of relevance to the query. Mainstream solutions to
+this problem follow a multi-stage ranking pipeline.
+In the first stage, retrievers are designed to efficiently retrieve the top-k candidates from the entire
+collection, followed in further stages by the application of rerankers, which refine the ranking of the
+returned top-k candidates.
+Rerankers are traditionally constructed in apointwise paradigm, where given a query, the rerankers
+produce a relevance score for each passage independently, and the final ranking is formed by sorting passages by their relevance scores. Recently,
+attracted by the strong generative power of large
+∗Work is done during internship at Cohere.
+language models (LLM) and their capacity to consume long-context inputs, a new paradigm of neural
+rerankers has been proposed using listwise ranking (Ma et al., 2023b; Sun et al., 2023; Pradeep
+et al., 2023; Tang et al., 2023). These models consume a combined list of passages at a time and
+directly outputs the reordered ranking list.1
+Not only does it achieve the state of the art on
+two TREC DL datasets (Tang et al., 2023), listwise
+ranking provides a novel perspective to passage
+reranking: this new paradigm questions the necessity to convert the ranking task into a classification
+task, and instead frames it as a pure text generation task that could be solved end-to-end in a generalized text-to-text fashion (Raffel et al., 2020).
+For the first time, the model directly generates the
+entire ranking list in the form of text, instead of
+requiring multiple disjoint inference passes of the
+model as in pointwise (Nogueira and Cho, 2019;
+Nogueira et al., 2020) or pairwise rerankers (Qin
+et al., 2023; Pradeep et al., 2021). This integrates
+passage retrieval into the unified framework established in NLP, and thus enables it to merge seamlessly with other text-to-text tasks and leverage
+existent prompting techniques (Wei et al., 2022;
+Liu et al., 2023).
+However, while existing work on listwise reranking demonstrates the promising application of this
+new ranking paradigm, their success crucially
+depends on GPT models, either directly for the
+inference-time model (Ma et al., 2023b; Sun et al.,
+2023) or indirectly for the training-time teacher
+model (Pradeep et al., 2023). Such exclusive dependence results in a single point of failure in scientific
+reproducibility. Moreover, it raises the concern that
+the current research findings are only applicable to
+the GPT models instead of the general LLMs. In
+this work, we seek to reduce the reliance of listwise rerankers on GPT models and diversify the
+1Note that this is different from the listwise loss (Cao et al.,
+2007). See details in Section 2.2.
+arXiv:2312.02969v1 [cs.CL] 5 Dec 2023
+
+[TABLE page=1 index=1]
+Columns: we lift this pre-condition and build for the first | ranking provides a novel perspective to passage
+Row 1: we lift this pre-condition and build for the first: time effective listwise rerankers without any | ranking provides a novel perspective to passage: reranking: this new paradigm questions the necesRow 2: we lift this pre-condition and build for the first: form of dependency on GPT. Our passage re- | ranking provides a novel perspective to passage:
+Row 3: we lift this pre-condition and build for the first: | ranking provides a novel perspective to passage: sity to convert the ranking task into a classification
+Row 4: we lift this pre-condition and build for the first: trieval experiments show that our best listwise | ranking provides a novel perspective to passage:
+Row 5: we lift this pre-condition and build for the first: | ranking provides a novel perspective to passage: task, and instead frames it as a pure text generaRow 6: we lift this pre-condition and build for the first: reranker surpasses the listwise rerankers based | ranking provides a novel perspective to passage:
+Row 7: we lift this pre-condition and build for the first: on GPT-3.5 by 13% and achieves 97% effective- | ranking provides a novel perspective to passage: tion task that could be solved end-to-end in a genRow 8: we lift this pre-condition and build for the first: ness of the ones based on GPT-4. Our results | ranking provides a novel perspective to passage: eralized text-to-text fashion (Raffel et al., 2020).
+Row 9: we lift this pre-condition and build for the first: also show that the existing training datasets, | ranking provides a novel perspective to passage: For the first time, the model directly generates the
+Row 10: we lift this pre-condition and build for the first: which were expressly constructed for pointwise | ranking provides a novel perspective to passage: entire ranking list in the form of text, instead of
+Row 11: we lift this pre-condition and build for the first: ranking, are insufficient for building such list- | ranking provides a novel perspective to passage: requiring multiple disjoint inference passes of the
+Row 12: we lift this pre-condition and build for the first: wise rerankers. Instead, high-quality listwise | ranking provides a novel perspective to passage:
+Row 13: we lift this pre-condition and build for the first: | ranking provides a novel perspective to passage: model as in pointwise (Nogueira and Cho, 2019;
+Row 14: we lift this pre-condition and build for the first: ranking data is required and crucial, calling | ranking provides a novel perspective to passage:
+Row 15: we lift this pre-condition and build for the first: | ranking provides a novel perspective to passage: Nogueira et al., 2020) or pairwise rerankers (Qin
+Row 16: we lift this pre-condition and build for the first: for further work on building human-annotated | ranking provides a novel perspective to passage:
+Row 17: we lift this pre-condition and build for the first: listwise data resources. | ranking provides a novel perspective to passage: et al., 2023; Pradeep et al., 2021). This integrates
+[/TABLE]
+
+[TABLE page=1 index=2]
+Columns: billions of documents, ranked in descending order | However, while existing work on listwise rerankRow 1: billions of documents, ranked in descending order: of relevance to the query. Mainstream solutions to | However, while existing work on listwise rerank-: ing demonstrates the promising application of this
+Row 2: billions of documents, ranked in descending order: this problem follow a multi-stage ranking pipeline. | However, while existing work on listwise rerank-: new ranking paradigm, their success crucially
+Row 3: billions of documents, ranked in descending order: In the first stage, retrievers are designed to effi- | However, while existing work on listwise rerank-: depends on GPT models, either directly for the
+Row 4: billions of documents, ranked in descending order: ciently retrieve the top-k candidates from the entire | However, while existing work on listwise rerank-: inference-time model (Ma et al., 2023b; Sun et al.,
+Row 5: billions of documents, ranked in descending order: collection, followed in further stages by the appli- | However, while existing work on listwise rerank-: 2023) or indirectly for the training-time teacher
+Row 6: billions of documents, ranked in descending order: cation of rerankers, which refine the ranking of the | However, while existing work on listwise rerank-: model (Pradeep et al., 2023). Such exclusive depenRow 7: billions of documents, ranked in descending order: returned top-k candidates. | However, while existing work on listwise rerank-: dence results in a single point of failure in scientific
+Row 8: billions of documents, ranked in descending order: Rerankers are traditionally constructed in a point- | However, while existing work on listwise rerank-: reproducibility. Moreover, it raises the concern that
+Row 9: billions of documents, ranked in descending order: wise paradigm, where given a query, the rerankers | However, while existing work on listwise rerank-: the current research findings are only applicable to
+Row 10: billions of documents, ranked in descending order: produce a relevance score for each passage inde- | However, while existing work on listwise rerank-: the GPT models instead of the general LLMs. In
+[/TABLE]
+
+[PAGE 2]
+solution options for constructing such models. Results show that, for the first time, our best listwise
+reranker built without any form of GPT dependence
+surpasses the rerankers based on GPT-3.5 by 13%
+and achieves 97% effectiveness of ones based on
+GPT-4, measured by nDCG@10 on two passage
+retrieval datasets.
+In this process, we found the current IR training
+data, which was constructed in order to train pointwise rerankers, is far from sufficient for training
+listwise rerankers (Figure 1, Section 3.1), yielding
+worse results than using data generated by BM25,
+a non-neural lexical technique in IR. While silver
+ranking data generated by current rerankers serves
+as a good approximation of the gold ranking, the
+performance of listwise rerankers increases linearly
+with training data ranking quality — a relationship
+which has not yet plateaued (Section 5). This indicates that the models are likely to further benefit
+from training data of higher quality, calling for future work on building human-annotated datasets
+purpose-designed for listwise training.
+The main purpose of our work is to advocate
+diverse solutions for future listwise reranking research. Our contributions are as follows: (1) We
+are first to show that the listwise rerankers, without any form of dependency on the GPT models,
+could outperform the listwise rerankers based on
+GPT-3 or 3.5 and perform on par with the ones
+based on GPT-4; (2) We found that the ranking
+quality in the training data is crucial in constructing efficient listwise rerankers, which might be the
+bottleneck of the current capacity of the listwise
+rerankers; (3) We demonstrate that listwise reranker
+fine-tuning is not data-expensive, where an effective listwise reranker can be built using 5k queries,
+each associated with a list of passages ranked in
+high quality, showing that it is feasible to build a
+human-annotated listwise dataset for this purpose.
+2 Background
+2.1 Pointwise Reranking
+Given a query q and a passage pi, the pointwise
+reranker hpw produces a real score si := hpw(q, pi)
+indicating the relevance of the passage to the
+query. The model is optimized using cross entropy (Nogueira and Cho, 2019; Nogueira et al.,
+2020) or the contrastive loss (Gao et al., 2021;
+Pradeep et al., 2022; Zhuang et al., 2023; Ma et al.,
+2023a), based on binary relevance judgments from
+human annotators.
+At inference time, given the top- k passages
+{pi}k
+i=1 returned by the previous-stage retriever,
+the model computes the relevance scores {si}k
+i=1
+for each pi independently. The final passages are
+then ranked by decreasing the magnitude of their
+corresponding relevance scores.
+2.2 Listwise Reranking
+As opposed to pointwise rerankers, which rank
+passages according to their individual predicted
+relevance scores to the query, listwise rerankers are
+designed to directly predict the final ranking of a
+list of passages as a whole, This not only allows the
+models to inter-reference the candidate passages
+to better determine their order, but also frames the
+passage retrieval task as text generation and thus
+fuse well with the existent techniques based on
+generative models. Using an LLM as a listwise
+reranker is concurrently studied in RankGPT (Sun
+et al., 2023) and LRL (Ma et al., 2023b), where
+both works use GPT-based models.
+We formulate listwise rerankers under the same
+preliminaries as the pointwise one: given the instruction prompt s, the query q, and an input sequence of top- k passages {pi}k
+i=1, the listwiseranking LLM hlw returns the final ranked passages
+ˆP := hlw(q, {pi}k
+i=1; s), where ˆP is a permutation
+(reranking) of {pi}k
+i=1.
+Sliding window. Limited by the maximum input
+length, we can feed only 10–20 passages to the
+LLM at a time. To rerank a longer list, e.g. typically
+top-100 passages, both RankGPT and LRL adopt a
+sliding window strategy, where we slide a window
+of size n from the end to the front of the list and
+rerank the documents in the window, striding by m
+documents per step. In each stride, the top-(n − m)
+documents are preserved and form the next sliding
+window, together with the next m documents.
+Fine-tuning listwise-ranking LLMs. Used directly out of the box, current open-source LLMs
+often generate ill-formed outputs from listwise
+prompts (Qin et al., 2023; Pradeep et al., 2023),
+where few valid ranking results can be inferred.
+Thus, our work focuses on the condition of finetuning LLMs, which helps the models follow the
+instructions and generate valid outputs. However,
+we found that the current human-annotated training
+data for IR is insufficient for this purpose, which
+we elaborate in Section 3.1.
+Difference from listwise loss. Note that the listwise ranking mentioned in this work is different
+
+[TABLE page=2 index=1]
+Columns: listwise rerankers (Figure 1, Section 3.1), yielding | relevance scores to the query, listwise rerankers are
+Row 1: listwise rerankers (Figure 1, Section 3.1), yielding: worse results than using data generated by BM25, | relevance scores to the query, listwise rerankers are: designed to directly predict the final ranking of a
+Row 2: listwise rerankers (Figure 1, Section 3.1), yielding: a non-neural lexical technique in IR. While silver | relevance scores to the query, listwise rerankers are: list of passages as a whole, This not only allows the
+Row 3: listwise rerankers (Figure 1, Section 3.1), yielding: ranking data generated by current rerankers serves | relevance scores to the query, listwise rerankers are: models to inter-reference the candidate passages
+Row 4: listwise rerankers (Figure 1, Section 3.1), yielding: as a good approximation of the gold ranking, the | relevance scores to the query, listwise rerankers are: to better determine their order, but also frames the
+Row 5: listwise rerankers (Figure 1, Section 3.1), yielding: performance of listwise rerankers increases linearly | relevance scores to the query, listwise rerankers are: passage retrieval task as text generation and thus
+Row 6: listwise rerankers (Figure 1, Section 3.1), yielding: with training data ranking quality — a relationship | relevance scores to the query, listwise rerankers are: fuse well with the existent techniques based on
+Row 7: listwise rerankers (Figure 1, Section 3.1), yielding: which has not yet plateaued (Section 5). This indi- | relevance scores to the query, listwise rerankers are: generative models. Using an LLM as a listwise
+Row 8: listwise rerankers (Figure 1, Section 3.1), yielding: cates that the models are likely to further benefit | relevance scores to the query, listwise rerankers are: reranker is concurrently studied in RankGPT (Sun
+Row 9: listwise rerankers (Figure 1, Section 3.1), yielding: from training data of higher quality, calling for fu- | relevance scores to the query, listwise rerankers are: et al., 2023) and LRL (Ma et al., 2023b), where
+Row 10: listwise rerankers (Figure 1, Section 3.1), yielding: ture work on building human-annotated datasets | relevance scores to the query, listwise rerankers are: both works use GPT-based models.
+Row 11: listwise rerankers (Figure 1, Section 3.1), yielding: purpose-designed for listwise training. | relevance scores to the query, listwise rerankers are: We formulate listwise rerankers under the same
+Row 12: listwise rerankers (Figure 1, Section 3.1), yielding: The main purpose of our work is to advocate | relevance scores to the query, listwise rerankers are: preliminaries as the pointwise one: given the inRow 13: listwise rerankers (Figure 1, Section 3.1), yielding: diverse solutions for future listwise reranking re- | relevance scores to the query, listwise rerankers are: struction prompt s, the query q, and an input seRow 14: listwise rerankers (Figure 1, Section 3.1), yielding: search. Our contributions are as follows: (1) We | relevance scores to the query, listwise rerankers are: quence of top-k passages {p i}i=1, kthe listwiseRow 15: listwise rerankers (Figure 1, Section 3.1), yielding: are first to show that the listwise rerankers, with- | relevance scores to the query, listwise rerankers are: ranking LLM hlw returns the final ranked passages
+Row 16: listwise rerankers (Figure 1, Section 3.1), yielding: out any form of dependency on the GPT models, | relevance scores to the query, listwise rerankers are: P̂ := hlw(q, {p }i ki=1; s), where P̂ is a permutation
+Row 17: listwise rerankers (Figure 1, Section 3.1), yielding: could outperform the listwise rerankers based on | relevance scores to the query, listwise rerankers are: (reranking) of {p i}i=1.k
+Row 18: listwise rerankers (Figure 1, Section 3.1), yielding: GPT-3 or 3.5 and perform on par with the ones | relevance scores to the query, listwise rerankers are: Sliding window. Limited by the maximum input
+Row 19: listwise rerankers (Figure 1, Section 3.1), yielding: based on GPT-4; (2) We found that the ranking | relevance scores to the query, listwise rerankers are: length, we can feed only 10–20 passages to the
+Row 20: listwise rerankers (Figure 1, Section 3.1), yielding: quality in the training data is crucial in construct- | relevance scores to the query, listwise rerankers are: LLM at a time. To rerank a longer list, e.g. typically
+Row 21: listwise rerankers (Figure 1, Section 3.1), yielding: ing efficient listwise rerankers, which might be the | relevance scores to the query, listwise rerankers are: top-100 passages, both RankGPT and LRL adopt a
+Row 22: listwise rerankers (Figure 1, Section 3.1), yielding: bottleneck of the current capacity of the listwise | relevance scores to the query, listwise rerankers are: sliding window strategy, where we slide a window
+Row 23: listwise rerankers (Figure 1, Section 3.1), yielding: rerankers; (3) We demonstrate that listwise reranker | relevance scores to the query, listwise rerankers are: of size n from the end to the front of the list and
+Row 24: listwise rerankers (Figure 1, Section 3.1), yielding: fine-tuning is not data-expensive, where an effec- | relevance scores to the query, listwise rerankers are: rerank the documents in the window, striding by m
+Row 25: listwise rerankers (Figure 1, Section 3.1), yielding: tive listwise reranker can be built using 5k queries, | relevance scores to the query, listwise rerankers are: documents per step. In each stride, the top-(n−m)
+Row 26: listwise rerankers (Figure 1, Section 3.1), yielding: each associated with a list of passages ranked in | relevance scores to the query, listwise rerankers are: documents are preserved and form the next sliding
+[/TABLE]
+
+[PAGE 3]
+2 3 4 65
+Labeled Relevant Documents
+Unlabeled Documents (irrelevant by default)
+Pointwise Ranking Fine-tuning
+Using Pointwise Data for Listwise Fine-tuning
+1 2 3 4 6
+Q
+Ideal Listwise DataPointwise Data
+Q
+1 6 534
+Q
+Wrong Ordering in Training Data
+2 653 4 1
+pos
+model input
+model outputneg
+Q
+Q neg
+pos
+Query Labeled order of a list of documents
+model input
+Ideal Listwise Fine-tuning
+1 6 5
+Q 2 653
+4 1
+model output
+ɪ. ɪɪ.
+ɪɪɪ.
+ɪv. v.
+Query
+Correct Ordering in Training Data
+Figure 1: The issue with using current pointwise ranking data in listwise training. Numbers in the boxes indicate
+different passages. The grey boxes indicate irrelevant passages and the green ones indicate relevant ones. The
+saturation level indicates the relevance: the more saturating the green is, the more relevant the passages are. Boxes
+with dash borders indicate unlabeled passages, which are considered irrelevant in the current convention. Thus, the
+green boxes with dash borders are the false negative passages.
+from the listwise loss in information retrieval (IR;
+Cao et al., 2007), where models still generate the
+score for each passage independently, although the
+loss is computed by leveraging scores of a list of
+documents. The term listwise in this work refers
+to that the model is capable of processing a list of
+documents at the same time.
+3 Method
+3.1 Training Data for Listwise Reranker
+The difference in the output format of the two
+above rerankers by nature requires different types
+of training data. Past experience shows that a largescale professionally annotated dataset with binary
+judgments, e.g., MS MARCO (Bajaj et al., 2016),
+is sufficient in fine-tuning pointwise rerankers.
+These pointwise datasets consist of queries, documents, and binary query–document labels, annotated to denote document relevance to the query.
+Unannotated documents are considered irrelevant
+by default. (Figure 1 Block I, Block III)
+However, there are challenges in constructing
+gold rankings using current resources for two main
+reasons. First, there are many false-negative passages. Taking MS MARCO as an example, which
+is the largest training data in text retrieval, there
+is on average only one labeled passage per query.
+In a list of, say, twenty retrieved passages, only
+one at most is known to be in the correct position
+(the first one), whereas the positions of the other
+nineteen are unknown. This may result in an extremely noisy ordering. Second, true relevance is
+nuanced and graded (multilevel) rather than binary,
+as TREC evaluation sets show. Binary relevance
+ignores nuances in the true relevance levels and
+discards the correct order of relevant passages, thus
+resulting in a suboptimal ordering of the passage
+list. We concisely illustrate these two issues in
+Figure 1 Block IV .
+To verify the above hypothesis that the ordering
+of the ranking list is crucial for fine-tuning listwise
+rerankers, we designed two sets of experiments:
+1. Pointwise ground truth (P-GT): We construct
+a list by placing the labeled relevant documents
+in the front, which are then followed by the irrelevant ones ordered arbitrarily. This is used as a
+sanity baseline, showing the effectiveness when
+only using the human-annotated training data in
+the pointwise ranking manner.
+2. Silver ranking: we use the ranking results of
+several existent ranking systems to approximate the
+gold ranking. Specifically, we select the following
+ranking systems:
+a) BM25: Passages are ranked by BM25 (Robertson et al., 2009), a traditional unsupervised
+retrieval algorithm based on lexical matching.
+b) Fine-tuned Contriever (Contriever+ft): Passages are ranked by Contriever (Izacard et al.,
+2021) that has been further fine-tuned on
+MS MARCO. We used the checkpoint released by the original work.2
+2https://huggingface.co/facebook/
+
+[TABLE page=3 index=1]
+Columns: Q | 1 | pos | Q.1 | 1.1 | pos.1
+Row 1: Q: Q | 1: 2 | pos: neg | Q.1: Q | 1.1: 4 | pos.1: neg
+[/TABLE]
+
+[TABLE page=3 index=2]
+Columns: score for each passage independently, although the | as TREC evaluation sets show. Binary relevance
+Row 1: score for each passage independently, although the: loss is computed by leveraging scores of a list of | as TREC evaluation sets show. Binary relevance: ignores nuances in the true relevance levels and
+Row 2: score for each passage independently, although the: documents. The term listwise in this work refers | as TREC evaluation sets show. Binary relevance: discards the correct order of relevant passages, thus
+Row 3: score for each passage independently, although the: to that the model is capable of processing a list of | as TREC evaluation sets show. Binary relevance: resulting in a suboptimal ordering of the passage
+Row 4: score for each passage independently, although the: documents at the same time. | as TREC evaluation sets show. Binary relevance: list. We concisely illustrate these two issues in
+Row 5: score for each passage independently, although the: | as TREC evaluation sets show. Binary relevance: Figure 1 Block IV.
+Row 6: score for each passage independently, although the: 3 Method | as TREC evaluation sets show. Binary relevance:
+Row 7: score for each passage independently, although the: | as TREC evaluation sets show. Binary relevance: To verify the above hypothesis that the ordering
+Row 8: score for each passage independently, although the: 3.1 Training Data for Listwise Reranker | as TREC evaluation sets show. Binary relevance: of the ranking list is crucial for fine-tuning listwise
+Row 9: score for each passage independently, although the: | as TREC evaluation sets show. Binary relevance: rerankers, we designed two sets of experiments:
+Row 10: score for each passage independently, although the: The difference in the output format of the two | as TREC evaluation sets show. Binary relevance: 1. Pointwise ground truth (P-GT): We construct
+Row 11: score for each passage independently, although the: above rerankers by nature requires different types | as TREC evaluation sets show. Binary relevance: a list by placing the labeled relevant documents
+Row 12: score for each passage independently, although the: of training data. Past experience shows that a large- | as TREC evaluation sets show. Binary relevance: in the front, which are then followed by the irrelRow 13: score for each passage independently, although the: scale professionally annotated dataset with binary | as TREC evaluation sets show. Binary relevance: evant ones ordered arbitrarily. This is used as a
+Row 14: score for each passage independently, although the: judgments, e.g., MS MARCO (Bajaj et al., 2016), | as TREC evaluation sets show. Binary relevance: sanity baseline, showing the effectiveness when
+Row 15: score for each passage independently, although the: is sufficient in fine-tuning pointwise rerankers. | as TREC evaluation sets show. Binary relevance: only using the human-annotated training data in
+Row 16: score for each passage independently, although the: These pointwise datasets consist of queries, doc- | as TREC evaluation sets show. Binary relevance: the pointwise ranking manner.
+Row 17: score for each passage independently, although the: uments, and binary query–document labels, anno- | as TREC evaluation sets show. Binary relevance: 2. Silver ranking: we use the ranking results of
+Row 18: score for each passage independently, although the: tated to denote document relevance to the query. | as TREC evaluation sets show. Binary relevance: several existent ranking systems to approximate the
+Row 19: score for each passage independently, although the: Unannotated documents are considered irrelevant | as TREC evaluation sets show. Binary relevance: gold ranking. Specifically, we select the following
+Row 20: score for each passage independently, although the: by default. (Figure 1 Block I, Block III) | as TREC evaluation sets show. Binary relevance: ranking systems:
+Row 21: score for each passage independently, although the: However, there are challenges in constructing | as TREC evaluation sets show. Binary relevance: a) BM25: Passages are ranked by BM25 (RobertRow 22: score for each passage independently, although the: gold rankings using current resources for two main | as TREC evaluation sets show. Binary relevance: son et al., 2009), a traditional unsupervised
+Row 23: score for each passage independently, although the: reasons. First, there are many false-negative pas- | as TREC evaluation sets show. Binary relevance: retrieval algorithm based on lexical matching.
+[/TABLE]
+
+[PAGE 4]
+c) co.rerank: Passages are ranked by the
+Cohere rerank API. 3 We used the model
+rerank-english-v2.0.
+The ranking systems are selected with increasing
+ranking capacity, and thus generating listwise training data with increasing ranking quality.
+3.2 Prompt
+We adopt the same prompt as RankGPT and
+RankVicuna for a fair comparison of the results:
+Input Prompt Template:
+USER: I will provide you with {num} passages, each
+indicated by a numerical identifier []. Rank the
+passages based on their relevance to the search
+query: {query}.
+[1] {title 1} {passage 1}
+[2] {title 2} {passage 2}
+...
+[{num}] {passage {num}}
+Search Query: {query}.
+Rank the {num} passages above based on their
+relevance to the search query. All the passages
+should be included and listed using identifiers, in
+descending order of relevance. The output format
+should be [] > [], e.g., [4] > [2]. Only respond
+with the ranking results, do not say any word
+or explain.
+Example Completion:
+[4] > [5] > [2] > [3] > [1]
+4 Experimental Setup
+4.1 Models
+Most of the experiments in the work are conducted
+on Code-LLaMA-Instruct (Roziere et al., 2023),4
+given its transparency on model weights. We experiment with all released model sizes: 7B, 13B, and
+34B. In ablation studies, we compare the results
+to Vicuna-v1.5,5 another model based on Llama 2,
+but then fine-tuned on ShareGPT, instructional data
+generated by GPT.
+4.2 Data
+Training data preparation. The training data are
+prepared from MS MARCO v1 corpus (Bajaj et al.,
+2016), which contains 8.8 million passages. We
+sampled n training queries from the 100k training data of RankVicuna (n ∈ {2k, 5k, 10k, 20k}),
+then reordered the list of documents per query in
+the four settings mentioned in Section 3.1.
+contriever-msmarco
+3https://cohere.com/rerank
+4https://huggingface.co/codellama
+5https://huggingface.co/lmsys/vicuna-7b-v1.5
+(a) TREC-DL-19
+BM25
+0.497
+Contriever+ft
+0.621
+co:rank
+0.735
+nDCG@10 of T eachers
+0.324
+0.508
+0.632
+0.718nDCG@10 of LLM
+LLM
+P-GT
+(b) TREC-DL-20
+BM25
+0.488
+Contriever+ft
+0.632
+co:rank
+0.671
+nDCG@10 of T eachers
+0.246
+0.455
+0.586
+0.674nDCG@10 of LLM
+LLM
+P-GT
+Figure 2: nDCG@10 on TREC-DL-19 and TREC-DL20 when fine-tuned on data prepared on methods described in Section 3.1. P-GT: Pointwise ground truth.
+Evaluation datasets. We select TREC-DL-19 and
+TREC-DL-20 (Craswell et al., 2020, 2021) to evaluate the in-domain effectiveness. Both datasets
+are built from the TREC Deep Learning Track
+and share the same corpus with MS MARCO
+v1 (Bajaj et al., 2016). In Section 5.4, we
+report results reranking top-100 candidates returned by BM25 (Robertson et al., 2009) and RepLLaMA (Ma et al., 2023a).
+We report scores of nDCG@10 following the
+dataset standard. In Section 5.4, we also report
+some results of Judged@10, the ratio of judged
+passages in the top-10 of the ranking list.
+4.3 Configurations
+In this work, we use FastChat (Zheng et al., 2023)6
+for the model training and inference. FlashAttention (Dao et al., 2022; Dao, 2023) is applied to all
+experiments. We turned on gradient checkpointing
+when fine-tuning 34B models. When not specified,
+we fine-tune the model with batch size 128. The
+maximum input length is set as 4,096. The finetuning epochs depend on the number of training
+datapoints. The model is fine-tuned for 4 epochs
+when using 20k training data, 8 epochs when using
+10k training data, so on and on.
+In experiments using QLoRA, we set LoRA rank
+as 64, alpha as 16, dropout rate as 0.05, maximum
+6https://github.com/lm-sys/FastChat
+
+[TABLE page=4 index=1]
+Columns: 3.2 Prompt | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | 0.497 | Unnamed: 7 | 0.621 | 0.735
+Row 1: 3.2 Prompt: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | 0.497: | Unnamed: 7: | 0.621: nDCG@10 of Teachers | 0.735:
+Row 2: 3.2 Prompt: We adopt the | Unnamed: 0: same | Unnamed: 1: prompt | Unnamed: 2: as | Unnamed: 3: RankGPT | Unnamed: 4: and | Unnamed: 5: | Unnamed: 6: | 0.497: | Unnamed: 7: | 0.621: | 0.735:
+Row 3: 3.2 Prompt: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | 0.497: | Unnamed: 7: | 0.621: (b) TREC-DL-20 | 0.735:
+Row 4: 3.2 Prompt: RankVicuna for a fair comparison of the results: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: 0.674 | 0.497: | Unnamed: 7: | 0.621: | 0.735:
+Row 5: 3.2 Prompt: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | 0.497: | Unnamed: 7: LLM | 0.621: | 0.735:
+Row 6: 3.2 Prompt: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: 0.586 | 0.497: | Unnamed: 7: P-GT | 0.621: | 0.735:
+[/TABLE]
+
+[PAGE 5]
+(a) TREC-DL-19
+2k 5k 10k 20k
+Number of Training Datapoints
+0.60
+0.65
+0.70nDCG@10
+0.669
+0.703
+0.718 0.722
+DL19
+(b) TREC-DL-20
+2k 5k 10k 20k
+Number of Training Datapoints
+0.60
+0.65nDCG@10
+0.643
+0.656
+0.673 0.663
+DL20
+Figure 3: Results regarding the increasing number of
+training data generated by co.rerank. Dash lines refer
+to the result of co.rerank.
+gradient norm as 0.3, and a constant learning rate
+of 1e-4, all following the advice from Dettmers
+et al. (2023). LoRA is applied on q_proj and
+v_proj layers. In experiments that fine-tune the
+entire LLM, we use a learning rate of2×10−5 with
+the cosine learning schedule. All experiments are
+run on 8 NVIDIA A100 GPUs with 80GB memory.
+With QLoRA, training 7B models takes around 5h
+when fine-tuning 20k training data for 4 epochs.
+5 Results and Analysis
+5.1 Training Data Quality
+We first show that the current pointwise labeled
+data alone could not serve the need of fine-tuning
+generative LLM as listwise rerankers. While the
+ranking results produced by current rerankers could
+be used as an approximation of the gold ranking,
+the listwise rerankers are likely to further benefit
+from human-labeled listwise data in higher quality.
+Figure 2 shows the results on TREC-DL-19 and
+TREC-DL-20 of the listwise rerankers when finetuned on different training data. The x-axis is the
+nDCG@10 of the pointwise rerankers that generate
+the training data, and the y-axis is the nDCG@10
+of the listwise rerankers fine-tuned on the corresponding data. The horizontal dash line is the result
+when the model is fine-tuned on the ground-truth
+pointwise data only.
+Clearly, listwise rerankers fine-tuned only the
+pointwise data yield inferior ranking quality, evidenced by that the grey line is greatly lower than
+others. When fine-tuned on the silver ranking data,
+(a) TREC-DL-19
+7B 13B 34B
+Model Size
+0.72
+0.74nDCG@10
+0.722
+0.737
+0.743
+DL19
+(b) TREC-DL-20
+7B 13B 34B
+Model Size
+0.66
+0.68nDCG@10
+0.674
+0.683 0.687
+DL20
+Figure 4: Result regarding different sizes of the model,
+all fine-tuned on 10k data. Dash lines refer to the result
+of co.rerank.
+the scores of the listwise rerankers follow closely
+to the scores of pointwise rerankers (e.g., scores
+on pointwise vs. corresponding listwise reranker:
+0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).
+On one hand, this shows that the quality of rankings data is crucial when fine-tuning the listwise
+rerankers; on the other hand, the listwise student
+is able to keep up with even one of the best current teachers without showing a trend of plateau.
+This hints that the potential capacity of the listwise rankers may not be fully excavated and may
+be bounded by the quality of current training data.
+That is, if higher-quality listwise training data were
+available (e.g., by human labeling), the listwise
+rankers may show higher ranking capacity.
+5.2 Training Data Quantity
+Having proved that higher-quality data is necessary
+to obtain effective listwise rerankers, we ask the
+next question: how much data is required?Figure 3
+compares the model effectiveness with increasing
+amounts of fine-tuning data. For a fair comparison,
+the models are fine-tuned for the same number of
+steps when varying training data quantity: given
+that the model is fine-tuned for 8 epochs on 10k
+datapoints, it is then fine-tuned for 40, 16, and
+4 epochs when using 2k, 5k, and 20k datapoints,
+where each datapoint consists of one query and 20
+passages. Therefore, training with fewer datapoints
+only saves the anticipated human labor effort for
+annotation but not the training time. Experiments
+are based on Code-LLaMA-Instruct in size 7B.
+
+[TABLE page=5 index=1]
+Columns: v_proj layers. In experiments that fine-tune the | Unnamed: 0 | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).
+Row 1: v_proj layers. In experiments that fine-tune the: entire LLM, we use a learning rate of 2×10−5 with | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: On one hand, this shows that the quality of rankRow 2: v_proj layers. In experiments that fine-tune the: the cosine learning schedule. All experiments are | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: ings data is crucial when fine-tuning the listwise
+Row 3: v_proj layers. In experiments that fine-tune the: run on 8 NVIDIA A100 GPUs with 80GB memory. | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: rerankers; on the other hand, the listwise student
+Row 4: v_proj layers. In experiments that fine-tune the: With QLoRA, training 7B models takes around 5h | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: is able to keep up with even one of the best curRow 5: v_proj layers. In experiments that fine-tune the: when fine-tuning 20k training data for 4 epochs. | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: rent teachers without showing a trend of plateau.
+Row 6: v_proj layers. In experiments that fine-tune the: | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: This hints that the potential capacity of the listRow 7: v_proj layers. In experiments that fine-tune the: 5 Results and Analysis | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).:
+Row 8: v_proj layers. In experiments that fine-tune the: | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: wise rankers may not be fully excavated and may
+Row 9: v_proj layers. In experiments that fine-tune the: 5.1 Training Data Quality | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: be bounded by the quality of current training data.
+Row 10: v_proj layers. In experiments that fine-tune the: | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: That is, if higher-quality listwise training data were
+Row 11: v_proj layers. In experiments that fine-tune the: We first show that the current pointwise labeled | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).:
+Row 12: v_proj layers. In experiments that fine-tune the: | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: available (e.g., by human labeling), the listwise
+Row 13: v_proj layers. In experiments that fine-tune the: data alone could not serve the need of fine-tuning | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).:
+Row 14: v_proj layers. In experiments that fine-tune the: | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: rankers may show higher ranking capacity.
+Row 15: v_proj layers. In experiments that fine-tune the: generative LLM as listwise rerankers. While the | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).:
+Row 16: v_proj layers. In experiments that fine-tune the: ranking results produced by current rerankers could | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).:
+Row 17: v_proj layers. In experiments that fine-tune the: | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: 5.2 Training Data Quantity
+Row 18: v_proj layers. In experiments that fine-tune the: be used as an approximation of the gold ranking, | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).:
+Row 19: v_proj layers. In experiments that fine-tune the: the listwise rerankers are likely to further benefit | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: Having proved that higher-quality data is necessary
+Row 20: v_proj layers. In experiments that fine-tune the: from human-labeled listwise data in higher quality. | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: to obtain effective listwise rerankers, we ask the
+Row 21: v_proj layers. In experiments that fine-tune the: Figure 2 shows the results on TREC-DL-19 and | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: next question: how much data is required? Figure 3
+Row 22: v_proj layers. In experiments that fine-tune the: TREC-DL-20 of the listwise rerankers when fine- | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: compares the model effectiveness with increasing
+Row 23: v_proj layers. In experiments that fine-tune the: tuned on different training data. The x-axis is the | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: amounts of fine-tuning data. For a fair comparison,
+Row 24: v_proj layers. In experiments that fine-tune the: nDCG@10 of the pointwise rerankers that generate | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: the models are fine-tuned for the same number of
+Row 25: v_proj layers. In experiments that fine-tune the: the training data, and the y-axis is the nDCG@10 | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: steps when varying training data quantity: given
+Row 26: v_proj layers. In experiments that fine-tune the: of the listwise rerankers fine-tuned on the corre- | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: that the model is fine-tuned for 8 epochs on 10k
+Row 27: v_proj layers. In experiments that fine-tune the: sponding data. The horizontal dash line is the result | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: datapoints, it is then fine-tuned for 40, 16, and
+Row 28: v_proj layers. In experiments that fine-tune the: when the model is fine-tuned on the ground-truth | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: 4 epochs when using 2k, 5k, and 20k datapoints,
+Row 29: v_proj layers. In experiments that fine-tune the: pointwise data only. | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: where each datapoint consists of one query and 20
+Row 30: v_proj layers. In experiments that fine-tune the: Clearly, listwise rerankers fine-tuned only the | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: passages. Therefore, training with fewer datapoints
+Row 31: v_proj layers. In experiments that fine-tune the: pointwise data yield inferior ranking quality, evi- | Unnamed: 0: | 0.497 vs. 0.508, 0.621 vs. 0.632, 0.735 vs. 0.718).: only saves the anticipated human labor effort for
+[/TABLE]
+
+[PAGE 6]
+Model GPT- Model Previous top-k TREC-DL-19 TREC-DL-20
+independent Size Stage nDCG@10 nDCG@10
+non-listwise methods based on non-LLM
+(1) monoBERT BERT ✓ 110M BM25 1000 72.3 72.2
+(2) monoT5 T5 ✓ 3B BM25 100 71.8 68.9
+(3) rankT5 T5 ✓ 3B BM25 100 71.2 69.5
+non-listwise methods based on LLM
+(4) UPR FLAN-T5-XXL ✓ 11B BM25 100 62.0 60.3
+(5) PRP-Sliding-10 FLAN-UL2 ✓ 20B BM25 100 72.7 70.5
+(6) RankLLaMA LLaMA ✓ 7B RepLLaMA 100 75.3 ( 76.1) 76.7 ( 76.2)
+listwise methods
+(7) RankVicuna Vicuna ✗ 7B BM25 100 66.8 65.5
+(8) LRL GPT-3 ✗ ? BM25 100 65.8 62.2
+(9) RankGPT-3.5 GPT-3.5 ✗ ? BM25 100 65.8 62.9
+(10) RankGPT-4 GPT-4 ✗ ? BM25 100 75.7 71.0
+(11)Rank-wo-GPT
+Code-LLaMA-Instruct
+✓ 7B BM25 100 71.8 ( 70.8) 67.4 ( 66.7)
+(12)Rank-wo-GPT ✓ 7B RepLLaMA 100 73.0 ( 75.2) 70.0 ( 71.7)
+(13)Rank-wo-GPT ✓ 13B BM25 100 73.7 68.3
+(14)Rank-wo-GPT ✓ 34B BM25 100 74.3 68.7
+Table 1: Comparison of listwise reranker fine-tuned on data generated by co.rerank to other methods in the field,
+evaluated on TREC-DL-19 and TREC-DL-20. The tilted scores in bracket are the ones evaluated on enriched
+query–passage relevance judgment, with Judged@10 = 1. Results of RankVicuna, LRL, and RankGPT-3.5 are
+copied from the original paper (Pradeep et al., 2023; Ma et al., 2023b; Sun et al., 2023). Results of RankGPT-4
+reranking BM25 top-100 are copied from Tang et al. (2023).
+As Figure 3 shows, training on 5k training datapoints already yield 97% of the effectiveness compared to using 10k datapoints, whereas increasing
+data quantity from 10k to 20k only brings marginal
+improvement in the case of TREC-DL-19 and no
+positive effect on TREC-DL-20. That is, 100k
+high-quality query–passage pairs (5k queries with
+20 passages per query) serve the need of effectively
+fine-tuning listwise rerankers. This is in the same
+scale with fine-tuning pointwise rerankers, where
+RankLLaMA (Ma et al., 2023a) consumes 300k
+query–passage pairs from MS MARCO.
+5.3 Model Size
+The experiments above are all based on CodeLLaMA-Instruct with size 7B. We then examine
+the effect of scaling up the models. As expected,
+the effectiveness of the listwise rerankers increases
+with the language model size. Figure 4 shows the
+trend of the ranking quality with respect to the
+model size, where the model of 13B already outperforms the teacher, and increasing the model size
+to 34B brings additional improvement.
+5.4 Comparisons with Other Baselines
+Finally, we compare our listwise rerankers to other
+methods in the field, evaluated on TREC-DL-19
+and TREC-DL-20. Results are shown in Table 1.
+The baselines are grouped into three categories:
+(1) non-listwise rerankers based on non-LLM models (e.g., BERT); (2) non-listwise rerankers based
+on LLM, including methods based on query likelihood (Sachan et al., 2022), pairwise (Qin et al.,
+2023) and pointwise reranking (Ma et al., 2023a);
+(3) listwise rerankers (Pradeep et al., 2023; Ma
+et al., 2023b; Sun et al., 2023; Tang et al., 2023),
+which all depend on GPT models.
+Unlabeled top-reranked passages. Although
+TREC-DL data have comparatively dense human
+judgments,7 we observe that listwise rerankers
+bring more unlabeled passages to the top of the
+reranked list compared to the pointwise ones. For
+example, on TREC-DL-19, the Judged@10 of listwise rerankers are between 0.88 to 0.94, whereas
+the Judged@10 of RankLLaMA is over 0.98.
+For a fair comparison, we manually annotated
+the missing query–passage relevance judgments
+from the top-10 of the lists returned by some of the
+rerankers, including both pointwise and listwise
+ones from rows (6, 11, 12). The labels are on the
+same scale as the original graded judgment (i.e.,
+from 0 to 3, with larger numbers indicating higher
+relevance). These added labels, together with the
+initial ones, form the new judgment set, which we
+refer to as “enriched judgments”.
+7120 judgments per query on TREC-DL-19; 211 judgments
+per query on TREC-DL-20
+
+[TABLE page=6 index=1]
+Columns: Unnamed: 0 | GPT- | Model | Previous | Unnamed: 1 | TREC-DL-19 | TREC-DL-20
+Row 1: Unnamed: 0: Model | GPT-: | Model: | Previous: | Unnamed: 1: top-k | TREC-DL-19: | TREC-DL-20:
+Row 2: Unnamed: 0: | GPT-: independent | Model: Size | Previous: Stage | Unnamed: 1: | TREC-DL-19: nDCG@10 | TREC-DL-20: nDCG@10
+[/TABLE]
+
+[PAGE 7]
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 1
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 2
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 3
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: all
+(a) Pointwise Reranker
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 1
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 2
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 3
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: all
+14 (b) Listwise Reranker
+Figure 5: Compare the position of relevant passages
+before and after reranking by RankLLaMA and Rankwo-GPT both reranking RepLLaMA top-100. x-axis:
+passage positions in the reranked list; y-axis: passage
+positions in the first-stage list. Best viewed in color.
+Scores evaluated on our enriched judgments set
+are italicized in parentheses. We observe that
+the added judgment made a nontrivial difference
+to the evaluation results. Most prominently, the
+nDCG@10 on row (12) increased from 73.0 to
+75.2 after filling in the missing relevance. Intact
+judgments also amend the over-rated rankings, for
+example, on row (11), the scores decreased with
+more labels. In the rest of this section, we compare
+results evaluated on the enriched judgments.
+Comparison to GPT-based listwise rerankers.
+Comparing rows (11, 13, 14) to rows (7–10), we
+found even our smallest listwise reranker (7B) is
+significantly higher than previous models based
+on GPT-3 and GPT-3.5. Compared to RankGPT4, while the listwise rerankers yield lower scores
+with models of all sizes, the difference is again
+insignificant (two-tailed t-test, with p < 0.01).
+Comparison to LLM-based pointwise rerankers.
+While the pointwise rerankers are fine-tuned on the
+optimal human-annotated data, we find our listwise
+models, fine-tuned under data non-optimized for
+its purpose, perform close to the best pointwise
+rerankers in the same model size on TREC-DL19. Comparing row (12) to row (6), where both
+listwise and pointwise rerankers are based on the
+same size of models (7B) and reranking the same
+candidates from the first-stage retriever, there is
+only a small gap between the nDCG@10 on TRECDL-19, with insignificant difference (two-tailed
+t-test, with p < 0.01), although there is a larger
+gap on TREC-DL-20: 71.7 vs. 76.2 on rows (12,
+6), with a significant difference. It would require
+future work to close the gap between the two.
+5.5 Analysis on Sliding Window Strategy
+While the sliding window strategy is a natural resort
+to apply listwise ranking on a passage list longer
+than the model input capacity, it is unknown yet
+how well it aggregates the list in each pass.
+To start answering this question, we plot the
+ranking positions of relevant passages before and
+after reranking. Figure 5 compares the position
+difference when using the pointwise and listwise
+rerankers, the models on rows (6) and (12) in Table 1. In each heatmap, the y-axis indicates the
+passage position in the first-stage ranking (i.e., RepLLaMA) and the x-axis indicates the position after
+reranking by RankLLaMA (Figure 5a) or Rank-woGPT (Figure 5b).
+Comparing the heatmaps, we observe a prominent pattern in the listwise heatmap (Figure 5b)
+that there is a chain of bright clusters in the square
+shape along the diagonal line. This indicates that a
+large number of relevant documents are “trapped”
+in the local block, promoted only within the current or the next pass of the sliding window. This
+phenomenon is common for relevant passages at
+all relevant levels (Appendix B, Figure 6).
+The brightness density in the upper matrix indicates the frequency of relevant passages promoted
+over a long distance over the list. Compared to
+pointwise, where the scatters distribute symmetrically along the diagonal matrix, listwise heatmap
+shows more scatters clustered in left-most columns,
+x ∈ [0, 20], indicating that the top-ranked passages
+by listwise rerankers still come from a wider range
+of positions in the first-stage results compared to
+the pointwise methods regardless that a large number of passages are trapped as aforementioned.
+6 Ablation Studies
+LLM with GPT-based instruction fine-tuning.
+To investigate if more GPT-alike instruction finetuning would further benefit the listwise ranking
+results, we ran the same experiment on Vicunav1.5. As shown in rows (1, 2) in Table 2, while
+fine-tuning based on Vicuna achieved slightly better results on both datasets, the difference is not
+significant. Thus we conclude starting from a GPTfree LLM is able to yield satisfactory effectiveness
+compared to a more GPT-alike LLM.
+Fine-tuning Full Model vs. QLoRA. In previous
+experiments, we fine-tuned the LLM using QLoRA
+instead of the entire LLM model to alleviate the
+GPU memory and disk requirement. Here, we
+
+[TABLE page=7 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 | 14 | 14.1 | Unnamed: 9 | Unnamed: 10 | Unnamed: 11 | Position in Input
+Row 1: Unnamed: 0: 90.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 9090 | Unnamed: 5: 6 | Unnamed: 6: 9090 | Unnamed: 7: 66 | Unnamed: 8: 9900 | 14: 6 90 | 14.1: | Unnamed: 9: 5.5 | Unnamed: 10: Analysis on Sliding Window Strategy | Unnamed: 11: | Position in Input: Position in Input
+Row 2: Unnamed: 0: 80.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 8080 | Unnamed: 5: | Unnamed: 6: 8080 | Unnamed: 7: | Unnamed: 8: 8800 | 14: 12 80 | 14.1: 12 | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 3: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 3 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | 14: | 14.1: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 4: Unnamed: 0: 70.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: 2.0 | Unnamed: 4: 7070 | Unnamed: 5: 5 | Unnamed: 6: 7070 | Unnamed: 7: 55 | Unnamed: 8: 7700 | 14: 510 70 | 14.1: 10 | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 5: Unnamed: 0: 60.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 60 While the sliding window strategy is a natural resort60 | Unnamed: 5: 4 | Unnamed: 6: 60 60 | Unnamed: 7: 4 604 | Unnamed: 8: 60 60 | 14: 4 | 14.1: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 6: Unnamed: 0: 50.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 5050 | Unnamed: 5: 2 | Unnamed: 6: 5050 | Unnamed: 7: | Unnamed: 8: 5500 | 14: 8 50 | 14.1: 8 | Unnamed: 9: to apply listwise ranking on a passage list longer | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 7: Unnamed: 0: 40.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 4040 | Unnamed: 5: 3 | Unnamed: 6: 4040 | Unnamed: 7: 33 | Unnamed: 8: 4400 | 14: 63 40 | 14.1: 6 | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 8: Unnamed: 0: 30.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: 1.0 | Unnamed: 4: 3030 | Unnamed: 5: | Unnamed: 6: 3030 | Unnamed: 7: | Unnamed: 8: 3300 | 14: 30 | 14.1: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 9: Unnamed: 0: 20.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 2020 | Unnamed: 5: 2 1 | Unnamed: 6: 2020 | Unnamed: 7: 22 | Unnamed: 8: 2200 | 14: 42 20 | 14.1: 4 | Unnamed: 9: than the model input capacity, it is unknown yet | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 10: Unnamed: 0: 10.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 1010 | Unnamed: 5: 1 | Unnamed: 6: 1010 | Unnamed: 7: 11 | Unnamed: 8: 1100 | 14: 21 10 | 14.1: 2 | Unnamed: 9: how well it aggregates the list in each pass. | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 11: Unnamed: 0: 0.0 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 0 0 | Unnamed: 5: | Unnamed: 6: 00 | Unnamed: 7: | Unnamed: 8: 00 | 14: 0 | 14.1: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Position in Input:
+Row 12: Unnamed: 0: | Unnamed: 1: 0.0 | Unnamed: 2: 10 20 30 40 50 60 70 80 90 | Unnamed: 3: 0.0 | Unnamed: 4: 0 0101020203030404050506060707080809090 | Unnamed: 5: 00 | Unnamed: 6: 00101020203030404050506060707088009900 | Unnamed: 7: 00 | Unnamed: 8: 00110022003300440055006600770088009900 | 14: 00 | 14.1: 0 10 20 30 40 50 60 70 80 90 0 | Unnamed: 9: To | Unnamed: 10: start answering this question, we plot | Unnamed: 11: the | Position in Input:
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: Scores evaluated on our enriched judgments set | Comparing the heatmaps, we observe a promiRow 1: Scores evaluated on our enriched judgments set: are italicized in parentheses. We observe that | Comparing the heatmaps, we observe a promi-: nent pattern in the listwise heatmap (Figure 5b)
+Row 2: Scores evaluated on our enriched judgments set: the added judgment made a nontrivial difference | Comparing the heatmaps, we observe a promi-: that there is a chain of bright clusters in the square
+Row 3: Scores evaluated on our enriched judgments set: to the evaluation results. Most prominently, the | Comparing the heatmaps, we observe a promi-: shape along the diagonal line. This indicates that a
+Row 4: Scores evaluated on our enriched judgments set: nDCG@10 on row (12) increased from 73.0 to | Comparing the heatmaps, we observe a promi-: large number of relevant documents are “trapped”
+Row 5: Scores evaluated on our enriched judgments set: 75.2 after filling in the missing relevance. Intact | Comparing the heatmaps, we observe a promi-: in the local block, promoted only within the curRow 6: Scores evaluated on our enriched judgments set: judgments also amend the over-rated rankings, for | Comparing the heatmaps, we observe a promi-: rent or the next pass of the sliding window. This
+Row 7: Scores evaluated on our enriched judgments set: example, on row (11), the scores decreased with | Comparing the heatmaps, we observe a promi-: phenomenon is common for relevant passages at
+Row 8: Scores evaluated on our enriched judgments set: more labels. In the rest of this section, we compare | Comparing the heatmaps, we observe a promi-: all relevant levels (Appendix B, Figure 6).
+Row 9: Scores evaluated on our enriched judgments set: results evaluated on the enriched judgments. | Comparing the heatmaps, we observe a promi-: The brightness density in the upper matrix indiRow 10: Scores evaluated on our enriched judgments set: | Comparing the heatmaps, we observe a promi-: cates the frequency of relevant passages promoted
+Row 11: Scores evaluated on our enriched judgments set: Comparison to GPT-based listwise rerankers. | Comparing the heatmaps, we observe a promi-: over a long distance over the list. Compared to
+Row 12: Scores evaluated on our enriched judgments set: Comparing rows (11, 13, 14) to rows (7–10), we | Comparing the heatmaps, we observe a promi-: pointwise, where the scatters distribute symmetriRow 13: Scores evaluated on our enriched judgments set: found even our smallest listwise reranker (7B) is | Comparing the heatmaps, we observe a promi-: cally along the diagonal matrix, listwise heatmap
+Row 14: Scores evaluated on our enriched judgments set: significantly higher than previous models based | Comparing the heatmaps, we observe a promi-: shows more scatters clustered in left-most columns,
+Row 15: Scores evaluated on our enriched judgments set: on GPT-3 and GPT-3.5. Compared to RankGPT- | Comparing the heatmaps, we observe a promi-: x ∈ [0, 20], indicating that the top-ranked passages
+Row 16: Scores evaluated on our enriched judgments set: 4, while the listwise rerankers yield lower scores | Comparing the heatmaps, we observe a promi-: by listwise rerankers still come from a wider range
+Row 17: Scores evaluated on our enriched judgments set: with models of all sizes, the difference is again | Comparing the heatmaps, we observe a promi-: of positions in the first-stage results compared to
+Row 18: Scores evaluated on our enriched judgments set: insignificant (two-tailed t-test, with p < 0.01). | Comparing the heatmaps, we observe a promi-: the pointwise methods regardless that a large numRow 19: Scores evaluated on our enriched judgments set: | Comparing the heatmaps, we observe a promi-: ber of passages are trapped as aforementioned.
+Row 20: Scores evaluated on our enriched judgments set: Comparison to LLM-based pointwise rerankers. | Comparing the heatmaps, we observe a promi-: 6 Ablation Studies
+Row 21: Scores evaluated on our enriched judgments set: While the pointwise rerankers are fine-tuned on the | Comparing the heatmaps, we observe a promi-:
+Row 22: Scores evaluated on our enriched judgments set: optimal human-annotated data, we find our listwise | Comparing the heatmaps, we observe a promi-: LLM with GPT-based instruction fine-tuning.
+Row 23: Scores evaluated on our enriched judgments set: models, fine-tuned under data non-optimized for | Comparing the heatmaps, we observe a promi-: To investigate if more GPT-alike instruction fineRow 24: Scores evaluated on our enriched judgments set: its purpose, perform close to the best pointwise | Comparing the heatmaps, we observe a promi-: tuning would further benefit the listwise ranking
+Row 25: Scores evaluated on our enriched judgments set: rerankers in the same model size on TREC-DL- | Comparing the heatmaps, we observe a promi-: results, we ran the same experiment on VicunaRow 26: Scores evaluated on our enriched judgments set: 19. Comparing row (12) to row (6), where both | Comparing the heatmaps, we observe a promi-: v1.5. As shown in rows (1, 2) in Table 2, while
+Row 27: Scores evaluated on our enriched judgments set: listwise and pointwise rerankers are based on the | Comparing the heatmaps, we observe a promi-: fine-tuning based on Vicuna achieved slightly betRow 28: Scores evaluated on our enriched judgments set: same size of models (7B) and reranking the same | Comparing the heatmaps, we observe a promi-: ter results on both datasets, the difference is not
+Row 29: Scores evaluated on our enriched judgments set: candidates from the first-stage retriever, there is | Comparing the heatmaps, we observe a promi-: significant. Thus we conclude starting from a GPTRow 30: Scores evaluated on our enriched judgments set: only a small gap between the nDCG@10 on TREC- | Comparing the heatmaps, we observe a promi-: free LLM is able to yield satisfactory effectiveness
+[/TABLE]
+
+[PAGE 8]
+Model DL-19 DL-20
+(1) QLoRA Code-LLaMA-Instruct0.718 0.674
+(2) QLoRA Vicuna-v1.5 0.728 0.683
+(3) Full Vicuna-v1.5 0.727 0.674
+Table 2: Results when using Code-LLaMA-Instruct and
+Vicuna as the initial LLM, and when fine-tuning Vicuna
+with QLoRA or all parameters (Full). All models are in
+size 7B and fine-tuned on 10k datapoints for 8 epochs.
+compared the effectiveness of the two fine-tuning
+strategies on Vicuna. 8 As shown in rows (2, 3)
+in Table 2, fine-tuning with QLoRA yields similar
+effectiveness as fine-tuning all parameters on both
+datasets, with the same amount of training data and
+the fine-tuning epochs.
+7 Related Work
+In the past few years, the question of how generative models could bring benefits to information
+retrieval has been an area of intense study, with a
+number of differing and complementary techniques
+emerging. The strong generative performance of
+LLMs has been leveraged for retrieval by generating a large volume of synthetic datasets on domains: InPars (Bonifacio et al., 2022; Jeronymo
+et al., 2023), and Promptagator (Dai et al., 2022).
+In parallel, researchers have investigated whether
+LLMs could be used directly as retrievers or
+rerankers: SGPT (Muennighoff, 2022) first shows
+that the GPT-based decoder models, are effective when used as bi-encoder in retrieval tasks.
+UPR (Sachan et al., 2022) uses the query likelihood as the ranking score. PRP (Qin et al., 2023)
+shows that the LLM can effectively determine
+the comparative relevance regarding the query,
+given a pair of documents. Recently, Ma et al.
+(2023a) demonstrate that fine-tuning LLAMA in
+the traditional paradigm of bi-encoder and pointwise cross-encoder surpasses smaller models.
+Finally, a line of work that is mostly relevant
+to our work regards LLMs as black boxes and
+only uses the final generative output for ranking: RankGPT (Sun et al., 2023) and LRL (Ma
+et al., 2023b) studied listwise rerankers concurrently, demonstrating its effectiveness using GPT-3,
+GPT-3.5, and GPT-4. RankVicuna (Pradeep et al.,
+2023) then showed that the method could be applied to a smaller-sized open-source LLM (e.g. Vi8We conducted the same experiment in Code-LLaMA-Instruct,
+however, the results were not in the correct scale. Thus we
+use Vicuna as a replacement in this ablation.
+cuna (Chiang et al., 2023) in 7B, 13B) by distilling
+from GPT-3.5. Tang et al. (2023) proposed a permutation self-consistency prompting method, which
+alleviates the positional bias and largely improves
+the effectiveness of the listwise ranking.
+8 Conclusions and Future Work
+In this work, we study how to construct effective
+GPT-free listwise rerankers based on open-source
+LLM models. Experiments on two passage retrieval datasets show that our listwise rerankers,
+without any form of dependency on GPT, can substantially outperform the ones built on GPT-3 and
+perform on par with the ones built on GPT-4.
+In this process, we find that current pointwise
+training data in IR is not sufficient in fine-tuning
+listwise rerankers. Instead, training data comprised
+of high-quality ranked document lists is required
+and crucial. While the training data generated by
+current pointwise rerankers could be used as a nice
+approximation, the models are likely to benefit
+more from higher-quality listwise training data that
+are built from human annotations.
+We hope this work sets up the stage for future
+research on the listwise ranking methods by bringing more diversity of the solutions to the research
+in this line. Additionally, we hope it paves the path
+for future work on addressing text retrieval in the
+text generation paradigm, where it could be formatted in the same way as the other text-to-text tasks,
+and thus better integrated into the unified system.
+Limitations
+Despite the new paradigm brought by listwise ranking, it still has intrinsic issues that are pending to
+be solved. The most prominent one is the query
+latency: since the current listwise rerankers depend on the sequential inference of models with
+extremely large sizes, they intrinsically suffer from
+higher query latency than rerankers based on BERTsize models.
+Acknowledgement
+We thank Ronak Pradeep for providing the data
+of RankVicuna, Xueguang Ma for providing the
+runfiles of RepLLaMA and RankLLaMA, and Pat
+Verga and Jiarui Xu for their helpful discussion and
+advice on the paper.
+
+[TABLE page=8 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Model DL-19 | DL-20 | Unnamed: 2 | cuna (Chiang et al., 2023) in 7B, 13B) by distilling
+Row 1: Unnamed: 0: (1) | Unnamed: 1: QLoRA | Model DL-19: Code-LLaMA-Instruct 0.718 | DL-20: 0.674 | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: from GPT-3.5. Tang et al. (2023) proposed a permuRow 2: Unnamed: 0: (2) | Unnamed: 1: QLoRA | Model DL-19: Vicuna-v1.5 0.728 | DL-20: 0.683 | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: tation self-consistency prompting method, which
+Row 3: Unnamed: 0: (3) | Unnamed: 1: Full | Model DL-19: Vicuna-v1.5 0.727 | DL-20: 0.674 | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: alleviates the positional bias and largely improves
+Row 4: Unnamed: 0: | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: the effectiveness of the listwise ranking.
+Row 5: Unnamed: 0: Table 2: Results when using Code-LLaMA-Instruct and | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling:
+Row 6: Unnamed: 0: Vicuna as the initial LLM, and when fine-tuning Vicuna | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling:
+Row 7: Unnamed: 0: with QLoRA or all parameters (Full). All models are in | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: 8 Conclusions and Future Work
+Row 8: Unnamed: 0: size 7B and fine-tuned on 10k datapoints for 8 epochs. | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling:
+Row 9: Unnamed: 0: | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: In this work, we study how to construct effective
+Row 10: Unnamed: 0: | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: GPT-free listwise rerankers based on open-source
+Row 11: Unnamed: 0: compared the effectiveness of the two fine-tuning | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: LLM models. Experiments on two passage reRow 12: Unnamed: 0: strategies on Vicuna.8 | Unnamed: 1: | Model DL-19: As shown in rows (2, | DL-20: 3) | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: trieval datasets show that our listwise rerankers,
+Row 13: Unnamed: 0: in Table 2, fine-tuning with QLoRA yields similar | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: without any form of dependency on GPT, can subRow 14: Unnamed: 0: effectiveness as fine-tuning all parameters on both | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: stantially outperform the ones built on GPT-3 and
+Row 15: Unnamed: 0: datasets, with the same amount of training data and | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: perform on par with the ones built on GPT-4.
+Row 16: Unnamed: 0: the fine-tuning epochs. | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: In this process, we find that current pointwise
+Row 17: Unnamed: 0: | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: training data in IR is not sufficient in fine-tuning
+Row 18: Unnamed: 0: 7 | Unnamed: 1: Related Work | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling:
+Row 19: Unnamed: 0: | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: listwise rerankers. Instead, training data comprised
+Row 20: Unnamed: 0: In the past few years, the question of how gener- | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: of high-quality ranked document lists is required
+Row 21: Unnamed: 0: ative models could bring benefits to information | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: and crucial. While the training data generated by
+Row 22: Unnamed: 0: retrieval has been an area of intense study, with a | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: current pointwise rerankers could be used as a nice
+Row 23: Unnamed: 0: number of differing and complementary techniques | Unnamed: 1: | Model DL-19: | DL-20: | Unnamed: 2: | cuna (Chiang et al., 2023) in 7B, 13B) by distilling: approximation, the models are likely to benefit
+[/TABLE]
+
+[TABLE page=8 index=2]
+Columns: mains: InPars (Bonifacio et al., 2022; Jeronymo | Unnamed: 0 | research on the listwise ranking methods by bringRow 1: mains: InPars (Bonifacio et al., 2022; Jeronymo: et al., 2023), and Promptagator (Dai et al., 2022). | Unnamed: 0: | research on the listwise ranking methods by bring-: ing more diversity of the solutions to the research
+Row 2: mains: InPars (Bonifacio et al., 2022; Jeronymo: In parallel, researchers have investigated whether | Unnamed: 0: | research on the listwise ranking methods by bring-: in this line. Additionally, we hope it paves the path
+Row 3: mains: InPars (Bonifacio et al., 2022; Jeronymo: LLMs could be used directly as retrievers or | Unnamed: 0: | research on the listwise ranking methods by bring-: for future work on addressing text retrieval in the
+Row 4: mains: InPars (Bonifacio et al., 2022; Jeronymo: rerankers: SGPT (Muennighoff, 2022) first shows | Unnamed: 0: | research on the listwise ranking methods by bring-: text generation paradigm, where it could be formatRow 5: mains: InPars (Bonifacio et al., 2022; Jeronymo: that the GPT-based decoder models, are effec- | Unnamed: 0: | research on the listwise ranking methods by bring-: ted in the same way as the other text-to-text tasks,
+Row 6: mains: InPars (Bonifacio et al., 2022; Jeronymo: tive when used as bi-encoder in retrieval tasks. | Unnamed: 0: | research on the listwise ranking methods by bring-: and thus better integrated into the unified system.
+Row 7: mains: InPars (Bonifacio et al., 2022; Jeronymo: UPR (Sachan et al., 2022) uses the query likeli- | Unnamed: 0: | research on the listwise ranking methods by bring-:
+Row 8: mains: InPars (Bonifacio et al., 2022; Jeronymo: hood as the ranking score. PRP (Qin et al., 2023) | Unnamed: 0: | research on the listwise ranking methods by bring-: Limitations
+Row 9: mains: InPars (Bonifacio et al., 2022; Jeronymo: shows that the LLM can effectively determine | Unnamed: 0: | research on the listwise ranking methods by bring-:
+Row 10: mains: InPars (Bonifacio et al., 2022; Jeronymo: the comparative relevance regarding the query, | Unnamed: 0: | research on the listwise ranking methods by bring-: Despite the new paradigm brought by listwise rankRow 11: mains: InPars (Bonifacio et al., 2022; Jeronymo: given a pair of documents. Recently, Ma et al. | Unnamed: 0: | research on the listwise ranking methods by bring-: ing, it still has intrinsic issues that are pending to
+Row 12: mains: InPars (Bonifacio et al., 2022; Jeronymo: (2023a) demonstrate that fine-tuning LLAMA in | Unnamed: 0: | research on the listwise ranking methods by bring-: be solved. The most prominent one is the query
+Row 13: mains: InPars (Bonifacio et al., 2022; Jeronymo: the traditional paradigm of bi-encoder and point- | Unnamed: 0: | research on the listwise ranking methods by bring-: latency: since the current listwise rerankers de-
+[/TABLE]
+
+[TABLE page=8 index=3]
+Columns: ating a large volume of synthetic datasets on do- | We hope this work sets up the stage for future
+Row 1: ating a large volume of synthetic datasets on do-: mains: InPars (Bonifacio et al., 2022; Jeronymo | We hope this work sets up the stage for future: research on the listwise ranking methods by bring
+Row 2: ating a large volume of synthetic datasets on do-: et al., 2023), and Promptagator (Dai et al., 2022). | We hope this work sets up the stage for future: ing more diversity of the solutions to the research
+Row 3: ating a large volume of synthetic datasets on do-: In parallel, researchers have investigated whether | We hope this work sets up the stage for future: in this line. Additionally, we hope it paves the path
+Row 4: ating a large volume of synthetic datasets on do-: LLMs could be used directly as retrievers or | We hope this work sets up the stage for future: for future work on addressing text retrieval in the
+Row 5: ating a large volume of synthetic datasets on do-: rerankers: SGPT (Muennighoff, 2022) first shows | We hope this work sets up the stage for future: text generation paradigm, where it could be format
+Row 6: ating a large volume of synthetic datasets on do-: that the GPT-based decoder models, are effec- | We hope this work sets up the stage for future: ted in the same way as the other text-to-text tasks,
+Row 7: ating a large volume of synthetic datasets on do-: tive when used as bi-encoder in retrieval tasks. | We hope this work sets up the stage for future: and thus better integrated into the unified system.
+Row 8: ating a large volume of synthetic datasets on do-: UPR (Sachan et al., 2022) uses the query likeli- | We hope this work sets up the stage for future:
+Row 9: ating a large volume of synthetic datasets on do-: hood as the ranking score. PRP (Qin et al., 2023) | We hope this work sets up the stage for future: Limitations
+Row 10: ating a large volume of synthetic datasets on do-: shows that the LLM can effectively determine | We hope this work sets up the stage for future:
+Row 11: ating a large volume of synthetic datasets on do-: the comparative relevance regarding the query, | We hope this work sets up the stage for future: Despite the new paradigm brought by listwise rank
+Row 12: ating a large volume of synthetic datasets on do-: given a pair of documents. Recently, Ma et al. | We hope this work sets up the stage for future: ing, it still has intrinsic issues that are pending to
+Row 13: ating a large volume of synthetic datasets on do-: (2023a) demonstrate that fine-tuning LLAMA in | We hope this work sets up the stage for future: be solved. The most prominent one is the query
+Row 14: ating a large volume of synthetic datasets on do-: the traditional paradigm of bi-encoder and point- | We hope this work sets up the stage for future: latency: since the current listwise rerankers de
+Row 15: ating a large volume of synthetic datasets on do-: wise cross-encoder surpasses smaller models. | We hope this work sets up the stage for future: pend on the sequential inference of models with
+Row 16: ating a large volume of synthetic datasets on do-: Finally, a line of work that is mostly relevant | We hope this work sets up the stage for future: extremely large sizes, they intrinsically suffer from
+Row 17: ating a large volume of synthetic datasets on do-: to our work regards LLMs as black boxes and | We hope this work sets up the stage for future: higher query latency than rerankers based on BERT
+Row 18: ating a large volume of synthetic datasets on do-: only uses the final generative output for rank- | We hope this work sets up the stage for future: size models.
+Row 19: ating a large volume of synthetic datasets on do-: ing: RankGPT (Sun et al., 2023) and LRL (Ma | We hope this work sets up the stage for future:
+Row 20: ating a large volume of synthetic datasets on do-: et al., 2023b) studied listwise rerankers concur- | We hope this work sets up the stage for future: Acknowledgement
+Row 21: ating a large volume of synthetic datasets on do-: rently, demonstrating its effectiveness using GPT-3, | We hope this work sets up the stage for future:
+Row 22: ating a large volume of synthetic datasets on do-: GPT-3.5, and GPT-4. RankVicuna (Pradeep et al., | We hope this work sets up the stage for future: We thank Ronak Pradeep for providing the data
+Row 23: ating a large volume of synthetic datasets on do-: 2023) then showed that the method could be ap- | We hope this work sets up the stage for future: of RankVicuna, Xueguang Ma for providing the
+Row 24: ating a large volume of synthetic datasets on do-: plied to a smaller-sized open-source LLM (e.g. Vi- | We hope this work sets up the stage for future: runfiles of RepLLaMA and RankLLaMA, and Pat
+[/TABLE]
+
+[PAGE 9]
+References
+Payal Bajaj, Daniel Campos, Nick Craswell, Li Deng,
+Jianfeng Gao, Xiaodong Liu, Rangan Majumder, Andrew McNamara, Bhaskar Mitra, Tri Nguyen, et al.
+2016. MS MARCO: A human generated machine
+reading comprehension dataset. arXiv:1611.09268.
+Luiz Bonifacio, Hugo Abonizio, Marzieh Fadaee, and
+Rodrigo Nogueira. 2022. InPars: Unsupervised
+dataset generation for information retrieval. In Proceedings of the 45th International ACM SIGIR Conference on Research and Development in Information
+Retrieval, pages 2387–2392.
+Zhe Cao, Tao Qin, Tie-Yan Liu, Ming-Feng Tsai, and
+Hang Li. 2007. Learning to rank: From pairwise
+approach to listwise approach. In Proceedings of the
+24th International Conference on Machine Learning, ICML ’07, page 129–136, New York, NY , USA.
+Association for Computing Machinery.
+Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng,
+Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan
+Zhuang, Yonghao Zhuang, Joseph E. Gonzalez, Ion
+Stoica, and Eric P. Xing. 2023. Vicuna: An opensource chatbot impressing GPT-4 with 90%* ChatGPT quality.
+Nick Craswell, Bhaskar Mitra, Emine Yilmaz, and
+Daniel Campos. 2021. Overview of the TREC 2020
+deep learning track. arXiv:2102.07662.
+Nick Craswell, Bhaskar Mitra, Emine Yilmaz,
+Daniel Campos, and Ellen M. V oorhees. 2020.
+Overview of the TREC 2019 deep learning track.
+arXiv:2003.07820.
+Zhuyun Dai, Vincent Y Zhao, Ji Ma, Yi Luan, Jianmo
+Ni, Jing Lu, Anton Bakalov, Kelvin Guu, Keith B
+Hall, and Ming-Wei Chang. 2022. Promptagator: Few-shot dense retrieval from 8 examples.
+arXiv:2209.11755.
+Tri Dao. 2023. FlashAttention-2: Faster attention with better parallelism and work partitioning.
+arXiv:2307.08691.
+Tri Dao, Daniel Y . Fu, Stefano Ermon, Atri Rudra,
+and Christopher Ré. 2022. FlashAttention: Fast and
+memory-efficient exact attention with IO-awareness.
+In Advances in Neural Information Processing Systems.
+Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and
+Luke Zettlemoyer. 2023. QLoRA: Efficient finetuning of quantized LLMs. arXiv:2305.14314.
+Luyu Gao, Zhuyun Dai, and Jamie Callan. 2021. Rethink training of bert rerankers in multi-stage retrieval
+pipeline. In Advances in Information Retrieval: 43rd
+European Conference on IR Research, ECIR 2021,
+Virtual Event, March 28 – April 1, 2021, Proceedings,
+Part II, page 280–286, Berlin, Heidelberg. SpringerVerlag.
+Gautier Izacard, Mathilde Caron, Lucas Hosseini, Sebastian Riedel, Piotr Bojanowski, Armand Joulin,
+and Edouard Grave. 2021. Unsupervised dense
+information retrieval with contrastive learning.
+arXiv:2112.09118.
+Vitor Jeronymo, Luiz Bonifacio, Hugo Abonizio,
+Marzieh Fadaee, Roberto Lotufo, Jakub Zavrel, and
+Rodrigo Nogueira. 2023. InPars-v2: Large language
+models as efficient dataset generators for information
+retrieval. arXiv:2301.01820.
+Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy
+Liang. 2023. Lost in the middle: How language
+models use long contexts. arXiv:2307.03172.
+Xueguang Ma, Wang Liang, Nan Yang, Wei Furu, and
+Jimmy Lin. 2023a. Fine-tuning LLaMA for multistage text retrieval. arXiv:2309.15088.
+Xueguang Ma, Xinyu Zhang, Ronak Pradeep, and
+Jimmy Lin. 2023b. Zero-shot listwise document reranking with a large language model.
+arXiv:2305.02156.
+Niklas Muennighoff. 2022. SGPT: GPT sentence embeddings for semantic search. arXiv:2202.08904.
+Rodrigo Nogueira and Kyunghyun Cho. 2019. Passage
+re-ranking with BERT. arXiv:1901.04085.
+Rodrigo Nogueira, Zhiying Jiang, and Jimmy Lin. 2020.
+Document ranking with a pretrained sequence-tosequence model. arXiv:2003.06713.
+Ronak Pradeep, Yuqi Liu, Xinyu Zhang, Yilin Li, Andrew Yates, and Jimmy Lin. 2022. Squeezing water
+from a stone: A bag of tricks for further improving cross-encoder effectiveness for reranking. In
+Advances in Information Retrieval, pages 655–670,
+Cham. Springer International Publishing.
+Ronak Pradeep, Rodrigo Nogueira, and Jimmy J. Lin.
+2021. The expando-mono-duo design pattern for
+text ranking with pretrained sequence-to-sequence
+models. arXiv:2101.05667.
+Ronak Pradeep, Sahel Sharifymoghaddam, and Jimmy
+Lin. 2023. RankVicuna: Zero-shot listwise document reranking with open-source large language models. arXiv:2309.15088.
+Zhen Qin, Rolf Jagerman, Kai Hui, Honglei Zhuang,
+Junru Wu, Jiaming Shen, Tianqi Liu, Jialu Liu, Donald Metzler, Xuanhui Wang, et al. 2023. Large language models are effective text rankers with pairwise
+ranking prompting. arXiv:2306.17563.
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine
+Lee, Sharan Narang, Michael Matena, Yanqi Zhou,
+Wei Li, and Peter J. Liu. 2020. Exploring the limits
+of transfer learning with a unified text-to-text transformer. J. Mach. Learn. Res., 21(1).
+
+[PAGE 10]
+Stephen Robertson, Hugo Zaragoza, et al. 2009. The
+probabilistic relevance framework: BM25 and beyond. Foundations and Trends in Information Retrieval.
+Baptiste Roziere, Jonas Gehring, Fabian Gloeckle, Sten
+Sootla, Itai Gat, Xiaoqing Ellen Tan, Yossi Adi,
+Jingyu Liu, Tal Remez, Jérémy Rapin, et al. 2023.
+Code Llama: Open foundation models for code.
+arXiv:2308.12950.
+Devendra Sachan, Mike Lewis, Mandar Joshi, Armen
+Aghajanyan, Wen-tau Yih, Joelle Pineau, and Luke
+Zettlemoyer. 2022. Improving passage retrieval with
+zero-shot question generation. In Proceedings of the
+2022 Conference on Empirical Methods in Natural
+Language Processing, pages 3781–3797, Abu Dhabi,
+United Arab Emirates.
+Weiwei Sun, Lingyong Yan, Xinyu Ma, Pengjie Ren,
+Dawei Yin, and Zhaochun Ren. 2023. Is ChatGPT
+good at search? Investigating large language models
+as re-ranking agent. arXiv:2304.09542.
+Raphael Tang, Xinyu Zhang, Xueguang Ma, Jimmy Lin,
+and Ferhan Ture. 2023. Found in the middle: Permutation self-consistency improves listwise ranking in
+large language models. arXiv:2310.07712.
+Nandan Thakur, Nils Reimers, Andreas Rücklé, Abhishek Srivastava, and Iryna Gurevych. 2021. BEIR:
+A heterogeneous benchmark for zero-shot evaluation
+of information retrieval models. In Thirty-fifth Conference on Neural Information Processing Systems
+Datasets and Benchmarks Track (Round 2).
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,
+et al. 2022. Chain-of-thought prompting elicits reasoning in large language models. Advances in Neural
+Information Processing Systems, 35:24824–24837.
+Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan
+Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin,
+Zhuohan Li, Dacheng Li, Eric. P Xing, Hao Zhang,
+Joseph E. Gonzalez, and Ion Stoica. 2023. Judging
+LLM-as-a-judge with MT-Bench and Chatbot Arena.
+arXiv:2306.05685.
+Honglei Zhuang, Zhen Qin, Rolf Jagerman, Kai Hui,
+Ji Ma, Jing Lu, Jianmo Ni, Xuanhui Wang, and Mike
+Bendersky. 2023. RankT5: Fine-tuning T5 for text
+ranking with ranking losses. In Proc. of the 46th
+International ACM SIGIR Conference on Research
+and Development in Information Retrieval (SIGIR).
+
+[PAGE 11]
+BM25 GTR-XXL cpt-text-XL Ada2 SGPT RepLLaMA RankT5 RankLLaMA RankLLaMA Rank-wo-GPT
+Model Size – 4.8B 175B ? 5.8G 7B 220M 7B 13B 7B
+DBPedia 31.8 40.8 43.2 40.2 39.9 43.7 44.2 48.3 48.7 42.3
+FiQA 23.6 46.7 51.2 41.1 37.2 45.8 44.5 46.5 48.1 35.1
+NF Corpus 32.2 34.2 40.7 35.8 36.2 37.8 38.1 30.3 28.4 32.8
+SCIDOCS 14.9 16.1 - 18.6 19.7 18.1 18.1 17.8 19.0 16.2
+SciFact 67.9 66.2 75.4 73.6 74.7 75.6 75.0 73.2 73.0 64.7
+TREC-COVID59.5 50.1 64.9 81.3 87.3 84.7 80.7 85.2 86.1 80.4
+Average 38.3 42.4 55.1 48.4 49.2 51.0 50.1 50.2 50.6 45.2
+Table 3: nDCG@10 scores on BEIR subset
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 1
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 2
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 3
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: all
+(a) Pointwise Model (RankLLaMA)
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 1
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 2
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: 3
+0 10 20 30 40 50 60 70 80 90
+Position in Output
+90Position in Input
+Label: all
+(b) Listwise Model (Rank-wo-GPT)
+Figure 6: The full version of Figure 5, showing a separate heatmap for documents at each relevant level. Labels
+from 1 to 3 indicate the passage has increasing relevance to the query. x-axis: the passage positions in the reranked
+list; y-axis: the passage positions in the first-stage list.
+A Out-of-Domain Results
+In this section, we share the out-of-domain results
+on BEIR (Thakur et al., 2021) of the 7B model,
+reranking the top-100 passages returned by BM25.
+Unfortunately, we only observe an unsatisfied generalization ability of the current model. This requires future work on adapting fine-tuned listwise
+rerankers into different domains. Results are reported in Table 3.
+B Heatmaps of Sliding Window Strategy
+on All Relevance Levels
+In Section 5.5, we share the visualization of all the
+relevant passages positions before and after reranking. In Figure 6, we show similar visualization
+separately for passages in different relevance level,
+showing that the trend is similar overall.
+C Additional Annotation on TREC-DL
+As mentioned in Section 5.4, the authors manually annotated the unlabeled query–passage pairs
+in top-10 returned by some rerankers. We share the
+annotation results in the following pages.
+
+[TABLE page=11 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 | Position in Input | Position in Input.1
+Row 1: Unnamed: 0: | Unnamed: 1: BM25 GTR-XXL | Unnamed: 2: | Unnamed: 3: cpt-text-XL Ada2 | Unnamed: 4: SGPT | Unnamed: 5: RepLLaMA | Unnamed: 6: RankT5 | Unnamed: 7: RankLLaMA | Unnamed: 8: | Position in Input: RankLLaMA Rank-wo-GPT | Position in Input.1:
+Row 2: Unnamed: 0: Model Size | Unnamed: 1: – | Unnamed: 2: 4.8B | Unnamed: 3: 175B ? | Unnamed: 4: 5.8G | Unnamed: 5: 7B | Unnamed: 6: 220M | Unnamed: 7: | Unnamed: 8: 7B | Position in Input: 13B 7B | Position in Input.1:
+Row 3: Unnamed: 0: DBPedia | Unnamed: 1: 31.8 | Unnamed: 2: 40.8 | Unnamed: 3: 43.2 40.2 | Unnamed: 4: 39.9 | Unnamed: 5: 43.7 | Unnamed: 6: 44.2 | Unnamed: 7: | Unnamed: 8: 48.3 | Position in Input: 48.7 42.3 | Position in Input.1:
+Row 4: Unnamed: 0: FiQA | Unnamed: 1: 23.6 | Unnamed: 2: 46.7 | Unnamed: 3: 51.2 41.1 | Unnamed: 4: 37.2 | Unnamed: 5: 45.8 | Unnamed: 6: 44.5 | Unnamed: 7: | Unnamed: 8: 46.5 | Position in Input: 48.1 35.1 | Position in Input.1:
+Row 5: Unnamed: 0: NF Corpus | Unnamed: 1: 32.2 | Unnamed: 2: 34.2 | Unnamed: 3: 40.7 35.8 | Unnamed: 4: 36.2 | Unnamed: 5: 37.8 | Unnamed: 6: 38.1 | Unnamed: 7: | Unnamed: 8: 30.3 | Position in Input: 28.4 32.8 | Position in Input.1:
+Row 6: Unnamed: 0: SCIDOCS | Unnamed: 1: 14.9 | Unnamed: 2: 16.1 | Unnamed: 3: - 18.6 | Unnamed: 4: 19.7 | Unnamed: 5: 18.1 | Unnamed: 6: 18.1 | Unnamed: 7: | Unnamed: 8: 17.8 | Position in Input: 19.0 16.2 | Position in Input.1:
+Row 7: Unnamed: 0: SciFact | Unnamed: 1: 67.9 | Unnamed: 2: 66.2 | Unnamed: 3: 75.4 73.6 | Unnamed: 4: 74.7 | Unnamed: 5: 75.6 | Unnamed: 6: 75.0 | Unnamed: 7: | Unnamed: 8: 73.2 | Position in Input: 73.0 64.7 | Position in Input.1:
+Row 8: Unnamed: 0: TREC-COVID | Unnamed: 1: 59.5 | Unnamed: 2: 50.1 | Unnamed: 3: 64.9 81.3 | Unnamed: 4: 87.3 | Unnamed: 5: 84.7 | Unnamed: 6: 80.7 | Unnamed: 7: | Unnamed: 8: 85.2 | Position in Input: 86.1 80.4 | Position in Input.1:
+Row 9: Unnamed: 0: Average | Unnamed: 1: 38.3 | Unnamed: 2: 42.4 | Unnamed: 3: 55.1 48.4 | Unnamed: 4: 49.2 | Unnamed: 5: 51.0 | Unnamed: 6: 50.1 | Unnamed: 7: | Unnamed: 8: 50.2 | Position in Input: 50.6 45.2 | Position in Input.1:
+Row 10: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: Table 3: nDCG@10 scores on BEIR subset | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: | Position in Input.1:
+Row 11: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: Position in Input | Position in Input.1: Position in Input
+Row 12: Unnamed: 0: Label: 1 | Unnamed: 1: | Unnamed: 2: 3 | Unnamed: 3: Label: 2 | Unnamed: 4: | Unnamed: 5: 7 | Unnamed: 6: Label: 3 | Unnamed: 7: | Unnamed: 8: 7 | Position in Input: Label: all | Position in Input.1:
+Row 13: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 14 | Position in Input.1:
+Row 14: Unnamed: 0: 90 | Unnamed: 1: | Unnamed: 2: 90 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 6 90 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 6 | Position in Input: 90 | Position in Input.1:
+Row 15: Unnamed: 0: 80 | Unnamed: 1: | Unnamed: 2: 80 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 80 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 80 12 | Position in Input.1:
+Row 16: Unnamed: 0: 70 | Unnamed: 1: | Unnamed: 2: 2 70 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 5 70 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 5 | Position in Input: 70 10 | Position in Input.1:
+Row 17: Unnamed: 0: 60 | Unnamed: 1: | Unnamed: 2: 60 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 604 60 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 4 | Position in Input: | Position in Input.1:
+Row 18: Unnamed: 0: 50 | Unnamed: 1: | Unnamed: 2: 50 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 50 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 50 8 | Position in Input.1:
+Row 19: Unnamed: 0: 40 | Unnamed: 1: | Unnamed: 2: 40 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 3 40 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 3 | Position in Input: 40 6 | Position in Input.1:
+Row 20: Unnamed: 0: 30 | Unnamed: 1: | Unnamed: 2: 1 30 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 30 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 30 | Position in Input.1:
+Row 21: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 2 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 2 | Position in Input: | Position in Input.1:
+Row 22: Unnamed: 0: 20 | Unnamed: 1: | Unnamed: 2: 20 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 20 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 20 4 | Position in Input.1:
+Row 23: Unnamed: 0: 10 | Unnamed: 1: | Unnamed: 2: 10 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 1 10 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 1 | Position in Input: 10 2 | Position in Input.1:
+Row 24: Unnamed: 0: 0 | Unnamed: 1: | Unnamed: 2: 0 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 0 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 0 | Position in Input.1:
+Row 25: Unnamed: 0: 0 10 20 30 40 50 60 70 80 90 | Unnamed: 1: | Unnamed: 2: 0 | Unnamed: 3: 0 10 20 30 40 50 60 70 80 90 | Unnamed: 4: | Unnamed: 5: 0 0 10 20 30 40 50 60 70 80 90 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 0 | Position in Input: 0 10 20 30 40 50 60 70 80 90 0 | Position in Input.1:
+Row 26: Unnamed: 0: Position in Output | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: Position in Output | Unnamed: 4: | Unnamed: 5: Position in Output | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: PoPsoitsioitnio inn iOn uIntppuutt | Position in Input.1: Position in Input
+Row 27: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: (a) Pointwise Model (RankLLaMA) | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: | Position in Input.1:
+Row 28: Unnamed: 0: Label: 1 | Unnamed: 1: | Unnamed: 2: 4 | Unnamed: 3: Label: 2 | Unnamed: 4: | Unnamed: 5: 7 | Unnamed: 6: Label: 3 | Unnamed: 7: | Unnamed: 8: 7 | Position in Input: Label: all | Position in Input.1:
+Row 29: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 14 | Position in Input.1:
+Row 30: Unnamed: 0: 90 | Unnamed: 1: | Unnamed: 2: 90 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 6 90 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 6 | Position in Input: 90 | Position in Input.1:
+Row 31: Unnamed: 0: 80 | Unnamed: 1: | Unnamed: 2: 80 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 80 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 80 12 | Position in Input.1:
+Row 32: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: 3 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: | Position in Input.1:
+Row 33: Unnamed: 0: 70 | Unnamed: 1: | Unnamed: 2: 70 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 5 70 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 5 | Position in Input: 70 10 | Position in Input.1:
+Row 34: Unnamed: 0: 60 | Unnamed: 1: | Unnamed: 2: 60 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 604 60 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 4 | Position in Input: | Position in Input.1:
+Row 35: Unnamed: 0: 50 | Unnamed: 1: | Unnamed: 2: 250 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 50 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 50 8 | Position in Input.1:
+Row 36: Unnamed: 0: 40 | Unnamed: 1: | Unnamed: 2: 40 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 3 40 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 3 | Position in Input: 40 6 | Position in Input.1:
+Row 37: Unnamed: 0: 30 | Unnamed: 1: | Unnamed: 2: 30 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 30 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 30 | Position in Input.1:
+Row 38: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 2 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 2 | Position in Input: | Position in Input.1:
+Row 39: Unnamed: 0: 20 | Unnamed: 1: | Unnamed: 2: 1 20 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 20 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 20 4 | Position in Input.1:
+Row 40: Unnamed: 0: 10 | Unnamed: 1: | Unnamed: 2: 10 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 1 10 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 1 | Position in Input: 10 2 | Position in Input.1:
+Row 41: Unnamed: 0: 0 | Unnamed: 1: | Unnamed: 2: 0 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 0 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Position in Input: 0 | Position in Input.1:
+Row 42: Unnamed: 0: 0 10 20 30 40 50 60 70 80 90 | Unnamed: 1: | Unnamed: 2: 0 | Unnamed: 3: 0 10 20 30 40 50 60 70 80 90 | Unnamed: 4: | Unnamed: 5: 0 0 10 20 30 40 50 60 70 80 90 | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: 0 | Position in Input: 0 10 20 3P0os4i0tio5n0 i6n0 In7p0u8t 0 90 0 | Position in Input.1: Position in Input
+[/TABLE]
+
+[PAGE 12]
+Query 1063750: why did the us volunterilay enter ww1
+Label 0
+1126299 World War 1 : How did WW1 affect the United States? The United States was affected by World War 1. The U.S
+was effected by political/social problems, racial conflicts and foreign policy issues. For example, the United States
+was effected by Isolationism, the Red Scare, and the Red Summer. The United States was affected by foreign
+policy issues with Isolationism.
+Query 1114819: what is durable medical equipment consist of
+Label 3
+1724525 List of Durable Medical Equipment Items. This is a list of items you may need to use to manage your health
+or the health of a loved one. Many of these items are covered by Medicare. Air Cleaners. Air Conditioners.
+Air-Fluidized Bed. Alternating Pressure Pads and Mattresses. Audible/Visible Signal Pacemaker Monitor.
+Augmentative Communication Device. Bathtub Lifts.
+Query 1115776: what is an aml surveillance analyst
+Label 0
+5483591 A professional designation awarded by the Association of Certified Anti-Money Laundering Specialists (ACAMS)
+to anti-money laundering professionals who have 40 qualifying credits based on education, other professional
+certification and work experience, who pass the CAMS examination and who provide three professional references.
+Query 1129237: hydrogen is a liquid below what temperature
+Label 3
+4254816 Hydrogen is a liquid at -253 degree C and it is very near to absolute zero which is known as -273 degree C. Edit.
+Share to: 1 The Periodic Table of Elements Life is sustained by a number of chemical elements. 2 They are
+responsible for the birth of planets and the evolution of cells to complex organisms.
+Query 130510: definition declaratory judgment
+Label 0
+5668642 declaration. n. 1. (Rhetoric) an explicit or emphatic statement. 2. (Rhetoric) a formal statement or announcement;
+proclamation. 3. (Rhetoric) the act of declaring. 4. (Law) the ruling of a judge or court on a question of law, esp
+in the chancery division of the High Court.
+Query 182539: example of monotonic function
+Label 0
+1787567 Example: the function v(x) = x3 - x2 + 4x. To move C spaces to the left, add C to x wherever x appears: w(x) = (x
++ C)3 - (x + C)2 + 4(x + C) An easy way to remember what happens to the graph when we add a constant: add to
+y to go high. add to x to go left.
+Query 405717: is cdg airport in main paris
+Label 1
+7288990 Charles de Gaulle Airport is located within portions of several communes 25 km (16 mi) to the northeast of Paris.
+Charles de Gaulle Airport serves as the principal hub for Air France as well as a focus city for low-cost carriers
+Vueling and Norwegian Air Shuttle.
+Query 87452: causes of military suicide
+Label 1
+8333913 But the military will have to change the way it handles soldiers with mental illness if we expect to see the number
+of suicides decline, according to the author of a related editorial published in the journal. V A boss: ’No veteran
+should have to wait for claims’.
+Query 1106007: define visceral?
+Label 3
+746358 Visceral, which means “pertaining to the soft organs in the abdomen,” is the fat stored deep in our abdomens
+around the intestines, kidneys, pancreas and liver. This is the stuff that tends to make our tummies protrude in
+classic “beer belly” fashion.
+Label 0
+2186171 Visceral (Smooth) Muscle. Visceral muscle is found in various parts of the body including blood vessels, the
+bladder, digestive tract, as well as in many other hollow organs. Like cardiac muscle, most visceral muscle is
+regulated by the autonomic nervous system and is under involuntary control.
+Query 87181: causes of left ventricular hypertrophy
+
+[PAGE 13]
+Label 3
+3363613 An enlarged left ventricle is usually due to either cardiomyopathy (a weakening of the heart muscle) or valvular
+heart disease. Valve disease is usually treated by correcting the underlying valve problem (initially with medicines,
+often later with surgery). The most common cause of an enlarged left ventricle is cardiomyopathy. Initial treatment
+is with medications, such as diuretics, digitalis, vasodilators (ACE inhibitors and/or ARB inhibitors), and beta
+blockers, such as carvedilol (Coreg) or metoprolol (Lopressor, Toprol XL).
+Label 0
+3216319 However, high blood pressure, or hypertension, is the most common cause by far. Higher pressures within blood
+vessels put a strain on the ventricle, making it difficult to satisfy the body’s needs. Also, narrowing of the aortic
+valve, or stenosis, obstructs blood flow from the left ventricle. In patients with HCM, the ventricle can become
+thick and stiff, which adds extra strain on the heart.
+Query 527433: types of dysarthria from cerebral palsy
+Label 0
+2722036 Cerebral palsy is a group of disorders that can involve brain and nervous system functions, such as movement,
+learning, hearing, seeing, and thinking. There are several different types of cerebral palsy, including spastic,
+dyskinetic, ataxic, hypotonic, and mixed.
+6015377 Dysarthria is a motor speech disorder resulting from neurological injury of the motor component of the motorspeech system and is characterized by poor articulation of phonemes (cf. aphasia: a disorder of the content of
+language).
+7748146 Cerebral palsy is a general term describing conditions that cause movement problems. The most common type
+is spastic cerebral palsy where the muscles are stiff and rigid in one or more limbs. The underlying problem is
+damage to, or faulty development of, part of the brain.
+Query 148538: difference between rn and bsn
+Label 3
+1516299 A registered nurse (RN) is a nurse who has passed the National Council Licensure Examination for Registered
+Nurses (NCLEX-RN) after completing an accredited training program. These programs come in the form of an
+Associate of Science in Nursing (ASN) or a Bachelor of Science in Nursing (BSN). The degrees differ in the time
+it takes to complete them and the type of coursework required for graduation.
+332406 RN vs. BSN: education requirements. The first thing you should know is that becoming an RN means passing
+the NCLEX exam. There is no way around it. To be eligible to sit for the NCLEX you must first earn either an
+associate degree in nursing (ADN) or a Bachelor of Science in nursing (BSN).The former requires completion of
+a 21-month program at a career-focused college.he first thing you should know is that becoming an RN means
+passing the NCLEX exam. There is no way around it. To be eligible to sit for the NCLEX you must first earn
+either an associate degree in nursing (ADN) or a Bachelor of Science in nursing (BSN).
+4539659 That additional level of education means that BSNs generally have more opportunities and larger salaries than
+RNs. Getting your BSN isn’t just something you do for yourself, though. It also benefits your patients. Studies
+have shown that BSNs have lower patient mortality rates and lower failure to rescue rates.
+Label 1
+7696609 IU Online RN-BSN Mobility Option. The RN to BSN Degree Completion program is designed for the RN to
+receive a Bachelor of Science degree in nursing (BSN). The program offers a flexible curriculum for the education
+of professional nurses competent in meeting the current and future health needs of society.
+Query 1037798: who is robert gray
+Label 0
+2360245 John Gray (philosopher) John Nicholas Gray (born 17 April 1948) is an English political philosopher with interests
+in analytic philosophy and the history of ideas. He retired in 2008 as School Professor of European Thought at
+the London School of Economics and Political Science.
+2360247 John Gray (I) John Gray was born in Brooklyn, New York, USA. He is a writer, director and producer, known for
+Reckless (2014) White Irish Drinkers (2010), Ghost Whisperer (2005), The Hunley (1999) Martin and Lewis, and
+Helter Skelter. He was the youngest recipient ever of an American Film Institute Independant Filmmaker Grant.
+2868740 (Redirected from Gary Leroi Gray) Gary LeRoi Gray (born February 12, 1987) is an actor and voice actor involved
+with movies, television, and animation. He is most recognized for his childhood role as Nelson Tibideaux, the son
+of Sondra Huxtable Tibideaux and Elvin Tibideaux on the NBC sitcom The Cosby Show. He appeared on the
+series during its eighth and final season (1991–1992).
+3914692 George Gray (born March 11, 1967 in Ballwin, Missouri) is an American Game Show Host, announcer, and
+comedian. He attended High School in Tucson, Arizona and graduated from the University of Arizona, during
+which time he played drums with a local band named The Reason Why with two of his friends.
+
+[PAGE 14]
+3986292 Robert Michael Bob Parr (born June 25, 1957) is an Emmy Award-winning English-born New Zealander, television
+personality, private security contractor, counter-terrorism expert and former UK Special Forces operator best
+known for his role as Team Leader and Executive Producer of Shadow Force on the History Channel.
+Query 1110199: what is wifi vs bluetooth
+Label 0
+291162 Wi-Fi (or WiFi) is a local area wireless computer networking technology that allows electronic devices to network,
+mainly using the 2.4 gigahertz (12 cm) UHF and 5 gigahertz (6 cm) SHF ISM radio bands. wireless router allows
+wired and wireless Ethernet LAN devices to connect to a (usually) single W AN device such as a cable modem or
+a DSL modem. A wireless router allows all three devices, mainly the access point and router, to be configured
+through one central utility.
+3647394 Electrical & Electronic Engineer & Hobbyist, Blogger, Gamer and Tech Enthusiast. If you want to connect your
+phone/laptop/tablet/pc to a WiFi router, using bluetooth, you can’t do that. They might share the same frequency
+but they can’t be connected with each other.
+421 Wi-Fi or WiFi is a technology that allows electronic devices to connect to a wireless LAN (WLAN) network,
+mainly using the 2.4 gigahertz (12 cm) UHF and 5 gigahertz (6 cm) SHF ISM radio bands.
+68578 Wi-Fi (or WiFi) is a local area wireless computer networking technology that allows electronic devices to network,
+mainly using the 2.4 gigahertz (12 cm) UHF and 5 gigahertz (6 cm) SHF ISM radio bands.
+7842393 Wi-Fi is a wireless local area network that enables portable computing devices to connect easily to the Internet.
+Standardized as IEEE 802.11 a,b,g,n, Wi-Fi approaches speeds of some types of wired Ethernet. Wi-Fi has
+become the de facto standard for access in private homes, within offices, and at public hotspots.
+Query 19335: anthropological definition of environment
+Label 3
+8828697 Environment. The environment is the world in which the organization operates, and includes conditions that
+influence the organization such as economic, social-cultural, legal-political, technological, and natural environment
+conditions. Environments are often described as either stable or dynamic.
+Label 2
+6512137 1 Meaning of environment. Environment means everything around to a living being. Especially the circumstances
+of life of people or society in their life conditions. It comprises the set of natural, social and cultural values
+existing in a place and at a particular time, that influence in the life of the human being and in the generations to
+come.
+7050803 The environment is the surroundings of an organism including the physical and chemical environment, and other
+organisms with which it comes into contact. This term is most frequently used in a human context, often referring
+to factors affecting our quality of life. Natural Resources.
+Label 0
+2250973 Environment. The term environment refers to an organization s natural and human surroundings. An organization
+s environment extends from within the organization itself to the global system, and includes air, water, land, flora,
+and fauna (including people), and natural resources of all kinds.
+6902386 An environment is the combination of all of the physical, chemical, and biological factors acting upon an organism
+or an ecological community. The interaction of these factors determines the form and survival of living things and
+of the environment itself.
+Query 443396: lps laws definition
+Label 1
+4526744 First: LPS for Protection for buildings and installations against direct strike by lightning. This type of LPS
+protects the building from damage by direct strike lightning but doesn’t prevent the lightning striking the building.
+This type of LPS can be divided into:-. Conventional lightning protection system,
+Label 0
+119472 Lipopolysaccharide (LPS) is the major component of the outer leaflet of the outer membrane of Gram-negative
+bacteria. The LPS molecule is composed of two biosynthetic entities: the lipid A-core and the O-polysaccharide
+(O-antigen).
+2143845 A foreign limited partnership is a partnership formed under the laws of any state other than this state or under the
+laws of a foreign country and having one or more general partners and one or more limited partners.o register
+cancellation or dissolution of the limited partnership, the company must complete Limited Partnership Certificate
+of Cancellation (Secretary of State Form LP-4/7) and submit it to the Secretary of State.
+
+[TABLE page=14 index=1]
+Columns: Query 19335: anthropological definition of environment
+Row 1: Query 19335: anthropological definition of environment: Label 3
+Row 2: Query 19335: anthropological definition of environment: 8828697 Environment. The environment is the world in which the organization operates, and includes conditions that
+Row 3: Query 19335: anthropological definition of environment: influence the organization such as economic, social-cultural, legal-political, technological, and natural environment
+Row 4: Query 19335: anthropological definition of environment: conditions. Environments are often described as either stable or dynamic.
+Row 5: Query 19335: anthropological definition of environment: Label 2
+Row 6: Query 19335: anthropological definition of environment: 6512137 1 Meaning of environment. Environment means everything around to a living being. Especially the circumstances
+Row 7: Query 19335: anthropological definition of environment: of life of people or society in their life conditions. It comprises the set of natural, social and cultural values
+Row 8: Query 19335: anthropological definition of environment: existing in a place and at a particular time, that influence in the life of the human being and in the generations to
+Row 9: Query 19335: anthropological definition of environment: come.
+Row 10: Query 19335: anthropological definition of environment: 7050803 The environment is the surroundings of an organism including the physical and chemical environment, and other
+Row 11: Query 19335: anthropological definition of environment: organisms with which it comes into contact. This term is most frequently used in a human context, often referring
+Row 12: Query 19335: anthropological definition of environment: to factors affecting our quality of life. Natural Resources.
+Row 13: Query 19335: anthropological definition of environment: Label 0
+Row 14: Query 19335: anthropological definition of environment: 2250973 Environment. The term environment refers to an organization s natural and human surroundings. An organization
+[/TABLE]
+
+[PAGE 15]
+2143847 DEFINITION of ’Limited Partnership-LP’. Two or more partners united to conduct a business jointly, and in which
+one or more of the partners is liable only to the extent of the amount of money that partner has invested.Limited
+partners do not receive dividends, but enjoy direct access to the flow of income and expenses.EFINITION of
+’Limited Partnership-LP’. Two or more partners united to conduct a business jointly, and in which one or more of
+the partners is liable only to the extent of the amount of money that partner has invested. Limited partners do not
+receive dividends, but enjoy direct access to the flow of income and expenses.
+6863145 The Last Planner System is a production planning system designed to produce predictable work flow and rapid
+learning in programming, design, construction and commissioning of projects. The Last Planner System (LPS) is
+developed by Glenn Ballard and Greg Howell as a production planning and control system to assist in smoothing
+variations in construction work flow, developing planning foresight, and reducing uncertainty in construction
+operations. The
+Query 1121709: what are the three percenters?
+Label 1
+3423064 A few things you should consider... Posted on April 13, 2014 by David Robertson in Constitution Issues // 2
+Comments. There have been a lot of questions lately in regard to the term “Three Percenter”. The term comes up
+every once in awhile, especially when perceived injustices are committed by the federal government.
+3423065 A few things you should consider... There have been a lot of questions lately in regard to the term “Three
+Percenter”. The term comes up every once in awhile, especially when perceived injustices are committed by the
+federal government.
+Label 0
+3518653 what is bond rate – the cost of the bond can depend on several factors. The first, of course, is the type of a bond.
+For a performance bond, the general starting rate is three percent (3%) of the contract. This amount will go lower
+as the contract size grows. For other bonds, the price is typically lower.
+4836900 The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The
+amount of interest the IRS charges on a tax liability changes quarterly. See below for the most current IRS interest
+rates. Beginning April 1, 2015, the interest rates for the IRS are:1 three (3) percent for overpayments [two (2)
+percent in the case of a corporation]; 2 three (3) percent for underpayments; 3 five (5) percent for large corporate
+underpayments; and.eginning April 1, 2015, the interest rates for the IRS are: 1 three (3) percent for overpayments
+[two (2) percent in the case of a corporation]; 2 three (3) percent for underpayments;
+6812164 Booz Allen has easy access to what Ruttenbur calls the three-letter agencies, including the FBI, the CIA and the
+Department of Defense, giving the company an especially bright outlook for 2016. BAH stock has gained about
+12 percent this year.
+7370525 If you have three percent inflation, the central bank can push the policy rate down to one percent, which translates
+to a negative two percent in real terms. A zero nominal rate would be a powerful negative three percent with three
+percent inflation. But if inflation is zero, the real rate can be no lower than the nominal rate, hence the “zero
+bound.” We hear chatter that the ECB may be contemplating a negative nominal rate to deal with this problem.
+Query 489204: right pelvic pain causes
+Label 3
+2268652 Acute (or sharp) pain starts suddenly and often has a single cause. This type of pain may be a warning that
+something is wrong. Some causes of acute pelvic pain include: An infection of your uterus, fallopian tubes,
+or ovaries; this condition is called pelvic inflammatory disease (PID). An infection of the urethra, bladder, or
+kidneys.
+4279451 A common example of chronic pelvic pain is dysmenorrhea or menstrual cramps. Other causes of chronic pelvic
+pain include endometriosis, adenomyosis, and ovulation pain. Sometimes an illness starts with intermittent pelvic
+pain that becomes constant over time, this is often a signal that the problem has become worse.
+6327177 Some of the more common sources of acute pelvic pain, or pain that occurs very suddenly, may include: 1
+ectopic pregnancy: a pregnancy that occurs outside the uterus. 2 pelvic inflammatory disease: an infection of the
+reproductive organs.3 twisted or ruptured ovarian cyst. 4 miscarriage or threatened miscarriage.elvic pain may
+have multiple causes, including: 1 inflammation or direct irritation of nerves caused by acute or chronic trauma,
+fibrosis, pressure or intraperitoneal inflammation. 2 muscular contractions or cramps of both smooth and skeletal
+muscles. 3 psychogenic factors, which can cause or aggravate pain.
+6665319 Any of these events can cause adhesions to form, which may later cause chronic pelvic pain. Infection and
+Inflammation. Bladder, vaginal and yeast infections, and inflammations from chlamydia, pelvic inflammatory
+disease (PID) or endometriosis may also cause chronic pelvic pain. The body’s healing response to all of these
+conditions is to create adhesions.
+8781574 Female pelvic pain is typically caused by a medical condition involving the reproductive organs, urinary tract,
+lower gastrointestinal tract, or muscles of the abdominal wall. Some causes are always short-term (acute), and
+others can become long-lasting (chronic) unless successfully treated.
+
+[TABLE page=15 index=1]
+Columns: 4836900 | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The
+Row 1: 4836900: | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The: amount of interest the IRS charges on a tax liability changes quarterly. See below for the most current IRS interest
+Row 2: 4836900: | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The: rates. Beginning April 1, 2015, the interest rates for the IRS are:1 three (3) percent for overpayments [two (2)
+Row 3: 4836900: | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The: percent in the case of a corporation]; 2 three (3) percent for underpayments; 3 five (5) percent for large corporate
+Row 4: 4836900: | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The: underpayments; and.eginning April 1, 2015, the interest rates for the IRS are: 1 three (3) percent for overpayments
+Row 5: 4836900: | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The: [two (2) percent in the case of a corporation]; 2 three (3) percent for underpayments;
+Row 6: 4836900: 6812164.0 | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The: Booz Allen has easy access to what Ruttenbur calls the three-letter agencies, including the FBI, the CIA and the
+Row 7: 4836900: | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The: Department of Defense, giving the company an especially bright outlook for 2016. BAH stock has gained about
+Row 8: 4836900: | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The: 12 percent this year.
+Row 9: 4836900: 7370525.0 | The Internal Revenue Service charges interest when you owe taxes and penalties on your federal tax return. The: If you have three percent inflation, the central bank can push the policy rate down to one percent, which translates
+[/TABLE]
+
+[PAGE 16]
+8781575 8 Common Causes of Feminine Pelvic Pain. 2. Endometriosis. Approximately 5 million women suffer with
+endometriosis, a chronic condition in which cells grow and spread outside the uterus and painfully break down
+when the uterine lining is shed during your monthly menstrual period. The symptoms of endometriosis include
+painful abdominal cramps as well as pain in the lower back and legs.
+Label 0
+533017 Causes, Diagnosis And Treatment. Right side abdominal pain is commonly caused by conditions such as
+appendicitis, gallstones, kidney stones, constipation, ectopic pregnancy, ovarian cyst troubles, endometriosis,
+Crohn’s disease, ulcerative colitis, trapped wind, kidney infection, pulled muscles, hepatitis, and a number of
+other rarer diseases.
+Query 1112341: what is the daily life of thai people
+Label 2
+3118343 Twice a day, at 08:00 and again at 18:00, the national anthem is played by all Thai media outlets. Thais stop what
+they are doing and stand at attention to pay homage to the flag during the anthem. Students in school stand in
+front of the raised flag and sing the national anthem at 08:00 every school day.
+7079776 In the evening, the Thai style of eating often includes a variety of dishes including a combination of flavors and
+textures (for example, a stir fried dish, a vegetable dish, a soup and fish) served family-style with each person
+scooping up a little food to put in their own bowls of steamed rice.
+Label 1
+3524227 Thai cuisine is essentially a marriage of centuries-old Eastern and Western influences harmoniously combined into
+something uniquely Thai. Characteristics of Thai food depend on who cooks it, for whom it is cooked, for what
+occasion, and where it is cooked. Dishes can be refined and adjusted to suit all palates. Originally, Thai cooking
+reflected the characteristics of a waterborne lifestyle. Aquatic animals, plant and herbs were major ingredients.
+8606161 There are over 29,000 temples in Thailand and the daily routine of the monks in all of them is pretty much the
+same. 4.00 am-The monks wake up and meditate for one hour, followed by one hour of chanting.6.00 am-The
+monks walk barefoot around the neighbourhood while the local people make merit by offering them food.his is
+the last solid food they are allowed to consume until sunrise the following morning. 1.00 pm-Classes in Buddhist
+teaching begin. Some monks may attend school outside the temple. 6.00 pm-A two-hour session of meditation
+and prayer begins. 8.00 pm-The monks retire to do homework.
+Label 0
+3493341 Food and Economy. Food in Daily Life. Rice is the staple of the daily diet, along with manioc and other root
+vegetables, plantains, fresh and dried fish, and milk from grated coconuts. Food taboos provide a way to establish
+connections and acknowledge identity.
+4461904 Food in Daily Life. Bread and potatoes are the traditional staple foods. Most meals include, pork, chicken, or
+beef, and Seafood is popular in the northern part of the country. The national drink is beer, but wine is imported in
+large quantities. In northern cities, popular dishes include mussels with fries and waterzooi a broth of vegetables
+and meat or fish.
+4927748 What we want are places that serve authentic and delicious Thai food, where the Thais themselves love to eat. We
+have been in Bangkok several times, often staying for long periods of a few months at a time, and have tried a lot
+of Thai restaurants both indoors and on the streets.
+7079779 However, Thai restaurants in the United States often serve soup and salad first to match Western norms. Noodle
+dishes are the sandwiches of Thai cuisine. Pad Thai, pad see ew and noodle soups are what you grab for lunch or
+for a quick solo dinner. In the United States, they’re on the dinner menus of Thai restaurants, but that’s not their
+traditional role. If you’re looking for a salt shaker, use prik nam pla.
+8139250 Daily Life of a Luk Thep Doll in Thailand November 20, 2017 by Sukruti Anah Staneley Petch is Thailand’s first
+known Luk Thep doll – a plastic doll manufactured in the way any doll might be. The only difference being that
+the doll has a living soul, believed to change people’s lives; in Mama Ning’s case, it was the spirit of her son.
+Query 1113437: what is physical description of spruce
+Label 3
+4473157 The white spruce is a large coniferous evergreen tree which grows normally to 15 to 30 metres (49 to 98 ft) tall,
+but can grow up to 40 m (130 ft) tall with a trunk diameter of up to 1 m (3.3 ft).The bark is thin and scaly, flaking
+off in small circular plates 5 to 10 centimetres (2.0 to 3.9 in) across.he cones are pendulous, slender, cylindrical, 3
+to 7 cm (1.2 to 2.8 in) long and 1.5 cm (0.59 in) wide when closed, opening to 2.5 cm (0.98 in) broad. They have
+thin, flexible scales 15 mm (0.59 in) long, with a smoothly rounded margin. They are green or reddish, maturing
+to pale brown 4 to 8 months after pollination.
+4498867 Spruces are large trees, from about 20–60 metres (about 60–200 feet) tall when mature, and can be distinguished
+by their whorled branches and conical form. The needles, or leaves, of spruce trees are attached singly to the
+branches in a spiral fashion, each needle on a small peg-like structure called a pulvinus.hey are also used by the
+larvae of gall adelgids (Adelges species). In the mountains of western Sweden scientists have found a Norway
+spruce tree, nicknamed Old Tjikko, which by reproducing through layering has reached an age of 9,550 years and
+is claimed to be the world’s oldest known living tree.
+
+[PAGE 17]
+5514586 The white spruce is a large coniferous evergreen tree which grows normally to 15 to 30 m (50 to 100 ft) tall, but
+can grow up to 40 m (130 ft) tall with a trunk diameter of up to 1 m (3.3 ft). The bark is thin and scaly, flaking off
+in small circular plates 5 to 10 cm (2 to 4 in) across.
+5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family
+Pinaceae, found in the northern temperate and boreal regions of the earth.Spruces are large trees, from 20–60
+metres (66–200 ft) tall when mature, and can be distinguished by their whorled branches and conical form.or the
+same reason, some (particularly Picea abies and Picea omorika) are also extensively used as Christmas trees. The
+word “spruce” entered the English language from Old French Pruce, the name of Prussia.
+5938425 Seeds. The white spruce is a large coniferous evergreen tree which grows normally to 15 to 30 metres (49 to 98 ft)
+tall, but can grow up to 40 m (130 ft) tall with a trunk diameter of up to 1 m (3.3 ft). The bark is thin and scaly,
+flaking off in small circular plates 5 to 10 centimetres (2.0 to 3.9 in) across.he bark of mature white spruce is scaly
+or flaky, gray-brown (Brayshaw 1960) or ash-brown (Harlow and Harrar 1950), but silvery when freshly exposed.
+Resin blisters are normally lacking, but the Porsild spruce Picea glauca var.
+8128793 Common Name: Blue Spruce, Colorado Spruce. Picea abies Common Name: Norway Spruce . About the Spruce
+Tree . Spruce trees are coniferous (needle-leafed) evergreens. There are about 35 species in the genus Picea,
+native to the northern hemisphere. The name spruce is from the Latin pix, meaning pitch. These trees often live to
+a very old age. The oldest spruce on record is a Picea engelmannii that reached 852 years and is still thriving.
+Label 2
+1896943 Norway spruce is a large, fast-growing evergreen coniferous tree growing 35–55 m (115–180 ft) tall and with a
+trunk diameter of 1 to 1.5 m (39 to 59 in). It can grow fast when young, up to 1 m (3 ft) per year for the first 25
+years under good conditions, but becomes slower once over 20 m (65 ft) tall.
+742042 Common Name(s): Spruce Pine. Scientific Name: Pinus glabra. Distribution: Southeastern United States (coastal
+plain) Tree Size: 65-100 ft (20-30 m) tall, 2-3 ft (.6-1 m) trunk diameter. Average Dried Weight: 33 lbs/ft3 (525
+kg/m3) Specific Gravity (Basic, 12% MC): .42, .52. Janka Hardness: 700 lbf (3,110 N)
+Label 0
+8503451 Spruce trees and shrubs are classified in the genus Picea, which includes 35 species. It is considered to be part of
+the Pinaceae family, which also includes pine trees, fir trees, cedars, hemlocks, larches and a few other species.
+Query 855410: what is theraderm used for
+Label 3
+8651773 Thera-Derm topical. Uses. This medication is used as a moisturizer to treat or prevent dry, rough, scaly, itchy skin
+and minor skin irritations (e.g., diaper rash, skin burns from radiation therapy). Emollients are substances that
+soften and moisturize the skin and decrease itching and flaking. Some products (e.g., zinc oxide, white petrolatum)
+are used mostly to protect the skin against irritation (e.g., from wetness). Dry skin is caused by a loss of water in
+the upper layer of the skin.
+Label 0
+3113274 For example, if I pointed to my watch and used the wh-q facial expression it would mean that I’m asking you
+What time is it? You’ve probably already used this sign many times in your life. WHAT (huh version) In the
+picture below I’m doing a general gesture for what while using the WHAT facial expression.
+3618639 It’s used to treat actinic keratosis, as well as acne, rosacea, skin cancer, sun damage, oily skin, wrinkles, warts,
+psoriasis, and enlarged sebaceous glands. Psoriasis Psoriasis is a long-term skin condition that may cause large
+plaques of red, raised skin, flakes of dry skin, and skin scales.
+4492180 Hereby is used in connection with what is present with the speaker or what the speaker has just mentioned or the
+speaker’s present words (i.e. the present document); thereby is used in connection with what is at a distance from
+the speaker or what has been mentioned by the speaker or by someone else.
+4708042 Tresaderm is one of the most commonly prescribed pet drugs on the market today. It is used to treat ear and skin
+conditions even when the underlying cause is not known. Only Tresaderm contains the unique combination of
+active ingredients that makes it the proven solution for dogs and cats, including: 1 Antifungal thiabendazole –
+controls the most common forms of fungus that cause infection.
+4708045 Tresaderm is sometimes prescribed by vets to treat bacterial, inflammatory and/or fungal skin infections in dogs
+as well as inflammation of the ear. The medicine is sold as a liquid solution which contains dexamethasone
+neomycin sulfate and thiabendazole.
+4708046 Dermatologic Solution TRESADERM is indicated as an aid in the treatment of certain bacterial, mycotic, and
+inflammatory dermatoses as well as otitis externa in dogs and cats.
+4708047 When you should give your pet Tresaderm: Tresaderm is a dermatologic solution indicated as an aid in the
+treatment of certain bacterial, fungal and inflammatory skin disorder and otitis externa in dogs and cats. How
+Tresaderm should be used: Clean the affected area prior to use. The amount of medication to apply and the
+frequency of treatment are dependent on the severity and extent of the lesions. The typical dose for the ear is 5 to
+15 drops instilled into the ear twice a day.
+
+[TABLE page=17 index=1]
+Columns: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family
+Row 1: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: Pinaceae, found in the northern temperate and boreal regions of the earth.Spruces are large trees, from 20–60
+Row 2: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: metres (66–200 ft) tall when mature, and can be distinguished by their whorled branches and conical form.or the
+Row 3: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: same reason, some (particularly Picea abies and Picea omorika) are also extensively used as Christmas trees. The
+Row 4: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: word “spruce” entered the English language from Old French Pruce, the name of Prussia.
+Row 5: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 5938425 Seeds. The white spruce is a large coniferous evergreen tree which grows normally to 15 to 30 metres (49 to 98 ft)
+Row 6: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: tall, but can grow up to 40 m (130 ft) tall with a trunk diameter of up to 1 m (3.3 ft). The bark is thin and scaly,
+Row 7: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: flaking off in small circular plates 5 to 10 centimetres (2.0 to 3.9 in) across.he bark of mature white spruce is scaly
+Row 8: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: or flaky, gray-brown (Brayshaw 1960) or ash-brown (Harlow and Harrar 1950), but silvery when freshly exposed.
+Row 9: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: Resin blisters are normally lacking, but the Porsild spruce Picea glauca var.
+Row 10: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 8128793 Common Name: Blue Spruce, Colorado Spruce. Picea abies Common Name: Norway Spruce . About the Spruce
+Row 11: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: Tree . Spruce trees are coniferous (needle-leafed) evergreens. There are about 35 species in the genus Picea,
+Row 12: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: native to the northern hemisphere. The name spruce is from the Latin pix, meaning pitch. These trees often live to
+Row 13: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: a very old age. The oldest spruce on record is a Picea engelmannii that reached 852 years and is still thriving.
+Row 14: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: Label 2
+Row 15: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 1896943 Norway spruce is a large, fast-growing evergreen coniferous tree growing 35–55 m (115–180 ft) tall and with a
+Row 16: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: trunk diameter of 1 to 1.5 m (39 to 59 in). It can grow fast when young, up to 1 m (3 ft) per year for the first 25
+Row 17: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: years under good conditions, but becomes slower once over 20 m (65 ft) tall.
+Row 18: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 742042 Common Name(s): Spruce Pine. Scientific Name: Pinus glabra. Distribution: Southeastern United States (coastal
+Row 19: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: plain) Tree Size: 65-100 ft (20-30 m) tall, 2-3 ft (.6-1 m) trunk diameter. Average Dried Weight: 33 lbs/ft3 (525
+Row 20: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: kg/m3) Specific Gravity (Basic, 12% MC): .42, .52. Janka Hardness: 700 lbf (3,110 N)
+Row 21: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: Label 0
+Row 22: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 8503451 Spruce trees and shrubs are classified in the genus Picea, which includes 35 species. It is considered to be part of
+Row 23: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: the Pinaceae family, which also includes pine trees, fir trees, cedars, hemlocks, larches and a few other species.
+Row 24: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: Query 855410: what is theraderm used for
+Row 25: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: Label 3
+Row 26: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 8651773 Thera-Derm topical. Uses. This medication is used as a moisturizer to treat or prevent dry, rough, scaly, itchy skin
+Row 27: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: and minor skin irritations (e.g., diaper rash, skin burns from radiation therapy). Emollients are substances that
+Row 28: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: soften and moisturize the skin and decrease itching and flaking. Some products (e.g., zinc oxide, white petrolatum)
+Row 29: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: are used mostly to protect the skin against irritation (e.g., from wetness). Dry skin is caused by a loss of water in
+Row 30: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: the upper layer of the skin.
+Row 31: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: Label 0
+Row 32: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 3113274 For example, if I pointed to my watch and used the wh-q facial expression it would mean that I’m asking you
+Row 33: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: What time is it? You’ve probably already used this sign many times in your life. WHAT (huh version) In the
+Row 34: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: picture below I’m doing a general gesture for what while using the WHAT facial expression.
+Row 35: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 3618639 It’s used to treat actinic keratosis, as well as acne, rosacea, skin cancer, sun damage, oily skin, wrinkles, warts,
+Row 36: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: psoriasis, and enlarged sebaceous glands. Psoriasis Psoriasis is a long-term skin condition that may cause large
+Row 37: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: plaques of red, raised skin, flakes of dry skin, and skin scales.
+Row 38: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 4492180 Hereby is used in connection with what is present with the speaker or what the speaker has just mentioned or the
+Row 39: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: speaker’s present words (i.e. the present document); thereby is used in connection with what is at a distance from
+Row 40: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: the speaker or what has been mentioned by the speaker or by someone else.
+Row 41: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 4708042 Tresaderm is one of the most commonly prescribed pet drugs on the market today. It is used to treat ear and skin
+Row 42: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: conditions even when the underlying cause is not known. Only Tresaderm contains the unique combination of
+Row 43: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: active ingredients that makes it the proven solution for dogs and cats, including: 1 Antifungal thiabendazole –
+Row 44: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: controls the most common forms of fungus that cause infection.
+Row 45: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 4708045 Tresaderm is sometimes prescribed by vets to treat bacterial, inflammatory and/or fungal skin infections in dogs
+Row 46: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: as well as inflammation of the ear. The medicine is sold as a liquid solution which contains dexamethasone
+Row 47: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: neomycin sulfate and thiabendazole.
+Row 48: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 4708046 Dermatologic Solution TRESADERM is indicated as an aid in the treatment of certain bacterial, mycotic, and
+Row 49: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: inflammatory dermatoses as well as otitis externa in dogs and cats.
+Row 50: 5938420 39 Species with 604 Trinomials. Picea a genus of about 35 species of coniferous evergreen trees in the family: 4708047 When you should give your pet Tresaderm: Tresaderm is a dermatologic solution indicated as an aid in the
+[/TABLE]
+
+[PAGE 18]
+5550193 Use the language of coping and the strategies listed in the above categories, which tell us what to do and what
+not to do. 1 Be aware of the coping strategies you use, and evaluate them honestly. 2 Decide what sort of social
+role model you are. 3 Expand your coping skills.se the language of coping and the strategies listed in the above
+categories, which tell us what to do and what not to do. 1 Be aware of the coping strategies you use, and evaluate
+them honestly. 2 Decide what sort of social role model you are. 3 Expand your coping skills.
+7066410 CONTACT US. Want a quick way to see what GPO’s are applied to your local system, just using built in utilities?
+Using the GUI to manually view what settings are applied is awkward and slow. ?Use the following commands to
+see what policies are being handed down to the system you’re on and what they’re enforcing.
+8539176 To be effective using an interface you’ve designed, people must be able to recognize what it is, care about why
+they would use it, understand what the interface is helping them interact with, predict what will happen when they
+use it, and then successfully interact with it.
+8651778 What is Tresaderm: Tresaderm is a dermatologic solution used in dogs and cats as an aid in the treatment of
+certain acute or chronic bacterial, fungal and inflammatory skin disorders as well as otitis externa. Tresaderm may
+also be used for purposes other than those listed.
+
+[PAGE 19]
+Query 1051399: who sings monk theme song
+Label 0
+2894408 Thiele then contacted Curtis Stigers to write lyrics and sing the theme, who recorded the song at
+Cunningham Audio Production in Boise, Idaho. Show creator Kurt Sutter also cowrote the lyrics to the
+song. When speaking about why he cowrote the theme for the show, Kushner stated that:
+Query 1108651: what the best way to get clothes white
+Label 0
+4304301 Save. Laundry detergent is what keeps our clothes and linens looking their best. Detergent comes in
+various formulas to whiten whites, brighten brights, smell fresh or have no smell at all, even be completely
+hypoallergenic.
+Query 1122767: what amino produces carnitine
+Label 0
+8039587 Carnitine is a quaternary ammonium compound involved in metabolism in most mammals, plants and
+some bacteria. Carnitine may exist in two isomers, labeled D-carnitine and L-carnitine, as they are
+optically active. At room temperature, pure carnitine is a white powder, and a water-soluble zwitterion
+with low toxicity. Carnitine only exists in animals as the L-enantiomer, and D-carnitine is toxic because it
+inhibits the activity of L-carnitine. Carnitine was discovered in 1905 as a result of its hi
+Query 324585: how much money do motivational speakers make
+Label 0
+8260792 According to a 2013 survey (.pdf file) of 94,000 Etsy sellers, 81% said they opened their shops as a
+creative outlet, while 68% cited supplemental income as a motivating factor. “They started because they
+love it, and then they figured out how to make money from doing what they love,” Katrina adds.
+Query 332593: how often to button quail lay eggs
+Label 0
+8749230 In the right conditions, each hen can lay 300+ per year. They begin laying eggs in 6 to 8 weeks and the
+eggs only take 17 days to incubate. Because Coturnix quail mature extremely quickly, the waiting period
+to enjoy the fruits of your labors are very quick.
+Query 42255: average salary for dental hygienist in nebraska
+Label 0
+5783300 How much does a dental hygienist make? According to the May 2012 records from the Bureau of Labor
+Statistics, the mean annual dental hygienist salary is $70,700, which is equivalent to a mean hourly wage
+of $33.99. The bottom ten percent in the occupation earns an annual salary of $46,540, while the top
+ten percent make an average $96,280 each year. Dental hygienists employed in dental offices earn an
+average $71,000, while those employed in physician offices make significantly less at a mean salary of
+$65,310. Within the United States, the highest paid dental hygienists are employed in California, where
+they earn an annual salary of $93,280. Following closely behind, those in Nevada make $91,350 and
+dental hygienists in Washington make an annual mean salary of $90,540.
+Query 555530: what are best foods to lower cholesterol
+Label 2
+6221470 Top 8 Cholesterol-Lowering Foods. From oats to walnuts, a handful of everyday foods are stepping up to
+the plate when it comes to battling unhealthy cholesterol.
+Query 701453: what is a statutory deed
+Label 1
+8626142 With a Statutory Warranty Deed, the seller expressly guarantees the grantor’s good, clear title, and often
+carries the covenants concerning quality such as quiet enjoyment, the right to convey, freedom from
+encumbrances, and defense of title from all claims.
+Query 914916: what type of tissue are bronchioles
+Label 0
+5061651 The bronchial tubes divide into smaller air passages (bronchi), and then into bronchioles. The bronchioles
+end in tiny air sacs called alveoli, where oxygen and carbon dioxide are exchanged. After absorbing
+oxygen, the blood leaves the lungs and is carried to the heart. Then, it is pumped through your body to
+provide oxygen to the cells of your tissues and organs.
+
+[PAGE 20]
+Query 118440: define bmt medical
+Label 0
+228375 Army Basic Training (BMT). Today, the United States Army basic training only takes 9 weeks to transition
+all you young men and women out there from being a civilian into that of a soldier.
+3368681 Basic Military Training, or BMT, is the first step in beginning your Air Force career. There is no separate
+boot camp for Air Force Reservists. You will train with active-duty and Air National Guard members.
+Air Force BMT is located at Joint Base San Antonio, part of the former Lackland Air Force Base, in San
+Antonio, Texas.
+Query 23849: are naturalization records public information
+Label 0
+1449785 Public records are in fact a wide variety of records that are being kept by the government and are open to
+the public under the freedom of information act. They include marriage records, divorce records, court
+records, birth records, death records and many more. In Scotts, MI records are kept mostly on physical
+files. There is a great rise in the use of electronic copies that are available on the internet. You are advised
+to look into entries of each record to find out more information on how to obtain them.
+5925321 Byron Public Records. Public records are in fact a wide variety of records that are being kept by the
+government and are open to the public under the freedom of information act. They include marriage
+records, divorce records, court records, birth records, death records and many more. In Byron, OK records
+are kept mostly on physical files. There is a great rise in the use of electronic copies that are available on
+the internet.
+7431268 You’ve probably heard the term public record before. It’s a document, or record of information, recorded
+by a court or governmental agency, that’s made available to the public. Some public records, such as tax
+liens, may appear on your credit report while others, like a marriage license, do not.
+Query 877809: what metal are hip replacements made of
+Label 0
+2213765 Total hip replacement surgery uses metal, ceramic, or plastic parts to replace the ball at the upper end of the
+thighbone (femur) and resurface the hip socket in the pelvic bone. Total hip replacement surgery replaces
+damaged cartilage with new joint material in a step-by-step process.Doctors may attach replacement joints
+to the bones with or without cement. 1 Cemented joints are attached to the existing bone with cement,
+which acts as a glue and attaches the artificial joint to the bone.ingle mini-incision total hip replacement
+for the management of arthritic disease of the hip: A systematic review and meta-analysis of randomized
+controlled trials. Journal of Bone and Joint Surgery, American Version, 94(20): 1897-1905.
+3328100 Total hip replacement surgery uses metal, ceramic, or plastic parts to replace the ball at the upper end of the
+thighbone (femur) and resurface the hip socket in the pelvic bone. Total hip replacement surgery replaces
+damaged cartilage with new joint material in a step-by-step process. Doctors may attach replacement
+joints to the bones with or without cement. Cemented joints are attached to the existing bone with cement,
+which acts as a glue and attaches the artificial joint to the bone.
+5850349 Hip Replacement Surgery. Guide. Total joint replacement involves surgery to replace the ends of both
+bones in a damaged joint to create new joint surfaces. Total hip replacement surgery uses metal, ceramic,
+or plastic parts to replace the ball at the upper end of the thighbone (femur) and resurface the hip socket
+in the pelvic bone. Total hip replacement surgery replaces damaged cartilage with new joint material
+in a step-by-step process . Doctors may attach replacement joints to the bones with or without cement.
+Cemented joints are attached to the existing bone with cement, which acts as a glue and attaches the
+artificial joint to the bone.
+Query 1121353: what can you do about discrimination in the workplace in oklahoma city
+Label 1
+1727596 1 Communicate clearly with your employees about what type of behavior is lawful and appropriate in the
+workplace with regard to all forms of discrimination and harassment, including gender identity, and about
+what consequences your employees will face if they violate the law.
+4593222 Workplace Discrimination Laws and Policies. Under the patchwork of state and local employment law
+that prohibits employment discrimination based on gender identity and sexual orientation more than three
+of every five citizens live in jurisdictions that do not provide such protections, and they are needed.
+Label 0
+5540042 Getty Images. Discriminating against your employees can cost you. Workplace discrimination against
+employees based on race, gender or sexual orientation costs businesses an estimated $64 billion annually,
+a recent report from the Center For American Progress finds.etty Images. Discriminating against your
+employees can cost you. Workplace discrimination against employees based on race, gender or sexual
+orientation costs businesses an estimated $64 billion annually, a recent report from the Center For
+American Progress finds.
+
+[PAGE 21]
+5606063 The crippling effects of workplace discrimination include poor work culture and a demoralized workforce, debilitating effect on the individual, negative fallout for the society, and reduced profits for the
+organization.slide 1 of 7.oss of Focus and Productivity. Another negative effect of workplace employee
+discrimination is loss of focus and wasting of time. Discrimination in the workplace is not just the focus
+of the victim, but also tends to take priority in various meetings.
+6381283 It is important to note that not all forms of discrimination are illegal. There are several federal laws that
+prohibit discrimination in the workplace, including: 1 Equal Pay Act of 1963: Requires that men and
+women receive equal pay for doing the same or similar jobs.
+Query 67316: can fever cause miscarriage early pregnancy
+Label 0
+156062 Miscarriage: Bleeding can be a sign of miscarriage, but does not mean that miscarriage is imminent.
+Studies show that anywhere from 20-30% of women experience some degree of bleeding in early
+pregnancy. Approximately half of pregnant women who bleed do not have miscarriages.
+4163707 Miscarriage: Bleeding can be a sign of miscarriage, but does not mean that miscarriage is imminent.
+Studies show that anywhere from 20-30% of women experience some degree of bleeding in early
+pregnancy. Approximately half of pregnant women who bleed do not have miscarriages. Approximately
+15-20% of all pregnancies result in a miscarriage, and the majority occur during the first 12 weeks. Signs
+of Miscarriage include:
+6221796 Bleeding during early pregnancy is sometimes a sign of miscarriage. About half the time, bleeding during
+pregnancy is a sign of miscarriage, and the other half of the time it is not. So, a good rule of thumb to
+remember is that if the bleeding is enough to be a cause of concern for you, you should see your doctor.
+6764673 Miscarriage: Bleeding can be a sign of miscarriage, but does not mean that miscarriage is imminent.
+Studies show that anywhere from 20-30% of women experience some degree of bleeding in early pregnancy.Approximately half of pregnant women who bleed do not have miscarriages.iscarriage: Bleeding
+can be a sign of miscarriage, but does not mean that miscarriage is imminent. Studies show that anywhere
+from 20-30% of women experience some degree of bleeding in early pregnancy.
+7513151 First Half of Pregnancy: Miscarriage: Bleeding can be a sign of miscarriage, but does not mean that
+miscarriage is imminent. Studies show that anywhere from 20-30% of women experience some degree of
+bleeding in early pregnancy. Approximately half of pregnant women who bleed do not have miscarriages.
+Approximately 15-20% of all pregnancies result in a miscarriage, and the majority occur during the first
+12 weeks.
+
+[TABLE page=21 index=1]
+Columns: Query 67316: can fever cause miscarriage early pregnancy
+Row 1: Query 67316: can fever cause miscarriage early pregnancy: Label 0
+Row 2: Query 67316: can fever cause miscarriage early pregnancy: 156062 Miscarriage: Bleeding can be a sign of miscarriage, but does not mean that miscarriage is imminent.
+Row 3: Query 67316: can fever cause miscarriage early pregnancy: Studies show that anywhere from 20-30% of women experience some degree of bleeding in early
+Row 4: Query 67316: can fever cause miscarriage early pregnancy: pregnancy. Approximately half of pregnant women who bleed do not have miscarriages.
+Row 5: Query 67316: can fever cause miscarriage early pregnancy: 4163707 Miscarriage: Bleeding can be a sign of miscarriage, but does not mean that miscarriage is imminent.
+Row 6: Query 67316: can fever cause miscarriage early pregnancy: Studies show that anywhere from 20-30% of women experience some degree of bleeding in early
+Row 7: Query 67316: can fever cause miscarriage early pregnancy: pregnancy. Approximately half of pregnant women who bleed do not have miscarriages. Approximately
+Row 8: Query 67316: can fever cause miscarriage early pregnancy: 15-20% of all pregnancies result in a miscarriage, and the majority occur during the first 12 weeks. Signs
+Row 9: Query 67316: can fever cause miscarriage early pregnancy: of Miscarriage include:
+Row 10: Query 67316: can fever cause miscarriage early pregnancy: 6221796 Bleeding during early pregnancy is sometimes a sign of miscarriage. About half the time, bleeding during
+Row 11: Query 67316: can fever cause miscarriage early pregnancy: pregnancy is a sign of miscarriage, and the other half of the time it is not. So, a good rule of thumb to
+Row 12: Query 67316: can fever cause miscarriage early pregnancy: remember is that if the bleeding is enough to be a cause of concern for you, you should see your doctor.
+Row 13: Query 67316: can fever cause miscarriage early pregnancy: 6764673 Miscarriage: Bleeding can be a sign of miscarriage, but does not mean that miscarriage is imminent.
+Row 14: Query 67316: can fever cause miscarriage early pregnancy: Studies show that anywhere from 20-30% of women experience some degree of bleeding in early pregRow 15: Query 67316: can fever cause miscarriage early pregnancy: nancy.Approximately half of pregnant women who bleed do not have miscarriages.iscarriage: Bleeding
+Row 16: Query 67316: can fever cause miscarriage early pregnancy: can be a sign of miscarriage, but does not mean that miscarriage is imminent. Studies show that anywhere
+Row 17: Query 67316: can fever cause miscarriage early pregnancy: from 20-30% of women experience some degree of bleeding in early pregnancy.
+Row 18: Query 67316: can fever cause miscarriage early pregnancy: 7513151 First Half of Pregnancy: Miscarriage: Bleeding can be a sign of miscarriage, but does not mean that
+[/TABLE]

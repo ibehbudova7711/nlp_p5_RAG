@@ -1,0 +1,588 @@
+[PAGE 1]
+Large Language Models in Targeted Sentiment Analysis for Russian
+N. Rusnachenko,1, * A. Golubev,2, ** and N. Loukachevitch2,3, ***
+(Submitted by V. V. Voevodin)
+1Newcastle Upon Tyne, England, United Kingdom
+2Lomonosov Moscow State University
+3Research Computing Center Lomonosov Moscow State University
+Received March 1, 2023
+Abstract—In this paper we investigate the use of decoder-based generative transformers for extracting sentiment towards the named entities in Russian news articles. We study sentiment analysis capabilities of instruction-tuned large language models (LLMs). We consider the dataset of
+RuSentNE-2023 in our study. The first group of experiments was aimed at the evaluation of zeroshot capabilities of LLMs with closed and open transparencies. The second covers the fine-tuning
+of Flan-T5 using the "chain-of-thought" (CoT) three-hop reasoning framework (THoR). We found
+that the results of the zero-shot approaches are similar to the results achieved by baseline fine-tuned
+encoder-based transformers (BERTbase). Reasoning capabilities of the fine-tuned Flan-T5 models
+with THoR achieve at least5% increment with the base-size model compared to the results of the
+zero-shot experiment. The best results of sentiment analysis on RuSentNE-2023 were achieved by
+fine-tuned Flan-T5xl, which surpassed the results of previous state-of-the-art transformer-based classifiers. Our CoT application framework is publicly available:https://github.com/nicolay-r/
+Reasoning-for-Sentiment-Analysis-Framework
+2010 Mathematical Subject Classification:12345, 54321
+Keywords and phrases:Sentiment Analysis, Large Language Models
+1. INTRODUCTION
+In recent years, large language models (LLMs) based on the Transformer architecture have significantly
+changedthelandscapeofnaturallanguageprocessing(NLP).Suchmodelsarepre-trainedonlargevolumes
+of unlabeled texts. The so-called instruction-tuned language models are further trained on large sets of
+instructions(promptsandcorrectanswers). Thispre-trainingmadeitpossibletosolvetaskswithouttraining
+(fine-tuning) models on target datasets in the so-called zero-shot or few-shot formats [1, 2]. The zero-shot
+format is based solely on the formulation of a special prompt (question) for a model [1, 3]. The few-shot
+formatcomprisesapromptandseveralexamplesofcorrectanswers[1]. Inaddition,therearespecialprompts
+that contain instructions for reasoning, referred to as Chain-of-Thought (CoT) prompts [4].
+Insentimentanalysis,theapplicationofpre-trainedlanguagemodelshasledtoasignificantimprovement
+in the performance in various tasks. Sentiment analysis tasks can be divided into two main categories:
+general sentiment analysis [5], and targeted sentiment analysis (TSA) [6]. General sentiment analysis aims
+to determine the overall sentiment of a text, while targeted sentiment analysis focuses on identifying the
+sentiment towards a specific entity [7–9], its characteristics (aspects) [10], or controversial issues.
+Large language models are primarily trained on English text collections and English datasets. ExperimentswiththemodelsarealsotypicallyconductedforEnglish. Whenappliedtootherlanguages,theresults
+of large language models tend to be worse than for English. In this paper, we test several instruction-tuned
+largelanguagemodelsonacomplicatedtaskoftargetedsentimentanalysisofRussiantexts. Weexperiment
+with models of different transparency such as «closed models» ChatGPT series (GPT-3.5 and GPT-4) and
+«open models» limited by 7 billion (7B) parameters [11–15]. Such "small" open models can be applied
+* E-mail: rusnicolay@gmail.com
+** E-mail: antongolubev5@yandex.ru
+*** E-mail: louk_nat@mail.ru
+arXiv:2404.12342v1 [cs.CL] 18 Apr 2024
+
+[PAGE 2]
+2 NICOLAY RUSNACHENKO ET AL.
+in NLP tasks with limited computing resources (1 NVidia A100 card), which is important for practical
+applications. We use the dataset RuSentNE-2023 of Russian news texts annotated with sentiment towards
+the mentioned named entities.
+2. RELATED WORK
+Evaluatinglanguagemodelsinsentimentanalysis,theauthorsof[16]comparetheperformanceofLLMs
+such as ChatGPT (GPT-3.5 and GPT-4), PaLM [17], Flan-UL2 [18], and LLaMA [19] across 13 sentiment
+analysis tasks on 26 datasets and compare the results against small language models (SLMs) trained on
+domain-specific datasets. The tasks under study include document- and sentence-level sentiment analysis,
+aspect-based sentiment analysis, and also such tasks as implicit sentiment, irony, hate speech detection, etc.
+With such a diverse range of tasks and models, the authors created a standardized template for prompts,
+containing the task name, definition, and desired output format. The authors conclude that the zero-shot
+applicationofLLMsisalreadyeffectiveforsimplersentimentclassificationtasks,suchasbinaryandtrinary
+classification. However, for tasks that require structured sentiment outputs, such as aspect-based analysis,
+the performance of LLMs lags behind that of small models trained on specific domains: LMs often have a
+lower accuracy than fine-tuned ones.
+In [20] the authors evaluate large language models GPT-3.5, BLOOMZ, and XGLM in sentiment
+classification in 34 languages, including 6 high/medium-resource languages, 25 low-resource languages,
+and 3 code-switching datasets. When prompting LLMs, six variants of prompts are used, and the obtained
+results are averaged. For high-resource languages, GPT-3.5 achieves77.5% by F-measure, for low-resource
+(African) languages shows38.3% by F-measure in 3-way classification.
+In [21] authors illustrate the application of the CoT concept to extract implicit sentiments from users’
+reviews [22, 23]. According to the provided paradigms, the proposed Three-Hop-Reasoning (THoR)
+system could be treated as an emerged paradigm: task-agnostic schema of reasoning steps, with one-byone components referred to sentiment analysis. With these steps, authors aimed at extraction of «aspects»,
+with further «opinion» as atomic components for devising the final answer [21]. The authors conclude
+that the application of the fine-tuning process for instruction-tuned Flan-T5 [15] results in models that
+surpass few-shot systems across publicly open systems [24] and significantly outperform encoder-based
+classifiers [25]. When it comes to limitations, authors conclude their beliefs on unleashing the full LLMs
+reasoning capabilities by applying THoR towards large enough models [21].
+For Russian, there are several directions of related investigations: aspect-based (SentiRuEval) [26]
+and entity-oriented sentiment analysis (RuSentNE-2023) [9, 27]. The most recent advances in both tasks
+show that the highest results are mainly achieved by fine-tuned encoder-based classification language
+models [25, 27–29]. The best results on RuSentNE-2023 evaluation were obtained by ensembles of BERTlike encoder models [9].
+Severalrecentworkexplorestheapplicationofgenerativemodelsinsentimentanalysistasks. Theauthors
+of[30]studygenerativemodelsoftheGPTfamilyintheAspect-BasedTripletExtractionTask(ASTE).The
+authors compare the few-shot strategies for the GPT-3 and ChatGPT (GPT-3.5) models with the fine-tuned
+Russian ruGPT-3small and ruGPT-3large models, based on the GPT-2 architecture [31]. They found that a
+few-shotapproachonruGPT-3 familymodelsdidnotproduceadequateresults: fine-tunedruGPT-3 models
+showedasignificantimprovement. Theauthorsof[32]adopttheT5model[24]andcompareitwithencoderbased approaches in the RuSentNE-2023 evaluation. Two variants of the Russian-adapted models ruT5base
+and ruT5large were used. However, the best results obtained by ruT5large are 7 percentage points lower than
+the top RuSentNE-2023 submission [9].
+3. RUSENTNE-2023 EVALUATION AND DATASET
+The RuSentNE-2023 dataset1 is annotated with sentiment towards named entities in news texts. News
+texts pose challenges for targeted sentiment analysis [9]. At first, such texts may contain opinions conveyed
+bydifferentsubjects,includingtheauthor(s)’attitudes,positionsofcitedsources,andrelationsofmentioned
+entities to each other. Secondly, some sentences contain several named entities with different sentiments,
+complicating the determination of sentiment towards each individual named entity. Thirdly, the majority
+of named entities in news texts are mentioned in neutral context, indicating a significant prevalence of the
+neutral class. Last but not least, the significant amount of sentiment in news texts is implicit in nature,
+primarily conveyed through entity actions.
+1 Resources are publicly available:https://github.com/dialogue-evaluation/RuSentNE-evaluation
+LOBACHEVSKII JOURNAL OF MATHEMATICS
+
+[PAGE 3]
+LARGE LANGUAGE MODELS IN TARGETED SENTIMENT ANALYSIS 3
+ThesourceoftheannotatedsentimentinRuSentNE-2023couldbe: (i)anauthor,(ii)anothercitedsource,
+and (iii) another entity mentioned in the text. Sentiment annotation is a three-scale and has the following
+labels: positive, negative, and neutral.
+For example, in the following sentence there is a negative sentiment toHungary and neutral sentiment
+to German Economy Minister. The source of the negative sentiment toHungary is theGerman Economy
+Minister:
+Министр экономики Г ермании критикует Венгрию за налог на иностранных инвесторов.
+(German Economy Minister criticizes Hungary for tax on foreign investors.)
+Named entities of the following types represent objects of sentiment [33]:
+• Person — physical person regarded as an individual,
+• Organization — an organized group of people or company,
+• Country — a nation or a body of land with one government,
+• Profession — jobs, positions in various organizations, and professional titles,
+• Nationality — nouns denoting country citizens and adjectives corresponding to nations in contexts
+different from authority-related.
+The distribution of entity types in the training (train), development (dev), and test (test) sets of the
+RuSentNE-2023 dataset is presented in Table 1.
+Table 1.Distribution of entity types in training (train), development (dev) and test (test) sets of the RuSentNE-2023 dataset
+train dev test
+Entity type # % # % # %
+Person 1934 29 857 30 480 25
+Profession 1666 25 533 24 510 26
+Organization 1487 23 653 23 484 25
+Country 1274 19 686 19 363 19
+Nationality 276 4 116 4 110 5
+Total 6637 100 2845 100 1947 100
+4. EXPERIMENTAL SETUP
+We experiment with the initial dataset RuSentNE-2023 and its English translation (RuSentNE-2023en).
+Since most LLMs are trained on English data, we adopt GoogleTranslate2 to automatically translate and
+composeRuSentNE-2023 en. Toevaluatethepredictedresults,wefollowthecompetitionrules[9]andadopt
+macroF1-measureranged[0,100]over: (1)positiveandnegativeclasses F 1P N,(2)alltaskclasses F 1P N0.
+We investigate LLMs reasoning capabilities with the following modes: (i) zero-shot, and (ii) finetuning. To conduct the experiment, our computational resources were limited by access to a single
+NVIDIA A100 GPU (40GB). The model training and inference code are implemented in Python-3.8.
+4.1. LLMs Zero-shot Experiments Setup
+Our setup covers a range of recently popular models that fall into two main categories: (i) «closed
+models», and (ii) «open models» [11–15].
+In the case of closed models, the following chat-based dialogue assistants were used:
+• GPT-4, version 1106 preview;
+• GPT-3.5, versions 1106, 0613.
+FortheGPTmodels,weutilizedaso-calledsystemprompt,whichisaspecialmessageusedtoassignarole
+to the assistant. System prompts prescribe the style and task for the chat-bot communication. We used the
+following system prompt:
+2 https://pypi.org/project/googletrans/
+LOBACHEVSKII JOURNAL OF MATHEMATICS
+
+[TABLE page=3 index=1]
+Columns: Unnamed: 0 | train dev | test
+Row 1: Unnamed: 0: Entity type | train dev: # % # % | test: # %
+Row 2: Unnamed: 0: Person | train dev: 1934 29 857 30 | test: 480 25
+Row 3: Unnamed: 0: Profession | train dev: 1666 25 533 24 | test: 510 26
+Row 4: Unnamed: 0: Organization 1487 23 | train dev: 653 23 | test: 484 25
+Row 5: Unnamed: 0: Country | train dev: 1274 19 686 19 | test: 363 19
+Row 6: Unnamed: 0: Nationality | train dev: 276 4 116 4 | test: 110 5
+Row 7: Unnamed: 0: Total | train dev: 6637 100 2845 100 1947 100 | test:
+[/TABLE]
+
+[PAGE 4]
+4 NICOLAY RUSNACHENKO ET AL.
+SystemMessage: YouareanAIassistantskilledinnaturallanguageprocessingandsentimentanalysis.
+Yourtaskistoanalyzetextinputstodeterminetheunderlyingsentiment,whetherit’spositive,negative,
+or neutral. You should consider the nuances of language, including sarcasm, irony, and context. Your
+responses should include not only the sentiment classification but also a brief explanation of why a
+particular sentiment was assigned, highlighting key words or phrases that influenced the decision.
+In the case of open models, we experiment with instruction-tuned versions. The complete list of the
+assessed models is presented in Table 2 and includes:
+• Mistral[11]–grouped-queryattention(GQA)[34]forfasterinference,coupledwithslidingwindow
+attention [35] to effectively handle sequences of arbitrary length with a reduced inference cost. The
+authors adopt byte-fallback BPE tokenization [36]. There are several versions of publicly available
+instruction-tunedmodels: v0.1and v0.2. Thev0.1hastheinputcontextwindowsizeof8Ktokens 3.
+In v0.2 the related size has been increased up to 32K context4. For both versions, information on
+training data is not publicly available.
+• DeciLM [12] – is an auto-regressive language model using an optimized transformer decoder
+architecture that includes variable GQA [34]. Information on fine-tuning and utilized datasets is
+publicly available. Model has been fine-tuned for instruction with LoRA [37] on the SlimOrca [38]
+dataset. The context window size is 8K tokens.
+• Microsoft-Phi-2[14]–trainedusingtheresourceadoptedinPhi-1.5[14];augmentedwithanewdata
+source that consists of various NLP synthetic texts and filtered websites (for safety and educational
+value). DatasetrepresentscombinationofNLPsyntheticdatacreatedbyAOAI 5 GPT-3.5andfiltered
+web data from Falcon RefinedWeb [39] and SlimPajama [40], assessed by AOAI GPT-4. The context
+windowsizeofthemodelis2Ktokens. Formodeltraining,authorsutilize96xA100-80Gfor14days.
+• Gemma [13] – Built from the same research and technology used to create the Gemini models [41]. Represent a text-to-text, decoder-only large language models, with architecture similar
+to LLaMA [19]. Available in English, with open access to instruction-tuned variants. Represent
+well-suited for a variety of text generation tasks, including question answering, summarization, and
+reasoning. The context window size is 8K tokens.
+• Flan-T5 [15] – Represent a specialized variant of the T5 [42], initially proposed as the unified textto-text transformer. The concept of fine-tuning language models based on instructions (Flan) [15]
+highlights the significant improvement across series of tasks, including: MMLU [43], BBH [44],
+TyDiQA [45], MGSM [46], open-ended generation. Flan-T5 trained with the encoder context length
+of 1K tokens.
+Given the sentence (X) with the target entity mentioned in it (t), we utilize prompting techniques of two
+types: original version (v1) [27] and precisely adapted the revised version, dubbed as (v2):
+v1ru: Какая оценка тональности в предложении X, по отношению
+к t? Выбери из трех вариантов: позитивная, негативная, нейтральная.
+v1en: What’s the attitude of the sentenceX to the targett? Select one from: positive, negative, neutral.
+v2ru: Каково отношение автора или другого субъекта в предложении
+X к t? Выбери из трех вариантов: позитивная, негативная, нейтральная
+v2en: What is the attitude of the author or another subject in the sentenceX to the targett? Choose
+from: positive, negative, neutral.
+3 Technically is unlimited, with threshold originated by the 4K size of sliding window [35]
+4 Our assumption that model is no longer adopts the sliding window attention [35]
+5 https://github.com/microsoft/sample-app-aoai-chatGPT
+LOBACHEVSKII JOURNAL OF MATHEMATICS
+
+[PAGE 5]
+LARGE LANGUAGE MODELS IN TARGETED SENTIMENT ANALYSIS 5
+Table 2.List of LLMs utilized in Zero-shot experiments, separated on «closed models» with access via OpenAI API (GPT) and
+«open models» [11–15] which size does not exceed 7 billion parameters
+Models Versions Params Reference
+GPT-4 1106-preview 1.76T a gpt-4-1106-preview(OpenAI API)
+GPT-3.5 1106 175B b gpt-3.5-turbo-1106(OpenAI API)
+0613 175B b gpt-3.5-turbo-0613(OpenAI API)
+Mistral [11] v0.1 7B https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.1
+v0.2 7B https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.2
+DeciLM:[12] 7B https://huggingface.co/Deci/DeciLM-7B-instruct
+MicrosoftPhi-2 [14]
+2.7B https://huggingface.co/microsoft/phi-2
+Gemma: [13] Instructive 7B c https://huggingface.co/google/gemma-7b-it
+Instructive 2B https://huggingface.co/google/gemma-2b-it
+Flan-T5: [15] XL 3B https://huggingface.co/google/flan-t5-xl
+Large 750M https://huggingface.co/google/flan-t5-large
+Base 250M https://huggingface.co/google/flan-t5-base
+aNon-disclosuredbyOpenAI;accordingtotheothersources,GPT-4yieldsofeightmodels220B-sizedparameterseachconnected
+by a Mixture of Experts (MoE) [48] (≈1.76T params)
+bNon-disclosed by OpenAI, our assumption that the architecture is referred to GPT-3, size of 175B params [1]
+cThe actual and non-official amount of hidden parameters for Gemma-7B-IT model is 9B
+Inthecaseofproprietarymodels,weadoptOpenAIAPIservicetoaccesstheOpenAImodels. Toreduce
+the charging cost for the tokens, we limit the result output for GPT-3.5 and GPT-4 models by using the
+response threshold of75 tokens. We augment the initial prompt with the suffix that requires short answers
+as follows: «Create a very short summary that uses50 completion_tokens or less.» For LLMs that can
+be downloaded for local use, in this paper, we experiment with models whose size does not exceed 7B
+parameters. We utilizedtransformers API [47] to conduct experiments on rented servers. In all models
+for zero-shot experiments, the value of the temperature parameter was chosen as0.1.
+To assess the inferred textual responses, in this study we adopt a universal annotation answer mapping
+strategy that involves the application of class-specific textual lower-cased templates for classes (positive,
+negative, and neutral), separately declared for each language. We use these templates during a sequential
+occurrence check in lower-cased output in the following order: (1) neutral, (2) positive, (3) negative. In
+the case of absence of any class, the «UNK» placeholder (counted as «neutral») was considered. We
+use «positive», «negative», «neutral» templates for RuSentNE-2023en, and «позитив»(positive),
+«негатив»(negative), «нейтрал»(neutral) templates for experiments on RuSentNE-2023 dataset. We
+perform final checks involving regular expressions to guarantee that the final answers are not prefixed with
+the initial prompt.
+4.2. LLMs Fine-tuning Setup
+To experiment with the fine-tuning, we adopt encoder-decoder style instruction-tuned Flan-T56 as our
+backbone large language model for the proposed methodology for texts written in English. In this paper we
+experiment with the following fine-tuning techniques:
+• PROMPT – prompt-tuning with the v1en version of the prompt;
+• THoR – Three-Hop-Reasoning [21] technique, which can be considered as an emerged paradigm:
+task-agnostic schema ofreasoning steps, with one-by-one components referred to sentimentanalysis.
+Theexperimentswiththree-hopreasoningareresourceandtime-intensive,sowecurrentlystudythis
+technique only for one LLMs family.
+Next,wecoverTHoRingreaterdetails. With Ci, i ∈ 1..3wedenotethepromptsthatwrapthecontentin
+theinputcontext. Giventhesentence( X)withtargetentitymentionedinit( t),Figure1illustratestheinitial
+application of the three-step approach [21] for inferring the sentiments′. According to Table 1, the resulta′
+6 https://huggingface.co/docs/transformers/en/model_doc/flan-t5
+LOBACHEVSKII JOURNAL OF MATHEMATICS
+
+[PAGE 6]
+6 NICOLAY RUSNACHENKO ET AL.
+Figure 1. Inferring sentiments‘ using CoT three-hop reasoning framework (THoR), including «final label inferring» to answer
+one of the task classes [21]
+couldbeinterpretas a′ = argmax p(a|X, t),opinion o′ as o′ = argmax p(o|X, t, a′
+1),andthefinalanswer
+s′ noted as:s′ = argmax p (e|X, t, s′, o′). To guarantee the correctness of the final answer (s′), we use the
+following prompt message to inferring the sentiment labell (Figure 1, bottom).
+Weexperimentwith: 250M(base),750M(large),and3B(XL)versions. Weconductexperimentsonlyfor
+English-translatedRuSentNE-2023 endatasetduetothepre-trainingspecificsofFlan-T5model. Formapping
+the Flan-T5 output towards task classes, we seek for the exact string from the set of textual task labels:
+«positive», «negative», and «neutral». When it comes to fine-tuning parameters setup, we follow
+the settings proposed by authors of THoR framework [21]. In particular, we use AdamW [49] optimizer
+with learning rate2 · 10−4 and batch-size of32. To infer the answers, the maximal temperature of1.0 was
+considered.
+5. RESULTS AND DISCUSSION
+Table 3 shows the zero-shot prompting results on thetestset of RuSentNE-2023 across various LLMs,
+separatelyfortheoriginalandtranslatedtexts(RuSentNE-2023 en). TheTable3containstwomainmeasures
+forevaluation( F 1P N, F 1P N0),accompaniedby no-answerrate (N/A%). Ingeneral,allmodelswerecapable
+of handling instructions generated using v1 and v2 prompts for entity-oriented sentiment analysis of initial
+and translated versions of the RuSentNE-2023 dataset.
+It can be seen from Table 3 that such models that support Russian language are tend to perform worse
+with texts from RuSentNE-2023 than for its translated variant RuSentNE-2023en. There are a few models
+for which the proportion of N/A% answers (Table 3) is significantly higher than for other models. The
+Microsoft-Phi-2 model with both versions of prompts returns the prompt along with its response. Since the
+full response is limited by themax_token value, it is truncated, and we do not receive information about
+sentimentclassificationfromthemodel. Theaveragelengthofaresponseforexamplesforwhichthemodel
+did not provide an answer is 465 characters, for the rest it equals 288. DeciLM-7B and Gemma-2B models
+withv2 promptconfigurationgenerategarbageanswersintheformofdatascrapsfromthepromptorclearly
+indicate that they cannot determine the sentiment polarity («...so i cannot answer this question
+from the provided context. »).
+Accordingto F 1P N,inthecaseofproprietaryOpenAImodelsweseethesimilarperformanceorderofthe
+models’ results irrespective of the prompts language source. In particular, the highest results on RuSentNE2023en were achieved by GPT-4 (F 1P N= 54.53) , followed by GPT-3.5turbo-0613 (F 1P N= 49.22) and GPT3.5turbo-1106 (F 1P N= 47.87).7 Switching to the original RuSentNE-2023 results in 10% and 7% decrease in
+7 WebelievethatthereasonoftheworsebehavioroftheGPT-3.5 turbo-1106 againstthepreviousGPT-3.5 turbo-0613 iscausedbyahigher
+tolerance level of the results responses.
+LOBACHEVSKII JOURNAL OF MATHEMATICS
+
+[PAGE 7]
+LARGE LANGUAGE MODELS IN TARGETED SENTIMENT ANALYSIS 7
+Table 3.Results of the LLMs application in zero-shot mode for thetestpart of the RuSentNE-2023 dataset, separately for
+original texts and automatically translated in English (RuSentNE-2023en); for «N/A%» column values (no-answer rate), «·»
+denotes cases when the amount of unknown answers does not exceed 1%; top results per each version of the dataset are bolded
+Model F 1P N F 1P N0 N/A% F 1P N F 1P N0 N/A%
+RuSentNE-2023en [Translated Texts into English]
+Prompt Type v1en v2en
+GPT-41106-preview 54.43 63.44 · 54.59 64.32 ·
+GPT-3.5turbo-0613 49.22 59.51 · 51.79 61.38 ·
+GPT-3.5turbo-1106 47.87 54.62 · 47.04 53.19 ·
+Mistral-Instruct-7Bv0.1 49.56 58.86 · 49.46 58.51 ·
+Mistral-Instruct-7Bv0.2 45.69 57.16 · 44.82 56.04 ·
+DeciLM-7B 42.73 49.88 · 43.85 53.65 1.44
+Microsoft-Phi-2 37.26 31.91 5.55 40.95 42.77 3.13
+Gemma-7B-IT 40.58 45.94 · 40.96 44.63 ·
+Gemma-2B-IT 18.70 39.51 · 31.75 45.96 2.62
+Flan-T5xl 35.35 31.51 · 48.14 57.33 ·
+Flan-T5large 34.86 23.34 · 36.05 24.27 ·
+Flan-T5base 32.64 21.81 · 31.05 20.84 ·
+RuSentNE-2023[Original texts written in Russian]
+Prompt Type v1ru v2ru
+GPT-41106-preview 49.44 58.74 · 48.04 60.55 ·
+GPT-3.5turbo-0613 45.97 56.10 · 45.85 57.36 ·
+GPT-3.5turbo-1106 38.95 45.93 · 35.07 48.53 ·
+Mistral-Instruct-7Bv0.2 48.71 57.10 · 42.60 48.05 ·
+resultby F 1P N forGPT-4andGPT-3.5 turbo-0613 respectively. Inturn,theonlymultilingualMistral-Instruct7Bv0.2 illustrates a performance comparable to GPT-3.5turbo-0613 and outperforms GPT-3.5turbo-1106 by ≈1925%. Also,wefoundMistral-Instruct-7B v0.2 asmoresensitivetopromptsonoriginalRuSentNE-2023texts,
+rather OpenAI models (see last row, Table 3).
+Most open LLMs are able to follow English instructions. For RuSentNE-2023en, we see that the
+best performing models are Mistral [11] models (45.69 ≤ F 1P N ≤ 49.56), and DeciLM-7B [12] as the
+closest competitor alternative (F 1P N= 42.73). The remaining families of Microsoft-Phi-2 and Flan-T5
+series demonstrate the gap in results (32.64 ≤ F 1P N ≤ 37.26). Through the entire range of open models,
+Mistral [11] is the only one capable of handling RuSentNE-2023 in Russian. The official release MistralInstruct-7Bv0.2 was better suited for non-English languages.
+From experiments with model fine-tuning, we found that training Flan-T5 for 2-3 epochs both for
+PROMPT and THoR techniques on RuSentNE-2023en is sufficient. Figure 2 illustrates the evaluation
+statistics of Flan-T5 models ondev dataset per each epoch of the training process (6 epochs in total),
+separately per each training technique. We found that training for 2-4 epochs is sufficient to prevent the
+model from overfitting. For the final evaluation on thetest set, checkpoints with the highest results on
+dev set were considered. Table 4 illustrates the results of the fine-tuning instruction-tuned Flan-T5 models.
+We first compare and discuss the obtained results in comparison with zero-shot approaches, followed by
+comparison of the different fine-tuning techniques.
+Fine-tuning Flan-T5 on RuSentNE-2023en training data results in models that outperform all zero-shot
+approaches. Since the Flan-T5 only supports texts written in English, we experiment with a RuSentNE2023en dataset. Comparing theresults withthosein Table3, wesee thatthefine-tuned versionsof theFlanT5modelsofallsizessignificantlyoutperformedtheircorrespondingzero-shotcounterparts. Theborderline
+for the Flan-T5base version isF 1P N= 59.75, which is+9.9% higher than the top result of GPT-4 applied
+for RuSentNE-2023en (F 1P N= 54.36, see Table 3).
+Comparingtheresultsofdifferentfine-tuningtechniques,wefindthatusingTHoRresultsinmorestable
+performance across all model sizes. The exceptional case of thexl sized model, with which we see similar
+resultson devbetweendifferentfine-tuningtechniqueswithhighergapon testset. Accordingtothefindings
+in[4],theobtainedresultsillustratethealignmentoftheideasthatwereinvestigatedinTHoRapplicationfor
+implicit sentiment analysis [23]. Analyzing results ontest part, the finetuned model with THoR technique
+LOBACHEVSKII JOURNAL OF MATHEMATICS
+
+[TABLE page=7 index=1]
+Columns: Prompt Type | Unnamed: 0 | v1en | Unnamed: 1 | Unnamed: 2 | v2en | Unnamed: 3
+Row 1: Prompt Type: GPT-41106-preview | Unnamed: 0: 54.43 | v1en: 63.44 | Unnamed: 1: · | Unnamed: 2: 54.59 | v2en: 64.32 | Unnamed: 3: ·
+Row 2: Prompt Type: GPT-3.5turbo-0613 | Unnamed: 0: 49.22 | v1en: 59.51 | Unnamed: 1: · | Unnamed: 2: 51.79 | v2en: 61.38 | Unnamed: 3: ·
+Row 3: Prompt Type: GPT-3.5turbo-1106 | Unnamed: 0: 47.87 | v1en: 54.62 | Unnamed: 1: · | Unnamed: 2: 47.04 | v2en: 53.19 | Unnamed: 3: ·
+Row 4: Prompt Type: Mistral-Instruct-7Bv0.1 | Unnamed: 0: 49.56 | v1en: 58.86 | Unnamed: 1: · | Unnamed: 2: 49.46 | v2en: 58.51 | Unnamed: 3: ·
+Row 5: Prompt Type: Mistral-Instruct-7Bv0.2 | Unnamed: 0: 45.69 | v1en: 57.16 | Unnamed: 1: · | Unnamed: 2: 44.82 | v2en: 56.04 | Unnamed: 3: ·
+Row 6: Prompt Type: DeciLM-7B | Unnamed: 0: 42.73 | v1en: 49.88 | Unnamed: 1: · | Unnamed: 2: 43.85 | v2en: 53.65 | Unnamed: 3: 1.44
+Row 7: Prompt Type: Microsoft-Phi-2 | Unnamed: 0: 37.26 | v1en: 31.91 | Unnamed: 1: 5.55 | Unnamed: 2: 40.95 | v2en: 42.77 | Unnamed: 3: 3.13
+Row 8: Prompt Type: Gemma-7B-IT | Unnamed: 0: 40.58 | v1en: 45.94 | Unnamed: 1: · | Unnamed: 2: 40.96 | v2en: 44.63 | Unnamed: 3: ·
+Row 9: Prompt Type: Gemma-2B-IT | Unnamed: 0: 18.7 | v1en: 39.51 | Unnamed: 1: · | Unnamed: 2: 31.75 | v2en: 45.96 | Unnamed: 3: 2.62
+Row 10: Prompt Type: Flan-T5xl | Unnamed: 0: 35.35 | v1en: 31.51 | Unnamed: 1: · | Unnamed: 2: 48.14 | v2en: 57.33 | Unnamed: 3: ·
+Row 11: Prompt Type: Flan-T5large | Unnamed: 0: 34.86 | v1en: 23.34 | Unnamed: 1: · | Unnamed: 2: 36.05 | v2en: 24.27 | Unnamed: 3: ·
+Row 12: Prompt Type: Flan-T5base | Unnamed: 0: 32.64 | v1en: 21.81 | Unnamed: 1: · | Unnamed: 2: 31.05 | v2en: 20.84 | Unnamed: 3: ·
+[/TABLE]
+
+[PAGE 8]
+8 NICOLAY RUSNACHENKO ET AL.
+1 2 3 4 5 6
+Flan-T5 fine-tuning with prompt technique
+Flan-T5base
+Flan-T5large
+Flan-T5xl
+1 2 3 4 5 6
+Flan-T5 fine-tuning with THoR technique
+Flan-T5base
+Flan-T5large
+Flan-T5xl
+Figure 2. Analysis of the Flan-T5 models results on RuSentNE-2023en devper each epoch (horizontal axis) byF1(P N)(vertical
+axis) during fine-tuning with PROMPT (left) and THoR technique (right) per different sizes
+on shows+4.2% increment byF 1P N once switching from base-size to large-sized, and extra+4.4% by
+F 1P N with the XL-sized over large. The highest achieved result isF 1P N= 68.20 which outperforms the
+best RuSentNE-2023 results based on the transformer encoder ensemble [50].
+Table 4.Results of the Flan-T5 fine-tuning with (i) PROMPT and (ii) THoR techniques for RuSentNE-2023en and results of the
+THoR in zero-shot mode for the comparison; top results per each column are bolded
+Model Technique
+RuSentNE-2023en
+dev test
+F 1P N F 1P N0 F 1P N F 1P N0
+Flan-T5 fine-tuning results
+Flan-T5xl THoR 68.02 74.82 65.09 72.45
+Flan-T5xl PROMPT (v1en) 68.62 75.69 68.20 75.29
+Flan-T5large THoR 67.31 74.67 62.29 70.70
+Flan-T5large PROMPT (v1en) 65.83 73.71 60.80 69.79
+Flan-T5base THoR 62.72 70.70 59.75 68.02
+Flan-T5base PROMPT (v1en) 62.40 70.68 57.01 66.89
+Zero-shot results
+GPT-41106-previewa THoR – – 50.13 55.93
+GPT-3.5turbo-0613 THoR 43.41 46.14 44.50 48.17
+GPT-3.5turbo-1106 THoR 40.85 40.04 42.58 42.18
+Flan-T5xl THoR 38.30 32.12 38.58 33.55
+Flan-T5large THoR 34.66 23.10 34.69 23.13
+Flan-T5base THoR 33.93 22.79 33.88 23.00
+Best RuSentNE-2023 [50]Ensemble of encoders 70.94 77.63 66.67 74.11
+aDue to the high GPT-41106-preview API cost, results were inferred for thetestpart only.
+6. ERROR ANALYSIS
+For the error analysis, we selected examples from the RuSentNE-2023 test set where most models’
+predictions did not align with human annotations. The following main types of discrepancies between
+models’ predictions and manual annotations are found (denoted as «E1», «E2», and «E3»):
+E1. Asentencementionsthepositiveauthor’sattitudetothetargetpersonandsomenegativeeventwiththis
+person (trauma, death). The annotators treat such examples as positive for the person because in most cases
+traumas or death do no influence on existing positive attitude. Models in zero-shot mode answer on such
+examples by choosing the negative sentiment to the target person due to “negative effect” context. In turn,
+fine-tuned models annotate most of such examples correctly. For instance, in the following example we can
+see that the author has a positive attitude towards Chuck Berry despite the incident described.
+LOBACHEVSKII JOURNAL OF MATHEMATICS
+
+[TABLE page=8 index=1]
+Columns: Flan-T5xl | THoR | 68.02 | 74.82 | 65.09 | 72.45
+Row 1: Flan-T5xl: Flan-T5xl | THoR: PROMPT (v1en) | 68.02: 68.62 | 74.82: 75.69 | 65.09: 68.2 | 72.45: 75.29
+Row 2: Flan-T5xl: Flan-T5large | THoR: THoR | 68.02: 67.31 | 74.82: 74.67 | 65.09: 62.29 | 72.45: 70.7
+Row 3: Flan-T5xl: Flan-T5large | THoR: PROMPT (v1en) | 68.02: 65.83 | 74.82: 73.71 | 65.09: 60.8 | 72.45: 69.79
+Row 4: Flan-T5xl: Flan-T5base | THoR: THoR | 68.02: 62.72 | 74.82: 70.7 | 65.09: 59.75 | 72.45: 68.02
+Row 5: Flan-T5xl: Flan-T5base | THoR: PROMPT (v1en) | 68.02: 62.4 | 74.82: 70.68 | 65.09: 57.01 | 72.45: 66.89
+[/TABLE]
+
+[TABLE page=8 index=2]
+Columns: GPT-4 1106-preview a | Unnamed: 0 | THoR | Unnamed: 1 | – | –.1 | 50.13 | 55.93
+Row 1: GPT-4 1106-preview a: GPT-3.5turbo-0613 | Unnamed: 0: | THoR: THoR | Unnamed: 1: | –: 43.41 | –.1: 46.14 | 50.13: 44.5 | 55.93: 48.17
+Row 2: GPT-4 1106-preview a: GPT-3.5turbo-1106 | Unnamed: 0: | THoR: THoR | Unnamed: 1: | –: 40.85 | –.1: 40.04 | 50.13: 42.58 | 55.93: 42.18
+Row 3: GPT-4 1106-preview a: Flan-T5xl | Unnamed: 0: | THoR: THoR | Unnamed: 1: | –: 38.3 | –.1: 32.12 | 50.13: 38.58 | 55.93: 33.55
+Row 4: GPT-4 1106-preview a: Flan-T5large | Unnamed: 0: | THoR: THoR | Unnamed: 1: | –: 34.66 | –.1: 23.1 | 50.13: 34.69 | 55.93: 23.13
+Row 5: GPT-4 1106-preview a: Flan-T5base | Unnamed: 0: | THoR: THoR | Unnamed: 1: | –: 33.93 | –.1: 22.79 | 50.13: 33.88 | 55.93: 23.0
+Row 6: GPT-4 1106-preview a: Best RuSentNE-2023 [50] Ensemble of encoders | Unnamed: 0: | THoR: | Unnamed: 1: | –: 70.94 | –.1: 77.63 | 50.13: 66.67 | 55.93: 74.11
+[/TABLE]
+
+[PAGE 9]
+LARGE LANGUAGE MODELS IN TARGETED SENTIMENT ANALYSIS 9
+Легендарный Чак Берри потерял сознание на концерте.
+(Legendary musician Chuck Berry fainted during a concert in Chicago.)
+E2. Asentencementionsseveralentities,whilethenegativesentimentisdirectedonlyatoneoftheseentities.
+Models cannot distinguish the correct object of this negative attitude. For example:
+Юлия же в свою очередь обвиняет бывшего супруга в том, что он не выполняет решение суда, и уже
+объявлен в федеральный розыск.
+(Yulia, in turn, accuses her ex-husband of not complying with the court decision and has already been put
+on the federal wanted list.)
+In this case, the models predict a negative attitude towards Yulia, but in fact Yulia has a negative opinion of
+her husband.
+E3. Similar to the E2. A sentence with evident negative sentiment mentions a single entity, but sentiment is
+directedtosomeout-of-sentenceentity. Almostallmodelsinzero-shotmodepredictanegativesentimentto
+the mentioned entity. In the following example, the models in zero-shot mode answer by choosing negative
+sentiment to America, but in fact the negative opinion is towards the "situation".
+Ситуация, однако, не может нас не беспокоить – объем экспорта в Америку упал на 8%.
+(The situation, however, cannot but worry us – the volume of exports to America fell by 8%.)
+7. CONCLUSION
+In this paper, we investigated the application of large language models (LLM) in targeted sentiment
+analysis within news texts. We follow the RuSentNE-2023 competition both for experiments with LLM and
+evaluation. TheRuSentNE-2023evaluationwasaimedatextractingsentimenttowardstheobjectsannotated
+in Russian-language sentences. In experiments, we used the RuSentNE-2023 dataset as well as its English
+automatically translated version (RuSentNE-2023en).
+LLM-basedsentimentanalysiswasinvestigatedinseveraldirections,whichcovertheinfluenceofaspects
+such as: (i) the language of the source texts (Russian or English), (ii) variants of prompts, and (iii) the
+effect of fine-tuning, including the application of the Chain-of-Thought technique. We have discovered
+the significance of the content translation, since most LLM models demonstrate reasonable comprehension
+capabilities primarily in English. Zero-shot approaches achieve results comparable to fine-tuned BERTbasedRuSentNE-2023competitionbaselines. ExperimentswithLLMfine-tuning(Flan-T5)haveshownthe
+improvement in≈ 10% performance by F1(P N) for all considered Flan-T5 models. The highest results
+were obtainedby fine-tunedxl-sized Flan-T5xl model (3B+ parameters), whichare currentlythe bestresults
+achieved on the RuSentNE-2023 test set.
+In further, we aim to continue experimenting with the Chain-of-Thought in the following directions:
+(i) reasoning revision techniques using extensive resources of auxiliary information, (ii) parameter-efficient
+tuning for larger models.
+Acknowledgments
+The work is supported by the Russian Science Foundation (grant No. 21-71-30003).
+REFERENCES
+1. T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry,
+A. Askell, et al.,Language Models are Few-Shot Learners, Advances in Neural Information Processing Systems
+(2020).
+2. J. Wei, M. Bosma, V. Y. Zhao, K. Guu, A. W. Yu, B. Lester, N. Du, A. M. Dai, and Q. V. Le,Finetuned language
+models are zero-shot learners, arXiv preprint arXiv:2109.01652 (2021).
+3. B. Zhang, D. Ding, and L. Jing,How would Stance Detection Techniques Evolve after the Launch of ChatGPT?
+(2023), arXiv:2212.14548.
+4. J.Wei,X.Wang,D.Schuurmans,M.Bosma,F.Xia,E.Chi,Q.V.Le,D.Zhou,etal., Chain-of-thoughtprompting
+elicits reasoning in large language models, Advances in Neural Information Processing Systems (2022).
+LOBACHEVSKII JOURNAL OF MATHEMATICS
+
+[PAGE 10]
+10 NICOLAY RUSNACHENKO ET AL.
+5. P. Turney, Thumbs Up or Thumbs Down? Semantic Orientation Applied to Unsupervised Classification of
+Reviews, Proceedings of the 40th Annual Meeting of the Association for Computational Linguistics (2002), URL
+https://aclanthology.org/P02-1053.
+6. O. Toledo-Ronen, M. Orbach, Y. Katz, and N. Slonim,Multi-Domain Targeted Sentiment Analysis, Annual
+Conference of the North American Chapter of the Association for Computational Linguistics (2022).
+7. E.Amigó,J.CarrillodeAlbornoz,I.Chugur,A.Corujo,J.Gonzalo,T.Martín,E.Meij,M.DeRijke,andD.Spina,
+Overviewofreplab2013: Evaluatingonlinereputationmonitoringsystems ,Internationalconferenceofthecrosslanguage evaluation forum for european languages (2013).
+8. N. Loukachevitch and Y. Rubtsova,Entity-oriented sentiment analysis of tweets: results and problems, Text,
+Speech,andDialogue: 18thInternationalConference,TSD2015,Pilsen,CzechRepublic,September14-17,2015,
+Proceedings 18 (2015).
+9. A. Golubev, N. Rusnachenko, and N. Loukachevitch,RuSentNE-2023: Evaluating Entity-Oriented Sentiment
+AnalysisonRussianNewsTexts ,ComputationalLinguisticsandIntellectualTechnologies: papersfromtheAnnual
+conference Dialogue (arxiv:2305.17679 (2023).
+10. M. Pontiki, D. Galanis, H. Papageorgiou, I. Androutsopoulos, S. Manandhar, M. AL-Smadi, M. Al-Ayyoub,
+Y. Zhao, B. Qin, O. De Clercq, et al.,Semeval-2016 task 5: Aspect based sentiment analysis, ProWorkshop on
+Semantic Evaluation (SemEval-2016) (2016).
+11. A. Q. Jiang, A. Sablayrolles, A. Mensch, C. Bamford, D. S. Chaplot, D. de las Casas, F. Bressand, G. Lengyel,
+G. Lample, L. Saulnier, et al.,Mistral 7B(2023), arXiv:2310.06825.
+12. D. R. Team,DeciLM-7B (2023), URLhttps://huggingface.co/Deci/DeciLM-7B.
+13. T. W. Jeanine Banks,Gemma: Introducing new state-of-the-art open models(2023), URL https://blog.
+google/technology/developers/gemma-open-models/.
+14. Y. Li, S. Bubeck, R. Eldan, A. D. Giorno, S. Gunasekar, and Y. T. Lee,Textbooks Are All You Need II: phi-1.5
+technical report(2023), arXiv:2309.05463.
+15. H. W. Chung, L. Hou, S. Longpre, B. Zoph, Y. Tay, W. Fedus, Y. Li, X. Wang, M. Dehghani, S. Brahma, et al.,
+Scaling instruction-finetuned language models, arXiv preprint arXiv:2210.11416 (2022).
+16. SentimentAnalysisintheEraofLargeLanguageModels: ARealityCheck,author=WenxuanZhangandYueDeng
+and Bing Liu and Sinno Jialin Pan and Lidong Bing(2023), arXiv:2305.15005.
+17. A. Chowdhery, S. Narang, J. Devlin, M. Bosma, G. Mishra, A. Roberts, P. Barham, H. W. Chung, C. Sutton,
+S. Gehrmann, et al., J. Mach. Learn. Res.24(2024), ISSN 1532-4435.
+18. Y. Tay, M. Dehghani, V. Q. Tran, X. Garcia, J. Wei, X. Wang, H. W. Chung, S. Shakeri, D. Bahri, T. Schuster,
+et al.,Ul2: Unifying language learning paradigms(2023), 2205.05131.
+19. H. Touvron, T. Lavril, G. Izacard, X. Martinet, M.-A. Lachaux, T. Lacroix, B. Rozière, N. Goyal, E. Hambro,
+F. Azhar, et al.,LLaMa: Open and Efficient Foundation Language Models(2023), arXiv:2302.13971.
+20. F.Koto,T.Beck,Z.Talat,I.Gurevych,andT.Baldwin, Zero-shotSentimentAnalysisinLow-ResourceLanguages
+Using a Multilingual Sentiment Lexicon(2024), arXiv:2402.02113.
+21. F.Hao,L.Bobo,L.Qian,B.Lidong,L.Fei,andC.Tat-Seng, ReasoningImplicitSentimentwithChain-of-Thought
+Prompting, Proceedings of the Annual Meeting of the Association for Computational Linguistics (2023).
+22. M. Pontiki, D. Galanis, J. Pavlopoulos, H. Papageorgiou, I. Androutsopoulos, and S. Manandhar,SemEval-2014
+Task4: AspectBasedSentimentAnalysis ,Proceedingsofthe8thInternationalWorkshoponSemanticEvaluation
+(SemEval 2014) (2014), URLhttps://aclanthology.org/S14-2004.
+23. Z. Li, Y. Zou, C. Zhang, Q. Zhang, and Z. Wei,Learning implicit sentiment in aspect-based sentiment analysis
+with supervised contrastive pre-training(2021).
+24. C.Raffel,N.Shazeer,A.Roberts,K.Lee,S.Narang,M.Matena,Y.Zhou,W.Li,andP.J.Liu, Exploringthelimits
+of transfer learning with a unified text-to-text transformer, The Journal of Machine Learning Research (2020).
+25. J. Devlin, M.-W. Chang, K. Lee, and K. Toutanova,BERT: Pre-training of deep bidirectional transformers for
+language understanding, Proceedings of the 2019 Conference of the North American Chapter of the Association
+forComputationalLinguistics: HumanLanguageTechnologies,Volume1(LongandShortPapers)"(2019),URL
+https://aclanthology.org/N19-1423.
+26. N.Loukachevitch,P.Blinov,E.Kotelnikov,Y.Rubtsova,V.Ivanov,andE.Tutubalina, SentiRuEval: testingobjectoriented sentiment analysis systems in Russian, Proceedings of International Conference Dialog (2015).
+27. A. Golubev and N. Loukachevitch,Improving results on Russian sentiment datasets, Conference on artificial
+intelligence and natural language (2020).
+28. Y.Liu,M.Ott,N.Goyal,J.Du,M.Joshi,D.Chen,O.Levy,M.Lewis,L.Zettlemoyer,andV.Stoyanov, RoBERTa:
+A Robustly Optimized BERT Pretraining Approach(2019), arXiv:1907.11692.
+29. S. Smetanin and M. Komarov,Deep transfer learning baselines for sentiment analysis in Russian, Information
+Processing & Management (2021).
+30. S. Chumakov, A. Kovantsev, and A. Surikov,Generative approach to Aspect Based Sentiment Analysis with GPT
+Language Models, Procedia Computer Science (2023).
+31. A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, and I. Sutskever (2019).
+32. I.Moloshnikov,M.Skorokhodov,A.Naumov,R.Rybka,andA.Sboev, NamedEntity-OrientedSentimentAnalysis
+with text2text Generation Approach, Proceedings of the International Conference “Dialogue (2023).
+LOBACHEVSKII JOURNAL OF MATHEMATICS
+
+[PAGE 11]
+LARGE LANGUAGE MODELS IN TARGETED SENTIMENT ANALYSIS 11
+33. N. Loukachevitch, E. Artemova, T. Batura, P. Braslavski, V. Ivanov, S. Manandhar, A. Pugachev, I. Rozhkov,
+A.Shelmanov,E.Tutubalina,etal., Nerel: arussianinformationextractiondatasetwithrichannotationfornested
+entities, relations, and wikidata entity links(2023).
+34. J. Ainslie, J. Lee-Thorp, M. de Jong, Y. Zemlyanskiy, F. Lebron, and S. Sanghai,GQA: Training Generalized
+Multi-QueryTransformerModelsfromMulti-HeadCheckpoints ,Proceedingsofthe2023ConferenceonEmpirical
+Methods in Natural Language Processing (2023).
+35. I.Beltagy,M.E.Peters,andA.Cohan, Longformer: TheLong-DocumentTransformer (2020),arXiv:2004.05150.
+36. R. Sennrich, B. Haddow, and A. Birch,Neural Machine Translation of Rare Words with Subword Units(2016),
+arXiv:1508.07909.
+37. E. J. Hu, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, W. Chen, et al.,Lora: Low-rank adaptation of large
+language models(2021).
+38. W. Lian, G. Wang, B. Goodson, E. Pentland, A. Cook, C. Vong, and "Teknium",SlimOrca: An Open Dataset
+of GPT-4 Augmented FLAN Reasoning Traces, with Verification, HuggingFace (2023), URLhttps://https:
+//huggingface.co/Open-Orca/SlimOrca.
+39. G. Penedo, Q. Malartic, D. Hesslow, R. Cojocaru, A. Cappelli, H. Alobeidli, B. Pannier, E. Almazrouei, and
+J.Launay, TheRefinedWebdatasetforFalconLLM:outperformingcuratedcorporawithwebdata, andwebdata
+only, arXiv preprint arXiv:2306.01116 (2023), URLhttps://arxiv.org/abs/2306.01116.
+40. D. Soboleva, F. Al-Khateeb, R. Myers, J. R. Steeves, J. Hestness, and N. Dey, SlimPajama: A
+627B token cleaned and deduplicated version of RedPajama , https://www.cerebras.net/blog/
+slimpajama-a-627b-token-cleaned-and-deduplicated-version-of-redpajama (2023), URL
+https://huggingface.co/datasets/cerebras/SlimPajama-627B.
+41. G. Team, R. Anil, S. Borgeaud, Y. Wu, J.-B. Alayrac, J. Yu, R. Soricut, J. Schalkwyk, A. M. Dai, A. Hauth, et al.,
+Gemini: A Family of Highly Capable Multimodal Models(2023), arXiv:2312.11805.
+42. C. Raffel, N. Shazeer, A. Roberts, K. Lee, S. Narang, M. Matena, Y. Zhou, W. Li, and P. J. Liu,Exploring the
+limits of transfer learning with a unified text-to-text transformer, J. Mach. Learn. Res. (2020).
+43. D.Hendrycks,C.Burns,S.Basart,A.Zou,M.Mazeika,D.Song,andJ.Steinhardt, MeasuringMassiveMultitask
+Language Understanding(2021), arXiv:2009.03300.
+44. M. Suzgun, N. Scales, N. Schärli, S. Gehrmann, Y. Tay, H. W. Chung, A. Chowdhery, Q. Le, E. Chi, D. Zhou,
+etal., ChallengingBIG-BenchTasksandWhetherChain-of-ThoughtCanSolveThem ,FindingsoftheAssociation
+for Computational Linguistics: ACL 2023 (2023).
+45. J.H.Clark,E.Choi,M.Collins,D.Garrette,T.Kwiatkowski,V.Nikolaev,andJ.Palomaki, TyDiQA:ABenchmark
+forInformation-SeekingQuestionAnsweringinTypologicallyDiverseLanguages ,TransactionsoftheAssociation
+for Computational Linguistics (2020).
+46. F. Shi, M. Suzgun, M. Freitag, X. Wang, S. Srivats, S. Vosoughi, H. W. Chung, Y. Tay, S. Ruder, D. Zhou, et al.,
+Language Models are Multilingual Chain-of-Thought Reasoners(2022), arXiv:2210.03057.
+47. T. Wolf, L. Debut, V. Sanh, J. Chaumond, C. Delangue, A. Moi, P. Cistac, T. Rault, R. Louf, M. Funtowicz,
+et al., inProceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System
+Demonstrations (Association for Computational Linguistics, Online, 2020), pp. 38–45, URLhttps://www.
+aclweb.org/anthology/2020.emnlp-demos.6.
+48. M. Schreiner,Gpt-4 architecture, datasets, costs and more leaked, THE DECODER (2023).
+49. I. Loshchilov and F. Hutter,Decoupled weight decay regularization(2018).
+50. P. Podberezko, A. Kaznacheev, S. Abdullayeva, and A. Kabaev,HAlf-MAsked Model for Named Entity Sentiment
+analysis, Proceedings of the International Conference Dialogue (2023).
+LOBACHEVSKII JOURNAL OF MATHEMATICS

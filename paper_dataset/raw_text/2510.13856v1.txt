@@ -1,0 +1,1028 @@
+[PAGE 1]
+MasonNLP at MEDIQA-WV 2025: Multimodal Retrieval-Augmented
+Generation with Large Language Models for Medical VQA
+A H M Rezaul Karim
+George Mason University, V A, USA
+akarim9@gmu.edu
+Özlem Uzuner
+George Mason University, V A, USA
+ouzuner@gmu.edu
+Abstract
+Medical Visual Question Answering (MedVQA) enables natural language queries over
+medical images to support clinical decisionmaking and patient care. The MEDIQAWV 2025 shared task addressed wound-care
+VQA, requiring systems to generate free-text
+responses and structured wound attributes
+from images and patient queries. We present
+the MasonNLP system, which employs a
+general-domain, instruction-tuned large language model with a retrieval-augmented generation (RAG) framework that incorporates textual and visual examples from in-domain data.
+This approach grounds outputs in clinically relevant exemplars, improving reasoning, schema
+adherence, and response quality across dBLEU,
+ROUGE, BERTScore, and LLM-based metrics. Our best-performing system ranked 3 rd
+among 19 teams and 51 submissions with
+an average score of 41.37%, demonstrating
+that lightweight RAG with general-purpose
+LLMs—a minimal inference-time layer that
+adds a few relevant exemplars via simple indexing and fusion, with no extra training or
+complex re-ranking— provides a simple and
+effective baseline for multimodal clinical NLP
+tasks. 1
+1 Introduction
+Generating accurate answers to clinically relevant
+questions about medical images, known as Medical
+Visual Question Answering (MedVQA), requires
+integrating visual perception with domain-specific
+reasoning (Lin et al., 2023; Lau et al., 2018). Such
+systems can enhance diagnostics, support clinical
+training, and provide accessible, question-driven
+insights for clinicians and patients.
+Compared to general VQA, MedVQA faces
+unique challenges, such as subtle anatomical or
+1Implementation can be found here: https://github.
+com/AHMRezaul/MEDIQA-WV-2025
+pathological features that must be interpreted precisely, and questions often demanding specialized
+knowledge and logical inference (Lin et al., 2023;
+Liu et al., 2021). General VQA datasets lack this
+depth, motivating the creation of tailored medical
+benchmarks (Lin et al., 2023). Key resources include VQA-RAD for radiology (Lau et al., 2018),
+SLAKE with bilingual semantic annotations (Liu
+et al., 2021), and ImageCLEF’s VQA-Med series (Ben Abacha et al., 2019, 2021). PathVQA
+extends to pathology images (He et al., 2020b),
+PMC-VQA scales to over 227k Question Answer
+pairs for pretraining (Zhang et al., 2023), and MedFrameQA introduces multi-image reasoning for
+clinical scenarios (Yu et al., 2025). While these
+datasets drive progress, many methods still rely
+on resource-intensive fine-tuning and large domain
+corpora, limiting scalability.
+Wound-care is a crucial MedVQA application,
+where image-based assessment guides treatment,
+monitors healing, and detects complications. Remote wound monitoring and telemedicine reduce
+costs, hospital visits, and infection risks (Sood
+et al., 2016; Chen et al., 2020), but variability in interpretation highlights the need for automated QA
+tools to support clinicians and empower patients.
+The MEDIQA-WV shared task(Wound-care
+Visual Question Answering), part of ClinicalNLP
+2025, addresses this challenge by generating freetext answers to patient-oriented wound-care questions using one or more images with annotations
+(Yim et al., 2025b). The shared task dataset includes bilingual (English/Chinese) queries, metadata such as wound type and anatomic site, and
+systems are evaluated on fluency, relevance, and
+clinical accuracy.
+We study an instruction-tuned general-domain
+LLM (Meta LLaMA-4 Scout 17B) (Meta, 2025)
+in a few-shot setup. It performs well on cases
+with small image details and short, generic question types, but degrades on images with subarXiv:2510.13856v1 [cs.CL] 12 Oct 2025
+
+[TABLE page=1 index=1]
+Columns: responses and | structured | wound attributes | Unnamed: 0 | Unnamed: 1 | SLAKE with bilingual semantic annotations (Liu
+Row 1: responses and: from images and patient queries. | structured: | wound attributes: We present | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu: et al., 2021), and ImageCLEF’s VQA-Med seRow 2: responses and: the MasonNLP | structured: system, | wound attributes: which employs a | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu: ries (Ben Abacha et al., 2019, 2021). PathVQA
+Row 3: responses and: general-domain, | structured: instruction-tuned | wound attributes: large lan- | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu: extends to pathology images (He et al., 2020b),
+Row 4: responses and: guage model with a retrieval-augmented gener- | structured: | wound attributes: | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu: PMC-VQA scales to over 227k Question Answer
+Row 5: responses and: ation (RAG) framework that incorporates tex- | structured: | wound attributes: | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu:
+Row 6: responses and: | structured: | wound attributes: | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu: pairs for pretraining (Zhang et al., 2023), and MedRow 7: responses and: tual and visual examples from in-domain data. | structured: | wound attributes: | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu:
+Row 8: responses and: | structured: | wound attributes: | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu: FrameQA introduces multi-image reasoning for
+Row 9: responses and: This approach grounds outputs in clinically rel- | structured: | wound attributes: | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu:
+Row 10: responses and: evant exemplars, improving reasoning, schema | structured: | wound attributes: | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu: clinical scenarios (Yu et al., 2025). While these
+Row 11: responses and: adherence, and response quality across dBLEU, | structured: | wound attributes: | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu: datasets drive progress, many methods still rely
+Row 12: responses and: ROUGE, BERTScore, | structured: and | wound attributes: LLM-based met- | Unnamed: 0: | Unnamed: 1: | SLAKE with bilingual semantic annotations (Liu: on resource-intensive fine-tuning and large domain
+[/TABLE]
+
+[PAGE 2]
+tle or mixed findings, multi-part questions, and
+requests that require expert-level interpretation.
+To improve grounding and reasoning, we add a
+lightweight retrieval-augmented generation (RAG)
+(Lewis et al., 2020) layer by retrieving top-2 relevant text and image exemplars from the task corpus and appending them to the prompt. Since the
+dataset is not large enough for reliable fine-tuning
+and would add substantial compute and operational
+cost, a lightweight RAG setup was chosen.
+Our contributions include:
+• Demonstrating that a general-domain LLM
+with lightweight RAG can handle complex
+multimodal clinical tasks without domainspecific training.
+• Showing that exemplar retrieval at inference
+improves reasoning and interpretability on
+clinical data.
+• Providing a systematic analysis of how retrieval modality (text-only vs. multimodal)
+and prompting choices affect performance in
+medical visual question answering.
+These results illustrate the promise of generalpurpose LLMs, augmented with lightweight RAG,
+for transparent, flexible, and efficient solutions in
+clinical NLP and multimodal AI.
+2 Related Work
+Early VQA systems in both general and clinical
+domains relied on rule-based pipelines and small
+answer vocabularies, mapping hand-crafted cues or
+shallow features to fixed slots. These approaches
+lacked robustness to negation, uncertainty, and
+paraphrase (Malinowski et al., 2015). In the general
+domain, although VQA was framed as open-ended,
+many methods treated it as classification over restricted answer sets (Antol et al., 2015). Similar patterns appeared in early medical benchmarks, where
+evaluation emphasized exact match or lexical overlap, reinforcing closed-set, short-answer formats
+(Hasan et al., 2018; Ben Abacha et al., 2019, 2021).
+Such formulations constrained clinical expressivity
+and hindered nuanced responses.
+With deep learning, convolutional image encoders combined with recurrent or simple text
+encoders became standard, later enhanced by attention (Talafha and Al-Ayyoub, 2018; Lin et al.,
+2023). In the general domain, bottom-up/top-down
+attention over regions (Anderson et al., 2017) and
+modular co-attention (Yu et al., 2019) set strong
+baselines, influencing medical adaptations (Lin
+et al., 2023). New datasets supported this shift:
+VQA-RAD (Lau et al., 2018) introduced clinically
+authored radiology questions; SLAKE (Liu et al.,
+2021) added bilingual annotations with semantic labels; PathVQA (He et al., 2020b) scaled pathology
+QA with textbook images but faced noise and coverage issues; Medical-Diff-VQA (Hu et al., 2023) introduced difference-based paired-image questions
+for comparative reasoning.
+Transformer-based vision–language pretraining
+further reshaped the field. ViLBERT (Lu et al.,
+2019) and LXMERT (Tan and Bansal, 2019)
+learned joint cross-modal representations and
+adapted effectively to VQA. In medicine, MMBERT (Khare et al., 2021) showed multimodal
+BERT (Devlin et al., 2019) pretraining improves
+MedVQA under data scarcity, and M2I2 (Li et al.,
+2023c) leveraged self-supervised masked modeling
+and contrastive alignment to advance results across
+VQA-RAD, PathVQA, and SLAKE. Hybrids also
+emerged: BPI-MVQA (Liu et al., 2022) combined
+transformers with retrieval signals for improved
+multimodal fusion. These approaches improved
+accuracy but generally required domain-specific
+pretraining or fine-tuning.
+Large vision–language models (VLMs) and
+LLM–vision hybrids enabled open-ended generation. BLIP-2 (Li et al., 2023b) efficiently bridged
+frozen encoders and LLMs. LLaV A (Liu et al.,
+2023) introduced visual instruction tuning, while
+LLaV A-Med (Li et al., 2023a) adapted this strategy
+to biomedical content. Domain-specific conversational VLMs such as XrayGPT (Thawakar et al.,
+2024) aligned MedCLIP (Wang et al., 2022) encoders with Vicuna (Chiang et al., 2023) for chest
+X-ray QA and summarization, and R-LLaV A (Chen
+et al., 2024) enhanced MedVQA via ROI annotations. Generative perspectives also gained traction: PMC-VQA scaled to 227k QA pairs, training
+MedVInT for effective fine-tuning on VQA-RAD,
+SLAKE, and ImageCLEF (Zhang et al., 2024).
+Evaluation evolved from strict accuracy toward
+BLEU and other text-generation metrics to capture partial correctness and phrasing variability
+(Ben Abacha et al., 2019, 2021; Hasan et al., 2018).
+RAG (Lewis et al., 2020) has emerged to mitigate hallucinations and data scarcity by grounding answers in evidence. RAMM (Yuan et al.,
+2023) combined retrieval with dedicated attention
+modules to set state-of-the-art results on multiple
+
+[TABLE page=2 index=1]
+Columns: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic laRow 1: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: pus and appending them to the prompt. Since the bels; PathVQA (He et al., 2020b) scaled pathology
+Row 2: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: dataset is not large enough for reliable fine-tuning QA with textbook images but faced noise and coverRow 3: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: and would add substantial compute and operational age issues; Medical-Diff-VQA (Hu et al., 2023) inRow 4: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: cost, a lightweight RAG setup was chosen. troduced difference-based paired-image questions
+Row 5: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: Our contributions include: for comparative reasoning.
+Row 6: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: Transformer-based vision–language pretraining
+Row 7: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: • Demonstrating that a general-domain LLM
+Row 8: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: further reshaped the field. ViLBERT (Lu et al.,
+Row 9: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: with lightweight RAG can handle complex
+Row 10: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: 2019) and LXMERT (Tan and Bansal, 2019)
+Row 11: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: multimodal clinical tasks without domainRow 12: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: learned joint cross-modal representations and
+Row 13: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: specific training.
+Row 14: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: adapted effectively to VQA. In medicine, MMRow 15: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: multimodal• Showing that exemplar retrieval at inferenceBERT (Khare et al., 2021) showed
+Row 16: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: BERT (Devlin et al., 2019) pretraining improvesimproves reasoning and interpretability on
+Row 17: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: MedVQA under data scarcity, and M2I2 (Li et al.,clinical data.
+Row 18: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: 2023c) leveraged self-supervised masked modeling
+Row 19: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: • Providing a systematic analysis of how re- and contrastive alignment to advance results across
+Row 20: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: trieval modality (text-only vs. multimodal) VQA-RAD, PathVQA, and SLAKE. Hybrids also
+Row 21: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: and prompting choices affect performance in emerged: BPI-MVQA (Liu et al., 2022) combined
+Row 22: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: medical visual question answering. transformers with retrieval signals for improved
+Row 23: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: multimodal fusion. These approaches improved
+Row 24: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: These results illustrate the promise of general- accuracy but generally required domain-specific
+Row 25: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: purpose LLMs, augmented with lightweight RAG, pretraining or fine-tuning.
+Row 26: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: for transparent, flexible, and efficient solutions in Large vision–language models (VLMs) and
+Row 27: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: clinical NLP and multimodal AI. LLM–vision hybrids enabled open-ended generRow 28: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: ation. BLIP-2 (Li et al., 2023b) efficiently bridged
+Row 29: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: 2 Related Work
+Row 30: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: frozen encoders and LLMs. LLaVA (Liu et al.,
+Row 31: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: Early VQA systems in both general and clinical 2023) introduced visual instruction tuning, while
+Row 32: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: domains relied on rule-based pipelines and small LLaVA-Med (Li et al., 2023a) adapted this strategy
+Row 33: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: answer vocabularies, mapping hand-crafted cues or to biomedical content. Domain-specific conversaRow 34: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: shallow features to fixed slots. These approaches tional VLMs such as XrayGPT (Thawakar et al.,
+Row 35: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: lacked robustness to negation, uncertainty, and 2024) aligned MedCLIP (Wang et al., 2022) enRow 36: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: paraphrase (Malinowski et al., 2015). In the general coders with Vicuna (Chiang et al., 2023) for chest
+Row 37: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: domain, although VQA was framed as open-ended, X-ray QA and summarization, and R-LLaVA (Chen
+Row 38: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: many methods treated it as classification over re- et al., 2024) enhanced MedVQA via ROI annotaRow 39: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: stricted answer sets (Antol et al., 2015). Similar pat- tions. Generative perspectives also gained tracRow 40: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: terns appeared in early medical benchmarks, where tion: PMC-VQA scaled to 227k QA pairs, training
+Row 41: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: evaluation emphasized exact match or lexical over- MedVInT for effective fine-tuning on VQA-RAD,
+Row 42: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: lap, reinforcing closed-set, short-answer formats SLAKE, and ImageCLEF (Zhang et al., 2024).
+Row 43: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: (Hasan et al., 2018; Ben Abacha et al., 2019, 2021). Evaluation evolved from strict accuracy toward
+Row 44: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: Such formulations constrained clinical expressivity BLEU and other text-generation metrics to capRow 45: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: and hindered nuanced responses. ture partial correctness and phrasing variability
+Row 46: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: With deep learning, convolutional image en- (Ben Abacha et al., 2019, 2021; Hasan et al., 2018).
+Row 47: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: coders combined with recurrent or simple text RAG (Lewis et al., 2020) has emerged to mitiRow 48: vant text and image exemplars from the task cor- 2021) added bilingual annotations with semantic la-: encoders became standard, later enhanced by at- gate hallucinations and data scarcity by ground-
+[/TABLE]
+
+[PAGE 3]
+Figure 1: Task overview for MEDIQA-WV 2025. Inputs: wound images and a patient query. Outputs: free-text
+answer with structured wound attributes
+MedVQA datasets. Fine-grained retrieval fusion
+with re-weighting further improved benchmarks
+like PathVQA and VQA-RAD without direct data
+access (Liang et al., 2025). Broader studies show
+retrieval strategies, granularity, and fusion strongly
+affect factuality, though best practices remain unsettled (Xiong et al., 2024).
+Despite progress, challenges remain. Many systems rely on costly pretraining, curated corpora,
+or complex fusion stacks that limit transferability. Closed-set classification constrains answer diversity, while generative models risk hallucination
+if ungrounded. Our work addresses these issues
+with a general-domain, instruction-tuned LLM and
+lightweight RAG, which is a minimal, inferencetime retrieval layer that adds a few relevant snippets
+via simple indexing and fusion, without extra training or complex re-ranking, to reduce hallucinations,
+respect data limits, and keep the system easy to reproduce. This approach of LLMs with RAG-based
+textual and visual exemplars preserves generative
+flexibility while improving interpretability and reproducibility by grounding answers in retrieved evidence, aligning with pragmatic, evidence-grounded
+MedVQA.
+3 Task Description
+The MEDIQA-WV shared task (Yim et al., 2025b)
+extends prior efforts in MedVQA to the wound-care
+domain. The objective is to advance remote patient care by generating clinically appropriate freetext responses to patient queries, while at the same
+time producing structured wound-related metadata
+that capture essential clinical details. This dual requirement reflects the need for both patient-facing
+guidance and machine-readable data that can be
+integrated into electronic health records (EHR).
+Formally, each data instance corresponds to an
+encounter e, defined as a pair (Xe, qe). The image
+set Xe ={x (1)
+e , . . . , x(n)
+e } contains one or more
+wound photographs, and the textual query qe is
+bilingual, consisting of an English and a Chinese
+title and content.
+The system must predict an output tuple with a
+response and the following metadata.
+oe = (respe,loc e,type e,thick e,
+colore,drainAmt e,drainType e,infect e),
+Where respe is a free-text response and the remaining fields represent structured wound meta-
+
+[TABLE page=3 index=1]
+Columns: lightweight RAG, which is a minimal, inference- | wound photographs, and | the | textual query qe | is
+Row 1: lightweight RAG, which is a minimal, inference-: time retrieval layer that adds a few relevant snippets | wound photographs, and: bilingual, consisting of an English and a Chinese | the: | textual query qe: | is:
+Row 2: lightweight RAG, which is a minimal, inference-: via simple indexing and fusion, without extra train- | wound photographs, and: title and content. | the: | textual query qe: | is:
+Row 3: lightweight RAG, which is a minimal, inference-: ing or complex re-ranking, to reduce hallucinations, | wound photographs, and: The system must predict an output tuple with a | the: | textual query qe: | is:
+Row 4: lightweight RAG, which is a minimal, inference-: respect data limits, and keep the system easy to re- | wound photographs, and: response and the following metadata. | the: | textual query qe: | is:
+Row 5: lightweight RAG, which is a minimal, inference-: produce. This approach of LLMs with RAG-based | wound photographs, and: | the: | textual query qe: | is:
+Row 6: lightweight RAG, which is a minimal, inference-: textual and visual exemplars preserves generative | wound photographs, and: oe = (respe, loce, typee, thicke, | the: | textual query qe: | is:
+Row 7: lightweight RAG, which is a minimal, inference-: flexibility while improving interpretability and re- | wound photographs, and: | the: | textual query qe: | is:
+Row 8: lightweight RAG, which is a minimal, inference-: | wound photographs, and: color , drainAmt , drainType , infect ), | the: | textual query qe: | is:
+Row 9: lightweight RAG, which is a minimal, inference-: producibility by grounding answers in retrieved evi- | wound photographs, and: e e | the: | textual query qe: e e | is:
+[/TABLE]
+
+[TABLE page=3 index=2]
+Columns: versity, while generative models risk hallucination | Formally, each data instance corresponds to an
+Row 1: versity, while generative models risk hallucination: if ungrounded. Our work addresses these issues | Formally, each data instance corresponds to an: encounter e, defined as a pair (Xe, qe). The image
+Row 2: versity, while generative models risk hallucination: with a general-domain, instruction-tuned LLM and | Formally, each data instance corresponds to an: (1) set Xe = {xe , . . . , xe (n)} contains one or more
+[/TABLE]
+
+[PAGE 4]
+data. The anatomic location loce ⊆ L may include one or more sites (e.g., arm, chest, foot).
+The wound type typee ∈ {pressure, arterial,
+venous, surgical, diabetic, ...} covers common etiologies. The wound thickness thicke ∈
+{stage I–IV , unstageable, not_applicable}. The
+tissue color colore is drawn from a finite
+set describing visual appearance (e.g.,red/moist, yellow/grey, black/necrotic). Drainage
+is captured both in amount, drainAmte ∈
+{none, scant, minimal, moderate, copious}, and in
+type, drainTypee ∈ {sanguineous, serous, serosanguinous, purulent}. Finally, the infection status
+infecte ∈ {infected,not_infected,unclear}.
+Training data provide full tuples oe for each encounter, while in the test phase, only (Xe, qe) are
+given and systems must predict ˆoe. Success in this
+task requires models to jointly reason over multimodal inputs, differentiate clinically meaningful
+features, and generate outputs that are both fluent
+and structured for downstream clinical use.
+4 Dataset
+The MEDIQA-WV dataset (Yim et al., 2025a) was
+created to support wound assessment and patient
+counseling tasks. Each encounter consists of a
+unique identifier, one or more wound images, a
+bilingual query in English and Chinese, and a set
+of expert-generated responses in both languages.
+In addition to the free-text components, the
+training and validation splits contain structured
+gold-standard metadata covering the following
+attributes: wound_type, wound_thickness,
+tissue_color, drainage_amount,
+drainage_type, infection_status, and
+one or more anatomic_locations. All categorical values are drawn from a closed dictionary
+of medically valid terms, such as wound types
+{traumatic, surgical, pressure}, tissue colors
+{red moist, necrotic black}, drainage categories
+specifying bothamountandtype, and anatomic
+sites likearm, knee, foot. Figure 1 demonstrates an
+example data instance.
+Split Encounters Responses Images
+Train 279 279 449
+Validation 105 210 147
+Test 93 279 152
+Table 1: Dataset statistics: encounters, responses, and
+images per split.
+4.1 Dataset Analysis
+Table 1 summarizes the distribution of encounters,
+responses, and images across splits. The training set provides a single expert response per encounter, while validation is double-annotated, offering complementary perspectives. The test set
+is input-only and triple-annotated by medical professionals, though the gold-standard labels remain
+unpublished.
+Encounters contain varying numbers of images,
+reflecting the clinical setting where multiple photos
+capture different wound angles or progress. In
+the training split, 170 encounters include a single
+image, while 109 (39%) contain multiple (up to
+nine) images. Validation includes 72 encounters
+with single images and 33 encounters with multiple
+images, and the test set has 55 single-image and
+38 multiple-image encounters. Both the validation
+and test sets contain up to four images for a single
+encounter. Queries and responses also differ across
+splits. English queries average 46 words in training,
+44 in validation, and 52 in test. Responses are 29
+words on average for training, but become longer
+in validation (41 words) and test (47 words).
+The metadata distribution is highly skewed.
+Traumatic wounds dominate with 330 cases
+(85.9%), while arterial and venous ulcers appear
+only once each (0.3%). Infection status is similarly
+imbalanced: 325 encounters (84.6%) are labeled as
+not infected, 39 as unclear (10.2%), and only 20 as
+infected (5.2%). Wound thickness is concentrated
+in stage I and stage II, and common anatomical
+sites include the lower leg, fingers, and hand. Although annotations generally follow the predefined
+dictionary, occasional inconsistencies appear, such
+as“sole”instead of“foot-sole”or drainage mismatches like“no exudate”paired with a specific
+drainage type. These rare cases highlight the need
+for normalization.
+Overall, the dataset integrates structured wound
+metadata, bilingual queries, and expert responses
+into a challenging benchmark. The skewed label
+distributions and queries with multiple images, and
+the small size of training data, make fine-tuning
+difficult. These properties motivate using an LLM
+with RAG to retrieve similar examples from the
+training data, so answers stay close to the data,
+avoid generic responses, and follow the required
+output format.
+
+[TABLE page=4 index=1]
+Columns: mon etiologies. | The | wound | thickness | thicke ∈ | ing set provides a single expert response per enRow 1: mon etiologies.: {stage I–IV, unstageable, not_applicable}. | The: | wound: | thickness: | thicke ∈: The | ing set provides a single expert response per en-:
+Row 2: mon etiologies.: | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: counter, while validation is double-annotated, ofRow 3: mon etiologies.: tissue color colore | The: | wound: is drawn | thickness: from | thicke ∈: a finite | ing set provides a single expert response per en-: fering complementary perspectives. The test set
+Row 4: mon etiologies.: set describing | The: visual | wound: appearance | thickness: (e.g., | thicke ∈: red/- | ing set provides a single expert response per en-:
+Row 5: mon etiologies.: | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: is input-only and triple-annotated by medical proRow 6: mon etiologies.: moist, yellow/grey, | The: black/necrotic). | wound: | thickness: | thicke ∈: Drainage | ing set provides a single expert response per en-:
+Row 7: mon etiologies.: | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: fessionals, though the gold-standard labels remain
+Row 8: mon etiologies.: is captured both | The: in | wound: amount, | thickness: drainAmte | thicke ∈: ∈ | ing set provides a single expert response per en-: unpublished.
+Row 9: mon etiologies.: {none, scant, minimal, moderate, copious}, and in | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-:
+Row 10: mon etiologies.: type, drainType ∈ { sanguineous, serous, serosan- e | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: Encounters contain varying numbers of images,
+Row 11: mon etiologies.: guinous, purulent}. | The: Finally, | wound: | thickness: the infection status | thicke ∈: | ing set provides a single expert response per en-: reflecting the clinical setting where multiple photos
+Row 12: mon etiologies.: infecte ∈ {infected, not_infected, unclear}. | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: capture different wound angles or progress. In
+Row 13: mon etiologies.: Training data provide full tuples o | The: | wound: | thickness: the training split, 170 encounters include a singleefor each en- | thicke ∈: | ing set provides a single expert response per en-:
+Row 14: mon etiologies.: counter, while in the test phase, only (Xe, qe) are | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: image, while 109 (39%) contain multiple (up to
+Row 15: mon etiologies.: given and systems must predict ôe. Success in this | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: nine) images. Validation includes 72 encounters
+Row 16: mon etiologies.: task requires models to jointly reason over multi- | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: with single images and 33 encounters with multiple
+Row 17: mon etiologies.: modal inputs, differentiate clinically meaningful | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: images, and the test set has 55 single-image and
+Row 18: mon etiologies.: features, and generate outputs that are both fluent | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: 38 multiple-image encounters. Both the validation
+Row 19: mon etiologies.: and structured for downstream clinical use. | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: and test sets contain up to four images for a single
+Row 20: mon etiologies.: | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: encounter. Queries and responses also differ across
+Row 21: mon etiologies.: 4 Dataset | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: splits. English queries average 46 words in training,
+Row 22: mon etiologies.: | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: 44 in validation, and 52 in test. Responses are 29
+Row 23: mon etiologies.: The MEDIQA-WV dataset (Yim et al., 2025a) was | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-:
+Row 24: mon etiologies.: | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: words on average for training, but become longer
+Row 25: mon etiologies.: created to support wound assessment and patient | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-:
+Row 26: mon etiologies.: | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: in validation (41 words) and test (47 words).
+Row 27: mon etiologies.: counseling tasks. | The: Each | wound: encounter | thickness: consists | thicke ∈: of a | ing set provides a single expert response per en-:
+Row 28: mon etiologies.: unique identifier, | The: one or more wound images, | wound: | thickness: | thicke ∈: a | ing set provides a single expert response per en-: The metadata distribution is highly skewed.
+Row 29: mon etiologies.: bilingual query in English and Chinese, and a set | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: Traumatic wounds dominate with 330 cases
+Row 30: mon etiologies.: of expert-generated responses in both languages. | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: (85.9%), while arterial and venous ulcers appear
+Row 31: mon etiologies.: In addition to | The: the free-text | wound: | thickness: components, | thicke ∈: the | ing set provides a single expert response per en-: only once each (0.3%). Infection status is similarly
+Row 32: mon etiologies.: training and validation | The: | wound: splits | thickness: contain structured | thicke ∈: | ing set provides a single expert response per en-: imbalanced: 325 encounters (84.6%) are labeled as
+Row 33: mon etiologies.: gold-standard metadata | The: | wound: covering | thickness: the following | thicke ∈: | ing set provides a single expert response per en-: not infected, 39 as unclear (10.2%), and only 20 as
+Row 34: mon etiologies.: attributes: wound_type, | The: | wound: | thickness: wound_thickness, | thicke ∈: | ing set provides a single expert response per en-: infected (5.2%). Wound thickness is concentrated
+Row 35: mon etiologies.: tissue_color, | The: | wound: | thickness: drainage_amount, | thicke ∈: | ing set provides a single expert response per en-: in stage I and stage II, and common anatomical
+Row 36: mon etiologies.: drainage_type, | The: | wound: infection_status, | thickness: | thicke ∈: and | ing set provides a single expert response per en-: sites include the lower leg, fingers, and hand. AlRow 37: mon etiologies.: one or more anatomic_locations. | The: | wound: | thickness: All categor- | thicke ∈: | ing set provides a single expert response per en-: though annotations generally follow the predefined
+Row 38: mon etiologies.: ical values are | The: drawn | wound: from a | thickness: closed dictionary | thicke ∈: | ing set provides a single expert response per en-: dictionary, occasional inconsistencies appear, such
+Row 39: mon etiologies.: of medically valid | The: terms, | wound: such | thickness: as wound | thicke ∈: types | ing set provides a single expert response per en-: as “sole” instead of “foot-sole” or drainage misRow 40: mon etiologies.: {traumatic, surgical, | The: | wound: pressure}, | thickness: tissue | thicke ∈: colors | ing set provides a single expert response per en-: matches like “no exudate” paired with a specific
+Row 41: mon etiologies.: {red moist, necrotic | The: black}, | wound: drainage | thickness: categories | thicke ∈: | ing set provides a single expert response per en-: drainage type. These rare cases highlight the need
+Row 42: mon etiologies.: specifying both amount and type, and anatomic | The: | wound: | thickness: | thicke ∈: | ing set provides a single expert response per en-: for normalization.
+[/TABLE]
+
+[TABLE page=4 index=2]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | into a challenging benchmark. The skewed label
+Row 1: Unnamed: 0: Split | Unnamed: 1: Encounters | Unnamed: 2: Responses | Unnamed: 3: Images | into a challenging benchmark. The skewed label:
+Row 2: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | into a challenging benchmark. The skewed label: distributions and queries with multiple images, and
+Row 3: Unnamed: 0: Train | Unnamed: 1: 279 | Unnamed: 2: 279 | Unnamed: 3: 449 | into a challenging benchmark. The skewed label: the small size of training data, make fine-tuning
+Row 4: Unnamed: 0: Validation | Unnamed: 1: 105 | Unnamed: 2: 210 | Unnamed: 3: 147 | into a challenging benchmark. The skewed label: difficult. These properties motivate using an LLM
+Row 5: Unnamed: 0: Test | Unnamed: 1: 93 | Unnamed: 2: 279 | Unnamed: 3: 152 | into a challenging benchmark. The skewed label: with RAG to retrieve similar examples from the
+[/TABLE]
+
+[PAGE 5]
+Figure 2: Structured prompt with retrieved exemplars
+and the expected output schema.
+5 Methodology
+To test how a general-domain LLM performs on
+a MedVQA task without domain-specific training,
+themeta-llama/Llama-4-Scout-17B-16E-Instruct
+(Meta, 2025) model was chosen. It follows instructions well, has open weights for reproducible
+research, and is a strong multimodal variant in the
+Meta-LLaMA (Touvron et al., 2023) family, offering a long context window and reliable visionlanguage support.
+5.1 Model Configuration
+We used the 17B instruction-tuned LLaMA4 model, implemented via Hugging Face
+transformers with automatic GPU mapping.
+Inference ran in bfloat16 for efficiency, with
+a maximum generation length of 4096 tokens,
+temperature 0.2, and top-p 0.9. For multimodal
+inputs, the model was paired with the LLaMA-4
+processor to jointly encode text prompts and
+wound images.
+5.2 Prompt Design
+We explored three prompting strategies: zero-shot,
+few-shot, and RAG. An example prompt is provided in Figure 2.
+Zero-shot prompting.The model received only
+a system instruction defining its role as a woundcare assistant. Outputs were constrained to valid
+JSON by dividing the output tuple into two toplevel keys: metadata and responses. Metadata
+used categorical labels from a wound-care data dictionary (e.g., wound type, tissue color, drainage,
+infection status), while responses provided short
+patient-facing instructions (≤120 words). This setting tested schema adherence without exemplars.
+Few-shot prompting.We added two exemplar
+encounters from the training set, chosen after evaluating on the validation set, to reduce schema violations and improve metadata consistency. Each
+exemplar included wound image(s) and query text
+as a user turn, followed by the reference response
+as an assistant turn, guiding the model to emulate JSON structure and style. We limit exemplars to two because adding more, together with
+images, metadata, and the current prompt, exceeds
+the model’s context window.
+Retrieval-augmented prompting.To improve
+grounding and reduce hallucinations (Lewis
+et al., 2020), we designed a multimodal RAG
+pipeline combining dense similarity search with
+exemplar-driven prompting, where we encoded
+questions and images into vectors, then retrieved
+the nearest training examples for that encounter
+and placed those exemplars in the prompt.
+Two indices were built with FAISS (Douze
+et al., 2024): semantic text embeddings from
+sentence-transformers/all-MiniLM-L6-v2
+and vision–language embeddings from CLIP
+(openai/clip-vit-base-patch32) 2. We tested
+both the text-only and multimodal (text+image)
+retrieval setup.
+At inference, we retrieve training encounters
+most similar to the inference-case using combined
+text and image similarity with equal weight (α=
+0.5). We evaluated other α values that placed more
+weight on images, but performance declined with
+more weight for the image, and so an approach
+2sentence-transformers, openai-clip
+
+[PAGE 6]
+with image-only retrieval was not explored. We select the top two exemplars because validation runs
+gave the best overall metrics, and adding more with
+images and metadata caused the prompt to exceed
+the model’s context window. This setup reduced
+schema violations, improved metadata predictions,
+and outperformed zero- / few-shot prompting.
+5.3 Experimental Setup
+Images were resized to 224×224 and passed
+with text. Decoding used nucleus sampling without beam search to balance diversity and format
+compliance. All runs were performed on NVIDIA
+A100 GPUs (80 GB), enabling full 17B model inference with multimodal inputs. We logged raw
+generations to audit both successful and erroneous
+outputs.
+5.4 Post-processing
+LLMs often generate extraneous text or malformed
+JSON, so we implemented a normalization pipeline.
+We first stripped any Markdown code fences or
+leading text before the opening brace, then parsed
+outputs to enforce exactly two keys: metadata
+and responses. Metadata entries were validated
+against the wound-care dictionary, discarding invalid fields. Responses were mapped to the English patient instruction. The cleaned output was
+merged into each case under its encounter_id,
+producing the final structured predictions for evaluation.
+This layered design enabled systematic comparison of zero-shot, few-shot, and retrieval-augmented
+prompting, quantifying the benefits of contextual
+grounding and exemplar retrieval on schema adherence, metadata accuracy, and response validity.
+6 Evaluation
+The MEDIQA-WV 2025 shared task employs a
+multi-dimensional evaluation protocol that combines surface overlap, semantic similarity, and clinical plausibility.
+For lexical similarity, the task uses deltaBLEU
+(Galley et al., 2015), which extends BLEU (Papineni et al., 2002) by rewarding partial matches
+across multiple references. Complementary recalloriented measures include ROUGE-1, ROUGE-2,
+ROUGE-L, and ROUGE-Lsum (Lin, 2004), capturing
+different levels ofn-gram and sequence overlap.
+Semantic similarity is evaluated withBERTScore
+(Zhang et al., 2019), using two variants:
+BERT-mn, which averages over references, and
+BERT-mx, which takes the maximum score to
+reward alignment with at least one gold annotation. English responses are scored with
+microsoft/deberta-xlarge-mnli (He et al.,
+2020a), while Chinese responses are scored with
+lang=zhfor multilingual alignment.
+To assess plausibility and instructional quality
+beyond surface metrics, three large multimodal language models (LMLMs) act as automatic judges:
+(i) DeepSeek-V3-0324 (Azure AI Foundry), (ii)
+Gemini-1.5-pro-002 (Google GenAI), and (iii)
+GPT-4o (Azure AI Foundry)3. Using standardized
+prompts in English and Chinese, these models independently score outputs for usefulness, contextuality, and clinical appropriateness, reducing modelspecific bias.
+A final average_score (Avg) aggregates results across all metrics, combining fidelity, semantic alignment, and plausibility into a robust benchmark for multimodal clinical generation systems.
+7 Results and Discussion
+7.1 Leaderboard Performance
+The MEDIQA-WV 2025 shared task attracted participation from19teams, producing a total of51
+submissions. OurMasonNLPsystem ranked competitively, achieving an average score of41.37%
+on its best run. As shown in Table 2, both of
+our submissions placed in the top five overall, underscoring the robustness of our general-domain
+LLM pipeline against more specialized approaches.
+Notably, while the leading system achieved the
+highest overall performance (47.30%), our systems
+demonstrated comparable strength across multiple
+metrics, reflecting effective phrasing and semantic
+alignment. This suggests that our lightweight retrieval and prompting strategies can yield results
+close to top-level systems.
+7.2 Ablation Study
+To better understand the contribution of the retrieval and prompting strategy, we conducted an
+ablation across four configurations: (1) LLaMA-4
++ RAG withimage+textretrieval, (2) LLaMA-4 +
+RAG withtext-onlyretrieval, (3) LLaMA-4 infewshot, and (4) LLaMA-4 inzero-shot. Results in Table 3 demonstrate three key effects. First, retrieval
+markedly improves all evaluation metrics, confirming its role in grounding predictions. Second,
+3DeepSeek, Gemini-1.5-pro, GPT-4o
+
+[TABLE page=6 index=1]
+Columns: lect the top two exemplars because validation runs | BERT-mx, which | takes the | maximum | score | to
+Row 1: lect the top two exemplars because validation runs: gave the best overall metrics, and adding more with | BERT-mx, which: reward alignment | takes the: with at | maximum: least | score: one gold | to: anRow 2: lect the top two exemplars because validation runs: images and metadata caused the prompt to exceed | BERT-mx, which: notation. English | takes the: responses | maximum: | score: are scored with | to:
+Row 3: lect the top two exemplars because validation runs: the model’s context window. This setup reduced | BERT-mx, which: microsoft/deberta-xlarge-mnli | takes the: | maximum: | score: (He et | to: al.,
+Row 4: lect the top two exemplars because validation runs: schema violations, improved metadata predictions, | BERT-mx, which: 2020a), while Chinese responses are scored with | takes the: | maximum: | score: | to:
+Row 5: lect the top two exemplars because validation runs: and outperformed zero- / few-shot prompting. | BERT-mx, which: lang=zh for multilingual alignment. | takes the: | maximum: | score: | to:
+Row 6: lect the top two exemplars because validation runs: | BERT-mx, which: To assess plausibility and instructional quality | takes the: | maximum: | score: | to:
+Row 7: lect the top two exemplars because validation runs: 5.3 Experimental Setup | BERT-mx, which: beyond surface metrics, three large multimodal lan- | takes the: | maximum: | score: | to:
+Row 8: lect the top two exemplars because validation runs: Images were resized to 224 × 224 and passed | BERT-mx, which: guage models (LMLMs) act as automatic judges: | takes the: | maximum: | score: | to:
+Row 9: lect the top two exemplars because validation runs: with text. Decoding used nucleus sampling with- | BERT-mx, which: (i) DeepSeek-V3-0324 | takes the: (Azure | maximum: | score: AI Foundry), | to: (ii)
+Row 10: lect the top two exemplars because validation runs: out beam search to balance diversity and format | BERT-mx, which: Gemini-1.5-pro-002 (Google GenAI), and (iii) | takes the: | maximum: | score: | to:
+Row 11: lect the top two exemplars because validation runs: | BERT-mx, which: | takes the: 3 | maximum: | score: | to:
+Row 12: lect the top two exemplars because validation runs: compliance. All runs were performed on NVIDIA | BERT-mx, which: GPT-4o (Azure AI Foundry) | takes the: | maximum: . Using standardized | score: | to:
+Row 13: lect the top two exemplars because validation runs: A100 GPUs (80 GB), enabling full 17B model in- | BERT-mx, which: prompts in English and Chinese, these models in- | takes the: | maximum: | score: | to:
+Row 14: lect the top two exemplars because validation runs: ference with multimodal inputs. We logged raw | BERT-mx, which: dependently score outputs for usefulness, contextu- | takes the: | maximum: | score: | to:
+Row 15: lect the top two exemplars because validation runs: generations to audit both successful and erroneous | BERT-mx, which: ality, and clinical appropriateness, reducing model- | takes the: | maximum: | score: | to:
+Row 16: lect the top two exemplars because validation runs: outputs. | BERT-mx, which: specific bias. | takes the: | maximum: | score: | to:
+Row 17: lect the top two exemplars because validation runs: | BERT-mx, which: A final average_score | takes the: | maximum: (Avg) aggregates re- | score: | to:
+Row 18: lect the top two exemplars because validation runs: 5.4 Post-processing | BERT-mx, which: sults across all metrics, combining fidelity, seman- | takes the: | maximum: | score: | to:
+Row 19: lect the top two exemplars because validation runs: LLMs often generate extraneous text or malformed | BERT-mx, which: | takes the: | maximum: | score: | to:
+Row 20: lect the top two exemplars because validation runs: | BERT-mx, which: tic alignment, and plausibility into a robust bench- | takes the: | maximum: | score: | to:
+Row 21: lect the top two exemplars because validation runs: JSON, so we implemented a normalization pipeline. | BERT-mx, which: | takes the: | maximum: | score: | to:
+Row 22: lect the top two exemplars because validation runs: | BERT-mx, which: mark for multimodal clinical generation systems. | takes the: | maximum: | score: | to:
+Row 23: lect the top two exemplars because validation runs: We first stripped any Markdown code fences or | BERT-mx, which: | takes the: | maximum: | score: | to:
+Row 24: lect the top two exemplars because validation runs: | BERT-mx, which: 7 Results and Discussion | takes the: | maximum: | score: | to:
+Row 25: lect the top two exemplars because validation runs: leading text before the opening brace, then parsed | BERT-mx, which: | takes the: | maximum: | score: | to:
+Row 26: lect the top two exemplars because validation runs: outputs to enforce exactly two keys: metadata | BERT-mx, which: 7.1 Leaderboard Performance | takes the: | maximum: | score: | to:
+Row 27: lect the top two exemplars because validation runs: and responses. Metadata entries were validated | BERT-mx, which: The MEDIQA-WV 2025 shared task attracted par- | takes the: | maximum: | score: | to:
+Row 28: lect the top two exemplars because validation runs: against the wound-care dictionary, discarding in- | BERT-mx, which: ticipation from 19 teams, producing a total of 51 | takes the: | maximum: | score: | to:
+Row 29: lect the top two exemplars because validation runs: valid fields. Responses were mapped to the En- | BERT-mx, which: submissions. Our MasonNLP system ranked com- | takes the: | maximum: | score: | to:
+Row 30: lect the top two exemplars because validation runs: glish patient instruction. The cleaned output was | BERT-mx, which: petitively, achieving an average score of 41.37% | takes the: | maximum: | score: | to:
+Row 31: lect the top two exemplars because validation runs: merged into each case under its encounter_id, | BERT-mx, which: on its best run. | takes the: As shown | maximum: in | score: Table 2, both | to: of
+Row 32: lect the top two exemplars because validation runs: producing the final structured predictions for evalu- | BERT-mx, which: our submissions placed in the top five overall, un- | takes the: | maximum: | score: | to:
+Row 33: lect the top two exemplars because validation runs: ation. | BERT-mx, which: derscoring the robustness of our general-domain | takes the: | maximum: | score: | to:
+Row 34: lect the top two exemplars because validation runs: This layered design enabled systematic compari- | BERT-mx, which: LLM pipeline against more specialized approaches. | takes the: | maximum: | score: | to:
+Row 35: lect the top two exemplars because validation runs: son of zero-shot, few-shot, and retrieval-augmented | BERT-mx, which: Notably, while the | takes the: leading | maximum: system | score: achieved | to: the
+Row 36: lect the top two exemplars because validation runs: prompting, quantifying the benefits of contextual | BERT-mx, which: highest overall performance (47.30%), our systems | takes the: | maximum: | score: | to:
+Row 37: lect the top two exemplars because validation runs: grounding and exemplar retrieval on schema adher- | BERT-mx, which: demonstrated comparable strength across multiple | takes the: | maximum: | score: | to:
+Row 38: lect the top two exemplars because validation runs: ence, metadata accuracy, and response validity. | BERT-mx, which: metrics, reflecting effective phrasing and semantic | takes the: | maximum: | score: | to:
+[/TABLE]
+
+[PAGE 7]
+Team dBLEU R1 R2 RL RLsum BERT-mn BERT-mx DeepSeekV3 Gemini GPT-4o Avg
+MasonNLP 8.8970.9948.6242.19 42.27 59.01 63.27 53.55 55.3855.38 41.37
+MasonNLP 7.3172.7948.4443.31 43.25 60.42 64.55 58.92 56.4553.23 41.07
+EXL Services–Health 9.9279.09 56.13 45.6145.6062.1866.9068.23 64.52 71.51 47.30
+EXL Services–Health13.0471.18 51.28 45.1745.7261.8867.4363.49 59.14 62.90 45.75
+DermaVQA 7.65 78.99 53.91 45.49 45.48 60.62 63.68 42.74 45.70 37.10 37.71
+Table 2: Leaderboard results on MEDIQA-WV 2025. MasonNLP best runs in bold; best per column in italics.
+System dBLEU R1 R2 RL RLsum BERT-mn BERT-mx DeepSeekV3 Gemini GPT-4o Avg
+LLaMA-4 + RAG (image+text) 8.8970.9948.6242.19 42.27 59.01 63.27 53.55 55.3855.38 41.37
+LLaMA-4 + RAG (text only) 7.3172.7948.4443.31 43.25 60.42 64.55 58.92 56.4553.23 41.07
+LLaMA-4 (few-shot) 4.67 41.50 27.30 23.50 24.10 41.60 44.20 35.00 33.90 33.90 23.63
+LLaMA-4 (zero-shot) 1.73 25.00 17.00 14.00 14.50 29.00 30.00 20.00 21.60 21.60 14.10
+Table 3: Ablation of prompting and retrieval strategies. Best per column in bold.
+the inclusion of images supplied visual evidence
+for image-dependent details, as shown by higher
+dBLEU and GPT-4o scores. Third, even without retrieval, moving from zero-shot to few-shot reduces
+hallucinations and yields more consistent phrasing,
+though the gap to retrieval-based models remains
+large. Together, these trends highlight that retrieval
+complements prompting and that multimodal retrieval is particularly effective for wound-specific
+guidance. This systematic progression from zeroshot to multimodal RAG reveals clear patterns in
+how different retrieval modalities and prompting
+approaches affect MedVQA performance.
+7.3 Discussion and Implications
+Our results show a clear progression in performance from zero-shot prompting to multimodal
+RAG. In thezero-shotsetting with theLLaMA4 17Bmodel, scores were very low ( dBLEU 1.73),
+largely due to the model’s failure to produce the
+required structured JSON output despite explicit
+instructions.
+Adding a few in-context exemplars improved
+formatting and raised dBLEU to 4.67, but responses
+remained generic and lacked clinically specific detail. Retrieval withtextual exemplarsaddressed this
+issue more effectively. By grounding outputs in semantically similar queries and solutions, the model
+produced more structured and concrete recommendations, with Rouge-L increasing from 23.50 (fewshot) to 43.31, and GPT-4o judgments rising substantially.
+Extending retrieval to includeimagesfurther
+boosted contextual grounding, particularly for
+wound-site descriptions and infection cues, lifting
+dBLEU to 8.89. However, gains were not universal. Visual neighbors sometimes introduced noise
+when image relevance was weak, slightly trailing
+text-only retrieval in a few metrics.
+Overall, the ablation confirms that moving from
+zero-shot to exemplar-based and multimodal retrieval progressively improves structure and specificity. A lightweight RAG pipeline combining textual and visual evidence provides a strong, reproducible baseline for multimodal clinical tasks without domain-specific fine-tuning.
+8 Error Analysis
+In the absence of gold-standard labels, we evaluate model behavior along four axes: (i) schema
+conformance against an allowed-value dictionary,
+(ii) content form and genericness (length, template
+reuse, lexical alignment to the query), (iii) intent
+coverage for common asks (healing time, stitches/
+sutures, tetanus), and (iv) hallucination/ over-claim
+heuristics (e.g., asserting infection without cues).
+8.1 Zero-shot LLAMA-4
+On 93 queries, the model produced 93 answers with
+one empty reply (1.1%). Answers are short (mean
+18.1 words with max 53) and frequently reuse stock
+advice, like “cover with a bandage” (25/93), “monitor for signs of infection” (23/93), “apply antibiotic
+ointment” (22/93), with additional phrases such as
+“seek medical attention” (9/93), “consult a doctor”
+(6/93), and “keep the area clean and dry” (5/93). Although 90 outputs are unique (only two duplicates
+and one missing), query–answer lexical overlap
+is low, indicating a generic style that often underengages the user’s ask. Intent coverage lacks precision as well. For healing-time questions, only 1/16
+answers include a numeric time frame; for stitches/
+sutures, 4/13 mention suture care or removal timing; for tetanus, 4/7 mention vaccination/ booster
+guidance. Hallucination screening flags 31/93 answers that assert infection without any infection
+
+[TABLE page=7 index=1]
+Columns: Team | dBLEU | R1 | R2 | RL | RLsum | BERT-mn | BERT-mx | DeepSeekV3 | Gemini | GPT-4o | Avg
+Row 1: Team: MasonNLP | dBLEU: 8.89 | R1: 70.99 | R2: 48.62 | RL: 42.19 | RLsum: 42.27 | BERT-mn: 59.01 | BERT-mx: 63.27 | DeepSeekV3: 53.55 | Gemini: 55.38 | GPT-4o: 55.38 | Avg: 41.37
+Row 2: Team: MasonNLP | dBLEU: 7.31 | R1: 72.79 | R2: 48.44 | RL: 43.31 | RLsum: 43.25 | BERT-mn: 60.42 | BERT-mx: 64.55 | DeepSeekV3: 58.92 | Gemini: 56.45 | GPT-4o: 53.23 | Avg: 41.07
+Row 3: Team: EXL Services–Health | dBLEU: 9.92 | R1: 79.09 | R2: 56.13 | RL: 45.61 | RLsum: 45.6 | BERT-mn: 62.18 | BERT-mx: 66.9 | DeepSeekV3: 68.23 | Gemini: 64.52 | GPT-4o: 71.51 | Avg: 47.3
+Row 4: Team: EXL Services–Health | dBLEU: 13.04 | R1: 71.18 | R2: 51.28 | RL: 45.17 | RLsum: 45.72 | BERT-mn: 61.88 | BERT-mx: 67.43 | DeepSeekV3: 63.49 | Gemini: 59.14 | GPT-4o: 62.9 | Avg: 45.75
+Row 5: Team: DermaVQA | dBLEU: 7.65 | R1: 78.99 | R2: 53.91 | RL: 45.49 | RLsum: 45.48 | BERT-mn: 60.62 | BERT-mx: 63.68 | DeepSeekV3: 42.74 | Gemini: 45.7 | GPT-4o: 37.1 | Avg: 37.71
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: System | dBLEU | R1 | R2 | RL | RLsum | BERT-mn | BERT-mx | DeepSeekV3 | Gemini | GPT-4o | Avg
+Row 1: System: LLaMA-4 + RAG (image+text) | dBLEU: 8.89 | R1: 70.99 | R2: 48.62 | RL: 42.19 | RLsum: 42.27 | BERT-mn: 59.01 | BERT-mx: 63.27 | DeepSeekV3: 53.55 | Gemini: 55.38 | GPT-4o: 55.38 | Avg: 41.37
+Row 2: System: LLaMA-4 + RAG (text only) | dBLEU: 7.31 | R1: 72.79 | R2: 48.44 | RL: 43.31 | RLsum: 43.25 | BERT-mn: 60.42 | BERT-mx: 64.55 | DeepSeekV3: 58.92 | Gemini: 56.45 | GPT-4o: 53.23 | Avg: 41.07
+Row 3: System: LLaMA-4 (few-shot) | dBLEU: 4.67 | R1: 41.5 | R2: 27.3 | RL: 23.5 | RLsum: 24.1 | BERT-mn: 41.6 | BERT-mx: 44.2 | DeepSeekV3: 35.0 | Gemini: 33.9 | GPT-4o: 33.9 | Avg: 23.63
+Row 4: System: LLaMA-4 (zero-shot) | dBLEU: 1.73 | R1: 25.0 | R2: 17.0 | RL: 14.0 | RLsum: 14.5 | BERT-mn: 29.0 | BERT-mx: 30.0 | DeepSeekV3: 20.0 | Gemini: 21.6 | GPT-4o: 21.6 | Avg: 14.1
+[/TABLE]
+
+[PAGE 8]
+Improvement Type Zeroshot Prediction RAG Prediction
+Hallucination Reduction Infection: infected
+Instruction: “Antibiotics may be needed.”
+Infection: not_infected
+Instruction: “No signs of infection; continue
+saline cleaning and dry dressing.”
+Specificity of Response Location: finger
+Instruction: “Keep the area clean and avoid
+movement.”
+Location: fingertip
+Instruction: “Clean fingertip wound twice
+daily, apply antibiotic ointment, and avoid
+immersion in water.”
+V ocabulary
+Normalization
+Type: trauma
+Instruction: “Healing depends on care.”
+Type: traumatic
+Instruction: “Traumatic wound; healing time
+approx. 2–3 weeks with proper care.”
+Table 4: Examples of improvements from zero-shot to RAG, grouped by improvement type.
+cues in the corresponding queries; about a quarter
+of these are hedged (e.g., “may beinfected”), and
+explicit speculative diagnosis terms (e.g., fracture,
+necrosis) are rare (4/93). Overall, zero-shot outputs are fluent and safety-oriented but frequently
+generic, under-answer explicit asks, and sometimes
+over-call infection in the absence of evidence.
+8.2 LLAMA-4 + RAG (Image+Text)
+We examined 93 predictions for schema conformance, value validity, and content quality.
+All seven fields were present for every item.
+True out-of-vocabulary (OOV) rates were low as
+anatomic_locationshad 8 OOV entries driven by
+common synonyms (leg,finger/fingertip,shin),
+while single-valued fields each had at most one
+OOV instance (wound_type1/93;wound_thickness
+4/93 due topartial/partial thickness;tissue_color,
+drainage_amount,drainage_type,infectioneach
+1/93). Label distributions reflected the training
+and development set analysis withwound_type
+mostly beingtraumatic(88.0%),infectionfavoringnot_infected(52.2%) with mass on
+infected(27.2%) andunclear(20.7%), and
+wound_thicknesswas dominated bystage_II
+(50.6%). There was exactly one instance with no
+generated response. Responses were longer than
+the zero-shot system (mean 28.4 words with a max
+of 96) and remained largely unique (91/93) but still
+exhibited a generic tone. About 60% of answers
+had very low lexical overlap with their queries, and
+common advice tokens were frequent (e.g., “antibiotic” in 45.2%; “debridement” in 5.4%). Intent coverage improved but remained uneven. 7/44 (15.9%)
+healing-time questions received a concrete range;
+4/13 (31%) stitches/ sutures were addressed; 4/7
+(57%) tetanus was handled. Hallucination risk was
+limited (6/93, 6.5% infection assertions without
+cues), and safety-related replies were appropriately
+cautious, though consistent crisis templates would
+be beneficial.
+8.3 Observed Improvements from Zero-shot
+to RAG
+Relative to zero-shot, RAG reduces over-assertion
+of infection substantially (31/93 → 6/93) and produces longer, more informative answers that better
+reflect the query context, particularly for time-toheal questions (a larger share of timeline-bearing
+replies). RAG outputs also conform to a schema
+with low OOV rates, eliminating synonym-induced
+errors through canonicalization. Nonetheless, both
+systems retain some generic phrasing and leave
+room for stronger intent coverage on stitches and
+return-to-activity guidance. Taken together, RAG
+shifts the model from broadly safe, generic counseling toward more specific, schema-consistent, and
+less hallucinatory answers, as also reflected in the
+examples presented in Table 4.
+9 Conclusion
+We investigated wound-care VQA in the MEDIQAWV 2025 shared task using a general-domain,
+instruction-tuned LLM combined with lightweight
+RAG. Our study shows that this approach can
+handle challenging multimodal questions without
+domain-specific training. The framework integrates textual and visual neighbors at inference
+time and is simple to reproduce. Results demonstrate clear gains from zero-shot to exemplar-driven
+prompting, with multimodal retrieval being the
+best-performing system. Error analysis confirmed
+that retrieval reduces hallucinations and improves
+metadata consistency, though challenges remain
+when neighbors are only partially relevant. Overall,
+our findings highlight retrieval-augmented generation as a transparent, efficient, and generalizable
+approach for advancing multimodal clinical NLP.
+
+[TABLE page=8 index=1]
+Columns: Improvement Type | Zeroshot Prediction | RAG Prediction
+Row 1: Improvement Type: Hallucination Reduction | Zeroshot Prediction: Infection: infected | RAG Prediction: Infection: not_infected
+Row 2: Improvement Type: | Zeroshot Prediction: Instruction: “Antibiotics may be needed.” | RAG Prediction: Instruction: “No signs of infection; continue
+Row 3: Improvement Type: | Zeroshot Prediction: | RAG Prediction: saline cleaning and dry dressing.”
+Row 4: Improvement Type: Specificity of Response | Zeroshot Prediction: Location: finger | RAG Prediction: Location: fingertip
+Row 5: Improvement Type: | Zeroshot Prediction: Instruction: “Keep the area clean and avoid | RAG Prediction: Instruction: “Clean fingertip wound twice
+Row 6: Improvement Type: | Zeroshot Prediction: movement.” | RAG Prediction: daily, apply antibiotic ointment, and avoid
+Row 7: Improvement Type: | Zeroshot Prediction: | RAG Prediction: immersion in water.”
+Row 8: Improvement Type: Vocabulary | Zeroshot Prediction: Type: trauma | RAG Prediction: Type: traumatic
+Row 9: Improvement Type: Normalization | Zeroshot Prediction: Instruction: “Healing depends on care.” | RAG Prediction: Instruction: “Traumatic wound; healing time
+Row 10: Improvement Type: | Zeroshot Prediction: | RAG Prediction: approx. 2–3 weeks with proper care.”
+[/TABLE]
+
+[TABLE page=8 index=2]
+Columns: We examined 93 | predictions | for | schema | con- | Unnamed: 0 | Unnamed: 1 | heal questions (a larger share of timeline-bearing
+Row 1: We examined 93: formance, value | predictions: validity, | for: and | schema: content quality. | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: replies). RAG outputs also conform to a schema
+Row 2: We examined 93: All seven fields | predictions: were | for: present | schema: for every | con-: item. | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: with low OOV rates, eliminating synonym-induced
+Row 3: We examined 93: True out-of-vocabulary (OOV) rates were low as | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: errors through canonicalization. Nonetheless, both
+Row 4: We examined 93: anatomic_locations had 8 OOV entries driven by | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: systems retain some generic phrasing and leave
+Row 5: We examined 93: common synonyms | predictions: (leg, | for: finger/fingertip, | schema: | con-: shin), | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: room for stronger intent coverage on stitches and
+Row 6: We examined 93: while single-valued fields each had at most one | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: return-to-activity guidance. Taken together, RAG
+Row 7: We examined 93: OOV instance (wound_type 1/93; wound_thickness | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: shifts the model from broadly safe, generic counselRow 8: We examined 93: 4/93 due to partial/partial thickness; tissue_color, | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: ing toward more specific, schema-consistent, and
+Row 9: We examined 93: drainage_amount, drainage_type, infection each | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: less hallucinatory answers, as also reflected in the
+Row 10: We examined 93: 1/93). Label distributions | predictions: | for: reflected | schema: the training | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: examples presented in Table 4.
+Row 11: We examined 93: and development | predictions: set analysis | for: with | schema: wound_type | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing:
+Row 12: We examined 93: | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: 9 Conclusion
+Row 13: We examined 93: mostly being traumatic | predictions: | for: (88.0%), | schema: infection | con-: fa- | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing:
+Row 14: We examined 93: voring not_infected | predictions: (52.2%) | for: | schema: with mass | con-: on | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: We investigated wound-care VQA in the MEDIQARow 15: We examined 93: infected (27.2%) | predictions: and | for: unclear | schema: (20.7%), | con-: and | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: WV 2025 shared task using a general-domain,
+Row 16: We examined 93: wound_thickness | predictions: was | for: dominated | schema: by stage_II | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: instruction-tuned LLM combined with lightweight
+Row 17: We examined 93: (50.6%). There was exactly one instance with no | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: RAG. Our study shows that this approach can
+Row 18: We examined 93: generated response. | predictions: Responses were longer than | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: handle challenging multimodal questions without
+Row 19: We examined 93: the zero-shot system (mean 28.4 words with a max | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: domain-specific training. The framework inteRow 20: We examined 93: of 96) and remained largely unique (91/93) but still | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: grates textual and visual neighbors at inference
+Row 21: We examined 93: exhibited a generic tone. | predictions: | for: About 60% of answers | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: time and is simple to reproduce. Results demonRow 22: We examined 93: had very low lexical overlap with their queries, and | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: strate clear gains from zero-shot to exemplar-driven
+Row 23: We examined 93: common advice tokens were frequent (e.g., “antibi- | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: prompting, with multimodal retrieval being the
+Row 24: We examined 93: otic” in 45.2%; “debridement” in 5.4%). Intent cov- | predictions: | for: | schema: | con-: | Unnamed: 0: | Unnamed: 1: | heal questions (a larger share of timeline-bearing: best-performing system. Error analysis confirmed
+[/TABLE]
+
+[PAGE 9]
+Limitations
+Our generation is closely tied to the in-domain
+training data used for retrieval, so outputs can mirror its gaps and biases. Higher-quality and more
+diverse exemplars would likely yield more specific and reliable responses. Incorporating external
+knowledge (e.g., vetted clinical guidelines or curated web corpora) could broaden coverage and
+reduce omissions.
+References
+Peter Anderson, Xiaodong He, Chris Buehler, Damien
+Teney, Mark Johnson, Stephen Gould, and Lei
+Zhang. 2017. Bottom-up and top-down attention
+for image captioning and vqa.arXiv preprint
+arXiv:1707.07998, 2(4):8.
+Stanislaw Antol, Aishwarya Agrawal, Jiasen Lu, Margaret Mitchell, Dhruv Batra, C Lawrence Zitnick, and
+Devi Parikh. 2015. Vqa: Visual question answering.
+InProceedings of the IEEE international conference
+on computer vision, pages 2425–2433.
+Asma Ben Abacha, Sadid A Hasan, Vivek V Datla,
+Dina Demner-Fushman, and Henning Müller. 2019.
+Vqa-med: Overview of the medical visual question
+answering task at imageclef 2019. InProceedings
+of CLEF (Conference and Labs of the Evaluation
+Forum) 2019 Working Notes. 9-12 September 2019.
+Asma Ben Abacha, Mourad Sarrouti, Dina DemnerFushman, Sadid A Hasan, and Henning Müller. 2021.
+Overview of the vqa-med task at imageclef 2021:
+Visual question answering and generation in the medical domain. InProceedings of the CLEF 2021 Conference and Labs of the Evaluation Forum-working
+notes. 21-24 September 2021.
+Lihong Chen, Lihui Cheng, Wei Gao, Dawei Chen,
+Chun Wang, and Xingwu Ran. 2020. Telemedicine
+in chronic wound management: systematic review
+and meta-analysis.JMIR mHealth and uHealth,
+8(6):e15574.
+Xupeng Chen, Zhixin Lai, Kangrui Ruan, Shichu Chen,
+Jiaxiang Liu, and Zuozhu Liu. 2024. R-llava: Improving med-vqa understanding through visual region of interest.arXiv preprint arXiv:2410.20327.
+Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng,
+Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan
+Zhuang, Yonghao Zhuang, Joseph E. Gonzalez,
+Ion Stoica, and Eric P. Xing. 2023. Vicuna:
+An open-source chatbot impressing gpt-4 with
+90%* chatgpt quality. https://lmsys.org/blog/
+2023-03-30-vicuna/. LMSYS Org Blog.
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+Kristina Toutanova. 2019. Bert: Pre-training of deep
+bidirectional transformers for language understanding. InProceedings of the 2019 conference of the
+North American chapter of the association for computational linguistics: human language technologies,
+volume 1 (long and short papers), pages 4171–4186.
+Matthijs Douze, Alexandr Guzhva, Chengqi Deng,
+Jeff Johnson, Gergely Szilvasy, Pierre-Emmanuel
+Mazaré, Maria Lomeli, Lucas Hosseini, and Hervé
+Jégou. 2024. The faiss library.arXiv preprint
+arXiv:2401.08281.
+Michel Galley, Chris Brockett, Alessandro Sordoni,
+Yangfeng Ji, Michael Auli, Chris Quirk, Margaret
+Mitchell, Jianfeng Gao, and Bill Dolan. 2015.
+deltableu: A discriminative metric for generation
+tasks with intrinsically diverse targets.arXiv preprint
+arXiv:1506.06863.
+Sadid A Hasan, Yuan Ling, Oladimeji Farri, Joey
+Liu, Henning Müller, and Matthew Lungren. 2018.
+Overview of imageclef 2018 medical domain visual
+question answering task.Proceedings of CLEF 2018
+Working Notes.
+Pengcheng He, Xiaodong Liu, Jianfeng Gao, and
+Weizhu Chen. 2020a. Deberta: Decoding-enhanced
+bert with disentangled attention.arXiv preprint
+arXiv:2006.03654.
+Xuehai He, Yichen Zhang, Luntian Mou, Eric Xing, and
+Pengtao Xie. 2020b. Pathvqa: 30000+ questions for
+medical visual question answering.arXiv preprint
+arXiv:2003.10286.
+Xinyue Hu, L Gu, Q An, M Zhang, L Liu, K Kobayashi,
+T Harada, R Summers, and Y Zhu. 2023. Medicaldiff-vqa: a large-scale medical dataset for difference
+visual question answering on chest x-ray images.
+PhysioNet, 12:13.
+Yash Khare, Viraj Bagal, Minesh Mathew, Adithi Devi,
+U Deva Priyakumar, and CV Jawahar. 2021. Mmbert:
+Multimodal bert pretraining for improved medical
+vqa. In2021 IEEE 18th international symposium on
+biomedical imaging (ISBI), pages 1033–1036. IEEE.
+Jason J Lau, Soumya Gayen, Asma Ben Abacha, and
+Dina Demner-Fushman. 2018. A dataset of clinically generated visual questions and answers about
+radiology images.Scientific data, 5(1):1–10.
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, and 1 others. 2020. Retrieval-augmented generation for knowledge-intensive nlp tasks.Advances
+in neural information processing systems, 33:9459–
+9474.
+Chunyuan Li, Cliff Wong, Sheng Zhang, Naoto
+Usuyama, Haotian Liu, Jianwei Yang, Tristan Naumann, Hoifung Poon, and Jianfeng Gao. 2023a.
+Llava-med: Training a large language-and-vision
+assistant for biomedicine in one day.Advances in
+Neural Information Processing Systems, 36:28541–
+28564.
+
+[TABLE page=9 index=1]
+Columns: Teney, Mark | Johnson, Stephen | Gould, | and | Lei | Unnamed: 0 | Unnamed: 1 | Sadid A | Hasan, | Yuan | Ling, | Oladimeji | Farri, | Joey
+Row 1: Teney, Mark: Zhang. 2017. | Johnson, Stephen: Bottom-up and top-down attention | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Liu, Henning Müller, and Matthew Lungren. 2018. | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 2: Teney, Mark: for image captioning | Johnson, Stephen: and vqa. | Gould,: arXiv | and: preprint | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Overview of imageclef 2018 medical domain visual | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 3: Teney, Mark: arXiv:1707.07998, 2(4):8. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: question answering task. Proceedings of CLEF 2018 | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 4: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Working Notes. | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 5: Teney, Mark: Stanislaw Antol, Aishwarya Agrawal, Jiasen Lu, Mar- | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 6: Teney, Mark: garet Mitchell, Dhruv Batra, C Lawrence Zitnick, and | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Pengcheng | Hasan,: He, | Yuan: Xiaodong | Ling,: Liu, | Oladimeji: Jianfeng | Farri,: Gao, | Joey: and
+Row 7: Teney, Mark: Devi Parikh. 2015. Vqa: Visual question answering. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Weizhu Chen. 2020a. Deberta: Decoding-enhanced | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 8: Teney, Mark: In Proceedings of the IEEE international conference | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: bert with | Hasan,: disentangled | Yuan: | Ling,: attention. | Oladimeji: arXiv | Farri,: preprint | Joey:
+Row 9: Teney, Mark: on computer vision, pages 2425–2433. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: arXiv:2006.03654. | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 10: Teney, Mark: Asma Ben Abacha, | Johnson, Stephen: Sadid A Hasan, | Gould,: Vivek | and: V Datla, | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 11: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Xuehai He, Yichen Zhang, Luntian Mou, Eric Xing, and | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 12: Teney, Mark: Dina Demner-Fushman, and Henning Müller. 2019. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 13: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Pengtao Xie. 2020b. Pathvqa: 30000+ questions for | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 14: Teney, Mark: Vqa-med: Overview of the medical visual question | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 15: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: medical visual question answering. | Hasan,: | Yuan: | Ling,: | Oladimeji: arXiv preprint | Farri,: | Joey:
+Row 16: Teney, Mark: answering task at imageclef 2019. | Johnson, Stephen: | Gould,: In Proceedings | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 17: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: arXiv:2003.10286. | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 18: Teney, Mark: of CLEF (Conference and Labs of the Evaluation | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 19: Teney, Mark: Forum) 2019 Working Notes. 9-12 September 2019. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Xinyue Hu, L Gu, Q An, M Zhang, L Liu, K Kobayashi, | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 20: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: T Harada, R Summers, and Y Zhu. 2023. | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: Medical- | Joey:
+Row 21: Teney, Mark: Asma Ben Abacha, | Johnson, Stephen: Mourad Sarrouti, | Gould,: Dina Demner- | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 22: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: diff-vqa: a large-scale medical dataset for difference | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 23: Teney, Mark: Fushman, Sadid A Hasan, and Henning Müller. 2021. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 24: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: visual | Hasan,: question | Yuan: answering | Ling,: | Oladimeji: on chest x-ray | Farri,: images. | Joey:
+Row 25: Teney, Mark: Overview of the vqa-med task at | Johnson, Stephen: | Gould,: imageclef 2021: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 26: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: PhysioNet, 12:13. | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 27: Teney, Mark: Visual question answering and generation in the med- | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 28: Teney, Mark: ical domain. In Proceedings of the CLEF 2021 Con- | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 29: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Yash Khare, Viraj Bagal, Minesh Mathew, Adithi Devi, | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 30: Teney, Mark: ference and Labs of the Evaluation Forum-working | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 31: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: U Deva Priyakumar, and CV Jawahar. 2021. Mmbert: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 32: Teney, Mark: notes. 21-24 September 2021. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 33: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Multimodal bert pretraining for improved medical | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 34: Teney, Mark: Lihong Chen, Lihui | Johnson, Stephen: Cheng, Wei Gao, | Gould,: Dawei | and: Chen, | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: vqa. In 2021 IEEE 18th international symposium on | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 35: Teney, Mark: Chun Wang, and Xingwu Ran. 2020. Telemedicine | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: biomedical imaging (ISBI), pages 1033–1036. IEEE. | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 36: Teney, Mark: in chronic wound management: | Johnson, Stephen: systematic review | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 37: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Jason J Lau, Soumya Gayen, Asma Ben Abacha, and | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 38: Teney, Mark: and meta-analysis. | Johnson, Stephen: JMIR mHealth | Gould,: and | and: uHealth, | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 39: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Dina Demner-Fushman. 2018. | Hasan,: | Yuan: | Ling,: | Oladimeji: A dataset of clini- | Farri,: | Joey:
+Row 40: Teney, Mark: 8(6):e15574. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 41: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: cally generated visual questions and answers about | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 42: Teney, Mark: Xupeng Chen, Zhixin Lai, Kangrui Ruan, Shichu Chen, | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: radiology images. Scientific data, 5(1):1–10. | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 43: Teney, Mark: Jiaxiang Liu, and Zuozhu Liu. 2024. | Johnson, Stephen: | Gould,: R-llava: | and: | Lei: Im- | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 44: Teney, Mark: proving med-vqa understanding through visual re- | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 45: Teney, Mark: gion of interest. arXiv preprint arXiv:2410.20327. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Petroni, Vladimir Karpukhin, Naman Goyal, Hein- | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 46: Teney, Mark: | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock- | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 47: Teney, Mark: Wei-Lin Chiang, | Johnson, Stephen: Zhuohan Li, Zi | Gould,: Lin, Ying | and: Sheng, | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: täschel, and 1 others. 2020. | Hasan,: | Yuan: | Ling,: Retrieval-augmented gen- | Oladimeji: | Farri,: | Joey:
+Row 48: Teney, Mark: Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: eration for knowledge-intensive nlp tasks. Advances | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 49: Teney, Mark: Zhuang, Yonghao | Johnson, Stephen: Zhuang, Joseph | Gould,: E. Gonzalez, | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: in neural information processing systems, 33:9459– | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 50: Teney, Mark: Ion Stoica, and | Johnson, Stephen: Eric P. Xing. | Gould,: 2023. | and: Vicuna: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: 9474. | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 51: Teney, Mark: An open-source | Johnson, Stephen: chatbot impressing | Gould,: gpt-4 | and: with | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+Row 52: Teney, Mark: 90%* chatgpt quality. https://lmsys.org/blog/ | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Chunyuan | Hasan,: Li, Cliff | Yuan: Wong, | Ling,: | Oladimeji: Sheng Zhang, | Farri,: Naoto | Joey:
+Row 53: Teney, Mark: 2023-03-30-vicuna/. LMSYS Org Blog. | Johnson, Stephen: | Gould,: | and: | Lei: | Unnamed: 0: | Unnamed: 1: | Sadid A: Usuyama, Haotian Liu, Jianwei Yang, Tristan Nau- | Hasan,: | Yuan: | Ling,: | Oladimeji: | Farri,: | Joey:
+[/TABLE]
+
+[PAGE 10]
+Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi.
+2023b. Blip-2: Bootstrapping language-image pretraining with frozen image encoders and large language models. InInternational conference on machine learning, pages 19730–19742. PMLR.
+Pengfei Li, Gang Liu, Lin Tan, Jinying Liao, and Shenjun Zhong. 2023c. Self-supervised vision-language
+pretraining for medial visual question answering. In
+2023 IEEE 20th International Symposium on Biomedical Imaging (ISBI), pages 1–5. IEEE.
+Xiao Liang, Di Wang, Bin Jing, Zhicheng Jiao, Ronghan Li, Ruyi Liu, Qiguang Miao, and Quan Wang.
+2025. Fine-grained knowledge fusion for retrievalaugmented medical visual question answering.Information Fusion, 120:103059.
+Chin-Yew Lin. 2004. Rouge: A package for automatic
+evaluation of summaries. InText summarization
+branches out, pages 74–81.
+Zhihong Lin, Donghao Zhang, Qingyi Tao, Danli Shi,
+Gholamreza Haffari, Qi Wu, Mingguang He, and
+Zongyuan Ge. 2023. Medical visual question answering: A survey.Artificial Intelligence in Medicine,
+143:102611.
+Bo Liu, Li-Ming Zhan, Li Xu, Lin Ma, Yan Yang, and
+Xiao-Ming Wu. 2021. Slake: A semantically-labeled
+knowledge-enhanced dataset for medical visual question answering. In2021 IEEE 18th international symposium on biomedical imaging (ISBI), pages 1650–
+1654. IEEE.
+Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae
+Lee. 2023. Visual instruction tuning.Advances in
+neural information processing systems, 36:34892–
+34916.
+Shengyan Liu, Xuejie Zhang, Xiaobing Zhou, and Jian
+Yang. 2022. Bpi-mvqa: a bi-branch model for medical visual question answering.BMC Medical Imaging, 22(1):79.
+Jiasen Lu, Dhruv Batra, Devi Parikh, and Stefan Lee.
+2019. Vilbert: Pretraining task-agnostic visiolinguistic representations for vision-and-language tasks.Advances in neural information processing systems, 32.
+Mateusz Malinowski, Marcus Rohrbach, and Mario
+Fritz. 2015. Ask your neurons: A neural-based approach to answering questions about images. InProceedings of the IEEE international conference on
+computer vision, pages 1–9.
+AI Meta. 2025. The llama 4 herd: The beginning
+of a new era of natively multimodal ai innovation.https://ai. meta. com/blog/llama-4-multimodalintelligence/, checked on, 4(7):2025.
+Kishore Papineni, Salim Roukos, Todd Ward, and WeiJing Zhu. 2002. Bleu: a method for automatic evaluation of machine translation. InProceedings of the
+40th annual meeting of the Association for Computational Linguistics, pages 311–318.
+Aditya Sood, Mark S Granick, Chloé Trial, Julie Lano,
+Sylvie Palmier, Evelyne Ribal, and Luc Téot. 2016.
+The role of telemedicine in wound care: a review and
+analysis of a database of 5,795 patients from a mobile
+wound-healing center in languedoc-roussillon, france.
+Plastic and reconstructive surgery, 138(3S):248S–
+256S.
+Bashar Talafha and Mahmoud Al-Ayyoub. 2018. Just at
+vqa-med: A vgg-seq2seq model. InCLEF (working
+notes).
+Hao Tan and Mohit Bansal. 2019. Lxmert: Learning
+cross-modality encoder representations from transformers.arXiv preprint arXiv:1908.07490.
+Omkar Chakradhar Thawakar, Abdelrahman M
+Shaker, Sahal Shaji Mullappilly, Hisham Cholakkal,
+Rao Muhammad Anwer, Salman Khan, Jorma Laaksonen, and Fahad Khan. 2024. Xraygpt: Chest radiographs summarization using large medical visionlanguage models. InProceedings of the 23rd workshop on biomedical natural language processing,
+pages 440–448.
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+Azhar, and 1 others. 2023. Llama: Open and efficient foundation language models.arXiv preprint
+arXiv:2302.13971.
+Zifeng Wang, Zhenbang Wu, Dinesh Agarwal, and Jimeng Sun. 2022. Medclip: Contrastive learning from
+unpaired medical images and text. InProceedings
+of the Conference on Empirical Methods in Natural Language Processing. Conference on Empirical
+Methods in Natural Language Processing, volume
+2022, page 3876.
+Guangzhi Xiong, Qiao Jin, Zhiyong Lu, and Aidong
+Zhang. 2024. Benchmarking retrieval-augmented
+generation for medicine. InFindings of the Association for Computational Linguistics: ACL 2024,
+pages 6233–6251, Bangkok, Thailand. Association
+for Computational Linguistics.
+Wen-wai Yim, Asma Ben Abacha, Robert Doerning,
+Chia-Yu Chen, Jiaying Xu, Anita Subbarao, Zixuan
+Yu, Fei Xia, M Kennedy Hall, and Meliha Yetisgen.
+2025a. Woundcarevqa: A multilingual visual question answering benchmark dataset for wound care.
+Journal of Biomedical Informatics.
+Wen-wai Yim, Asma Ben Abacha, Meliha Yetisgen, and
+Fei Xia. 2025b. Overview of the mediqa-wv 2025
+shared task on wound care visual question answering.
+InProceedings of the 7th Clinical Natural Language
+Processing Workshop. Association for Computational
+Linguistics.
+Suhao Yu, Haojin Wang, Juncheng Wu, Cihang Xie,
+and Yuyin Zhou. 2025. Medframeqa: A multi-image
+medical vqa benchmark for clinical reasoning.arXiv
+preprint arXiv:2505.16964.
+
+[PAGE 11]
+Zhou Yu, Jun Yu, Yuhao Cui, Dacheng Tao, and Qi Tian.
+2019. Deep modular co-attention networks for visual
+question answering. InProceedings of the IEEE/CVF
+conference on computer vision and pattern recognition, pages 6281–6290.
+Zheng Yuan, Qiao Jin, Chuanqi Tan, Zhengyun Zhao,
+Hongyi Yuan, Fei Huang, and Songfang Huang. 2023.
+Ramm: Retrieval-augmented biomedical visual question answering with multi-modal pre-training. In
+Proceedings of the 31st ACM international conference on multimedia, pages 547–556.
+Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q
+Weinberger, and Yoav Artzi. 2019. Bertscore: Evaluating text generation with bert.arXiv preprint
+arXiv:1904.09675.
+Xiaoman Zhang, Chaoyi Wu, Ziheng Zhao, Weixiong Lin, Ya Zhang, Yanfeng Wang, and Weidi
+Xie. 2023. Pmc-vqa: Visual instruction tuning for
+medical visual question answering.arXiv preprint
+arXiv:2305.10415.
+Xiaoman Zhang, Chaoyi Wu, Ziheng Zhao, Weixiong Lin, Ya Zhang, Yanfeng Wang, and Weidi Xie.
+2024. Development of a large-scale medical visual question-answering dataset.Communications
+Medicine, 4(1):277.

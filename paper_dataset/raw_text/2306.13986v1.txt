@@ -1,0 +1,620 @@
+[PAGE 1]
+Large Language Models as Sous Chefs: Revising Recipes with GPT-3
+Alyssa Hwang∗ and Bryan Li∗ and Zhaoyi Hou∗ and Dan Roth
+Department of Computer and Information Science
+University of Pennsylvania
+{ahwang16, bryanli, joeyhou, danroth}@seas.upenn.edu
+Abstract
+With their remarkably improved text generation and prompting capabilities, large language
+models can adapt existing written information
+into forms that are easier to use and understand.
+In our work, we focus on recipes as an example of complex, diverse, and widely used
+instructions. We develop a prompt grounded
+in the original recipe and ingredients list that
+breaks recipes down into simpler steps. We apply this prompt to recipes from various world
+cuisines, and experiment with several large language models (LLMs), finding best results with
+GPT-3.5. We also contribute an Amazon Mechanical Turk task that is carefully designed
+to reduce fatigue while collecting human judgment of the quality of recipe revisions. We find
+that annotators usually prefer the revision over
+the original, demonstrating a promising application of LLMs in serving as digital sous chefs
+for recipes and beyond. We release our prompt,
+code1, and MTurk template2 for public use.
+1 Introduction
+We have access to vast amounts of written information, but many of these resources are written in
+different styles, levels of complexity, and domains.
+Previous work in adapting information to be easier
+to use and understand have relied on advances in
+general knowledge, event reasoning, text simplification, and other subtasks in Natural Language
+Processing. Today, the tremendous improvement
+in large language models, especially their zero-shot
+prompting and in-context learning capabilities, has
+made it easier than ever to leverage NLP research
+for user-centered goals.
+Our work focuses on revising food recipes as
+a key use case for adapting written information.
+∗ Equal contribution
+1https://github.com/manestay/
+project2-complex-tasks
+2https://github.com/ahwang16/mturk-templates/
+tree/master/compare_recipes
+Recipes are abundant, diverse, and widely used,
+making them a prime candidate to explore how
+well GPT-3.5 (Brown et al., 2020)—one of the currently most powerful LLMs—can handle them. For
+each recipe sampled across various world cuisines,
+we ask GPT-3.5 to use the original recipe and ingredients list to produce an adaptation that is easier
+to follow.
+We rely on human judgment collected through
+a carefully designed task on Amazon Mechanical
+Turk to evaluate revised recipes. Instead of displaying original and revised recipes side by side
+and asking annotators to evaluate many parts of
+both at once, we simplify the process by displaying
+one step at a time. Beyond general usability, we
+ask annotators to identify new, missing, or incorrect information in a revised recipe. GPT-3.5 often
+introduces new information to clarify implicit information. This new information can be classified
+as either a ‘hallucination’, which is detrimental to
+generation quality, or an ‘elaboration’, which is
+helpful for end-users.
+Our work makes these three key contributions:
+1. We propose the task of using LLMs to improve the presentation of complex, written
+information. Specifically, we prompt an LLM
+to revise a given recipe.
+2. We describe our experimentation to design a
+successful prompt. We find that by including grounding information (here the original
+recipe and list of ingredients) in the prompt,
+LLM generations will emphasize helpful elaborations over detrimental hallucinations.
+3. We design a human evaluation task that enables annotators to make granular, step-bystep comparisons between the original and
+revised recipes. This granularity both reduces
+the mental strain of annotation and allows for
+step-level analysis of the model’s revisions.
+We find that annotators prefer revised recipes.
+arXiv:2306.13986v1 [cs.CL] 24 Jun 2023
+
+[TABLE page=1 index=1]
+Columns: that annotators usually prefer the revision over | rect information in a revised recipe. GPT-3.5 often
+Row 1: that annotators usually prefer the revision over: the original, demonstrating a promising appli- | rect information in a revised recipe. GPT-3.5 often: introduces new information to clarify implicit in-
+[/TABLE]
+
+[PAGE 2]
+2 Methods
+2.1 Data
+We consider the Recipes1M+ dataset (Marin et al.,
+2019; Salvador et al., 2017), which consists of
+over a million multimodal recipes collected from
+across the internet. For the purposes of this
+work, we use stratified random sampling to select a 100-recipe subset. First, we manually
+select 10 Recipes1M+ class attributes (which
+are frequent ngrams occurring in recipe titles):
+[couscous salad, apple pie, clam chowder,
+lentil soup, chicken enchiladas, beef
+stroganoff, coconut macaroons, chow mein,
+pad thai, paella] . These attributes are diverse
+with respect to world cuisine, course, and preparation methods. For each attribute, we then sample 5
+long recipes (11-16 steps) and 5 short recipes (5-10
+steps). This follows from the length distribution
+of the full Recipes1M+ dataset, which peaks at 10
+steps. The resultant subset consists of 100 recipes.
+2.2 Large Language Models Used
+We start with two models for recipe revision:
+text-davinci-002 and text-davinci-003.3 After a manual evaluation of several pilot generations,
+we move forward with text-davinci-003. Anecdotally, we observe thattext-davinci-003 writes
+slightly more informative steps and follows prompt
+instructions better.
+2.3 Prompting Approach
+We now present our approach to prompting an LLM
+to generate clear, executable recipes. We first cover
+our final, most successful prompt. We then discuss
+insights from prior experimentation that led to it.
+Our most successful prompt, depicted in Figure 1, consists of three sections: instructions, a set
+of ingredients, and the original recipe.
+Instructions The instructions are verbose (163
+words) to ensure the task is as well defined as possible. The list of “Valid operations” allows the
+model to make a diverse set of revisions, while
+the “demonstrations” clarify how texts are transformed. We find that separating the operations and
+demonstrations produced the best results.
+We also add clarifications in parentheses to catch
+some problem cases, e.g. “example: for a salad
+dish, no need to bake it” (though there is still no
+guarantee against hallucinations).
+3https://platform.openai.com/playground
+You are tasked with revising a food recipe, given a
+set of ingredients and the original steps. Make sure
+each generated step is executable (example: do not say
+"Enjoy!") and not too complex. Ensure that your steps still
+make the same dish as the original steps (example: for a
+salad dish, no need to bake it).
+Valid operations:
+A) Keep a step the same
+B) Delete a unneeded step
+C) Revise a unclear step
+D) Split a complex step into multiple steps
+E) Add a step to improve clarity
+F) Combine two steps which go together
+Here are demonstrations, formatted as "[input]" ->
+"[output]":
+A) "Simmer for 30 minutes" -> "Simmer for 30 minutes"
+B) "Enjoy!" -> [null (always)]
+C) "Add the veggies" -> "Add in the peas and mushrooms"
+D) "Knead the dough, and let rise overnight" -> "Knead
+the dough" + "Let it rise overnight"
+E) [null (when implied)] -> "Preheat the oven to 350 F"
+F) "Stir in potatoes" + "Stir in carrots" -> "Stir in potatoes
+and carrots"
+---
+[title]
+---
+* Water
+...
+--Original Recipe
+1. Boil the water.
+...
+--Revised Recipe
+1.
+Figure 1: The prompt used to elicit an LLM to revise a
+recipe. san serif texts are filled in per recipe, while serif
+text is consistent across recipes. The text is color coded
+as: Instructions (black), Ingredients, Original Recipe.
+Ingredients Including the ingredients gives the
+model more information to base its revision decisions on. Ingredients are given in a bulleted list,
+which is generally between 50 and 100 words.
+Original Recipe The original steps are given in
+a numbered list and vary widely in terms of style,
+length, and formatting.
+2.4 Preliminary Prompting Experiments
+To arrive at this formulation, we experimented with
+several versions of the prompt and task.
+Direct Generation Our initial task was to ask the
+LLM to generate a recipe with just the name of the
+dish. We thought this might work reasonably well,
+given that models such as GPT-3 have very likely
+seen many instances of food recipes during training. We provided a one-sentence instruction and
+the recipe title. We then experimented by eliciting
+
+[PAGE 3]
+completions for prompt configurations: comparing zero-shot and few-shot prompts and varying
+the presence of the ingredients list, for a total of
+four experimental settings. For the few-shot setting,
+each prompt uses two randomly sampled examples
+from the larger set of recipes for the dishes of interest. As found by Patel et al. (2023), prompts with
+dynamically sampled examples allow for more diverse generations as opposed to static examples.
+We found that including ingredients greatly improved the faithfulness of the generated recipe to
+the dish. For example, when generating a recipe for
+“low-fat and dairy-free clam chowder,” the prompts
+without ingredients tended to use coconut milk
+(which is assuredly not low-fat). When the original
+ingredients were included, the generations would
+correctly use soy or rice milk. When including
+few-shot examples, we found that the examples
+mostly affected the style of the output text while
+the content seemed to be roughly the same.
+We noticed that in all four configurations, the
+model struggled to account for modifications or
+qualifications and tended towards a more generic
+dish. For example, the generation for “mini apple
+pies” says to only make 1 large pie. Furthermore,
+many recipes may sound reasonable but actually
+make a different dish. The generation for “paleo
+paella,” for instance, says to use cauliflowerflorets
+as a base, but paella is a rice dish, so the paleo
+variant should use riced cauliflower. Such issues
+are especially problematic as they require domain
+knowledge which home cooks may lack, which
+would result them making dishes different from
+their initial intent.
+A further complication when designing a human
+evaluation task for a given recipe (either humanwritten or machine-generated). We would like a
+task that allows the annotator to examine one step at
+a time. However, it is tough to say whether a step
+of a recipe is good or not given the open-ended,
+subjective nature of cooking. 4 Therefore, from
+the direct generation experiments, we learn that
+providing more information to the model allows
+for better quality generations. This motivates us
+to instead include the original recipe in the prompt
+and have a model revise it.
+Generation + Identifying Operations We tried
+to ask the model to additionally output the letter
+of the step used (A-F); however, this was nearly
+4This feedback was provided to us by researchers of our
+lab group.
+always A and thus not faithful. We leave this issue
+to future work, noting that the letter could provide
+a trace to the model’s reasoning and thus better
+end-user interpretability.
+Why Not Fine-Tune? While we considered finetuning, two reasons led to our decision to use
+prompting instead. First, there is no gold training data for revising recipes (and collecting it was
+prohibitively expensive and subjective). Second,
+interfaces to LLMs such as ChatGPT and Bard
+have been widely adopted by the public already.
+Therefore, we also use off-the-shelf LLMs so our
+findings can better align with how people actually
+use them.
+3 Human Evaluation
+Our work relies on human judgment to evaluate
+model performance, especially because we do not
+have reference information for revised recipes. We
+were also interested in measuring revisions that
+may be challenging to detect automatically: the
+addition of new information, the validity of new
+information, and the perceived usefulness of new
+recipes as a whole.
+The most obvious human evaluation task would
+be to display original recipes and machine-revised
+recipes side-by-side and ask annotators to look for
+deletions, insertions, and other errors; we were concerned that the long inputs would make this style
+of task may be too strenuous for human annotators.
+Therefore, we designed our human evaluation task
+to decrease this strain. We opted to use Amazon
+Mechanical Turk because it offers a flexible platform to design evaluation interfaces.5 Screenshots
+of the interface are shown in Figures 2 and 3.
+For each HIT, a annotator sees full set of ingredients and steps for a given recipe (Recipe A)—
+original or revised—on the left and center of the
+screen for a given dish. On the right, the other
+recipe (Recipe B) is shown one step at a time. We
+randomly flip if the original or revised recipe is
+Recipe A.6 Annotators are asked if the current step
+of Recipe B isincluded in Recipe A. If so, then they
+proceed directly to the next step. If not, we ask if
+the step is valid, i.e. they would reasonably expect
+to perform this step while cooking the specified
+5We will release our HTML template to help future researchers design more sophisticated human evaluation task
+interfaces.
+6This was done to help mitigate the confounding of the
+order recipes are presented in and the comparison.
+
+[TABLE page=3 index=1]
+Columns: few-shot examples, we found that | the examples | Unnamed: 0 | Our work relies on human judgment to evaluate
+Row 1: few-shot examples, we found that: mostly affected the style of the output text while | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: model performance, especially because we do not
+Row 2: few-shot examples, we found that: the content seemed to be roughly the same. | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: have reference information for revised recipes. We
+Row 3: few-shot examples, we found that: We noticed that in all four configurations, the | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: were also interested in measuring revisions that
+Row 4: few-shot examples, we found that: model struggled to account for modifications or | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: may be challenging to detect automatically: the
+Row 5: few-shot examples, we found that: qualifications and tended towards a more generic | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: addition of new information, the validity of new
+Row 6: few-shot examples, we found that: dish. For example, the generation for “mini apple | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: information, and the perceived usefulness of new
+Row 7: few-shot examples, we found that: pies” says to only make 1 large pie. Furthermore, | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: recipes as a whole.
+Row 8: few-shot examples, we found that: many recipes may sound reasonable but actually | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: The most obvious human evaluation task would
+Row 9: few-shot examples, we found that: make a different dish. The generation for “paleo | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: be to display original recipes and machine-revised
+Row 10: few-shot examples, we found that: paella,” for instance, says to use cauliflower florets | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: recipes side-by-side and ask annotators to look for
+Row 11: few-shot examples, we found that: as a base, but paella is a rice dish, | the examples: so the paleo | Unnamed: 0: | Our work relies on human judgment to evaluate: deletions, insertions, and other errors; we were conRow 12: few-shot examples, we found that: variant should use riced cauliflower. | the examples: Such issues | Unnamed: 0: | Our work relies on human judgment to evaluate: cerned that the long inputs would make this style
+Row 13: few-shot examples, we found that: are especially problematic as they require domain | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: of task may be too strenuous for human annotators.
+Row 14: few-shot examples, we found that: knowledge which home cooks may lack, | the examples: which | Unnamed: 0: | Our work relies on human judgment to evaluate: Therefore, we designed our human evaluation task
+Row 15: few-shot examples, we found that: would result them making dishes different from | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: to decrease this strain. We opted to use Amazon
+Row 16: few-shot examples, we found that: their initial intent. | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: Mechanical Turk because it offers a flexible platRow 17: few-shot examples, we found that: A further complication when designing a human | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: form to design evaluation interfaces.5 Screenshots
+Row 18: few-shot examples, we found that: evaluation task for a given recipe (either human- | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: of the interface are shown in Figures 2 and 3.
+Row 19: few-shot examples, we found that: written or machine-generated). We would like a | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: For each HIT, a annotator sees full set of ingreRow 20: few-shot examples, we found that: task that allows the annotator to examine one step at | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: dients and steps for a given recipe (Recipe A)—
+Row 21: few-shot examples, we found that: a time. However, it is tough to say whether a step | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: original or revised—on the left and center of the
+Row 22: few-shot examples, we found that: of a recipe is good or not given the open-ended, | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: screen for a given dish. On the right, the other
+Row 23: few-shot examples, we found that: subjective nature of cooking.4 Therefore, | the examples: from | Unnamed: 0: | Our work relies on human judgment to evaluate: recipe (Recipe B) is shown one step at a time. We
+Row 24: few-shot examples, we found that: the direct generation experiments, we learn that | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: randomly flip if the original or revised recipe is
+Row 25: few-shot examples, we found that: providing more information to the model allows | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: Recipe A.6 Annotators are asked if the current step
+Row 26: few-shot examples, we found that: for better quality generations. This motivates us | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: of Recipe B is included in Recipe A. If so, then they
+Row 27: few-shot examples, we found that: to instead include the original recipe in the prompt | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: proceed directly to the next step. If not, we ask if
+Row 28: few-shot examples, we found that: and have a model revise it. | the examples: | Unnamed: 0: | Our work relies on human judgment to evaluate: the step is valid, i.e. they would reasonably expect
+[/TABLE]
+
+[PAGE 4]
+Figure 2: The Opening Page for Our MTurk Task. When a annotator first accepts the HIT, they will see the dish name, ingredients list, and one full recipe (Recipe A). They will
+answer questions about the second recipe (Recipe B) one step at a time. Detailed instructions and examples are available in prominently displayed collapsible banners above.
+
+[PAGE 5]
+Figure 3: A Closer Look at the Step-By-Step Portion of
+Our MTurk Task. Annotators answer questions about
+Recipe B one step at a time. If the current step is not
+included in Recipe A, annotators are asked if it is a valid
+step. This distinguishes detrimental hallucinations from
+helpful elaborations. If the step is not valid, annotators
+are asked to indicate why using the checkboxes, which
+include a write-in “other” option annotators can also
+choose to hide or show individual steps for convenience.
+dish. If the step is furthermore not valid, we ask
+why: the step contains invalid ingredient, invalid
+action, or other (with a text input to explain why).
+These follow-up questions appear dynamically as
+well. When the annotator is finished with the current step, they hit the “Next” button to continue.
+Each step includes a button to show or hide the
+questions related to it for convenience.
+When the annotator has reached the end of
+Recipe B, they answer three more questions: 1)
+their familiarity with the recipe so we can judge
+how much to trust their answers; 2) any steps in
+Recipe A that are missing in Recipe B; and 3) their
+preference for Recipe A, B, or neither. We ask
+annotators if a step from Recipe B is included in
+Recipe A and if any steps from Recipe A are missing in Recipe B because we flip whether the original or revised recipe is static. We ask for their
+overall preference as a higher-level judgment of
+recipe quality.
+4 Qualitative Analysis
+Original Recipe
+1. Preheat oven to 350 degrees F .
+2. Line baking sheets with parchment paper and set
+aside.
+3. In a medium bowl combine first 5 ingredients
+(sugar - salt) and then add the apples and toss.
+4. Unroll the pie crusts on a floured board and cut
+3-inch rounds (note in description), re-roll scraps and
+cut out more rounds (need an even number of rounds).
+5. brush each round with beaten egg and then place a
+large spoonful of apple mixture in center of half of the
+rounds, top each with a plain round which you have cut
+a vent in, sealing edges with a fork or your fingers (we
+used fingers), sprinkle with sugar.
+6. Bake pies on baking sheets for 20 minutes or until
+golden.
+Revised Recipe
+1. Preheat oven to 350 degrees F .
+2. Line baking sheets with parchment paper and set
+aside.
+3. In a medium bowl, whisk together sugar, flour, nutmeg, cinnamon, and salt.
+4. Add the peeled and diced apples and toss to combine.
+5. Unroll the pie crusts on a floured board and cut
+3-inch rounds. Re-roll scraps and cut out more rounds
+until you have an even number of rounds.
+6. Brush each round with beaten egg.
+7. Place a large spoonful of the apple mixture in the
+center of half of the rounds.
+8. Top each filled round with a plain round and use a
+fork or fingers to seal the edges.
+9. Sprinkle with sugar.
+10. Bake pies on baking sheets for 20 minutes or until
+golden.
+Figure 4: Comparison between Original and Revised
+Recipes for “Mini Apple Pies”. We first use 10 colors
+for the revised steps, then color semantically equivalent spans in the original recipe. Significant revisions
+between the recipes are bolded, while phrases that are
+deleted are italicized in the original.
+4.1 Case Study: Mini Apple Pies
+Figure 4 compares an original recipe and a revised
+recipe for “Mini Apple Pies” 7. We observe that
+the revisions are an overall improvement, and the
+steps are easier to follow. The revised recipe keeps
+the simple steps the same (1, 2, 6). As for minor
+edits, it deletes some author digressions (“we used
+fingers”), and makes a wording change (“need an
+even” →“until you have and even”). It also generates a helpful elaboration that the apples should be
+“peeled and diced.”8
+7https://www.food.com/recipe/
+mini-apple-pies-503243
+8The set of ingredients for this recipe actually specifies
+that the apples be peeled and diced; however, reiterating this
+
+[TABLE page=5 index=1]
+Columns: Figure 3: A Closer Look at the Step-By-Step Portion of | 3-inch rounds. Re-roll scraps and cut out more rounds
+Row 1: Figure 3: A Closer Look at the Step-By-Step Portion of: Our MTurk Task. Annotators answer questions about | 3-inch rounds. Re-roll scraps and cut out more rounds: until you have an even number of rounds.
+Row 2: Figure 3: A Closer Look at the Step-By-Step Portion of: Recipe B one step at a time. If the current step is not | 3-inch rounds. Re-roll scraps and cut out more rounds: 6. Brush each round with beaten egg.
+Row 3: Figure 3: A Closer Look at the Step-By-Step Portion of: | 3-inch rounds. Re-roll scraps and cut out more rounds: 7. Place a large spoonful of the apple mixture in the
+Row 4: Figure 3: A Closer Look at the Step-By-Step Portion of: included in Recipe A, annotators are asked if it is a valid | 3-inch rounds. Re-roll scraps and cut out more rounds:
+Row 5: Figure 3: A Closer Look at the Step-By-Step Portion of: | 3-inch rounds. Re-roll scraps and cut out more rounds: center of half of the rounds.
+Row 6: Figure 3: A Closer Look at the Step-By-Step Portion of: step. This distinguishes detrimental hallucinations from | 3-inch rounds. Re-roll scraps and cut out more rounds: 8. Top each filled round with a plain round and use a
+Row 7: Figure 3: A Closer Look at the Step-By-Step Portion of: helpful elaborations. If the step is not valid, annotators | 3-inch rounds. Re-roll scraps and cut out more rounds: fork or fingers to seal the edges.
+Row 8: Figure 3: A Closer Look at the Step-By-Step Portion of: are asked to indicate why using the checkboxes, which | 3-inch rounds. Re-roll scraps and cut out more rounds: 9. Sprinkle with sugar.
+Row 9: Figure 3: A Closer Look at the Step-By-Step Portion of: include a write-in “other” option annotators can also | 3-inch rounds. Re-roll scraps and cut out more rounds: 10. Bake pies on baking sheets for 20 minutes or until
+Row 10: Figure 3: A Closer Look at the Step-By-Step Portion of: | 3-inch rounds. Re-roll scraps and cut out more rounds: golden.
+Row 11: Figure 3: A Closer Look at the Step-By-Step Portion of: choose to hide or show individual steps for convenience. | 3-inch rounds. Re-roll scraps and cut out more rounds:
+Row 12: Figure 3: A Closer Look at the Step-By-Step Portion of: | 3-inch rounds. Re-roll scraps and cut out more rounds: Figure 4: Comparison between Original and Revised
+Row 13: Figure 3: A Closer Look at the Step-By-Step Portion of: | 3-inch rounds. Re-roll scraps and cut out more rounds: Recipes for “Mini Apple Pies”. We first use 10 colors
+Row 14: Figure 3: A Closer Look at the Step-By-Step Portion of: dish. If the step is furthermore not valid, we ask | 3-inch rounds. Re-roll scraps and cut out more rounds: for the revised steps, then color semantically equiva
+Row 15: Figure 3: A Closer Look at the Step-By-Step Portion of: why: the step contains invalid ingredient, invalid | 3-inch rounds. Re-roll scraps and cut out more rounds: lent spans in the original recipe. Significant revisions
+Row 16: Figure 3: A Closer Look at the Step-By-Step Portion of: action, or other (with a text input to explain why). | 3-inch rounds. Re-roll scraps and cut out more rounds: between the recipes are bolded, while phrases that are
+Row 17: Figure 3: A Closer Look at the Step-By-Step Portion of: | 3-inch rounds. Re-roll scraps and cut out more rounds: deleted are italicized in the original.
+Row 18: Figure 3: A Closer Look at the Step-By-Step Portion of: These follow-up questions appear dynamically as | 3-inch rounds. Re-roll scraps and cut out more rounds:
+Row 19: Figure 3: A Closer Look at the Step-By-Step Portion of: well. When the annotator is finished with the cur- | 3-inch rounds. Re-roll scraps and cut out more rounds:
+Row 20: Figure 3: A Closer Look at the Step-By-Step Portion of: rent step, they hit the “Next” button to continue. | 3-inch rounds. Re-roll scraps and cut out more rounds: 4.1 Case Study: Mini Apple Pies
+Row 21: Figure 3: A Closer Look at the Step-By-Step Portion of: Each step includes a button to show or hide the | 3-inch rounds. Re-roll scraps and cut out more rounds:
+Row 22: Figure 3: A Closer Look at the Step-By-Step Portion of: | 3-inch rounds. Re-roll scraps and cut out more rounds: Figure 4 compares an original recipe and a revised
+Row 23: Figure 3: A Closer Look at the Step-By-Step Portion of: questions related to it for convenience. | 3-inch rounds. Re-roll scraps and cut out more rounds:
+Row 24: Figure 3: A Closer Look at the Step-By-Step Portion of: | 3-inch rounds. Re-roll scraps and cut out more rounds: recipe for “Mini Apple Pies”7. We observe that
+Row 25: Figure 3: A Closer Look at the Step-By-Step Portion of: When the annotator has reached the end of | 3-inch rounds. Re-roll scraps and cut out more rounds: the revisions are an overall improvement, and the
+Row 26: Figure 3: A Closer Look at the Step-By-Step Portion of: Recipe B, they answer three more questions: 1) | 3-inch rounds. Re-roll scraps and cut out more rounds: steps are easier to follow. The revised recipe keeps
+Row 27: Figure 3: A Closer Look at the Step-By-Step Portion of: their familiarity with the recipe so we can judge | 3-inch rounds. Re-roll scraps and cut out more rounds: the simple steps the same (1, 2, 6). As for minor
+Row 28: Figure 3: A Closer Look at the Step-By-Step Portion of: how much to trust their answers; 2) any steps in | 3-inch rounds. Re-roll scraps and cut out more rounds: edits, it deletes some author digressions (“we used
+Row 29: Figure 3: A Closer Look at the Step-By-Step Portion of: Recipe A that are missing in Recipe B; and 3) their | 3-inch rounds. Re-roll scraps and cut out more rounds: fingers”), and makes a wording change (“need an
+[/TABLE]
+
+[PAGE 6]
+The model makes two major revisions. First,
+it breaks the 5th original step, which is long and
+complex, into 4 separate revised steps. Second, it
+expands out the “the first 5 ingredients” from the
+3rd original step into the 5 actual entities “sugar,
+flour, nutmeg, cinnamon, and salt”. Both of these
+revisions demonstrate exactly the desired behavior,
+as end-users can more easily follow along, without
+having to remember the long text or looking back
+at the instructions (with flour-coated hands!). No
+hallucinations have occurred in this case study.
+5 Quantitative Analysis
+We collected human evaluations for 8 recipes,9 and
+got 3 annotations each (24 annotations total). The
+median time is 22.8 minutes, with a standard deviation of 33.7 minutes.10 We believe that a few HITs
+were left idle for an extended period of time, distorting the average time to completion and standard
+deviation. This effect was also magnified by our
+small sample size. There are 12 unique workers,
+who completed an average of 2 annotations each.
+We conduct a quantitative analysis of the human
+evaluation, reporting a suite of results. The results
+are at either the individual or aggregate levels. At
+the individual level, each annotation is a data point;
+this is applied to preferences and familiarity. At the
+aggregate level, the answers from all the annotators
+for that recipe go through a majority vote; this is
+applied to the other results.
+5.1 Aggregate-Level Analysis
+Recall that the reference recipe (Recipe A) can be
+either the ‘original’ or the ‘generation’ (i.e. the
+step-by-step recipe is the opposite). We separately
+analyze these conditions (4 recipes each) for selected results below.
+Recipe Preferences We find across the 24 annotations, the generation is preferred 62.5% of the
+time, the original 33.3%, and neither 4.2%. Interestingly, the propotions differ at the condition-level.
+When Recipe A is the generation, there is an 83.3%
+generation preference, whereas when Recipe A is
+the original, there is a 58.3% original preference.
+information can still help end-users.
+9We actually collected 10 recipes, but there was an unfortunate corruption for results from 2 recipes.
+10Based on pilot testing with our colleagues, we had estimated that each HIT would take 5 minutes to complete. We
+paid annotators $1.20 per HIT (˜$15 per hour), and will increase
+our rate in future annotation tasks to ensure fair compensation.
+Future work should verify this bias towards preference Recipe A over more results.
+Missing and Inclusion Steps First, we consider
+the condition where Recipe A is the original. We
+find that 86.0% of (37/43) steps from the generation
+are included in Recipe B. Moreover, we find that
+83.3% (5/6) of the added steps are deemed valid –
+which shows that the LLM was helpful most of the
+time. Annotators judged that 0% of steps from the
+original were missing in the generation.
+Considering the condition where Recipe A is the
+generation, we find that 87.8% (43/49) steps from
+the original are included in the generation. This is
+similar to the other condition. However, we find
+that only 33.3% (2/6) of the steps that were “added”
+by the original are valid. This shows that the LLM’s
+revision deleted several of the extraneous steps.11
+Considering three-way Fleiss’s kappa for all 8
+recipes, we find moderate agreement for included
+steps (κ = 0 .66) and for valid steps ( κ = 0 .73).
+This provides some empirical evidence that our
+instructions are clear, and our decomposition of
+the annotation work into several binary tasks is
+effective.
+5.2 Individual-Level Analysis
+Familiarity At a scale of 1 to 5, where 1 is very
+unfamiliar with the recipe and 5 is very familiar
+with the recipe, the mean familiarity score is 2.58
+and the median is 2.5. This coincides with our
+presumptions that revising recipes is hard since it
+requires domain and cultural knowledge to understand some of the recipes.
+We also conduct a Pearson Correlation test
+(Freedman et al., 2007) between the levels of familiarity and the overall preference (i.e. original, LLM
+revised, or neither). We code the preference with
+numbers as follows: original (-1), neither (0), and
+LLM revised (1). The r-statistic for the correlation
+test is 0.0962 (p = 0.6547), showing that whether
+or not someone is familiar with the recipe does not
+have a correlation with the preferences.
+Recipe Length We also conduct a Pearson Correlation test (Freedman et al., 2007) between the
+length of the recipe, both “Recipe A” and “Recipe
+B,” and the overall preference (i.e. original, LLM
+revised, or neither). We coded the preferences the
+same as in the case of familiarity. The r-statistic
+11We also asked human annotators to classify why a step
+is invalid, however, there was a bug that prevented it from
+working.
+
+[TABLE page=6 index=1]
+Columns: We conduct a quantitative analysis of the human | the annotation work into several binary | tasks | is
+Row 1: We conduct a quantitative analysis of the human: evaluation, reporting a suite of results. The results | the annotation work into several binary: effective. | tasks: | is:
+Row 2: We conduct a quantitative analysis of the human: are at either the individual or aggregate levels. At | the annotation work into several binary: | tasks: | is:
+Row 3: We conduct a quantitative analysis of the human: | the annotation work into several binary: 5.2 Individual-Level Analysis | tasks: | is:
+Row 4: We conduct a quantitative analysis of the human: the individual level, each annotation is a data point; | the annotation work into several binary: | tasks: | is:
+Row 5: We conduct a quantitative analysis of the human: this is applied to preferences and familiarity. At the | the annotation work into several binary: Familiarity At a scale of 1 to 5, where 1 is very | tasks: | is:
+Row 6: We conduct a quantitative analysis of the human: aggregate level, the answers from all the annotators | the annotation work into several binary: unfamiliar with the recipe and 5 is very familiar | tasks: | is:
+Row 7: We conduct a quantitative analysis of the human: for that recipe go through a majority vote; this is | the annotation work into several binary: with the recipe, the mean familiarity score is 2.58 | tasks: | is:
+Row 8: We conduct a quantitative analysis of the human: applied to the other results. | the annotation work into several binary: and the median is 2.5. This coincides with our | tasks: | is:
+Row 9: We conduct a quantitative analysis of the human: | the annotation work into several binary: presumptions that revising recipes is hard since it | tasks: | is:
+Row 10: We conduct a quantitative analysis of the human: 5.1 Aggregate-Level Analysis | the annotation work into several binary: requires domain and cultural knowledge to under- | tasks: | is:
+[/TABLE]
+
+[PAGE 7]
+for the correlation test is 0.0613 (p = 0.776) for
+“Recipe A” and 0.1972 (p = 0.3556) for “Recipe B.”
+This shows that the length of either recipe does not
+correlate with the preference of the recipe.
+6 Conclusion and Future Work
+We have investigated the novel task of using LLMs
+to revise food recipes and improve their usability and quality. This domain is of particular interest because recipes are complex, diverse, and
+widely-used. Our work seeks to address how the
+machine reasoning capabilities of LLMs can assist
+real-world users. We first perform extensive experimentation with prompt engineering, and find the
+most success with an informative prompt which is
+grounded with the original recipe and ingredients
+list. We then prompted GPT-3.4 with a diverse
+sample of recipes. We perform both qualitative
+and quantitative analysis to verify the system’s performance on our proposed task. Qualitatively, we
+designed a comprehensive human evaluation task
+which enables annotators to make granular comparisons between original and revised recipes. Highlights of our analyses include that annotators prefer
+the revised recipe 62.5% of the time (vs. 33.3%
+for original), and that 83.3% of revised steps are
+deemed helpful.
+This work was conducted for the final project of
+CIS 7000-007 Machine Reasoning at the University of Pennsylvania, with the bulk of the time used
+for designing, pilot testing, and implementing the
+Amazon Mechanical Turk task. A direct extension
+of our work would be expanding our analysis to
+the full set of 300 diverse recipes. We also hope
+to investigate automated methods to evaluate the
+quality of revisions, and how well they correlate
+with the human evaluations. Beyond this particular work, we encourage further efforts in human
+evaluation design, model probing/interpretability,
+and human-centered applications of large language
+models.
+References
+Satanjeev Banerjee and Alon Lavie. 2005. Meteor: An
+automatic metric for mt evaluation with improved correlation with human judgments. In Proceedings of
+the acl workshop on intrinsic and extrinsic evaluation
+measures for machine translation and/or summarization, pages 65–72.
+Yejin Bang, Samuel Cahyawijaya, Nayeon Lee, Wenliang Dai, Dan Su, Bryan Wilie, Holy Lovenia, Ziwei
+Ji, Tiezheng Yu, Willy Chung, Quyet V . Do, Yan
+Xu, and Pascale Fung. 2023. A multitask, multilingual, multimodal evaluation of chatgpt on reasoning,
+hallucination, and interactivity.
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, et al. 2020. Language models are few-shot
+learners. Advances in neural information processing
+systems, 33:1877–1901.
+David Freedman, Robert Pisani, and Roger Purves.
+2007. Statistics (international student edition).
+Pisani, R. Purves, 4th edn. WW Norton & Company,
+New York.
+Chin-Yew Lin. 2004. ROUGE: A package for automatic evaluation of summaries. In Text Summarization Branches Out, pages 74–81, Barcelona, Spain.
+Association for Computational Linguistics.
+Javier Marin, Aritro Biswas, Ferda Ofli, Nicholas Hynes,
+Amaia Salvador, Yusuf Aytar, Ingmar Weber, and
+Antonio Torralba. 2019. Recipe1m+: A dataset for
+learning cross-modal embeddings for cooking recipes
+and food images. IEEE Trans. Pattern Anal. Mach.
+Intell.
+OpenAI. 2022. Chatgpt: Optimizing language models
+for dialogue.
+Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Carroll L Wainwright, Pamela Mishkin, Chong Zhang,
+Sandhini Agarwal, Katarina Slama, Alex Ray, et al.
+2022. Training language models to follow instructions with human feedback. arXiv preprint
+arXiv:2203.02155.
+Kishore Papineni, Salim Roukos, Todd Ward, and WeiJing Zhu. 2002. Bleu: a method for automatic evaluation of machine translation. In Proceedings of the
+40th Annual Meeting of the Association for Computational Linguistics, pages 311–318, Philadelphia,
+Pennsylvania, USA. Association for Computational
+Linguistics.
+Ajay Patel, Bryan Li, Mohammad Sadegh Rasooli,
+Noah Constant, Colin Raffel, and Chris CallisonBurch. 2023. Bidirectional language models are also
+few-shot learners.
+Amaia Salvador, Nicholas Hynes, Yusuf Aytar, Javier
+Marin, Ferda Ofli, Ingmar Weber, and Antonio Torralba. 2017. Learning cross-modal embeddings for
+cooking recipes and food images. In Proceedings of
+the IEEE Conference on Computer Vision and Pattern Recognition.
+Thibault Sellam, Dipanjan Das, and Ankur P Parikh.
+2020. Bleurt: Learning robust metrics for text generation. arXiv preprint arXiv:2004.04696.
+Weizhe Yuan, Graham Neubig, and Pengfei Liu. 2021.
+Bartscore: Evaluating generated text as text generation. Advances in Neural Information Processing
+Systems, 34:27263–27277.
+
+[PAGE 8]
+Li Zhang, Qing Lyu, and Chris Callison-Burch. 2020.
+Reasoning about goals, steps, and temporal ordering
+with WikiHow. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language
+Processing (EMNLP), pages 4630–4639, Online. Association for Computational Linguistics.
+Li Zhang, Hainiu Xu, Yue Yang, Shuyan Zhou, Weiqiu
+You, Manni Arora, and Chris Callison-Burch. 2023.
+Causal reasoning of entities and events in procedural
+texts. In Findings of the Association for Computational Linguistics: EACL 2023, Dubrovnik, Croatia.
+Association for Computational Linguistics.
+Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q
+Weinberger, and Yoav Artzi. 2019. Bertscore: Evaluating text generation with bert. arXiv preprint
+arXiv:1904.09675.
+Ben Zhou, Kyle Richardson, Qiang Ning, Tushar Khot,
+Ashish Sabharwal, and Dan Roth. 2020. Temporal
+reasoning on implicit events from distant supervision.
+ArXiv, abs/2010.12753.
+Shuyan Zhou, Li Zhang, Yue Yang, Qing Lyu,
+Pengcheng Yin, Chris Callison-Burch, and Graham
+Neubig. 2022. Show me more details: Discovering hierarchies of procedures from semi-structured
+web data. In Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics
+(Volume 1: Long Papers), pages 2998–3012, Dublin,
+Ireland. Association for Computational Linguistics.

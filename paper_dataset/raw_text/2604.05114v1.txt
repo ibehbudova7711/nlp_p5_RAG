@@ -1,0 +1,1535 @@
+[PAGE 1]
+Preprint. Under review.
+π2: Structure-Originated Reasoning Data Improves
+Long-Context Reasoning Ability of Large Language Models
+Quyet V . Do, Thinh Pham, Nguyen Nguyen, Sha Li, Pratibha Zunjare, T u Vu
+Virginia Tech, VA 24061, USA
+{quyetdo,tuvu}@vt.edu
+Abstract
+We study a pipeline that curates reasoning data from initial structured data
+for improving long-context reasoning in large language models (LLMs).
+Our approach, π2, constructs high-quality reasoning data through rigorous QA curation: 1) extracting and expanding tables from Wikipedia, 2)
+from the collected tables and relevant context, generating realistic and
+multi-hop analytical reasoning questions whose answers are automatically
+determined and verified through dual-path code execution, and 3) backtranslating step-by-step structured reasoning traces as solutions of QA pairs
+given realistic web-search context. Supervised fine-tuning withGPT-OSS-20B
+andQWEN3-4B-INSTRUCT-2507on π2 yields consistent improvements across
+four long-context reasoning benchmarks and our alike π2-Bench, with average absolute accuracy gains of +4.3% and +2.7% respectively. Notably,
+our dataset facilitates self-distillation, whereGPT-OSS-20Beven improves
+its average performance by +4.4% with its own reasoning traces, demonstrating π2’s usefulness. Our code, data, and models are open-source at
+https://github.com/vt-pi-squared/pi-squared.
+1 Introduction
+"In all chaos there is a cosmos, in all disorder a secret order."- Carl Jung
+Large language models (LLMs) have achieved remarkable progress in processing increasingly longer contexts, with modern systems supporting context windows of 128K to milliontoken scales (OpenAI, 2026; Anthropic, 2026; Team, 2026; OpenAI et al., 2025; Yang et al.,
+2025a). However, merely extending context capacity does not automatically translate to
+improved reasoning fidelity over long contexts. Models still struggle to effectively aggregate
+information across multiple sources and perform multi-hop reasoning, which is a capability
+essential for real-world analytical tasks such as researching complex topics, analyzing enterprise documents, or synthesizing findings from multiple articles (Pham et al., 2026; Bai
+et al., 2025; Bertsch et al., 2025; Opsahl-Ong et al., 2026).
+We aim to address the problem from the perspective of training data. Existing datasets (An
+et al., 2024b; Wang et al., 2025; Yang et al., 2025b; Pham et al., 2025; Xie et al., 2026) proposed
+multiple useful approaches to generate long-context reasoning data for different scenarios,
+mostly in the format of QA. However, a full data pipeline for QA samples that 1) involves
+aggregation of globally distributed evidences over realistic long context and 2) requires
+structured analytical reasoning remains underexplored.
+In this work, we study such a data pipeline. We present thePIpeline forStructureoriginatedQUestionAnswering andREasoning over long realisticDocuments (spelled
+as PI-SQUARED, noted as π2)—a fully open-source, scalable, and realistic long-context
+reasoning data pipeline curated from structured Wikipedia tables.Our ideology is to use
+tables as intermediate structured representations of multiple evidences from multiple
+documents, from which we synthesize diverse and challenging reasoning scenarios. Our
+data curation pipeline consists of three key stages.First, we collect structured tables from
+arXiv:2604.05114v1 [cs.CL] 6 Apr 2026
+
+[PAGE 2]
+Preprint. Under review.
+original_table resulting_table
+Step 1: Understanding the Question and Searching
+Strategy: The question asks to identify a speciﬁc rugby
+player...
+Step 2: Identifying Round 4 Player of the Match
+Winners: I will search the documents...
+Step 3: Retrieving International Caps for Each
+Candidate: Now I need to ﬁnd the international cap...
+Step 4: Veriﬁcation and Cross-Checking: Let me
+double-check if there are any other Round 4 winners
+Step 5: Final Conclusion: ... Therefore, the answer is
+Jack Conan.
+Step 1: Table collection and possible expansion
+Step 3: Reasoning trace generation
+SELECT *
+FROM resulting_table
+WHERE condition
+Q: In the 2026 Six Nations
+Championship, which player ..?
+Answer: Jack Conan
+Step 2:  QA generation
++
+Figure 1: π2 curation pipeline.We 1) collect tables from Wikipedia and expand them with
+new columns when the conditions are met, then for each table, 2) generate a multi-hop
+analytical reasoning question paired with an executable SQL query and verify the answer
+with an independent Python-implemented solution. Finally, we 3) produce structured
+analytical reasoning traces through back-translation.
+Wikipedia and employ synthetic table expansion to generate new columns beyond the
+original content, ensuring the data extends beyond a single document and what models may
+have memorized during pre-training.Second, we generate multi-hop analytical reasoning
+questions paired with executable SQL queries and verify answer correctness through dualexecution verification using both SQL and Python, ensuring the ground truth is reliably
+correct.Third, we produce structured analytical reasoning traces through back-translation,
+where an LLM articulates step-by-step reasoning given only the natural language context without access to the original structured table. This teaches models to reason from
+unstructured text, mimicking real-world analytical workflows.
+Equipped with π2, we conduct comprehensive experiments to study long-context reasoning
+in LLMs. We evaluate models before and after supervised finetuning on our data across
+four existing challenging benchmarks: LongSeal (Pham et al., 2026), LongBench-v2 (Bai
+et al., 2025), Oolong-Synth (Bertsch et al., 2025), and OfficeQA (Opsahl-Ong et al., 2026);
+as well as our held-out human-reviewed evaluation set π2-Bench. Our finetuned models
+π2-20B-A3B(fromGPT-OSS-20B) and π2-4B(fromQWEN3-4B-INSTRUCT-2507) gain +4.3% and
++2.70% average points respectively, compared to the base models. Further ablation studies
+reveal that even a small set of 100 high-quality samples yields meaningful improvements
+(+1.34% to +2.85%), validating the efficiency of our curation pipeline. Also, we find that the
+core QA data enables effective self-distillation, where smaller models can benefit from their
+own generated traces. That poses a promising direction for continuous model improvement.
+In summary,our contributions are: We developed a high-quality long-context reasoning
+data curation pipeline π2 and synthesized a dataset with both training data and a benchmark π2-Bench (§2). Our finetuned models π2-20B-A3Band π2-4Bsignificantly improves
+long-context reasoning across multiple benchmarks (§3.3). We further studied the sample
+efficiency and potential of self-distillation with π2 (§3.4), showing the usefulness of our
+dataset. We end with a discussion of related work (§4) and conclusions. Our data pipeline,
+dataset, and finetuned models will be released to facilitate reproducible research.
+
+[PAGE 3]
+Preprint. Under review.
+2 Curation ofπ 2
+Figure 1 illustrates our data curation process, which consists of three main components:
+table collection and possible expansion, QA generation, and reasoning trace generation.
+2.1 Table Collection and Expansion
+To ensure high data quality, realisticness, and factual grounding, our initial step focuses on
+sourcing tables from Wikipedia. We use MediaWiki Action API1 to retrieve the content and
+comprehensive metadata from Wikipedia pages.
+We start with a diverse set of high-view and recent Wikipedia pages. For each page, we
+extract tables by parsing the underlying HTML or Markdown surface forms. We discard
+small-size or over-size tables (i.e., with fewer than 5 rows or 2 non-index columns, or more
+than 30 rows or 6 columns) to avoid simplicity or over-complication.
+To elevate the value of π2 beyond single-document single-table QA and what LLMs may
+have been pre-trained on, we implement a strategy of synthetic table expansion. In particular, we attempt to expand each extracted table with up to 3 new, contextually relevant
+columns whose content does not exist in the original Wikipedia source.In case a table column
+contains reference links for all entries, we use the content of those linked Wikipedia pages as
+external knowledge, then employ an LLM for the expansion. Post-expansion verification is
+implemented to guarantee the correctness and relevance of new columns.
+2.2 QA Generation
+For each resulting table (either original or expanded) and its associated metadata, we
+prompt an LLM to generate a realistic and multi-hop analytical reasoning question in
+natural language alongside its corresponding executable SQL query. That means, the
+question should require information aggregation across a long context when the table
+is not provided and require multi-step systematic decomposition and answering.If the
+table is expanded, a new column will be selected as a condition or the QA target for the question
+generation. Otherwise, no prior conditions are imposed. The question is expected to have
+a deterministic, unique, and short answer. The SQL query is then executed with the table,
+giving the candidate ground-truth answer. Ideally, the question is complex yet answerable
+with search results from the Internet, and the candidate ground-truth answer is the actual
+correct answer of the question. We control the question’s quality and the ground-truth
+answer’s correctness as follows.
+First, we employ an LLM to judge the complexity, self-containedness,2 and naturalness of
+the questions in a Likert-5 scale. If the judge provides a low rating, which indicates issues
+such as being overly simple or lack of clarity or grammatical errors, the generation process
+is triggered to re-run (at most three times).
+Second, we validate the answer from the SQL query with another independent computational path. We prompt an LLM to generate an independent Python-implemented solution
+of the question with the same tabular data as input. A generated QA sample is only retained
+if the answers from the SQL query and the Python script reach a consensus, determined by
+an LLM judge.
+More details of this step are shown in Appendix A
+2.3 Reasoning Trace Generation
+For each validated question-answer pair, we first gather a corpus of evidence and possibly
+hard negative ones, which resemble real-world searching. This corpus includes the evidence
+1via thepymediawikipackage
+2meaning "providing all necessary parameters, definitions, and background information within
+itself, requiring no external links, data, references, or prior knowledge to be understood"
+
+[PAGE 4]
+Preprint. Under review.
+Type Question Answer Evidence
+Aggregation
+Among the television roles held by Debbie Reynolds in her
+career, how many distinct character or guest roles did she perform specifically on shows broadcast by NBC?
+3 Debbie
+Reynolds
+In the 2023 Cricket World Cup, among bowlers who use a Rightarm fast style, which player took the most wickets and how
+many did they take?
+Mohammed
+Shami - 24
+wickets
+2023 Cricket
+World Cup
+Based on the 2022 cobalt production and reserves data reported
+by the USGS, which country (excluding aggregate entities like
+’Other countries’ or ’World total’) had the highest ratio of reserves to annual production?
+Australia Cobalt
+Entity
+Among the cargo airlines operating at Kuwait International Airport, which destination is served by the carrier that possesses
+the largest fleet size?
+Istanbul Kuwait International
+Airport
+According to the 2021 Census, among the top 10 most populous
+cities in Romania, which city has the largest area?
+Bras, ov Romania
+For the plutonium isotope with the highest alpha decay energy,
+what is its half-life in years?
+87.74 Plutonium
+Table 1:Samples in π2 in two main question categories, "Aggregation" and "Entity" (respectively involve and possibly not involve counting or numerical manipulation). The
+"Evidence" column shows the main Wikipedia page where the sample is originated from.
+Our samples cover diverse topics and complexity levels.
+Wikipedia pages used for table curation and ten relevant articles retrieved via automated
+web search. To make the context manageable for long-context LLMs while preserving
+factual integrity, we aggregate these sources and compact them to a maximum of 96K
+tokens, resulting in thecompacted context. During this compaction process, we implement a
+strict validity check to ensure that all evidence remains present within the final context.
+At the final step, reasoning traces are synthesized through back-translation. We prompt
+an LLM to articulate thestructured analytical reasoning stepsrequired to solve the question,
+given only the compacted natural language context and the verified answer. Critically, the
+original structured table is strictly withheld from the context during this phase, so that the
+generated trace is grounded solely in unstructured text. That mimics real-world reasoning
+processes where models must back-and-forth look for information in large context then
+reason with extracted information.
+2.4π 2
+We started with 6,614 Wikipedia pages, collected 2,834 qualified tables and 1,174 validated
+QA samples with reasoning traces. For table expansion and QA curation, we usedQWEN3.535B-A3B-FP8. For reasoning traces generation, as we observed different reasoning "styles"
+of models from different families, we adaptively select the teacher model according to the
+target student model. In the default setup, we selectGPT-OSS-120B/QWEN3.5-35B-A3B-FP8if
+the student model isGPT-OSS-20B/QWEN3-4B-INSTRUCT-2507, respectively. The generated
+reasoning traces have length ranging from 500 to 10k tokens, with a median of 1,480 tokens.3
+We demonstrate 6 samples of π2 in Table 1. They cover diverse topics, question types, and
+complexity levels. Similar to those samples, most questions in π2 present clear conditions
+and context, thus their usage is not limited to long-context reasoning, but also searching
+problems. In the scope of this paper, we only consider the long-context reasoning problem.
+More details onπ 2 are shown in Appendix A.
+3With respect to theo200k_baseencoding
+
+[PAGE 5]
+Preprint. Under review.
+2.5π 2-Bench and Quality ofπ 2
+To provide an additional measurement of long-context reasoning capabilities and to qualitatively assess the quality of our curated dataset, we held out and revised a challenging
+subset of π2 to serve as a benchmark π2-Bench for model development. In each sample of
+π2-Bench, models will be given thecompacted contextand the question, and prompted to
+predict a short answer. Similar to previous works (Pham et al., 2026; Chen et al., 2025; Zhu
+et al., 2024), we used an LLM grader to judge the answer correctness. The grader template
+is provided in Appendix E.For convenient notation, π2 is referred to the training set of
+the wholeπ 2 dataset by default, which is disjoint from the introducedπ 2-Bench.
+Sample selection and quality control of π2-Bench: We followed a deliberate strategy to
+prioritize difficulty and quality. Specifically, we randomly selected 252 samples from two
+pools: (1) samples originating from expanded tables with complexity ratings of 4 or 5,
+and (2) remaining samples with the highest complexity rating of 5. Each selected sample
+was reviewed by us to verify question quality and answer correctness against the Internet,
+including reference Wikipedia pages. That means,QA samples in π2-Bench should be grounded
+to our real world. During this review process, 24 samples were discarded due to being
+difficult to revise without significant reconstruction. Among the remaining 228 samples, 209
+required no revision, as the generated questions were already well-formed and complex as
+expected, and only minor formatting adjustments to the answer format were needed. The
+other 19 samples required human intervention to either refine the question or correct the
+answer. These 228 validated samples were then randomly split into a test set of 178 samples
+and a validation set of 50 samples for benchmark purposes.
+Notes onπ 2’s quality: A high yield was observed in this review process, where 209 out of
+252 selected samples (83%) required no revision. It demonstrates theeffectiveness of our data
+pipeline for the intended realistic long-context QA and structured analytical reasoning data.
+3 Experiments
+3.1 Benchmarks and Metrics
+Along with our π2-Bench’s test set, we select four challenging long-context reasoning
+benchmarks which are recent and/or widely used in the fields:
+LongSeal(Pham et al., 2026): A multi-document QA benchmark to evaluate LLMs’ reasoning ability to extract ground-truth information from a specific document within a large,
+noisy context window. In our experiment, we use all 254 questions in the dataset, with each
+question containing a ground-truth document alongside 12 noisy and deceptive distractors.
+We use the provided LLM grader to report the accuracy.
+LongBenchV2(Bai et al., 2025): A multiple-choice QA benchmark designed to evaluate
+the reasoning capabilities of LLMs within massive information contexts (up to 2M tokens)
+through real-world multiple-choice questions. We employ theMediumsubset containing
+215 samples with context length ranging from 32k to 128k to run experiments and report
+the accuracy.
+Oolong(Bertsch et al., 2025): A long analytical reasoning benchmark that requires models to
+perform atomic text analysis and information aggregation across massive contexts to resolve
+intricate temporal, user, and distributional relationships. We evaluate model performance
+using 400 samples with a context length of 64k tokens from the Oolong-Synth test set.
+Following the default metric, we report the score asscore( ˆy) =0.75 |y− ˆy|.
+OfficeQA(Opsahl-Ong et al., 2026): A benchmark for end-to-end grounded analytical
+reasoning that evaluates AI agents through complex queries on historical U.S. Treasury
+Bulletin PDFs from 1939 to 2025, which contain dense financial tables, charts, and text data.
+We consider theLLM with Oracle Parsed PDF Page(s)setup, and use the provided scoring
+function with 1% tolerance to report the accuracy of all 246 questions in the dataset.
+
+[PAGE 6]
+Preprint. Under review.
+LongSeal LongBenchV2 Oolong OfficeQAπ 2-BenchAvg.
+GEMINI3.1 FLASH-LITE64.9658.1442.38 57.14 75.29 59.58
+GEMINI-2.5-PRO59.84 56.3 36.56 53.37 72.32 55.68
+QWEN3.5-35B-A3B-FP8 58.558.2239.76 55.74 76.97 57.84
+GPT-OSS-120B42.18 51.06 38.08 33.88 75 48.04
+QWEN3-4B-INSTRUCT-2507
+base 33.07 37.56 29.6714.88 56.1834.27
+SFT (π2-4B)40.94 39.25 35.4813.58 55.6236.97
+GPT-OSS-20BLow reasoning effort
+base 34.65 39.53 31.03 21.63 62.92 37.95
+SFT (π2-20B-A3B)38.19 46.05 33.31 26.53 67.05 42.23
+GPT-OSS-20BHigh reasoning effort
+base 52.17 46.0735.8637.84 72.57 48.9
+SFT (π2-20B-A3B)64 46.3231.9546.58 77.27 53.22
+Table 2: π2 significantly improves long-context reasoning ability ofQWEN3-4B-INSTRUCT2507andGPT-OSS-20B. We evaluate baselines and our finetuned models on four existing
+long-context benchmarks and our π2-Bench. For convenience, we also report the weight-less
+average performance of models across benchmarks.Bold-faced numbersindicate the best
+among the group. We confirm that the overall improvements brought by SFT on π2 are
+significant atα=0.01 (i.e., with 99% confidence level).
+We note that our study focuses on the information aggregation and analytical reasoning
+ability of LLMs over long context rather than on extremely long-context settings. Thus,
+for samples with context longer than 66% of the common 128K-token context length, we
+compact the context using BM25+ (Lv & Zhai, 2011) with the chunk size of 1024 characters.
+Further details are shown in Appendix C.
+3.2 Methods and Baselines
+We perform supervised finetuning (SFT) with LoRA (Hu et al., 2022) (rank r= 8) onGPTOSS-20BandQWEN3-4B-INSTRUCT-2507with the 922 training samples of π2 to obtain our
+models π2-20B-A3Band π2-4B, using hyperparameters outlined in Appendix B. The SFT
+process for each model took 2.5 hours on 4 NVIDIA H200 GPUs with PyTorch DDP .4
+We evaluate our finetuned models against the following baselines.Base models: The
+originalGPT-OSS-20BandQWEN3-4B-INSTRUCT-2507without any finetuning on π2.Larger
+open-source models:GPT-OSS-120B( low reasoning effort) andQWEN3.5-35B-A3B-FP8, which
+represent a larder model scale and are models used for generating reasoning traces.Proprietary models:GEMINI-2.5-PROandGEMINI3.1 FLASH-LITE, 5 leading commercial LLMs.
+Additionally, we report results with two reasoning effort configurations forGPT-OSS-20B( low
+and high), to assess how our finetuned models perform under different configurations. For
+open-source models, we run evaluations using vLLM (Kwon et al., 2023). Unless specified,
+we evaluate modelsoncewith default hyperparameters of the API provider(s)/local vLLM
+serving engine, including the temperature.
+3.3 Results
+Table 2 presents our main results, demonstrating that π2 significantly improves the longcontext reasoning capability of base models across almost all benchmarks. Our key findings
+are as follows.
+4Done withunslothandtorchrun
+5Access via the official Gemini API
+
+[TABLE page=6 index=1]
+Columns: Unnamed: 0 | LongSeal | LongBenchV2 | Oolong | OfficeQA | 2π -Bench | Unnamed: 1 | Avg.
+Row 1: Unnamed: 0: GEMINI 3.1 FLASH-LITE | LongSeal: 64.96 | LongBenchV2: 58.14 | Oolong: 42.38 | OfficeQA: 57.14 | 2π -Bench: 75.29 | Unnamed: 1: | Avg.: 59.58
+Row 2: Unnamed: 0: GEMINI-2.5-PRO | LongSeal: 59.84 | LongBenchV2: 56.3 | Oolong: 36.56 | OfficeQA: 53.37 | 2π -Bench: 72.32 | Unnamed: 1: | Avg.: 55.68
+Row 3: Unnamed: 0: QWEN3.5-35B-A3B-FP8 | LongSeal: 58.5 | LongBenchV2: 58.22 | Oolong: 39.76 | OfficeQA: 55.74 | 2π -Bench: 76.97 | Unnamed: 1: | Avg.: 57.84
+Row 4: Unnamed: 0: GPT-OSS-120B | LongSeal: 42.18 | LongBenchV2: 51.06 | Oolong: 38.08 | OfficeQA: 33.88 | 2π -Bench: 75.0 | Unnamed: 1: | Avg.: 48.04
+Row 5: Unnamed: 0: QWEN3-4B-INSTRUCT-2507 | LongSeal: | LongBenchV2: | Oolong: | OfficeQA: | 2π -Bench: | Unnamed: 1: | Avg.:
+Row 6: Unnamed: 0: base | LongSeal: 33.07 | LongBenchV2: 37.56 | Oolong: 29.67 | OfficeQA: 14.88 | 2π -Bench: 56.18 | Unnamed: 1: | Avg.: 34.27
+Row 7: Unnamed: 0: SFT ( 2π -4B) | LongSeal: 40.94 | LongBenchV2: 39.25 | Oolong: 35.48 | OfficeQA: 13.58 | 2π -Bench: 55.62 | Unnamed: 1: | Avg.: 36.97
+Row 8: Unnamed: 0: GPT-OSS-20B Low reasoning effort | LongSeal: | LongBenchV2: | Oolong: | OfficeQA: | 2π -Bench: | Unnamed: 1: | Avg.:
+Row 9: Unnamed: 0: base | LongSeal: 34.65 | LongBenchV2: 39.53 | Oolong: 31.03 | OfficeQA: 21.63 | 2π -Bench: 62.92 | Unnamed: 1: | Avg.: 37.95
+Row 10: Unnamed: 0: SFT ( 2π -20B-A3B) | LongSeal: 38.19 | LongBenchV2: 46.05 | Oolong: 33.31 | OfficeQA: 26.53 | 2π -Bench: 67.05 | Unnamed: 1: | Avg.: 42.23
+Row 11: Unnamed: 0: GPT-OSS-20B High reasoning effort | LongSeal: | LongBenchV2: | Oolong: | OfficeQA: | 2π -Bench: | Unnamed: 1: | Avg.:
+Row 12: Unnamed: 0: base | LongSeal: 52.17 | LongBenchV2: 46.07 | Oolong: 35.86 | OfficeQA: 37.84 | 2π -Bench: 72.57 | Unnamed: 1: | Avg.: 48.9
+Row 13: Unnamed: 0: SFT ( 2π -20B-A3B) | LongSeal: 64.0 | LongBenchV2: 46.32 | Oolong: 31.95 | OfficeQA: 46.58 | 2π -Bench: 77.27 | Unnamed: 1: | Avg.: 53.22
+[/TABLE]
+
+[PAGE 7]
+Preprint. Under review.
+LongSeal LongBenchV2 Oolong OfficeQAπ 2-BenchAvg.
+GPT-OSS-20BLow reasoning effort
+base 34.65 39.53 31.03 21.63 62.92 37.95
+SFT (π2-20B-A3B) 38.19 46.0533.3126.5367.0542.23
+SFT onπ 2-10040.9447.57 25.72 18.75 63.48 39.29
+Self-distillation 37.848.4530.3428.8966.2942.35
+GPT-OSS-20BHigh reasoning effort
+base 52.17 46.07 35.86 37.84 72.57 48.9
+SFT (π2-20B-A3B)6446.32 31.9546.58 77.27 53.22
+SFT onπ 2-100 58.0151.732.9 41.94 74.21 51.75
+Self-distillation 55.56 44.3835.929.33 72.12 47.46
+Table 3:Ablation studywithGPT-OSS-20Bon a minimal π2-100 training set and selfdistillation.Bold-faced numbersindicates the best among the group. π2-100 brings improvements to both reasoning effort configuration, though the improvements are less than
+those from the full π2 training set. Meanwhile, self-distillation shares similar improvements
+with our original setup for low reasoning effort configuration, but does not hold for high
+reasoning effort configuration.
+Consistent improvements across model scales.Supervised finetuning on π2 yields substantial and consistent performance gains for both small open-source models. ForGPT-OSS-20B,
+SFT with low reasoning effort improves average performance from 37.95 to 42.23 (+4.28
+points), while with high reasoning effort the gain is even more pronounced, rising from
+48.90 to 53.22 (+4.32 points). Similarly,QWEN3-4B-INSTRUCT-2507achieves an average improvement of +2.70 (from 34.27 to 36.97) after finetuning. These results demonstrate that π2
+provides strong and transferable supervision for structured, multi-hop reasoning tasks.
+Competitive with proprietary and larger models on reasoning-centric tasks.While proprietary modelsGEMINI3.1 FLASH-LITE(59.58 average),GEMINI-2.5-PRO(55.68 average) and
+larger open-source models such asQWEN3.5-35B-A3B-FP8(57.84 average) maintain an overall lead, our finetunedGPT-OSS-20Bwith high reasoning effort (53.22 average) substantially
+narrows the gap. Notably, on reasoning-intensive benchmarks such as LongSeal (64.00 vs.
+58.50 forQWEN3.5-35B-A3B-FP8) and OfficeQA (46.58 vs. 55.74 forQWEN3.5-35B-A3B-FP8),
+the gap is significantly reduced, demonstrating that high-quality training data can partially
+compensate for limited model scale.
+Reasoning effort amplifies training benefits.The comparison between low and high
+reasoning effort configurations reveals an important interaction: the benefits of SFT on π2
+are amplified under extended thinking. With high reasoning effort, our finetuned model
+achieves 64.00 on LongSeal (compared to 52.17 base) and 77.27 on π2-Bench (compared
+to 72.57 base), demonstrating that the reasoning patterns learned from π2 align well with
+deeper computational reasoning during inference.
+Qualitative analysis.We present a sample from the LongSeal benchmark in Table 4 to
+qualitatively illustrate the impact of π2 on model reasoning behavior. π2-20B-A3Bdemonstrates systematic year-by-year verification, showing evidence aggregation across the entire
+context, thus not being tricked or confused by the question like the base model. That is a
+core capability targeted by our data curation pipeline.
+3.4 Ablation
+To further understand the usefulness of π2, we conduct ablation studies onGPT-OSS-20B
+examining two key aspects: (1) the efficiency of using a small subset of high-quality samples,
+and (2) the feasibility of self-distillation with ourπ 2.
+Efficiency of high-quality data.We investigate whether a small set of our highest-quality
+samples can boost model performance. Specifically, we finetuneGPT-OSS-20Bon just 100
+
+[TABLE page=7 index=1]
+Columns: LongSeal LongBenchV2 | Unnamed: 0 | Oolong | OfficeQA | 2π -Bench | Unnamed: 1 | Avg.
+Row 1: LongSeal LongBenchV2: GPT-OSS-20B Low reasoning effort | Unnamed: 0: | Oolong: | OfficeQA: | 2π -Bench: | Unnamed: 1: | Avg.:
+Row 2: LongSeal LongBenchV2: base 34.65 39.53 | Unnamed: 0: | Oolong: 31.03 | OfficeQA: 21.63 | 2π -Bench: 62.92 | Unnamed: 1: | Avg.: 37.95
+Row 3: LongSeal LongBenchV2: SFT ( 2π -20B-A3B) 38.19 46.05 | Unnamed: 0: | Oolong: 33.31 | OfficeQA: 26.53 | 2π -Bench: 67.05 | Unnamed: 1: | Avg.: 42.23
+Row 4: LongSeal LongBenchV2: SFT on 2π -100 40.94 47.57 | Unnamed: 0: | Oolong: 25.72 | OfficeQA: 18.75 | 2π -Bench: 63.48 | Unnamed: 1: | Avg.: 39.29
+Row 5: LongSeal LongBenchV2: Self-distillation 37.8 48.45 | Unnamed: 0: | Oolong: 30.34 | OfficeQA: 28.89 | 2π -Bench: 66.29 | Unnamed: 1: | Avg.: 42.35
+Row 6: LongSeal LongBenchV2: GPT-OSS-20B High reasoning effort | Unnamed: 0: | Oolong: | OfficeQA: | 2π -Bench: | Unnamed: 1: | Avg.:
+Row 7: LongSeal LongBenchV2: base 52.17 46.07 | Unnamed: 0: | Oolong: 35.86 | OfficeQA: 37.84 | 2π -Bench: 72.57 | Unnamed: 1: | Avg.: 48.9
+Row 8: LongSeal LongBenchV2: SFT ( 2π -20B-A3B) 64 46.32 | Unnamed: 0: | Oolong: 31.95 | OfficeQA: 46.58 | 2π -Bench: 77.27 | Unnamed: 1: | Avg.: 53.22
+Row 9: LongSeal LongBenchV2: SFT on 2π -100 58.01 51.7 | Unnamed: 0: | Oolong: 32.9 | OfficeQA: 41.94 | 2π -Bench: 74.21 | Unnamed: 1: | Avg.: 51.75
+Row 10: LongSeal LongBenchV2: Self-distillation 55.56 44.38 | Unnamed: 0: | Oolong: 35.9 | OfficeQA: 29.33 | 2π -Bench: 72.12 | Unnamed: 1: | Avg.: 47.46
+[/TABLE]
+
+[PAGE 8]
+Preprint. Under review.
+Question:How many times has a U.S. team won the ICPC World Finals after 1997—a period
+largely dominated by Russian and Chinese teams?
+Answer:1
+Context:(Omitted due to its length. Evidence is shown in Figure 5)
+GPT-OSS-20B(low)
+Reasoning:
+The provided documents state that the United States has historically won the ICPC World Finals
+17 times, but explicitly note that “no team from the U.S. has won since 1997.” This means that
+from the year following 1997 onward, there have been zero U.S. victories in the World Finals.
+Answer:0
+π2-20B-A3B(low)
+Reasoning:
+The U.S. has been a dominant force in the ICPC World Finals during the earlier years of the
+competition, but from 1998 onward a clear shift towards Russian and Chinese institutions has
+taken place. The historical records of the World Finals list the world champion for each year:
+* 1998–1999: no U.S. team (Canadian and European teams won).
+[...]
+* 2021 (World Finals Dhaka 2021): Massachusetts Institute of Technology (MIT). The first U.S.
+team to win the ICPC World Finals since 1998.
+* 2022-2025: Peking University (China), National Research University Higher School of
+Economics (Russia), and Saint Petersburg State University (Russia) were the most recent winners.
+In the post -1997 period the only time a United States institution captured the gold was
+at the World Finals held in 2021 (the celebrating site was Dhaka, Bangladesh). The medal table
+for that championship shows the Massachusetts Institute of Technology (MIT) as the world
+champion, while other U.S. teams earned silver and bronze.
+Across all years after 1997 the United States has therefore secured a single world-champion title,
+with all other victories taken by Russian or Chinese teams.
+Answer:1
+Table 4:Example model outputs. We show the response ofGPT-OSS-20Band π2-20B-A3B
+(with low reasoning effort) on a sample of LongSeal. The base model incorrectly concludes
+zero U.S. victories after 1997, while the SFT model correctly identifies the 2021 victory of a
+U.S. team. Notably, the reasoning trace ofπ 2-20B-A3Bis well-structured and step-by-step,
+showing clear logical progression from context to the final conclusion.
+samples with the sum of quality ratings at least 14 over 15, selected from the π2’s training
+set. As shown in Table 3, even with this minimal data subset ( π2-100), the finetuned
+model achieves noticeable improvements over the base one: +1.34 points average with low
+reasoning effort (39.29 vs. 37.95) and +2.85 points withhigh reasoning effort (51.75 vs. 48.90).
+While these gains are smaller than those achieved with the full 922-sample training set,
+they demonstrate that our curation pipeline produces high-quality data where even a small
+subset provides meaningful supervision. This validates the efficiency of π2, as reasonable
+improvements can be achieved with minimal computational cost.
+Self-distillation with curated QA data.A feature of π2 is that the reasoning traces are
+generated by large teacher models (GPT-OSS-120BandQWEN3.5-35B-A3B-FP8). Here, we
+investigate whether smaller models can benefit from their own generated traces through
+self-distillation. We use the baseGPT-OSS-20Bto generate reasoning traces for QA samples
+and finetune it on these self-generated traces. As shown in Table 3, self-distillation yields
+impressive results with low reasoning effort: the average performance improves from 37.95
+(base) to 42.35 (+4.40), competitive with our original SFT setup (42.23). This demonstrates
+the value of our core QA curationthat facilitates effective self-distillation. However, with high
+reasoning effort, self-distillation degrades performance (47.46 vs. 53.22), suggesting that the
+extended thinking patterns scaffolded during inference may not transfer well when distilled
+back into the model.
+
+[PAGE 9]
+Preprint. Under review.
+4 Related Works
+4.1 Long-Context Reasoning with LLMs
+A growing ecosystem of benchmarks envisions desirable long-context reasoning capabilities
+of LLMs across different dimensions. At the scale dimension, LongBench (Bai et al., 2024)
+and L-Eval (An et al., 2024a) evaluate models on contexts up to 30K-100K tokens, while
+LongBench-v2 (Bai et al., 2025) pushes evaluation to 2M tokens. At the reasoning complexity dimension, Oolong (Bertsch et al., 2025) requires atomic text analysis and information
+aggregation across massive contexts, and BABILong (Kuratov et al., 2024) evaluates extreme
+needle-in-a-haystack reasoning over distributed facts. At the application dimension, several benchmarks focus on realistic applications, including enterprise document reasoning
+(OfficeQA (Opsahl-Ong et al., 2026)), searching over multiple documents (LongSeal (Pham
+et al., 2026), BrowseComp+ (Chen et al., 2025), FanOutQA (Zhu et al., 2024)), and financial
+document analysis (DocFinQA (Reddy et al., 2024)). To address these challenges, recent
+approaches including context compression (Jiang et al., 2023), external memory mechanisms (Packer et al., 2023; Zhong et al., 2024), and recursive language models (Zhang et al.,
+2025) have shown promise in handling complex reasoning over extended contexts. Our
+work, in contrast, improves the model’s reasoning capabilities from its core.π2 is designed
+to incorporate complex thinking patterns, guided by common data structures, into LLMs.
+4.2 Long-Context Reasoning Training Data
+Despite the proliferation of benchmarks, the availability of high-quality training data for
+long-context reasoning remains limited. Recent efforts address this gap through synthetic
+data generation. IN2 (An et al., 2024b) and QwenLong-L1.5 (Shen et al., 2025) both developed
+pipelines for data that requires multi-hop grounding over globally distributed evidence.
+On the other hand, LongFaith (Yang et al., 2025b) proposes a pipeline for synthesizing
+faithful long-context reasoning data with verified reasoning and citation-based prompts.
+Similarly, LoongRL (Wang et al., 2025) introduces a synthesis approach that transforms
+short multi-hop QA into high-difficulty long-context tasks. CLIPPER (Pham et al., 2025)
+takes a different approach by using compression-based methods to generate narrative claim
+verification data through intermediate representations. In contrast, recently released work
+TableLong (Xie et al., 2026) leverages structured table data as the foundation for generating
+reasoning questions. Sharing certain similarity to each previous work yet combining crucial
+features, our dataset leverages structured table data as the starting point to synthesize multihop analytical reasoning questions. These questions are naturalistic and require both the
+aggregation of globally distributed evidences over realistic long context and the structured
+analytical reasoning skill.
+5 Conclusion
+We presented π2, a structure-originated data curation pipeline that leverages Wikipedia
+tables to generate high-quality long-context reasoning data. Through dual-path verification
+and reasoning trace back-translation, our pipeline produces diverse multi-hop analytical
+questions with reliably correct answers. Supervised finetuning on π2 yields consistent
+improvements, with π2-20B-A3Band π2-4Bachieving +4.3% and +2.7% average gains
+respectively over the base models. Even 100 high-quality samples produce measurable improvements, validating our data efficiency. Furthermore,π2 enables effective self-distillation
+under appropriate configurations. We open source our pipeline, dataset, and models as fully
+open-source resources to facilitate reproducible research and future extensions. In future
+work, we plan to explore scaling up the dataset, further improving its quality automatically,
+expanding to longer contexts and other long-context problems, and investigating more
+advanced training strategies.
+
+[PAGE 10]
+Preprint. Under review.
+Ethics Statement
+We present a data curation method for improving reasoning capabilities in LLMs. We
+identify the following ethical considerations.
+Data source and privacy.Our dataset is constructed from publicly available Wikipedia
+content and open-source LLMs. No private or personally identifiable information is included
+in our data pipeline or evaluation benchmarks. All used data and tools are openly accessible.
+Biases in synthetic data generation.The reasoning traces and expanded table columns are
+synthetically generated by LLMs. While we implement verification steps to ensure factual
+correctness, synthetic data may inadvertently propagate biases present in the underlying
+model or source content. Wikipedia itself reflects historical and cultural biases that may be
+inherited in our dataset.
+Acknowledgments
+As described in the main paper, we use LLMs as a part of our data pipeline and our
+benchmark’s evaluation. AI assistants (e.g., ChatGPT) are used to accelerate the coding,
+rephrasing, and grammar checking of our paper.
+
+[PAGE 11]
+Preprint. Under review.
+References
+Chenxin An, Shansan Gong, Ming Zhong, Xingjian Zhao, Mukai Li, Jun Zhang, Lingpeng
+Kong, and Xipeng Qiu. L-eval: Instituting standardized evaluation for long context language models. InProceedings of the 62nd Annual Meeting of the Association for Computational
+Linguistics (Volume 1: Long Papers), pp. 14388–14411, 2024a.
+Shengnan An, Zexiong Ma, Zeqi Lin, Nanning Zheng, and Jian-Guang Lou. Make
+your llm fully utilize the context.ArXiv, abs/2404.16811, 2024b. URL https://api.
+semanticscholar.org/CorpusId:269362524.
+Anthropic. System card: Claude opus 4.6, 2026. URL https://www-cdn.anthropic.com/
+14e4fb01875d2a69f646fa5e574dea2b1c0ff7b5.pdf. [Accessed 30-03-2026].
+Yushi Bai, Xin Lv, Jiajie Zhang, Hongchang Lyu, Jiankai Tang, Zhidian Huang, Zhengxiao
+Du, Xiao Liu, Aohan Zeng, Lei Hou, et al. Longbench: A bilingual, multitask benchmark
+for long context understanding. InProceedings of the 62nd annual meeting of the association
+for computational linguistics (volume 1: Long papers), pp. 3119–3137, 2024.
+Yushi Bai, Shangqing Tu, Jiajie Zhang, Hao Peng, Xiaozhi Wang, Xin Lv, Shulin Cao, Jiazheng
+Xu, Lei Hou, Yuxiao Dong, et al. Longbench v2: Towards deeper understanding and
+reasoning on realistic long-context multitasks. InProceedings of the 63rd Annual Meeting of
+the Association for Computational Linguistics (Volume 1: Long Papers), pp. 3639–3664, 2025.
+Amanda Bertsch, Adithya Pratapa, Teruko Mitamura, Graham Neubig, and Matthew R
+Gormley. Oolong: Evaluating long context reasoning and aggregation capabilities.arXiv
+preprint arXiv:2511.02817, 2025.
+Zijian Chen, Xueguang Ma, Shengyao Zhuang, Ping Nie, Kai Zou, Andrew Liu, Joshua
+Green, Kshama Patel, Ruoxi Meng, Mingyi Su, et al. Browsecomp-plus: A more fair and
+transparent evaluation benchmark of deep-research agent.arXiv preprint arXiv:2508.06600,
+2025.
+Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang,
+Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In
+International Conference on Learning Representations, 2022. URL https://openreview.net/
+forum?id=nZeVKeeFYf9.
+Huiqiang Jiang, Qianhui Wu, Chin-Yew Lin, Yuqing Yang, and Lili Qiu. Llmlingua: Compressing prompts for accelerated inference of large language models. InProceedings of the
+2023 conference on empirical methods in natural language processing, pp. 13358–13376, 2023.
+Yuri Kuratov, Aydar Bulatov, Petr Anokhin, Ivan Rodkin, Dmitry Sorokin, Artyom Sorokin,
+and Mikhail Burtsev. Babilong: Testing the limits of llms with long context reasoning-ina-haystack.Advances in Neural Information Processing Systems, 37:106519–106554, 2024.
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu,
+Joseph E. Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large
+language model serving with pagedattention. InProceedings of the ACM SIGOPS 29th
+Symposium on Operating Systems Principles, 2023.
+Yuanhua Lv and ChengXiang Zhai. Lower-bounding term frequency normalization. In
+Proceedings of the 20th ACM international conference on Information and knowledge management,
+CIKM ’11, pp. 7–16. ACM, October 2011. doi: 10.1145/2063576.2063584. URL http:
+//dx.doi.org/10.1145/2063576.2063584.
+Niklas Muennighoff, Zitong Yang, Weijia Shi, Xiang Lisa Li, Li Fei-Fei, Hannaneh Hajishirzi,
+Luke Zettlemoyer, Percy Liang, Emmanuel Candes, and Tatsunori Hashimoto. s1: Simple
+test-time scaling. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose,
+and Violet Peng (eds.),Proceedings of the 2025 Conference on Empirical Methods in Natural
+Language Processing, pp. 20275–20321, Suzhou, China, November 2025. Association for
+Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main.
+1025. URLhttps://aclanthology.org/2025.emnlp-main.1025/.
+
+[PAGE 12]
+Preprint. Under review.
+OpenAI. Gpt-5.4 thinking system card, 2026. URL https://deploymentsafety.openai.com/
+gpt-5-4-thinking/gpt-5-4-thinking.pdf. [Accessed 30-03-2026].
+OpenAI, :, Sandhini Agarwal, Lama Ahmad, Jason Ai, Sam Altman, Andy Applebaum,
+Edwin Arbus, Rahul K. Arora, Yu Bai, Bowen Baker, Haiming Bao, Boaz Barak, Ally
+Bennett, Tyler Bertao, Nivedita Brett, Eugene Brevdo, Greg Brockman, Sebastien Bubeck,
+Che Chang, Kai Chen, Mark Chen, Enoch Cheung, Aidan Clark, Dan Cook, Marat
+Dukhan, Casey Dvorak, Kevin Fives, Vlad Fomenko, Timur Garipov, Kristian Georgiev,
+Mia Glaese, Tarun Gogineni, Adam Goucher, Lukas Gross, Katia Gil Guzman, John
+Hallman, Jackie Hehir, Johannes Heidecke, Alec Helyar, Haitang Hu, Romain Huet,
+Jacob Huh, Saachi Jain, Zach Johnson, Chris Koch, Irina Kofman, Dominik Kundel,
+Jason Kwon, Volodymyr Kyrylov, Elaine Ya Le, Guillaume Leclerc, James Park Lennon,
+Scott Lessans, Mario Lezcano-Casado, Yuanzhi Li, Zhuohan Li, Ji Lin, Jordan Liss, Lily,
+Liu, Jiancheng Liu, Kevin Lu, Chris Lu, Zoran Martinovic, Lindsay McCallum, Josh
+McGrath, Scott McKinney, Aidan McLaughlin, Song Mei, Steve Mostovoy, Tong Mu,
+Gideon Myles, Alexander Neitz, Alex Nichol, Jakub Pachocki, Alex Paino, Dana Palmie,
+Ashley Pantuliano, Giambattista Parascandolo, Jongsoo Park, Leher Pathak, Carolina Paz,
+Ludovic Peran, Dmitry Pimenov, Michelle Pokrass, Elizabeth Proehl, Huida Qiu, Gaby
+Raila, Filippo Raso, Hongyu Ren, Kimmy Richardson, David Robinson, Bob Rotsted,
+Hadi Salman, Suvansh Sanjeev, Max Schwarzer, D. Sculley, Harshit Sikchi, Kendal Simon,
+Karan Singhal, Yang Song, Dane Stuckey, Zhiqing Sun, Philippe Tillet, Sam Toizer, Foivos
+Tsimpourlas, Nikhil Vyas, Eric Wallace, Xin Wang, Miles Wang, Olivia Watkins, Kevin
+Weil, Amy Wendling, Kevin Whinnery, Cedric Whitney, Hannah Wong, Lin Yang, Yu Yang,
+Michihiro Yasunaga, Kristen Ying, Wojciech Zaremba, Wenting Zhan, Cyril Zhang, Brian
+Zhang, Eddie Zhang, and Shengjia Zhao. gpt-oss-120b and gpt-oss-20b Model Card, 2025.
+URLhttps://arxiv.org/abs/2508.10925.
+Krista Opsahl-Ong, Arnav Singhvi, Jasmine Collins, Ivan Zhou, Cindy Wang, Ashutosh
+Baheti, Owen Oertell, Jacob Portes, Sam Havens, Erich Elsen, et al. Officeqa pro: An
+enterprise benchmark for end-to-end grounded reasoning.arXiv preprint arXiv:2603.08655,
+2026.
+Charles Packer, Vivian Fang, Shishir_G Patil, Kevin Lin, Sarah Wooders, and Joseph_E
+Gonzalez. Memgpt: towards llms as operating systems. 2023.
+Chau Minh Pham, Yapei Chang, and Mohit Iyyer. Clipper: Compression enables longcontext synthetic data generation.ArXiv, abs/2502.14854, 2025. URL https://arxiv.org/
+pdf/2502.14854.pdf.
+Thinh Pham, Nguyen Nguyen, Pratibha Zunjare, Weiyuan Chen, Yu-Min Tseng, and Tu Vu.
+Sealqa: Raising the bar for reasoning in search-augmented language models. InICLR,
+2026.
+Varshini Reddy, Rik Koncel-Kedziorski, Viet Dac Lai, Michael Krumdick, Charles Lovering,
+and Chris Tanner. Docfinqa: A long-context financial reasoning dataset. InProceedings
+of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 2: Short
+Papers), pp. 445–458, 2024.
+Weizhou Shen, Ziyi Yang, Chenliang Li, Zhiyuan Lu, Miao Peng, Huashan Sun, Yingcheng
+Shi, Shengyi Liao, Shaopeng Lai, Bo Zhang, Dayiheng Liu, Fei Huang, Jingren Zhou, and
+Ming Yan. Qwenlong-l1.5: Post-training recipe for long-context reasoning and memory
+management.ArXiv, abs/2512.12967, 2025. URL https://api.semanticscholar.org/
+CorpusId:283897395.
+The Gemini Team. Gemini 3.1 pro: A smarter model for your most complex tasks, 2026.
+URL https://blog.google/innovation-and-ai/models-and-research/gemini-models/
+gemini-3-1-pro/. [Accessed 30-03-2026].
+Siyuan Wang, Gaokai Zhang, L. Zhang, Ning Shang, Fan Yang, Dongyao Chen, and Mao
+Yang. Loongrl: Reinforcement learning for advanced reasoning over long contexts.ArXiv,
+abs/2510.19363, 2025. URLhttps://api.semanticscholar.org/CorpusId:282272075.
+
+[PAGE 13]
+Preprint. Under review.
+Huaibing Xie, Guoliang Zhao, Yang Liu, Shihan Dou, Siming Huang, Yan-Yun Xiao, Shaolei
+Wang, Yiting Liu, Chengui Zhang, Shao-Hua Liu, and Pluto Zhou. Probing how scalable
+table data enhances general long-context reasoning. Inunknown, 2026. URL https:
+//arxiv.org/pdf/2603.21719.pdf.
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu,
+Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report.arXiv preprint
+arXiv:2505.09388, 2025a.
+Cehao Yang, Xueyuan Lin, Chengjin Xu, Xuhui Jiang, Shengjie Ma, Aofan Liu, Hui Xiong,
+and Jian Guo. Longfaith: Enhancing long-context reasoning in llms with faithful synthetic
+data. InAnnual Meeting of the Association for Computational Linguistics, 2025b. URL
+https://arxiv.org/pdf/2502.12583.pdf.
+Alex L Zhang, Tim Kraska, and Omar Khattab. Recursive language models.arXiv preprint
+arXiv:2512.24601, 2025.
+Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and Yanlin Wang. Memorybank: Enhancing large language models with long-term memory. InProceedings of the AAAI conference
+on artificial intelligence, volume 38, pp. 19724–19731, 2024.
+Andrew Zhu, Alyssa Hwang, Liam Dugan, and Chris Callison-Burch. Fanoutqa: A multihop, multi-document question answering benchmark for large language models. In
+Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume
+2: Short Papers), pp. 18–37, 2024.
+
+[PAGE 14]
+Preprint. Under review.
+Topics %
+Reference and Event Pages 40.1
+Culture, Religion and Mind 16.4
+Science and Technology 12.4
+History, Politics and Conflict 12.2
+Geography and Transport 8.8
+Entertainment and Media 4.5
+Law, Business and Institutions 2.3
+Sports 1.3
+Nature and Environment 1.1
+Education and Biography 0.8
+Total 100
+Table 5: Seed Wikipedia page topic distribution (%)
+LLM-judge Rating 3 4 5
+Complexity 195 763 216
+Self-containedness 0 12 1051
+Naturalness 0 355 839
+Table 6: Distribution of LLM-judge automatic ratings of all 1,174 QA samples in π2. There
+are 68 training samples and 38 evaluation samples with all ratings of 5.
+Aπ 2’s Curation and Statistics
+We show various data statistics in Table 5, Table 6, and Figure 2. So far, we have processed
+30000+ pages from Wikipedia, having totally 80000+ qualified tables and 14000+ validated
+QA samples with reasoning traces. For the automated web searching step in our data
+pipeline, we use LangSearch.6
+Our dataset covers a variety of topics, with a large portion belonging to events (such as
+"2026 Winter Olympics"). In the step of QA generation in our data pipeline, a question
+is only kept if the automatic ratings for complexity, self-containedness, and naturalness
+are at least 3, 4, 4 respectively. Again, we elaborate the meaning of self-containedness as
+"providing all necessary parameters, definitions, and background information within itself,
+requiring no external links, data, references, or prior knowledge to be understood".
+To facilitate further understanding of our dataset, we show a sample reasoning trace generated byQWEN3.5-35B-A3B-FP8for the question"Among the destinations where Uruguayan
+citizens can pick up pre-approved visas upon arrival, which country mandates that a sponsor must
+submit the visa application at least 48 hours prior to the traveler’s arrival?"with the correct answer
+"Eritrea"and the main reference Wikipedia page"Visa requirements for Uruguayan citizens".
+* Step 1: Understanding the Question and Planning Strategy
+The question asks to identify a specific country from a list of destinations where
+Uruguayan citizens can pick up "pre-approved visas upon arrival." The
+distinguishing criterion is that for this specific country, a **sponsor** must
+submit the visa application at least **48 hours prior** to the traveler's arrival.
+My strategy is to scan the provided documents for a section specifically discussing
+"Pre-approved visas" or "Visas pick-up on arrival," identify the list of countries
+mentioned there, and then check the specific conditions for each country to find
+the one matching the 48-hour sponsor requirement.
+* Step 2: Locating Relevant Information in Documents
+6https://langsearch.com/
+
+[PAGE 15]
+Preprint. Under review.
+1k 2k 5k 10k
+Reasoning-trace length (tokens)
+140Samples
+Above 10k: 15 samples
+Reasoning-Trace Lengths up to 10k Tokens
+Median = 1,480
+10k cutoff
+Figure 2: Histogram (in a log scale) of reasoning-trace lengths generated byQWEN3.5-35BA3B-FP8.
+I need to find a document that lists countries allowing pre-approved visas to be picked
+up on arrival.
+- Scanning **Document 1** (Live in Uruguay): This document details entry procedures,
+visas, and residency types for entering Uruguay, but it does not list countries
+where *Uruguayans* can pick up visas. It focuses on incoming travel to Uruguay.
+- Scanning **Document 3** (ETIAS for Uruguayan Citizens): This discusses ETIAS
+requirements for Europe, not general pre-approved visas for other countries.
+- Scanning **Document 4** (Wikipedia - Visa requirements for Uruguayan citizens): I see
+a section titled "Pre-approved visas pick-up". Let's examine this section closely.
+- Scanning **Document 5** (Visa Requirements for Uruguayan Citizens): This document
+categorizes countries by visa type (Not Required, On Arrival, eVisa) but does not
+have a specific "Pre-approved visas pick-up" section with detailed conditions like
+the Wikipedia page.
+- Scanning **Document 6** (Administrative entry restrictions): This appears to be a
+duplicate or very similar version of Document 4. It also contains a "Pre-approved
+visas pick-up" section.
+Let's focus on **Document 4** (and confirmed by **Document 6**) as they explicitly
+contain the section header "Pre-approved visas pick-up".
+* Step 3: Extracting Candidates from the "Pre-approved visas pick-up" Section
+In **Document 4**, under the section "*Section*: Pre-approved visas pick-up", the text
+states: "Pre-approved visas can be picked up on arrival in the following countries
+instead in embassy or consulate."
+The table lists the following countries:
+1. Bhutan
+2. Cameroon
+3. Eritrea
+4. Liberia
+5. Nigeria
+6. Sudan
+7. Turkmenistan
+Now I must check the specific condition for each of these candidates to see which one
+requires a sponsor to apply 48 hours in advance.
+* Step 4: Evaluating Candidates Against the Criteria
+Let's examine the conditions listed for each country in the table found in **Document
+4** (and verified in **Document 6**):
+
+[TABLE page=15 index=1]
+Columns: Unnamed: 0 | Above 10k: 15 samples | Unnamed: 1
+Row 1: Unnamed: 0: 140.0 | Above 10k: 15 samples: | Unnamed: 1:
+Row 2: Unnamed: 0: 120.0 | Above 10k: 15 samples: | Unnamed: 1:
+Row 3: Unnamed: 0: 100.0 | Above 10k: 15 samples: | Unnamed: 1: Samples
+Row 4: Unnamed: 0: 80.0 | Above 10k: 15 samples: Median = 1,480 | Unnamed: 1:
+Row 5: Unnamed: 0: | Above 10k: 15 samples: 10k cutoff | Unnamed: 1:
+Row 6: Unnamed: 0: 60.0 | Above 10k: 15 samples: | Unnamed: 1:
+Row 7: Unnamed: 0: 40.0 | Above 10k: 15 samples: | Unnamed: 1:
+Row 8: Unnamed: 0: 20.0 | Above 10k: 15 samples: | Unnamed: 1:
+[/TABLE]
+
+[PAGE 16]
+Preprint. Under review.
+- **Bhutan**: The condition is "For a maximum stay of 15 days if the application was
+submitted at least 2 and a half months before arrival and if the clearance was
+obtained."
+- *Analysis*: This mentions a time frame (2.5 months), but it refers to the
+applicant submitting the application, not necessarily a sponsor, and the
+timeframe is different (months vs hours). This does not match the "48 hours
+prior" criterion.
+- **Cameroon**: The condition is "Must hold approval from the General Delegate of
+Security."
+- *Analysis*: No mention of a sponsor or a 48-hour deadline.
+- **Eritrea**: The condition is "Must have a sponsor who must submit an application at
+least 48 hours before arrival."
+- *Analysis*: This matches all criteria perfectly.
+- Requires a **sponsor**.
+- The sponsor must **submit the application**.
+- The deadline is **at least 48 hours before arrival**.
+- **Liberia**: The condition is "Available only if arriving from a country without a
+diplomatic mission of Liberia and if a sponsor obtained an approval."
+- *Analysis*: Mentions a sponsor, but no specific 48-hour submission deadline is
+listed.
+- **Nigeria**: The condition is "Holders of a visa application who have a Nigerian
+company taking responsibility for them."
+- *Analysis*: Mentions a company (similar to a sponsor), but no specific 48-hour
+timeline is mentioned.
+- **Sudan**: The condition is "Holders of an entry permit issued by the Ministry of
+Interior."
+- *Analysis*: No mention of a sponsor or 48-hour rule.
+- **Turkmenistan**: The condition is "Holders of an invitation letter of the local
+company that was approved by the Ministry of Foreign Affairs."
+- *Analysis*: Mentions a company/invitation, but no 48-hour deadline.
+* Step 5: Cross-Verification
+Let's verify this finding using **Document 6** ("Administrative entry restrictions"),
+which contains the same table.
+Under the section "*Section*: Pre-approved visas pick-up":
+| Country | Conditions |
+| :--- | :--- |
+| ![](image) Eritrea[326] | Must have a sponsor who must submit an application at least
+48 hours before arrival. |
+The information is consistent across both documents. The specific phrasing "Must have a
+sponsor who must submit an application at least 48 hours before arrival" is unique
+to Eritrea in this list.
+* Step 6: Final Conclusion
+Based on the analysis of the "Pre-approved visas pick-up" section in Document 4 and
+Document 6, the only country that mandates a sponsor to submit the application at
+least 48 hours prior to arrival is Eritrea.
+* Step 7: Answer Formulation
+The correct answer is Eritrea.
+
+[PAGE 17]
+Preprint. Under review.
+Azirphd's workspace Personal workspace Saved 1 minute ago
+deep-smoke-12-gpt-oss-2e-5-200
+Charts Overview Logs Files Artifacts
+Settings New report Add panelsSearch panels with regex
+1-5 of 5
+Add section
+train 5
+train/loss
+train/global_step
+train/learning_rate
+train/global_step
+train/grad_norm
+train/global_step
+train/global_step
+train/global_step
+train/epoch
+train/global_step
+System22
+Project
+Workspace
+Runs
+Jobs
+Automat.
+Sweeps
+Reports
+Artifacts
+Figure 3: Training dynamics ofGPT-OSS-20Bonπ 2.
+B Training Details
+We finetune two base models on our π2 training data:GPT-OSS-20B(a 20B parameter model
+using MXFP4 quantization) andQWEN3-4B-INSTRUCT-2507(a 4B parameter instruction-tuned
+model). Both models are loaded via Unsloth for memory efficiency.
+We use LoRA (Hu et al., 2022) with rank r= 8 and target modules {q, k, v, o} for attention
+layers, with alpha set to 2r. Training is performed with a total batch size of 4 and a learning
+rate of 2e−5 with linear warmup for 5 steps followed by linear decay. The batch size per
+device and the gradient accumulation depend on the availability of hardware. We train for
+200 steps, approximately 1 epoch over our 922 training samples. The maximum sequence
+length is set to 128K tokens to accommodate our long reasoning traces. We use the AdamW
+optimizer with weight decay of 0.001 and train in mixed precision (bfloat16 forQWEN3-4BINSTRUCT-2507, 4-bit quantization forGPT-OSS-20B). The training takes approximately 2.5
+hours on 4 NVIDIA H200 GPUs using PyTorch DDP . Figure 3 shows the training dynamics
+ofGPT-OSS-20Bon our dataset.
+We format training samples using chat templates with special token delimiters. ForGPT-OSS20Bmodels, we use reasoning effort tokens ( low or high) to control the thinking budget; for
+QWEN3-4B-INSTRUCT-2507models, we use the standard <|im_start|> format. We compute
+loss only on the assistant response (reasoning traces and final answer), not on the user
+prompt or system message.
+Note that forGPT-OSS-20B, evaluation uses the same reasoning effort configuration as training.
+That is, π2-20B-A3Bwith high reasoning effort was trained with high reasoning effort and
+evaluated with high reasoning effort; similarly for low. This ensures consistency between
+the learned reasoning patterns and the evaluation setup.
+C Additional Experiments
+Beyond the main experimental results presented in §3, we conducted several additional
+studies to better understand the properties of our finetuned models and the effectiveness of
+π2. These supplementary experiments are summarized in Table 7.
+C.1 Effect of Learning Rate
+We investigate the impact of learning rate on model performance during supervised finetuning. In addition to our default learning rate of 2e-5, we experiment with both smaller
+(2e-6) and larger (2e-4) learning rates. As shown in Table 7, the smaller learning rate of
+2e-6 possibly results in underfitting, where the model fails to learn sufficient reasoning
+patterns from π2 and performs comparably to or only marginally better than the base model.
+Specifically, forGPT-OSS-20Bwith low reasoning effort, the average performance with lr=2e-6
+reaches only 32.37, barely above the base of 37.95. Similarly,QWEN3-4B-INSTRUCT-2507with
+lr=2e-6 achieves an average of 28.33, which is substantially lower than both the base model
+and our default setup.
+
+[PAGE 18]
+Preprint. Under review.
+LongSeal LongBenchV2 Oolong OfficeQAπ 2-BenchAvg.
+GPT-5.4 n/a n/a n/a n/a81.46n/a
+GPT-OSS-20BLow reasoning effort
+base 34.65 39.53 31.03 21.63 62.92 37.95
+SFT, lr=2e-5 (ours) 38.19 46.05 33.31 26.53 67.05 42.23
+infer. w/T=0 39.76 46.53 31.74 28.63 65.12 42.36
+SFT, lr=2e-6 40.16 39.07 28.22 22.04 n/a n/a
+SFT, lr=2e-4 54.97 38.78 n/a n/a n/a n/a
+SFT noisy 40.55 44.19 36.11 24.18 65.73 42.15
+RLM* 45.28 34.04 41.55 31.82 63.48 43.23
+SFT + RLM* 49.21 29.29 38.55 31.82 64.2 42.61
+QWEN3-4B-INSTRUCT-2507
+base 33.07 37.56 29.67 14.88 56.18 34.27
+SFT (ours) 40.94 39.25 35.48 13.58 55.62 36.97
+infer. w/T=0 36.61 40.19 35.01 16.33 54.49 36.53
+SFT, lr=2e-6 29.13 37.85 30.82 13.47 n/a n/a
+SFT, lr=2e-4 28.93 30.52 29.6 53.09 n/a n/a
+SFT noisy 36.22 36.45 33.28 16.73 54.49 35.43
+RLM* 28.85 28.57 48.95 28.57 53.71 37.73
+SFT + RLM* 34.54 32.54 40.51 21.43 49.38 35.68
+Table 7:Additional experiments. Due to the prohibitively expensive cost of GPT-5.4, we
+only run experiment on our π2-Bench.Rows respectively represent: 1) base: the base
+model, 2) SFT, lr=2e-5 (ours): our finetuned model with default setup, 3) infer. w/ T= 0:
+our finetuned model with default setup except that the inference temperature is 0, 4) SFT,
+lr=2e-6: our finetuned model with a smaller learning rate 2e-6, 5) SFT, lr=2e-4: our finetuned
+model with a larger learning rate 2e-4, 6) SFT noisy: our finetuned model with data which
+the context is naively prepared, 7) RLM: Recursive Language Models, and 8) SFT + RLM:
+the combination of our SFT and RLM, where we first apply RLM on top of our finetuned
+model for inference.The results suggest that our SFT with the default setup (lr=2e-5) still
+yields the best performance, while other variants of SFT and RLM show mixed results. (*)
+We note that the result of Recursive Language Models (RLM) is partial due to a common
+context overflow problem of the currentrlms==0.1.1package that we encounter. Thus, its
+results are not directly comparable to those of our finetuned models.
+Conversely, the larger learning rate of 2e-4 causes significant training instability. The
+model weights diverge substantially from the base model, leading to unexpected generation
+behaviors. In particular, the model produces excessively long outputs that frequently
+cause API timeout errors during evaluation, making reliable performance measurement
+impossible (we left n/a for incomplete results). These findings underscore the importance
+of careful learning rate selection for long-context reasoning finetuning, and we chose lr=2e-5
+as our default after initial hyperparameter probing.
+C.2 Effect of Context Cleanliness
+As mentioned in §section 2, we implement a strict validity check to ensure that all evidence
+remains present within the final context for reasoning trace generation. Here, we study
+possible benefit of the reversely defined noisy context setup, where we naively compacted
+the context using BM25+ algorithm with the chunk size of 256 tokens. That mimics noisy
+real-world searching problem, as some explicit evidences to be missing in the final context,
+and the model must resort to alternative sources of information scattered across the context.
+The results, labeled as "SFT noisy" in Table 7, suggests that using the clean context setup is
+still preferred, though the observed gaps are not statistically significant.
+
+[TABLE page=18 index=1]
+Columns: Unnamed: 0 | LongSeal LongBenchV2 | Oolong | Unnamed: 1 | OfficeQA | 2π -Bench | Unnamed: 2 | Avg.
+Row 1: Unnamed: 0: GPT-5.4 | LongSeal LongBenchV2: n/a n/a | Oolong: n/a | Unnamed: 1: | OfficeQA: n/a | 2π -Bench: 81.46 | Unnamed: 2: | Avg.: n/a
+Row 2: Unnamed: 0: | LongSeal LongBenchV2: GPT-OSS-20B Low reasoning effort | Oolong: | Unnamed: 1: | OfficeQA: | 2π -Bench: | Unnamed: 2: | Avg.:
+Row 3: Unnamed: 0: base | LongSeal LongBenchV2: 34.65 39.53 | Oolong: 31.03 | Unnamed: 1: | OfficeQA: 21.63 | 2π -Bench: 62.92 | Unnamed: 2: | Avg.: 37.95
+Row 4: Unnamed: 0: SFT, lr=2e-5 (ours) | LongSeal LongBenchV2: 38.19 46.05 | Oolong: 33.31 | Unnamed: 1: | OfficeQA: 26.53 | 2π -Bench: 67.05 | Unnamed: 2: | Avg.: 42.23
+Row 5: Unnamed: 0: infer. w/ T = 0 | LongSeal LongBenchV2: 39.76 46.53 | Oolong: 31.74 | Unnamed: 1: | OfficeQA: 28.63 | 2π -Bench: 65.12 | Unnamed: 2: | Avg.: 42.36
+Row 6: Unnamed: 0: SFT, lr=2e-6 | LongSeal LongBenchV2: 40.16 39.07 | Oolong: 28.22 | Unnamed: 1: | OfficeQA: 22.04 | 2π -Bench: n/a | Unnamed: 2: | Avg.: n/a
+Row 7: Unnamed: 0: SFT, lr=2e-4 | LongSeal LongBenchV2: 54.97 38.78 | Oolong: n/a | Unnamed: 1: | OfficeQA: n/a | 2π -Bench: n/a | Unnamed: 2: | Avg.: n/a
+Row 8: Unnamed: 0: SFT noisy | LongSeal LongBenchV2: 40.55 44.19 | Oolong: 36.11 | Unnamed: 1: | OfficeQA: 24.18 | 2π -Bench: 65.73 | Unnamed: 2: | Avg.: 42.15
+Row 9: Unnamed: 0: RLM* | LongSeal LongBenchV2: 45.28 34.04 | Oolong: 41.55 | Unnamed: 1: | OfficeQA: 31.82 | 2π -Bench: 63.48 | Unnamed: 2: | Avg.: 43.23
+Row 10: Unnamed: 0: SFT + RLM* | LongSeal LongBenchV2: 49.21 29.29 | Oolong: 38.55 | Unnamed: 1: | OfficeQA: 31.82 | 2π -Bench: 64.2 | Unnamed: 2: | Avg.: 42.61
+Row 11: Unnamed: 0: | LongSeal LongBenchV2: QWEN3-4B-INSTRUCT-2507 | Oolong: | Unnamed: 1: | OfficeQA: | 2π -Bench: | Unnamed: 2: | Avg.:
+Row 12: Unnamed: 0: base | LongSeal LongBenchV2: 33.07 37.56 | Oolong: 29.67 | Unnamed: 1: | OfficeQA: 14.88 | 2π -Bench: 56.18 | Unnamed: 2: | Avg.: 34.27
+Row 13: Unnamed: 0: SFT (ours) | LongSeal LongBenchV2: 40.94 39.25 | Oolong: 35.48 | Unnamed: 1: | OfficeQA: 13.58 | 2π -Bench: 55.62 | Unnamed: 2: | Avg.: 36.97
+Row 14: Unnamed: 0: infer. w/ T = 0 | LongSeal LongBenchV2: 36.61 40.19 | Oolong: 35.01 | Unnamed: 1: | OfficeQA: 16.33 | 2π -Bench: 54.49 | Unnamed: 2: | Avg.: 36.53
+Row 15: Unnamed: 0: SFT, lr=2e-6 | LongSeal LongBenchV2: 29.13 37.85 | Oolong: 30.82 | Unnamed: 1: | OfficeQA: 13.47 | 2π -Bench: n/a | Unnamed: 2: | Avg.: n/a
+Row 16: Unnamed: 0: SFT, lr=2e-4 | LongSeal LongBenchV2: 28.93 30.52 | Oolong: 29.6 | Unnamed: 1: | OfficeQA: 53.09 | 2π -Bench: n/a | Unnamed: 2: | Avg.: n/a
+Row 17: Unnamed: 0: SFT noisy | LongSeal LongBenchV2: 36.22 36.45 | Oolong: 33.28 | Unnamed: 1: | OfficeQA: 16.73 | 2π -Bench: 54.49 | Unnamed: 2: | Avg.: 35.43
+Row 18: Unnamed: 0: RLM* | LongSeal LongBenchV2: 28.85 28.57 | Oolong: 48.95 | Unnamed: 1: | OfficeQA: 28.57 | 2π -Bench: 53.71 | Unnamed: 2: | Avg.: 37.73
+Row 19: Unnamed: 0: SFT + RLM* | LongSeal LongBenchV2: 34.54 32.54 | Oolong: 40.51 | Unnamed: 1: | OfficeQA: 21.43 | 2π -Bench: 49.38 | Unnamed: 2: | Avg.: 35.68
+[/TABLE]
+
+[PAGE 19]
+Preprint. Under review.
+C.3 Validation ofπ 2-Bench
+Our held-out benchmark π2-Bench serves both as an evaluation tool and as a validation of
+our data curation pipeline’s quality. TheGPT-5.4performance confirms that the curated
+questions are solvable and still having room for improvement. After finetuning base models
+on π2, performance on π2-Bench improves to 67.05 forGPT-OSS-20Band 55.62 forQWEN34B-INSTRUCT-2507, demonstrating that the reasoning patterns learned from π2 transfer
+effectively to our curated benchmark.
+C.4 Comparison with Recursive Language Models
+Recursive Language Models (RLM) (Zhang et al., 2025) represent an orthogonal approach
+to handling long-context reasoning through recursive context processing. We compare our
+SFT approach with RLM and investigate potential synergies between the two methods. For
+RLM experiments, we use the publicly available rlms==0.1.1 package and apply it to both
+base models and our finetuned models during inference. We note that the result of RLM is
+partial due to a common context overflow problem of the current rlms==0.1.1 package that
+we encounter. Thus, its results are not directly comparable to those of our finetuned models.
+As shown in Table 7, RLM applied to baseGPT-OSS-20Bachieves an average of 43.23, which
+is competitive with our SFT approach (42.23). Notably, RLM shows particular strength
+on Oolong (41.55 vs. 33.31 for SFT), suggesting that recursive processing is effective for
+distributional reasoning tasks. When we apply RLM on top of our SFT models ("SFT
++ RLM"), the results are mixed, as some benchmarks show improvement while others
+degrade. Overall, our findings suggest that RLM and SFT on π2 address long-context
+reasoning through different mechanisms, and the combination does not yield consistent
+synergistic benefits.
+C.5 Output Length Analysis
+Given that our training data contains relatively long reasoning traces (median 1,480 tokens),
+we analyze whether finetuning induces changes in output behavior. Figure 4 compares the
+output token distributions (excluding thinking tokens) across base models, our finetuned
+models, larger open-source models, and commercial baselines.
+The analysis reveals that our finetuned models consistently generate longer outputs than
+their base counterparts. ForGPT-OSS-20B, the output length increases substantially after SFT,
+aligning more closely with the distribution of larger models likeGPT-OSS-120B. Notably, π24Bexhibits an output length distribution remarkably similar to its teacher modelQWEN3.535B-A3B-FP8, suggesting that our data pipeline successfully transfers reasoning style from
+larger to smaller models. While longer outputs are not inherently desirable, they reflect
+the structured analytical reasoning patterns emphasized in our training data. We note that
+some samples exhibit overthinking, which represents an area for future improvement in
+balancing thoroughness and conciseness.
+C.6 Evaluation Determinism and Statistical Significance
+To ensure reproducibility and assess the reliability of our findings, we conduct experiments
+under deterministic evaluation settings. Specifically, we evaluate our finetuned models with
+temperature T= 0, which eliminates random sampling effects. As shown in Table 7, the
+results with T= 0 are largely consistent with our default evaluation settings, with minor
+variations.
+Furthermore, following the approach of Muennighoff et al. Muennighoff et al. (2025),
+we conduct a statistical significance t-test using 10,000 bootstrap samples drawn from all
+benchmark results. The improvements achieved by our finetuned models over base models
+are statistically significant at α= 0.01 for bothGPT-OSS-20B(under both reasoning effort
+configurations) andQWEN3-4B-INSTRUCT-2507, providing strong evidence that the observed
+performance gains are genuine and not attributable to random variation.
+
+[PAGE 20]
+Preprint. Under review.
+0 1000 2000 3000 4000
+Output Length (tokens)
+0.0000
+0.0005
+0.0010
+0.0015
+0.0020
+0.0025
+0.0030
+0.0035Frequency
+Histogram of Output Lengths (Kernel Density Estimation)
+gpt-oss-20b (low)
+2-20B-A3B (low)
+gpt-oss-20b (high)
+2-20B-A3B (high)
+Qwen3-4B-Instruct-2507
+2-4B
+gpt-oss-120b (low)
+Qwen3.5-35B-A3B-FP8
+Gemini-3.1-Flash-Lite-Preview
+Figure 4: Comparing output length (in tokens) of our models, base models, larger opensource models, and leading commercialGEMINI3.1 FLASH-LITE. Here, the token count
+disregards thinking tokens. Our models generate relatively more tokens than the base
+models. Interestingly, our π2-4Bshares the same output length distribution as its teacher
+modelQWEN3.5-35B-A3B-FP8, suggesting successful knowledge transfer of reasoning style.
+Nonetheless, we aim for structured step-by-step reasoning traces that are both thorough
+and concise.
+D Limitations
+While our work demonstrates strong empirical results, several limitations should be acknowledged.
+Context length scope.Our study focuses on long-context reasoning within the 128K-token
+context range, which covers common context window limits but does not address extremely
+long contexts (e.g., million-token scale). While our pipeline can theoretically generate data
+for longer contexts, we leave exploration of this regime for future work.
+Quality and yield.Despite our dual-path verification and quality filtering, approximately
+17% of initially generated samples required human revision in our benchmark curation.
+While this demonstrates the effectiveness of our pipeline, it also indicates room for improvement in automatic quality control.
+Evaluation setup.We evaluate models on long-context reasoning tasks in context-provided
+QA setup. Performance on other long-context capabilities (e.g., retrieval accuracy, longcontext free-form generation) is not directly assessed. Also, more statistics about our
+π2-Bench will give readers a clearer picture of it.
+Model finetuning.Our finetuning setups are limited to relatively small-size language
+models, SFT with LoRA paradigms, and with a limited set of hyperparameters. More
+extensive exploration of training strategies (e.g., PPO, GRPR) and hyperparameter tuning
+may yield further improvements.
+
+[TABLE page=20 index=1]
+Columns: 0.0035 | gpt-oss-20b (low) | Unnamed: 0
+Row 1: 0.0035: | gpt-oss-20b (low): 2-20B-A3B (low) | Unnamed: 0:
+Row 2: 0.0035: | gpt-oss-20b (low): gpt-oss-20b (high) | Unnamed: 0:
+Row 3: 0.0035: 0.003 | gpt-oss-20b (low): | Unnamed: 0: Frequency
+Row 4: 0.0035: | gpt-oss-20b (low): 2-20B-A3B (high) | Unnamed: 0:
+Row 5: 0.0035: | gpt-oss-20b (low): Qwen3-4B-Instruct-2507 | Unnamed: 0:
+Row 6: 0.0035: 0.0025 | gpt-oss-20b (low): 2-4B | Unnamed: 0:
+Row 7: 0.0035: | gpt-oss-20b (low): gpt-oss-120b (low) | Unnamed: 0:
+Row 8: 0.0035: | gpt-oss-20b (low): Qwen3.5-35B-A3B-FP8 | Unnamed: 0:
+Row 9: 0.0035: 0.002 | gpt-oss-20b (low): | Unnamed: 0:
+Row 10: 0.0035: | gpt-oss-20b (low): Gemini-3.1-Flash-Lite-Preview | Unnamed: 0:
+Row 11: 0.0035: 0.0015 | gpt-oss-20b (low): | Unnamed: 0:
+Row 12: 0.0035: 0.001 | gpt-oss-20b (low): | Unnamed: 0:
+Row 13: 0.0035: 0.0005 | gpt-oss-20b (low): | Unnamed: 0:
+[/TABLE]
+
+[PAGE 21]
+Preprint. Under review.
+E Prompts
+We show the prompts used in our experiments in this section.
+Table expansion
+You are a creative and grounded brainstorming partner for enriching tables in Wikipedia
+pages.
+You will be given:
+- a table in HTML format,
+- some metadata about the table,
+- summaries of the Wikipedia pages referenced by a column of the table.
+Your task is to enrich the table by adding one or several (up to 3) new columns that
+capture common attributes from the Wikipedia summaries which are not already
+semantically reflected in the existing columns of the table.
+**Action plan**:
+- Identify one or several common attributes from the Wikipedia summaries. Each attribute
+must be:
+- relevant to the data in the table and provide additional insights to the readers,
+- **not already present or partially reflected in the existing columns of the table
+**,
+- not in conflict with the existing data in the table (e.g., statistics from
+different years compared to similar existing attributes).
+- Extract the relevant data/values from the summaries to populate the new columns.
+- Values must be short pieces of content (e.g., a number, a phrase, a several-word
+string), directly retrieved from the summaries, no extra notes, and should not
+require additional interpretation or analysis.
+- Return the enriched table in HTML format, ensuring that the new columns are seamlessly
+integrated with the existing columns.
+- **Provide a list of notes on the enriched table** about any cautions or assumptions
+made during the enrichment process, for examples, in the follow cases:
+- Statistics in a new column are from different years, so they may not be directly
+comparable. You should provide such a note with specific year information, e.g.,
+"- Attribute X: row 1's value is from 2020, while row 2's value is from 2022."
+- In case there are typos in the original table, you are allowed to modify these typos.
+Don't need to report the incident. Typos cases include but are not limited to:
+- Misspelled words -> Fix the typos (e.g., "Spanyol" -> "Espanyol")
+- Inconsistent (and not sensical) statistics -> Resolve the inconsistent or the
+typos (e.g., in a numeric column, values are in different units, or one uses`,`
+as thousand separator while others use`.`, etc.)
+NOTE:
+- Existing column names may not fully reflect the content of the column, so you should
+also consider the actual data in the columns when determining whether an attribute
+is already present.
+- There are some common taxonomies of attributes that are often present in Wikipedia
+summaries, such as:
+- Person: teams/companies/organizations, awards, career milestones, etc.
+- Organization: industry, headquarters location, revenue, number of employees, etc.
+- Event: date, location, participants, outcome, etc.
+- Geographical entity: population, area, GDP, neighboring entities, etc.
+- Knowledge: year, field, key contributions, inventors, etc.
+Now, enrich the table based on the above instructions and the following input.
+[[ ## table ## ]]
+{table}
+[[ ## metadata ## ]]
+{metadata}
+[[ ## column_name ## ]]
+
+[PAGE 22]
+Preprint. Under review.
+{column_name}
+[[ ## summaries ## ]]
+{summaries}
+QA generation
+You are an expert designed for advanced data analysis.
+You are given a table in Markdown format, a column name, and some context about the
+table, which reflect real information from the Internet.
+Your task is to generate **a complex, self-contained, and natural question** about the
+data along with a SQL implementation to answer it.
+**Strict Requirements:**
+1. **Question Design:**
+1.1. Generate ONE single-focus and concise question.
+- DON'T concatenate multiple sub-questions with "and" or "which... and which".
+- Split multi-part questions into separate questions. For example, instead of "which
+X and which Y", ask only "which X".
+- Instead of "which X and which Y when X", just ask "When X, then which Y?" to
+maintain the complexity and multi-hop reasoning, but avoid asking two separate
+questions in one.
+- DON'T: "Which team has the highest average score and which team has the lowest
+average score?", "What is the year when the Lansing fare per mile reached
+its highest recorded value, and what was the difference in fare per mile
+between Lansing and Grand Rapids in the year?"
+- DO: "Which team has the highest average score?", "Which team has the lowest
+average score?", "In the year when the Lansing fare per mile reached its
+highest recorded value, what was the difference in fare per mile between
+Lansing and Grand Rapids?"
+1.2. **Complexity**: Ensure the question probes deeply into the data's nuances.
+- It should involve multi-hop reasoning and information aggregation, by embedding
+multiple constraints or conditions in the question.
+- Example: "in the year when X reached its maximum", "for the team with the
+lowest average score in X", "among the teams with average score above 80",
+etc.
+- It can involving (conditional) **counting or information aggregation (e.g., sum,
+max, min, average, etc.)** to increase the complexity.
+- Nonetheless, the question is still as meaningful and natural as being asked by
+real data analysts.
+1.3. **Self-containedness**: The question should be fully self-contained, providing all
+necessary context and details within the question itself, without requiring
+external information or references to the table or metadata.
+- Utilize specific information in the table and metadata to design the question.
+Assuming that the question will be given without any context, and one can still
+fully understand it.
+- For example, given a table with a section name "Number of athletes by National
+Olympic Committee". phrase "ranked 31 to 45" should be more specific to
+explain which ranking is referred to, such as "ranked 31 to 45 in the number
+of athletes sent to the Olympics".
+- Must have phrases about time, location, or taxonomy etc. to narrow down the scope
+of the question.
+- Example: "In the year when X reached its highest value", "In competition X,
+among the teams with average score above 80", "for the team with the lowest
+average score in X", etc.
+- The wording **should NOT refer to the table or any metadata items**, as real users
+do NOT have access to these information when being asked.
+
+[PAGE 23]
+Preprint. Under review.
+- AVOID phrases like "which column", "in the column of", "the value in column X",
+or, "as listed in (somewhere), "section", etc.
+- AVOID words like'listed','list','table','column','row','field','section
+','caption','metadata', etc., which implicitly or explicitly refer to the
+table or metadata.
+1.4. **Naturalness**: The question should be phrased in a natural and conversational
+manner, as if it were being asked by a real data analyst or researcher.
+- Use simple, clear terminology. Avoid jargon, use layman-term descriptions instead.
+- The wording must be fluent and coherent, with proper grammar and syntax. It should
+read like a question that a human would naturally ask when analyzing data.
+1.5. If the input`condition_col`is not "No condition column", the generated question
+MUST include a clear condition or constraint that references that column.
+- The condition should be derived from the values present in that column (inspect
+the column contents) and may be:
+- a filter on categorical values (e.g., "for [the object of question] with [
+condition_col] is'Value'"),
+- a numeric comparison (e.g., "consider [the object of question] with [
+condition_col] > 1000", "regarding ... among in the top 10% of [
+condition_col]"),
+- a temporal or extrema-based condition (e.g., "in the year when [condition_col]
+reached its maximum", "for the month with the lowest [condition_col]"),
+- a ranking-based constraint (e.g., "among the top 3 entries by [condition_col]")
+.
+1.6. Answer:
+- The question must have a deterministic, single answer.
+- Ensure the question is answerable using only data present in the table.
+- Keywords of the question that will be used to determine the answer should be
+present in the table and not cover multiple values in the corresponding column.
+- E.g., "Existing" vs "Existing with temporary stands" should be treated as
+different keywords, and the question should be specific to one of them, such
+as "for the existing stadiums" or "for the stadiums with temporary stands".
+- For the ease of post evaluation, the answer must be a specific value (a **short**
+string, a number) or a small set of information (a list or an entity-value
+dictionary with no more than 3 elements or key-value pairs).
+- Example: {{'team_home':'Poli Ejido','team_away':'Espanyol'}}, "Espanyol",
+83.6, ["Espanyol", "Poli Ejido"], etc.
+1.7. **Excellent, Good and Bad Examples**:
+- EXCELLENT questions:
+- Based on the 2014 Pew Research Center survey data comparing the ethnic
+composition of Latter-day Saints in the U.S. to the general U.S. population
+in 2020, which ethnicity had the largest positive percentage point
+difference between its representation among Latter-day Saints and its
+representation in the general U.S. population?
+- Among the regional groupings for which both the International Monetary Fund and
+the World Bank provided data, which region showed the largest absolute
+difference between its 2025 IMF forecast and its 2024 World Bank estimate?
+- In the 2025-26 NCAA Division I women's basketball season, among the recorded
+upsets where a non-Division I team defeated a Division I opponent, which
+game featured the smallest point differential between the winner and the
+loser?
+- In the study of standard reduction potentials for aqueous iodine species, which
+chemical couple exhibits a potential of exactly 0 volts in basic conditions
+while simultaneously having the highest recorded potential among all such
+couples in acidic conditions?
+- Based on the 2022 cobalt production and reserves data reported by the USGS,
+what is the ratio of reserves to annual production of the group of all
+explicitly reported Asian countries (excluding aggregate categories like'
+Other countries'or'World total')?
+- GOOD questions:
+- What was the amount spent in millions of nominal dollars by the highest
+spending U.S Federal Department in the fiscal year of 1955?
+
+[PAGE 24]
+Preprint. Under review.
+- Who holds the all-time record at the Grammys for the most wins in the album of
+the year category?
+- What is the current age of the oldest person to sail solo across the Pacific
+Ocean?
+- How many NBA players have scored 60 or more points in a regular season game
+since 2023?
+- Of the countries with a head of state assuming office prior to 2000, which are
+the five with the largest GDP per capita?
+- How many current and former Real Madrid players are ranked in the top 10 of the
+2025 Forbes list of the world's highest-paid athletes?
+- BAD questions (and reason why each is bad):
+- Among the listed cities, which city has the highest population while being
+located in a state whose 2019 HDI is greater than 0.73? --> The phrase "
+Among the listed cities" is not clear enough to make the question fully selfcontained.
+- Among the venues owned by AC Milan & Inter Milan for the 2026 Winter Olympics (
+as listed under a table in'Milan cluster'section), which venue has the
+highest seating capacity? --> The note inside the parentheses explicitly
+refers to the table and section, which is not allowed.
+- Which venue in the Valtellina cluster has the highest total spectator capacity
+when the capacities of all its assigned events are summed together? --> Not
+fully self-contained.
+- What is the spectator capacity of the Verona Olympic Arena, the venue for the
+closing ceremony of the 2026 Winter Olympics? --> Too simple.
+2. **SQL Implementation:**
+- Write a SQL query assuming the table is loaded as`df`and the engine is SQLite.
+- Ensure the query is syntactically correct and optimized for performance.
+- Always wrap column names with quotes, as some column names may contain spaces or
+special characters.
+- Ensure the query returns a single definitive value or a small result set.
+- The query must produce a non-empty result.
+Now, generate a question and its SQL implementation based on the above instructions and
+the following input.
+[[ ## table ## ]]
+{table}
+[[ ## column_name ## ]]
+{column_name}
+[[ ## metadata ## ]]
+{metadata}
+Question quality checking
+You are an expert in Q&A.
+You are given a question, which is expected to be complex, self-contained, and natural.
+Your task is to briefly discuss the question in the following criteria, then on a scale
+from 1 to 5 (1 is worst, 5 is best), rate the question on each criterion:
+- Complexity: The question involves multi-hop reasoning and information aggregation.
+- Self-containedness: The question provides all necessary parameters, definitions, and
+background information within itself, requiring no external links, data, references,
+or prior knowledge to be **understood**. Using the question, people can expect to
+search for all necessary information to answer it from the Internet.
+- Naturalness: The question is as natural as being asked by real human.
+Now, evaluate the question based on the above criteria and provide a brief explanation
+for each rating.
+
+[PAGE 25]
+Preprint. Under review.
+[[ ## question ## ]]
+{question}
+Python solution generation
+You are an expert in table question answering and problem solving with Python.
+You are given a table in Markdown format, some metadata about the table, and a complex
+question about the table.
+Your task is to generate a Python implementation to answer the question. You must name
+the final answer variable`final_answer_python`.
+The answer is expected to be a specific value (a short string, a number) or a small set
+of information (a list or an entity-value dictionary with no more than 3 elements
+or key-value pairs). Please only pack the final answer in`final_answer_python`
+variable, and avoid putting any narration in`final_answer_python`(e.g., "the
+answer is ...", "the result is ...", etc.).
+**Guidelines:**
+- Use`pandas`to solve the problem, **assuming the table is already loaded into a
+DataFrame named`df`**.
+- Skip the data loading step.
+- **Break complex operations into small steps.** Each step should compute one logical
+operation.
+- Assign each intermediate result to a named variable (e.g.,`step1_filtered`,`
+step2_grouped`).
+- **Do not reuse the same variable name for different steps**.
+- If the change is in a row or column of an existing variable, create a new variable
+to store the updated version (e.g.,`step1_filtered`->`step2_filtered`).
+- Each step should have a unique variable name and should reflect the meaning of the
+data in the variable.
+- Display the intermediate results and final result by printing them.
+- Comment your code to explain each step clearly.
+- **Use the provided context about the table to narrate your solution**.
+- Name the final answer variable`final_answer_python`.
+Now, generate a Python solution based on the above instructions and the following input.
+[[ ## table ## ]]
+{table}
+[[ ## metadata ## ]]
+{metadata}
+[[ ## question ## ]]
+{question}
+Dual-path answer verification andπ 2-Bench’s LLM grader
+You are an expert in data analysis.
+You are given two results (tables, values, or dictionaries) from answering the same
+question about a dataset.
+Your task is to compare if the content/meaning of the two results are essentially the
+same.
+**Metadata is provided** to help you understand what the question was asking and what
+the results represent.
+**Comparison Guidelines:**
+- The two results may have different formatting (e.g., table vs. dictionary, different
+column order, different indexing)
+
+[PAGE 26]
+Preprint. Under review.
+- They may have slight numeric differences due to floating-point precision (e.g., 83.6
+vs 83.60000000000001)
+- As long as the semantic content of results regarding the question are the same,
+consider them equivalent
+- Focus on whether both results answer the question correctly
+**Examples of equivalent results:**
+- "Espanyol" vs. {"team_home": "Poli Ejido", "team_away": "Espanyol", "team_advances": "
+Espanyol"} if the question is "Which team advances to the next round?" and both
+results indicate Espanyol advances
+- {"party": "Democratic", "avg": 83.6} vs {"party": "Democratic", "avg":
+83.60000000000001}
+- A single-row table vs a dictionary with the same key-value pairs
+- 248Cm vs. {}^{248}Cm vs. 248Cm (i.e., {}^{248}Cm): all of them represent the same
+chemical element isotope, just different in the way of writing.
+Give a binary answer (True or False) and a short explanation for your judgment.
+Now compare the two results based on the above instructions and the following input.
+[[ ## result1 ## ]]
+{result1}
+[[ ## result2 ## ]]
+{result2}
+Reasoning trace generation
+You are given a question, a set of context documents/chunks, and the correct answer.
+Your task is to generate a detailed, step-by-step reasoning trace that explains how to
+arrive at the answer by analyzing the context.
+## Input Format
+### **Context:**
+{context}
+### **Question:**
+{question}
+### **Correct Answer:**
+{answer}
+## Output Format Requirements
+Generate a natural-language reasoning trace following these structural patterns:
+### 1. Step Numbering
+- Use`* Step X:`format for major steps
+- Steps should progress logically from understanding the problem to arriving at the
+answer
+### 2. Planning Steps (Initial Steps)
+- Start by analyzing what the question is asking
+- Identify what information needs to be extracted from the context
+- Determine the search strategy (e.g., "find all candidates for each criterion")
+- Example: "The question asks about X that fits Y criteria, so we need to find all
+candidates..."
+### 3. Extraction & Navigation Steps
+- Systematically review relevant documents/chunks
+- Document your search process (e.g., "let's search for keyword X: found in documents A,
+B, C")
+
+[PAGE 27]
+Preprint. Under review.
+- For each document examined, state whether it contains relevant information
+- Use phrases like:
+- "Let's find..."
+- "Document X says..."
+- "It fits/does not fit because..."
+- "Let's check..."
+- "Move to document..."
+### 4. Iterative Filtering
+- For multi-criteria questions, evaluate candidates against each criterion
+- Narrow down the candidate list as you verify criteria
+- Explicitly state when a candidate is eliminated and why
+- State when a candidate passes a criterion
+### 5. Evidence Citation
+- Always cite specific documents/chunks when stating facts
+- Quote relevant passages when they directly support conclusions
+- Use formats like:
+- "Document X states:'...'"
+- "According to document X,..."
+### 6. Self-Verification
+- Include steps that cross-check findings
+- Verify consistency across multiple sources when available
+- Address potential contradictions explicitly
+### 7. Reasoning Steps
+- Perform virtual operations (filtering, sorting, comparing) explicitly
+- When calculating, show the calculation
+- When comparing, state the comparison clearly
+- Build confidence through multiple verified facts before final answer
+### 8. Conclusion
+- The final step should clearly state the answer
+- Briefly summarize the key evidence that leads to it
+## Style Guidelines
+1. **Natural and exploratory**: Write as if discovering the answer in real-time
+2. **Self-contained**: Each step should be understandable without re-reading previous
+steps
+3. **Critical evaluation**: Don't accept information at face value; evaluate relevance
+4. **Document-focused**: Ground all conclusions in the provided context
+5. **Conversational but precise and concise**: Use natural language while maintaining
+factual accuracy and efficiency
+## Example Structure
+```
+* Step 1: [Understanding the question and planning strategy]
+* Step 2: [Search for candidates matching criterion A - examining documents]
+* Step 3: [Search for candidates matching criterion B - narrowing down]
+* Step 4: [Cross-referencing and verification]
+* Step 5: [Conclusion with answer]
+```
+## Important Notes
+- The reasoning trace should be answer-agnostic in style (don't reveal you know the
+answer upfront)
+- Show the discovery process as it would happen when solving the problem
+- Include dead-ends and corrections when relevant (e.g., "Wait, this document is from
+2018, so it may be outdated")
+- If multiple interpretations exist, explore them before concluding
+
+[PAGE 28]
+Preprint. Under review.
+Now generate the reasoning trace for the given input.
+
+[PAGE 29]
+Preprint. Under review.
+Winner by year
+Year Country Institution Host country Host city
+Russia Saint Petersburg State University
+Azerbaijan Baku
+China Peking University
+Kazakhstan Astana
+Russia National Research University Higher
+School of Economics
+Egypt Luxor
+China Peking University
+Egypt Luxor
+United
+States Massachusetts Institute of Technology
+Bangladesh Dhaka
+Russia Nizhny Novgorod State University
+Russia Moscow
+Russia Moscow State University
+Portugal Porto
+Russia Moscow State University
+China Beijing
+Russia ITMO University
+United States Rapid City
+Russia Saint Petersburg State University
+Thailand Phuket
+Russia ITMO University
+Morocco Marrakesh
+Russia Saint Petersburg State University
+Russia Yekaterinburg
+Russia ITMO University
+Russia Saint
+Petersburg
+Russia ITMO University
+Poland Warsaw
+China Zhejiang University
+United States Orlando
+China Shanghai Jiao Tong University
+China Harbin
+Russia ITMO University
+Sweden Stockholm
+Russia ITMO University
+Canada Banff
+Poland University of Warsaw
+Japan Urayasu
+Russia Saratov State University
+United States San Antonio
+China Shanghai Jiao Tong University
+China Shanghai
+Russia ITMO University
+Czech
+Republic Prague
+Poland University of Warsaw
+United States Beverly Hills
+China Shanghai Jiao Tong University
+United States Honolulu
+Russia Saint Petersburg State University
+Canada Vancouver
+Russia Saint Petersburg State University
+United States Orlando
+Canada University of Waterloo
+Netherlands Eindhoven
+Czech
+Republic Charles University
+United States Atlanta
+United
+States Harvey Mudd College
+United States San Jose
+United
+States University of California, Berkeley
+United States Philadelphia
+Figure 5: The evidence as a part of the context of the question"How many times has a U.S.
+team won the ICPC World Finals after 1997—a period largely dominated by Russian and Chinese
+teams?"in theLongSealbenchmark. Retrieved from the Wikipedia page titled "International
+Collegiate Programming Contest" on March 29, 2026. The answer of the question is clearly
+1.
+
+[TABLE page=29 index=1]
+Columns: Year Country | Institution Host country | Host city
+Row 1: Year Country: 2025 Russia | Institution Host country: Saint Petersburg State University Azerbaijan | Host city: Baku
+Row 2: Year Country: 2024 China | Institution Host country: Peking University Kazakhstan | Host city: Astana
+Row 3: Year Country: | Institution Host country: National Research University Higher | Host city:
+Row 4: Year Country: 2023 Russia | Institution Host country: LuxorSchool of Economics Egypt | Host city:
+Row 5: Year Country: 2022 China | Institution Host country: Peking University Egypt | Host city: Luxor
+Row 6: Year Country: United2021 | Institution Host country: Massachusetts Institute of Technology Bangladesh | Host city: Dhaka
+Row 7: Year Country: States | Institution Host country: | Host city:
+Row 8: Year Country: 2020 Russia | Institution Host country: Nizhny Novgorod State University Russia | Host city: Moscow
+Row 9: Year Country: 2019 Russia | Institution Host country: Moscow State University Portugal | Host city: Porto
+Row 10: Year Country: 2018 Russia | Institution Host country: Moscow State University China | Host city: Beijing
+Row 11: Year Country: 2017 Russia | Institution Host country: ITMO University United States | Host city: Rapid City
+Row 12: Year Country: 2016 Russia | Institution Host country: Saint Petersburg State University Thailand | Host city: Phuket
+Row 13: Year Country: 2015 Russia | Institution Host country: ITMO University Morocco | Host city: Marrakesh
+Row 14: Year Country: 2014 Russia | Institution Host country: Saint Petersburg State University Russia | Host city: Yekaterinburg
+Row 15: Year Country: Saint2013 Russia | Institution Host country: ITMO University Russia | Host city:
+Row 16: Year Country: | Institution Host country: | Host city: Petersburg
+Row 17: Year Country: 2012 Russia | Institution Host country: ITMO University Poland | Host city: Warsaw
+Row 18: Year Country: 2011 China | Institution Host country: Zhejiang University United States | Host city: Orlando
+Row 19: Year Country: 2010 China | Institution Host country: Shanghai Jiao Tong University China | Host city: Harbin
+Row 20: Year Country: 2009 Russia | Institution Host country: ITMO University Sweden | Host city: Stockholm
+Row 21: Year Country: 2008 Russia | Institution Host country: ITMO University Canada | Host city: Banff
+Row 22: Year Country: 2007 Poland | Institution Host country: University of Warsaw Japan | Host city: Urayasu
+Row 23: Year Country: 2006 Russia | Institution Host country: Saratov State University United States | Host city: San Antonio
+Row 24: Year Country: 2005 China | Institution Host country: Shanghai Jiao Tong University China | Host city: Shanghai
+Row 25: Year Country: | Institution Host country: Czech | Host city:
+Row 26: Year Country: 2004 Russia | Institution Host country: ITMO University | Host city: Prague
+Row 27: Year Country: | Institution Host country: Republic | Host city:
+Row 28: Year Country: 2003 Poland | Institution Host country: University of Warsaw United States | Host city: Beverly Hills
+Row 29: Year Country: 2002 China | Institution Host country: Shanghai Jiao Tong University United States | Host city: Honolulu
+Row 30: Year Country: 2001 Russia | Institution Host country: Saint Petersburg State University Canada | Host city: Vancouver
+Row 31: Year Country: 2000 Russia | Institution Host country: Saint Petersburg State University United States | Host city: Orlando
+Row 32: Year Country: 1999 Canada | Institution Host country: University of Waterloo Netherlands | Host city: Eindhoven
+Row 33: Year Country: Czech | Institution Host country: | Host city:
+Row 34: Year Country: 1998 | Institution Host country: Charles University United States | Host city: Atlanta
+Row 35: Year Country: Republic | Institution Host country: | Host city:
+Row 36: Year Country: United | Institution Host country: | Host city:
+Row 37: Year Country: 1997 San JoseStates | Institution Host country: Harvey Mudd College United States | Host city:
+Row 38: Year Country: United | Institution Host country: | Host city:
+Row 39: Year Country: 1996 PhiladelphiaStates | Institution Host country: University of California, Berkeley United States | Host city:
+[/TABLE]

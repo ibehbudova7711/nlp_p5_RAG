@@ -1,0 +1,1527 @@
+[PAGE 1]
+SimRAG: Self-Improving Retrieval-Augmented Generation for
+Adapting Large Language Models to Specialized Domains
+Ran Xu1,2*, Hui Liu2, Sreyashi Nag2, Zhenwei Dai2, Yaochen Xie2, Xianfeng Tang2,
+Chen Luo2, Yang Li2, Joyce C. Ho1, Carl Yang1, Qi He2
+1 Emory University 2 Amazon
+{ran.xu,joyce.c.ho,j.carlyang}@emory.edu, liunhu@amazon.com
+Abstract
+Retrieval-augmented generation (RAG) enhances the question answering (QA) abilities
+of large language models (LLMs) by integrating external knowledge. However, adapting general-purpose RAG systems to specialized fields such as science and medicine poses
+unique challenges due to distribution shifts and
+limited access to domain-specific data. To
+tackle this, we propose SimRAG, a self-training
+approach that equips the LLM with joint capabilities of question answering and question generation for domain adaptation. Our method first
+fine-tunes the LLM on instruction-following,
+question-answering, and search-related data.
+Then, it prompts the same LLM to generate
+diverse domain-relevant questions from unlabeled corpora, with an additional filtering strategy to retain high-quality synthetic examples.
+By leveraging these self-generated synthetic
+examples, the LLM can improve their performance on domain-specific RAG tasks. Experiments on 11 datasets, spanning two backbone
+sizes and three domains, demonstrate that SimRAG outperforms baselines by 1.2%–8.6%.
+1 Introduction
+Retrieval-augmented generation (RAG) (Lewis
+et al., 2020; Gao et al., 2023; Gutiérrez et al.,
+2024; Asai et al., 2024) is a powerful technique
+that enhances large language models (LLMs) for
+various knowledge-intensive tasks such as question
+answering (QA) by incorporating external knowledge sources. This method not only customizes
+responses to handle long-tail knowledge but also
+avoids the need for costly model retraining (Ovadia
+et al., 2023). Additionally, RAG helps reduce the
+issue of LLM hallucination by ensuring responses
+are grounded in relevant evidence (Shuster et al.,
+2021), thereby improving the overall accuracy and
+reliability of LLM outputs.
+*Work done during an internship at Amazon.
+While extensive research has focused on developing effective (Asai et al., 2024; Lin et al., 2024;
+Liu et al., 2024) and efficient (Xu et al., 2024a)
+RAG systems for general-domain QA tasks, adapting RAG to specialized domains for LLMs poses
+significant challenges. These models often struggle
+with distribution shifts and fail to accurately extract
+information from domain-specific contexts (Miller
+et al., 2020; Liu et al., 2022). Moreover, directly
+using black-box LLMs (OpenAI, 2023; Anthropic,
+2023; Wang et al., 2023b) in specialized domains
+raises concerns about privacy when dealing with
+sensitive proprietary data. It is essential to finetune LLMs on domain-relevant QA tasks to unlock
+the full potential of LLM-based RAG systems in
+specialized domains.
+Despite the critical need for domain-specific finetuning, the primary challenge lies in the acquisition
+of high-quality fine-tuning data towards RAG applications. Prior works rely on continuous pretraining (Chen et al., 2023; Zhang et al., 2024a) on specialized corpora or fine-tuning on domain-specific
+instruction-tuning data (Wu et al., 2024; Wadden
+et al., 2024). However, the mismatch between these
+general-purpose tasks and domain-specific QA hinders their effectiveness. More recently, several
+approaches (Liu et al., 2024; Schimanski et al.,
+2024; Zhang et al., 2024c) use synthetic data from
+powerful LLMs (e.g., GPT-4) to create QA finetuning datasets. While promising, these methods
+are costly, inefficient, and lack explicit quality control over the generated outputs. Additionally, the
+direct use of proprietary corpora with black-box
+LLMs introduces privacy concerns, making these
+methods unsuitable for sensitive domains.
+To tackle the data scarcity issue mentioned
+above, we propose SimRAG 1, a self-improving
+approach to harness the LLMs’ own capabilities
+to generate pseudo-labeled data for domain adap1Self-improving Retrieval-Augmented Generation.
+arXiv:2410.17952v2 [cs.CL] 24 Jan 2025
+
+[PAGE 2]
+tative question answering. Our method is inspired
+by the success of self-training in LLM development, where models are refined using synthetic
+examples generated from unlabeled corpora (Wang
+et al., 2022; Li et al., 2024). However, for RAG
+applications, special considerations are needed to
+adapt LLMs for generating questions that require
+external context to answer. The core objective of
+SimRAG is to fine-tune a single LLM to perform
+two complementary tasks: question answering with
+context and question generation from context. Both
+tasks involve extracting and summarizing relevant
+information from the context, allowing them to
+mutually reinforce each other.
+Specifically, we design a two-stage procedure
+to adapt LLMs for domain QA, we first fine-tune
+LLMs on instruction-following, question answering, and question generation data from generaldomains. This step equips LLMs with basic
+instruction-following and context utilization skills.
+Then, to specialize the model for domain-specific
+tasks, we then harness unlabeled domain corpora,
+prompting the same LLM to generate high-quality
+QA pairs grounded in the context of these specialized domains. To further enhance the quality
+of synthetic pairs, we incorporate multiple task
+types to improve the model’s generalization capabilities, combined with round-trip consistency
+filtering technique (Bartolo et al., 2021) to preserve generated QA pairs only when the original
+context is retrieved among top results. With these
+pseudo-labeled (question, passage, answer) tuples
+generated by LLMs, we continuously fine-tune
+the models with those synthetic examples. This
+pipeline allows the LLM to progressively refine
+its output on synthetic pairs, thus adapting itself
+towards domain-specific QA applications.
+We conduct experiments on three different domains spanning from biomedical, natural/social
+sciences, and computer science (CS), where we
+observe SimRAG consistently achieve better performance than other domain-specific LLMs and
+general-domain retrieval-augmented LMs. Qualitative studies highlight the benefits of joint training
+in question answering and generation, along with
+diverse, denoised QA pairs.
+Our contribution can be summarized as follows:
+• We propose SimRAG, a RAG framework that
+enhances LLM’s capability for question answering on specialized domains.
+• We design a novel instruction fine-tuning approach that enables LLMs to perform both question answering and question generation. This
+joint capability facilitates self-improvement
+through self-training on generated synthetic
+data, leading to enhanced model performance.
+• We validate our approach with empirical studies
+across 11 datasets from three distinct domains,
+demonstrating that SimRAG outperforms baseline models by 1.2%–8.6%.
+2 Related Work
+Retrieval-augmented generation. RAG has
+emerged as a powerful tool in knowledge-intensive
+NLP tasks such as language modeling (Borgeaud
+et al., 2022) and question answering (Lewis et al.,
+2020; Shi et al., 2024a). The typical approach
+involves integrating a retriever with the LLM generator and designing a fine-tuning process to align
+the retriever with LLM capabilities. To further
+refine RAG, recent research explored various enhancements. These include developing dynamical
+retrieval processes to refine the relevance of fetched
+content (Jiang et al., 2023; Jeong et al., 2024; Su
+et al., 2024), and filtering out irrelevant contexts to
+robustify RAG (Yoran et al., 2024; Yu et al., 2024,
+2023; Wang et al., 2024). Additionally, several
+studies have developed instruction-tuning methods
+aimed specifically at improving search and RAG
+capabilities of LLMs (Liu et al., 2024; Lin et al.,
+2024; Dong et al., 2024; Wei et al., 2024).
+Self-training. Self-training (or Pseudo-Labeling)
+is one of the earliest approaches to semi-supervised
+learning (Rosenberg et al., 2005). The method uses
+a teacher model to generate new labels on which
+a student model is fitted. Self-training has been
+widely adopted for various NLP tasks including
+text classification (Du et al., 2021), natural language understanding (Vu et al., 2021) and ranking (Wang et al., 2022). Recently, the idea of selftraining has also been applied to LLM instruction
+fine-tuning (Yuan et al., 2024; Li et al., 2024), reasoning (Pang et al., 2024), and alignment (Gulcehre
+et al., 2023), yet to the best of our knowledge, this
+pipeline has not been widely explored for RAG
+applications. The major drawback of self-training
+is that it is vulnerable to label noise (Arazo et al.,
+2020). There are several approaches to stabilize the
+self-training, with sample selection (Li et al., 2024)
+and reweighting (Wang et al., 2021) strategies.
+Domain-specific LLMs. Most domain-specific
+LLMs rely on continuous pretraining (Labrak
+
+[TABLE page=2 index=1]
+Columns: ment, where models are | refined using synthetic | Unnamed: 0 | Unnamed: 1 | joint capability facilitates | self-improvement | Unnamed: 2
+Row 1: ment, where models are: examples generated from unlabeled corpora (Wang | refined using synthetic: | Unnamed: 0: | Unnamed: 1: | joint capability facilitates: through self-training | self-improvement: on generated | Unnamed: 2: synthetic
+Row 2: ment, where models are: et al., 2022; Li et al., 2024). | refined using synthetic: However, for RAG | Unnamed: 0: | Unnamed: 1: | joint capability facilitates: data, leading to enhanced model performance. | self-improvement: | Unnamed: 2:
+Row 3: ment, where models are: applications, special considerations are needed to | refined using synthetic: | Unnamed: 0: | Unnamed: 1: | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 4: ment, where models are: adapt LLMs for generating questions that require | refined using synthetic: | Unnamed: 0: | Unnamed: 1: • | joint capability facilitates: We validate our approach with empirical studies | self-improvement: | Unnamed: 2:
+Row 5: ment, where models are: external context to answer. The core objective of | refined using synthetic: | Unnamed: 0: | Unnamed: 1: | joint capability facilitates: across 11 datasets from three distinct domains, | self-improvement: | Unnamed: 2:
+Row 6: ment, where models are: SimRAG is to fine-tune a single LLM to perform | refined using synthetic: | Unnamed: 0: | Unnamed: 1: | joint capability facilitates: demonstrating that SimRAG outperforms base- | self-improvement: | Unnamed: 2:
+Row 7: ment, where models are: two complementary tasks: question answering with | refined using synthetic: | Unnamed: 0: | Unnamed: 1: | joint capability facilitates: line models by 1.2%–8.6%. | self-improvement: | Unnamed: 2:
+Row 8: ment, where models are: context and question generation from context. Both | refined using synthetic: | Unnamed: 0: | Unnamed: 1: | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 9: ment, where models are: | refined using synthetic: | Unnamed: 0: | Unnamed: 1: 2 | joint capability facilitates: Related Work | self-improvement: | Unnamed: 2:
+Row 10: ment, where models are: tasks involve extracting and summarizing relevant | refined using synthetic: | Unnamed: 0: | Unnamed: 1: | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 11: ment, where models are: information from the context, | refined using synthetic: allowing them to | Unnamed: 0: | Unnamed: 1: Retrieval-augmented | joint capability facilitates: generation. | self-improvement: RAG | Unnamed: 2: has
+Row 12: ment, where models are: mutually reinforce each other. | refined using synthetic: | Unnamed: 0: | Unnamed: 1: emerged as a powerful tool in knowledge-intensive | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 13: ment, where models are: Specifically, we design a two-stage procedure | refined using synthetic: | Unnamed: 0: | Unnamed: 1: NLP tasks such as language modeling (Borgeaud | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 14: ment, where models are: to adapt LLMs for domain QA, we first fine-tune | refined using synthetic: | Unnamed: 0: | Unnamed: 1: et al., 2022) and question answering (Lewis et al., | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 15: ment, where models are: LLMs on instruction-following, question answer- | refined using synthetic: | Unnamed: 0: | Unnamed: 1: 2020; | joint capability facilitates: Shi et al., 2024a). | self-improvement: The typical | Unnamed: 2: approach
+Row 16: ment, where models are: ing, and question generation data | refined using synthetic: from general- | Unnamed: 0: | Unnamed: 1: involves integrating a retriever with the LLM gen- | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 17: ment, where models are: domains. This step equips | refined using synthetic: LLMs with basic | Unnamed: 0: | Unnamed: 1: erator and designing a fine-tuning process to align | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 18: ment, where models are: instruction-following and context utilization skills. | refined using synthetic: | Unnamed: 0: | Unnamed: 1: the | joint capability facilitates: retriever with LLM | self-improvement: capabilities. To | Unnamed: 2: further
+Row 19: ment, where models are: Then, to specialize the model for domain-specific | refined using synthetic: | Unnamed: 0: | Unnamed: 1: refine RAG, recent research explored various en- | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 20: ment, where models are: tasks, we then harness unlabeled domain corpora, | refined using synthetic: | Unnamed: 0: | Unnamed: 1: hancements. These include developing dynamical | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 21: ment, where models are: prompting the same LLM to generate high-quality | refined using synthetic: | Unnamed: 0: | Unnamed: 1: retrieval processes to refine the relevance of fetched | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 22: ment, where models are: QA pairs grounded in the | refined using synthetic: context of these spe- | Unnamed: 0: | Unnamed: 1: content (Jiang et al., 2023; Jeong et al., 2024; Su | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 23: ment, where models are: cialized domains. To further enhance the quality | refined using synthetic: | Unnamed: 0: | Unnamed: 1: et al., 2024), and filtering out irrelevant contexts to | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 24: ment, where models are: of synthetic pairs, we incorporate | refined using synthetic: multiple task | Unnamed: 0: | Unnamed: 1: robustify RAG (Yoran et al., 2024; Yu et al., 2024, | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 25: ment, where models are: types to improve the model’s | refined using synthetic: generalization ca- | Unnamed: 0: | Unnamed: 1: 2023; Wang et al., 2024). | joint capability facilitates: | self-improvement: Additionally, | Unnamed: 2: several
+Row 26: ment, where models are: pabilities, combined with round-trip consistency | refined using synthetic: | Unnamed: 0: | Unnamed: 1: studies have developed instruction-tuning methods | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 27: ment, where models are: filtering technique (Bartolo | refined using synthetic: et al., 2021) to pre- | Unnamed: 0: | Unnamed: 1: aimed specifically at improving search and RAG | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 28: ment, where models are: serve generated QA pairs only when the original | refined using synthetic: | Unnamed: 0: | Unnamed: 1: capabilities of LLMs (Liu et al., 2024; Lin et al., | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 29: ment, where models are: context is retrieved among top results. With these | refined using synthetic: | Unnamed: 0: | Unnamed: 1: 2024; Dong et al., 2024; Wei et al., 2024). | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 30: ment, where models are: pseudo-labeled (question, passage, answer) tuples | refined using synthetic: | Unnamed: 0: | Unnamed: 1: Self-training. Self-training (or Pseudo-Labeling) | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 31: ment, where models are: generated by LLMs, we | refined using synthetic: continuously fine-tune | Unnamed: 0: | Unnamed: 1: is one of the earliest approaches to semi-supervised | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 32: ment, where models are: the models with those synthetic examples. | refined using synthetic: This | Unnamed: 0: | Unnamed: 1: learning (Rosenberg et al., 2005). The method uses | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 33: ment, where models are: pipeline allows the LLM to progressively refine | refined using synthetic: | Unnamed: 0: | Unnamed: 1: a teacher model to generate new labels on which | joint capability facilitates: | self-improvement: | Unnamed: 2:
+Row 34: ment, where models are: its output on synthetic pairs, thus adapting itself | refined using synthetic: | Unnamed: 0: | Unnamed: 1: a student model is fitted. | joint capability facilitates: | self-improvement: Self-training has been | Unnamed: 2:
+[/TABLE]
+
+[TABLE page=2 index=2]
+Columns: We conduct experiments on three different do- | text classification | (Du et | al., | 2021), | natural | lanRow 1: We conduct experiments on three different do-: mains spanning from biomedical, natural/social | text classification: guage understanding (Vu et al., 2021) and rank- | (Du et: | al.,: | 2021),: | natural: | lan-:
+Row 2: We conduct experiments on three different do-: sciences, and computer science (CS), where we | text classification: ing (Wang et al., 2022). Recently, the idea of self- | (Du et: | al.,: | 2021),: | natural: | lan-:
+Row 3: We conduct experiments on three different do-: observe SimRAG consistently achieve better per- | text classification: training has also been applied to LLM instruction | (Du et: | al.,: | 2021),: | natural: | lan-:
+Row 4: We conduct experiments on three different do-: formance than other domain-specific LLMs and | text classification: fine-tuning (Yuan et al., 2024; Li et al., 2024), rea- | (Du et: | al.,: | 2021),: | natural: | lan-:
+Row 5: We conduct experiments on three different do-: general-domain retrieval-augmented LMs. Qualita- | text classification: soning (Pang et al., 2024), and alignment (Gulcehre | (Du et: | al.,: | 2021),: | natural: | lan-:
+Row 6: We conduct experiments on three different do-: tive studies highlight the benefits of joint training | text classification: et al., 2023), yet to the best of our knowledge, this | (Du et: | al.,: | 2021),: | natural: | lan-:
+Row 7: We conduct experiments on three different do-: in question answering and generation, along with | text classification: pipeline has not been widely explored for RAG | (Du et: | al.,: | 2021),: | natural: | lan-:
+Row 8: We conduct experiments on three different do-: diverse, denoised QA pairs. | text classification: applications. The major drawback of self-training | (Du et: | al.,: | 2021),: | natural: | lan-:
+[/TABLE]
+
+[PAGE 3]
+Caries disease process results in structural changes to the dental hard tissue.Document𝑑
+Where does Caries cause structural changes?
+Answer𝑎′
+Question𝑞′
+………dentalhardtissue………
+1.2.3.…𝑘.
+Top-𝑘documents
+Retrieverℛ
+Corpus𝒞
+Round-tripConsistency
+(𝑞′,𝐷′,𝑎′)Pseudo-labeledtuples𝒯
+QueryGenerationFine-tuning
+1)General SFT2)GeneralDomainQA3)Retrieval-relateda)AnswerGenerationb)QueryGeneration
+Stage-II:DomainAdaptiveFine-tuning with Self-Training
+Answer𝑎′
+AnswerGeneration
+LargeLanguageModels
+Stage-I:Retrieval-orientedFine-tuning
+Fine-tuning
+Figure 1: Two-stage fine-tuning framework for our proposed method SimRAG. The model is first fine-tuned on
+retrieval-related data. Then, it generates pseudo-labeled tuples by first extracting candidate answers from the corpus,
+and then generating candidate questions conditioned on both document and answer. The LLM is further fine-tuned
+on pseudo-labeled examples filtered with round-trip consistency.
+et al., 2024; Chen et al., 2023; Xu et al., 2024b)
+or domain-specific fine-tuning (Wu et al., 2024;
+Zhang et al., 2024a, 2023; Wadden et al., 2024;
+Shi et al., 2024b), with little focus on adapting
+models for domain-specific RAG settings. Relevant works (Zhang et al., 2024c; Schimanski et al.,
+2024) use strong GPT models for synthetic data
+generation in RAG scenarios. In contrast, SimRAG
+leverages the same LLM for both question generation and answering, enabling self-improvement
+and offering a more cost-effective approach for
+adapting LLMs to domain-specific QA tasks.
+3 Methodology
+3.1 Problem Setup
+In a RAG problem, we aim to generate answers for
+queries based on a set of supporting documents or
+contexts. Specifically, for a query q, an retriever R
+is utilized to retrieve top-k most relevant contexts
+D = {d1, d2, ..., dk} from a large corpus C. The
+LLM Mθ then generates an answer a to the query
+q based on the retrieved context D.
+In this work, we aim to improve the LLM’s QA
+capability in RAG system towards specialized domains where only unlabeled corpus C is available.
+As shown in Figure 1, our approach first learns
+from retrieval-oriented instruction data in the general domain in Stage-I and then augments T with
+pseudo-labeled T ′ = (q′, D′, a′) tuples in Stage-II,
+where D′ is sampled from the specialized domainC
+for self-training. The overall objective of our study
+is to adapt the LLM Mθ to specialized domains
+with T ∪ T ′.
+3.2 Stage-I: Retrieval-oriented fine-tuning
+To start with, we leverage instruction fine-tuned
+LLMs as the backbone (e.g. meta-llama/
+Meta-Llama-3-8B-Instruct ). Although these
+models have been instruction finetuned, they still
+exhibit a deficiency in leveraging context information to answer domain-specific questions. To
+improve the their abilities on knowledge-intensive
+tasks, we fine-tune the LLM with retrieval-oriented
+tasks. Specifically, we follow Lin et al. (2024); Liu
+et al. (2024) and leverage the training data blend
+that consists of the following components:
+(1) General Instruction Fine-tuning (SFT)
+data. To help maintain the models’ ability to comprehend and follow instructions, we leverage the
+SFT data including OpenAssistant (Köpf et al.,
+2023), Dolly (Conover et al., 2023), SODA (Kim
+et al., 2023), ELI5 (Fan et al., 2019), SelfInstruct (Wang et al., 2023a), and Unnatural Instructions (Honovich et al., 2022). Note that we
+make sure there is no overlap between SFT data
+and test data from target tasks.
+(2) General domain Context-aware QA data.
+To bolster the LLMs’ general RAG skills of generating accurate answers grounded in relevant contexts, we fine-tune them on a diverse array of general domain question-answering datasets. This includes DROP (Dua et al., 2019), NQ (Kwiatkowski
+et al., 2019), Squad (Rajpurkar et al., 2016), NarrativeQA (Koˇciský et al., 2018), Quoref (Dasigi
+et al., 2019), ROPES (Lin et al., 2019), OpenbookQA (Mihaylov et al., 2018), LogiQA (Liu
+et al., 2020), TAT-QA (Zhu et al., 2021), We-
+
+[PAGE 4]
+bGLM (Liu et al., 2023), StrategyQA (Geva et al.,
+2021), BoolQ (Clark et al., 2019), FaVIQ (Park
+et al., 2022) and FEVER (Thorne et al., 2018)
+datasets, where for each sample, a query q and
+its relevant context D is given, and the LLM is
+trained to generate answer a to the query.
+(3) General Retrieval-related Data: To better
+generate high-quality pseudo-labeled QA samples
+in the next stage, we incorporate retrieval-related
+data to improve two specific skills of LLMs: (a)
+Answer Generation: where a grounding document
+is given, and the LLMs are trained to generate candidate spans from the context that are likely to be
+answers to some questions. In this part, we incorporate Squad 1.1 and 2.0 versions (Rajpurkar
+et al., 2016), DROP (Dua et al., 2019) and WebQuestions (Berant et al., 2013) datasets. (b)Query
+Generation: where an answer and its grounding
+document are given, and the LLMs are trained to
+generate a query based on the document and answer. In this part, we leverage NQ (Kwiatkowski
+et al., 2019), Squad 1.1 (Rajpurkar et al., 2016),
+StrategyQA (Geva et al., 2021), WebQuestions (Berant et al., 2013), FaVIQ (Park et al., 2022) and
+FEVER (Thorne et al., 2018) datasets.
+The details for each dataset (e.g. the instruct
+format and the amount of data used) are deferred
+to Appendix A. For each sample in the fine-tuning
+dataset, we adopt a standard instruction finetuning
+objective, computing the loss exclusively on the
+tokens of the assistant’s response.
+3.3 Stage-II: Domain Adaptive Fine-tuning
+The model after Stage-I is only trained in the
+general domains. When directly adopting them
+to specialized applications, the performance can
+still be suboptimal due to the distribution shift
+issue (Miller et al., 2020). To tailor the LLMs
+for specialized domains and address the scarcity
+of labeled data in these areas, we employ a selftraining approach leveraging domain-specific unlabeled corpora. This method capitalizes on the
+model’s enhanced capabilities from the previous
+retrieval-augmented fine-tuning stage. We utilize
+the fine-tuned LLM to generate pseudo-labeled
+training samples T ′ = ( q′, D′, a′) by creating
+queries grounded in the unlabeled text and gathering the corresponding retrieved documents.
+Specifically, we conduct a two-step procedure
+to synthesize additional training data, which corresponds to the two skills learned in Stage-I: (a)
+Answer Generation: for each document di ∈ C ,
+where C is the unlabeled corpus, we prompt our
+fine-tuned LLMs to generate several candidate
+spans a1
+i , a2
+i , . . . , am
+i that are likely to be answers
+to some questions. Formally, the model generates
+aj
+i ∼ pθ(·|di) for j = 1 , . . . , m. (b) Answerconditioned Query Generation : for each candidate answer aj
+i and its corresponding document
+di, we prompt the fine-tuned LLM again to generate candidate questions qj
+i ∼ pθ(·|aj
+i , di), with
+aj
+i as the ground truth answer and di as the supporting context. This gives us the pseudo-labeled
+query-answer pair (qj
+i , aj
+i ) based on the context di.
+During this process, we adopt two additional
+strategies, namely diverse question generation and
+data filtering, to further improve the quality of the
+synthetic pairs. For diverse question generation,
+we prompt the LLM to create various types of questions, including short-span question-answering ,
+multiple-choice question-answering, and claim verification tasks. While short-span questions follow
+the same pipeline as previously described, multiplechoice questions are constructed by using alternative candidate answers from the same unlabeled
+corpus in step (a) as incorrect options. Claim verification, on the other hand, bypasses the answer
+generation step; instead, the LLM generates a claim
+that can be either supported or refuted by the provided document. By injecting different question
+types, we prevent the LLM from overfitting to a
+specific output format and improve the model’s
+generalization ability across different QA tasks.
+After generating large amounts of candidate QA
+pairs, we implement a filtering step to keep only
+high-quality QA pairs. We define high-quality QA
+pairs as those that are answerable using the topk retrieved contexts. Specifically, we retain only
+those samples where the ground truth answer a′
+i
+is present in the top- k documents retrieved by a
+strong retriever, such as Dragon (Lin et al., 2023),
+based on the generated query q′
+i. Formally, the
+sample is retained if a′
+i ∈ D ′k
+i , where D′k
+i denotes
+the top-k documents retrieved for query q′
+i. From
+these retained samples, we create pseudo-labeled
+training tuples T ′ = (q′
+i, D′
+i, a′
+i)n
+i=1.
+With the created synthetic tuples T ′, we augment it with the SFT data TSFT and the general
+domain context-aware QA data from Stage-I Tgen,
+to continuously fine-tune our models, enhancing
+the LLMs’ QA abilities within the specific domain.
+The size and blending ratio of the pseudo-labeled
+samples can be found in Appendix A.
+
+[TABLE page=4 index=1]
+Columns: datasets, where | for each sample, | a query q | and | Unnamed: 0 | to some questions. Formally, the model generates
+Row 1: datasets, where: | for each sample,: | a query q: | and: | Unnamed: 0: | to some questions. Formally, the model generates: j
+Row 2: datasets, where: its relevant context D | for each sample,: | a query q: is given, and the LLM is | and: | Unnamed: 0: | to some questions. Formally, the model generates: a Answer-i∼ pθ(·|di) for j = 1, . . . ,m. (b)
+[/TABLE]
+
+[TABLE page=4 index=2]
+Columns: generate high-quality pseudo-labeled QA samples | di, we prompt the fine-tuned LLM again to genRow 1: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: j j
+Row 2: generate high-quality pseudo-labeled QA samples: in the next stage, we incorporate retrieval-related | di, we prompt the fine-tuned LLM again to gen-: erate candidate questions q ∼ pθ(·|a , di), withi i
+Row 3: generate high-quality pseudo-labeled QA samples: data to improve two specific skills of LLMs: (a) | di, we prompt the fine-tuned LLM again to gen-: ja as the ground truth answer and di as the sup-i
+Row 4: generate high-quality pseudo-labeled QA samples: Answer Generation: where a grounding document | di, we prompt the fine-tuned LLM again to gen-: porting context. This gives us the pseudo-labeled
+Row 5: generate high-quality pseudo-labeled QA samples: is given, and the LLMs are trained to generate can- | di, we prompt the fine-tuned LLM again to gen-: j query-answer pair (q , a ) based on the context d .i ji i
+Row 6: generate high-quality pseudo-labeled QA samples: didate spans from the context that are likely to be | di, we prompt the fine-tuned LLM again to gen-:
+Row 7: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: During this process, we adopt two additional
+Row 8: generate high-quality pseudo-labeled QA samples: answers to some questions. In this part, we in- | di, we prompt the fine-tuned LLM again to gen-:
+Row 9: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: strategies, namely diverse question generation and
+Row 10: generate high-quality pseudo-labeled QA samples: corporate Squad 1.1 and 2.0 versions (Rajpurkar | di, we prompt the fine-tuned LLM again to gen-:
+Row 11: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: data filtering, to further improve the quality of the
+Row 12: generate high-quality pseudo-labeled QA samples: et al., 2016), DROP (Dua et al., 2019) and We- | di, we prompt the fine-tuned LLM again to gen-:
+Row 13: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: synthetic pairs. For diverse question generation,
+Row 14: generate high-quality pseudo-labeled QA samples: bQuestions (Berant et al., 2013) datasets. (b) Query | di, we prompt the fine-tuned LLM again to gen-:
+Row 15: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: we prompt the LLM to create various types of quesRow 16: generate high-quality pseudo-labeled QA samples: Generation: where an answer and its grounding | di, we prompt the fine-tuned LLM again to gen-:
+Row 17: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: tions, including short-span question-answering,
+Row 18: generate high-quality pseudo-labeled QA samples: document are given, and the LLMs are trained to | di, we prompt the fine-tuned LLM again to gen-:
+Row 19: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: multiple-choice question-answering, and claim verRow 20: generate high-quality pseudo-labeled QA samples: generate a query based on the document and an- | di, we prompt the fine-tuned LLM again to gen-:
+Row 21: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: ification tasks. While short-span questions follow
+Row 22: generate high-quality pseudo-labeled QA samples: swer. In this part, we leverage NQ (Kwiatkowski | di, we prompt the fine-tuned LLM again to gen-:
+Row 23: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: the same pipeline as previously described, multipleRow 24: generate high-quality pseudo-labeled QA samples: et al., 2019), Squad 1.1 (Rajpurkar et al., 2016), | di, we prompt the fine-tuned LLM again to gen-:
+Row 25: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: choice questions are constructed by using alternaRow 26: generate high-quality pseudo-labeled QA samples: StrategyQA (Geva et al., 2021), WebQuestions (Be- | di, we prompt the fine-tuned LLM again to gen-:
+Row 27: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: tive candidate answers from the same unlabeled
+Row 28: generate high-quality pseudo-labeled QA samples: rant et al., 2013), FaVIQ (Park et al., 2022) and | di, we prompt the fine-tuned LLM again to gen-:
+Row 29: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: corpus in step (a) as incorrect options. Claim verRow 30: generate high-quality pseudo-labeled QA samples: FEVER (Thorne et al., 2018) datasets. | di, we prompt the fine-tuned LLM again to gen-:
+Row 31: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: ification, on the other hand, bypasses the answer
+Row 32: generate high-quality pseudo-labeled QA samples: The details for each dataset (e.g. the instruct | di, we prompt the fine-tuned LLM again to gen-:
+Row 33: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: generation step; instead, the LLM generates a claim
+Row 34: generate high-quality pseudo-labeled QA samples: format and the amount of data used) are deferred | di, we prompt the fine-tuned LLM again to gen-:
+Row 35: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: that can be either supported or refuted by the proRow 36: generate high-quality pseudo-labeled QA samples: to Appendix A. For each sample in the fine-tuning | di, we prompt the fine-tuned LLM again to gen-:
+Row 37: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: vided document. By injecting different question
+Row 38: generate high-quality pseudo-labeled QA samples: dataset, we adopt a standard instruction finetuning | di, we prompt the fine-tuned LLM again to gen-:
+Row 39: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: types, we prevent the LLM from overfitting to a
+Row 40: generate high-quality pseudo-labeled QA samples: objective, computing the loss exclusively on the | di, we prompt the fine-tuned LLM again to gen-:
+Row 41: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: specific output format and improve the model’s
+Row 42: generate high-quality pseudo-labeled QA samples: tokens of the assistant’s response. | di, we prompt the fine-tuned LLM again to gen-:
+Row 43: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: generalization ability across different QA tasks.
+Row 44: generate high-quality pseudo-labeled QA samples: 3.3 Stage-II: Domain Adaptive Fine-tuning | di, we prompt the fine-tuned LLM again to gen-: After generating large amounts of candidate QA
+Row 45: generate high-quality pseudo-labeled QA samples: The model after Stage-I is only trained in the | di, we prompt the fine-tuned LLM again to gen-: pairs, we implement a filtering step to keep only
+Row 46: generate high-quality pseudo-labeled QA samples: general domains. When directly adopting them | di, we prompt the fine-tuned LLM again to gen-: high-quality QA pairs. We define high-quality QA
+Row 47: generate high-quality pseudo-labeled QA samples: to specialized applications, the performance can | di, we prompt the fine-tuned LLM again to gen-: pairs as those that are answerable using the topRow 48: generate high-quality pseudo-labeled QA samples: still be suboptimal due to the distribution shift | di, we prompt the fine-tuned LLM again to gen-: k retrieved contexts. Specifically, we retain only
+Row 49: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: ′
+Row 50: generate high-quality pseudo-labeled QA samples: issue (Miller et al., 2020). To tailor the LLMs | di, we prompt the fine-tuned LLM again to gen-: those samples where the ground truth answer ai
+Row 51: generate high-quality pseudo-labeled QA samples: for specialized domains and address the scarcity | di, we prompt the fine-tuned LLM again to gen-: is present in the top-k documents retrieved by a
+Row 52: generate high-quality pseudo-labeled QA samples: of labeled data in these areas, we employ a self- | di, we prompt the fine-tuned LLM again to gen-: strong retriever, such as Dragon (Lin et al., 2023),
+Row 53: generate high-quality pseudo-labeled QA samples: training approach leveraging domain-specific un- | di, we prompt the fine-tuned LLM again to gen-: based on the generated query qi. ′Formally, the
+Row 54: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: ′ ′k ′k
+Row 55: generate high-quality pseudo-labeled QA samples: labeled corpora. This method capitalizes on the | di, we prompt the fine-tuned LLM again to gen-: sample is retained if ai ∈ Di , where Di denotes
+Row 56: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: ′
+Row 57: generate high-quality pseudo-labeled QA samples: model’s enhanced capabilities from the previous | di, we prompt the fine-tuned LLM again to gen-: the top-k documents retrieved for query qi. From
+Row 58: generate high-quality pseudo-labeled QA samples: retrieval-augmented fine-tuning stage. We utilize | di, we prompt the fine-tuned LLM again to gen-: these retained samples, we create pseudo-labeled
+Row 59: generate high-quality pseudo-labeled QA samples: | di, we prompt the fine-tuned LLM again to gen-: n
+Row 60: generate high-quality pseudo-labeled QA samples: the fine-tuned LLM to generate pseudo-labeled | di, we prompt the fine-tuned LLM again to gen-: training tuples T′ = (q′ i,Di, ai) ′ ′i=1.
+Row 61: generate high-quality pseudo-labeled QA samples: training samples T ′ = (q′,D′, a′) by creating | di, we prompt the fine-tuned LLM again to gen-: With the created synthetic tuples T ′, we aug-
+[/TABLE]
+
+[PAGE 5]
+4 Experimental Setup
+4.1 Tasks and Datasets
+We evaluate our model across a total of 11
+datasets spanning the medical, scientific and computer science domains. For the medical domain,
+we include the five datasets in the MIRAGE
+benchmark (Xiong et al., 2024), including PubMedQA (Jin et al., 2019), BioASQ (Tsatsaronis
+et al., 2015), MedQA (Jin et al., 2021), MedMCQA (Pal et al., 2022), the medical subsets in
+MMLU (Hendrycks et al., 2021), and two additional open-ended QA datasets LiveQA (Abacha
+et al., 2017), and MedicationQA (Abacha et al.,
+2019). For the scientific domain, we consider ARCchallenge (Clark et al., 2018), SciQ (Welbl et al.,
+2017)2, and the scientific subsets (14 subtasks in
+total) in MMLU (Hendrycks et al., 2021). For computer science, we use CS-Bench (Song et al., 2024)
+for evaluation. We distinguish the computer science domain from the broader scientific domain
+as the scientific domain predominantly covers natural and social sciences, with limited representation of computer science topics. We use accuracy
+as the evaluation metric for multiple-choice and
+True-or-False questions, Rouge-L and MAUVE for
+open-ended questions, Exact Match (EM) and F1
+for Fill-in-the-blank questions, with Rouge-L and
+F1 as the main metrics, respectively. An exception
+is CS-Bench, where we follow the original paper’s
+evaluation method by using GPT-4 as a judge for
+fill-in-the-blank and open-ended questions.
+For the medical domain, we use the corpora
+from Textbooks (Jin et al., 2021), Wikipedia and
+PubMed articles3 to generate pseudo-labeled samples in Stage-II. For the scientific domain, we
+leverage Wikipedia. For the CS domain, we use
+Wikipedia CS Subset4 and arXiv articles5.
+4.2 Baselines
+We categorize our baselines into four groups: (1)
+Off-the-shelf general domain LLMs, which include
+GPT-3.5 (OpenAI, 2022), GPT-4 (OpenAI, 2023),
+Llama3-8B-it (Meta-AI, 2024), and Gemma2-27Bit (Team et al., 2024). (2) Off-the-shelf domainspecific LLMs , including PMC-llama-13B (Wu
+2We convert the multiple-choice questions in SciQ into
+short-phrase answer generation tasks to better assess the
+model’s generative capabilities.
+3https://pubmed.ncbi.nlm.nih.gov/
+4https://huggingface.co/datasets/AlaaElhilo/
+Wikipedia_ComputerScience
+5https://huggingface.co/datasets/CCRss/arxiv_
+papers_cs
+et al., 2024), MEDITRON-70B (Chen et al., 2023),
+AdaptLLM-v2-8B (Cheng et al., 2024), BioMistral7B (Labrak et al., 2024) and MedLlama3-8B (John
+Snow Labs, 2024) in the medical domain, as well
+as SciTulu 7B and 70B (Wadden et al., 2024) in
+both the scientific domain and the computer science domain, due to the absence of LLMs specifically fine-tuned for the computer science domain.
+(3) General domain retrieval-augmented LLMs ,
+which include Self-RAG-13B (Asai et al., 2024),
+ChatQA1.5-8B and 70B (Liu et al., 2024). (4)
+Domain-specific Retrieval-augmented LLMs , including RAFT (Zhang et al., 2024c) and EvidenceRAG6 (Schimanski et al., 2024). Since RAFT
+and EvidenceRAG have not released their checkpoints, we re-implemented their methods using the
+same backbones as our approach. Note that for all
+the baseline models, we conduct the zero-shot evaluation and augment the context with retrieval for
+fair comparison. We also note that we do not compare with several domain-specific baselines such as
+(Zhang et al., 2024b; Nori et al., 2023) which have
+access to task-specific examples that overlap with
+our evaluation tasks.
+4.3 Implementation Details
+We use Llama3-it 8B (Meta-AI, 2024) and
+Gemma2-it 27B (Team et al., 2024) as our backbones. For the Gemma-2 model, we use LoRA (Hu
+et al., 2022) (r = 32 , α = 32 ) during fine-tuning
+due to resource constraints. For both stages, we set
+the global batch size to 64, with gradient accumulation as 8 and train the model for 1 epoch. For
+Stage-I, the learning rate is set to 5e − 7 and for
+Stage-II, it is set to 2e − 7 for the Llama3 backbone
+and 5e − 7 for the Gemma backbone. AdamW
+optimizer (Loshchilov and Hutter, 2019) is used
+with β1 = 0 .9 and β2 = 0 .95. To create contextenhanced examples for our synthetic queries, we
+use Dragon (Lin et al., 2023) to extend context
+length for SimRAG and baselines, which improves
+RAG model robustness (Yu et al., 2024, 2023). For
+retrieval during evaluation on medical datasets, we
+follow the original MIRAGE benchmark by using
+the top-10 retrieval results as context, ensembled
+from multiple models. For other datasets, we fetch
+the top-10 passages by Google Search7. All experiments are conducted on 8 NVIDIA A100 GPUs.
+The prompt format for answer and question gener6We named this method ourselves, as the model does not
+have an officially designated name.
+7https://www.searchapi.io
+
+[TABLE page=5 index=1]
+Columns: for Fill-in-the-blank questions, with Rouge-L and | Gemma2-it 27B (Team et al., 2024) as our backRow 1: for Fill-in-the-blank questions, with Rouge-L and: F1 as the main metrics, respectively. An exception | Gemma2-it 27B (Team et al., 2024) as our back-: bones. For the Gemma-2 model, we use LoRA (Hu
+Row 2: for Fill-in-the-blank questions, with Rouge-L and: is CS-Bench, where we follow the original paper’s | Gemma2-it 27B (Team et al., 2024) as our back-: et al., 2022) (r = 32, α = 32) during fine-tuning
+Row 3: for Fill-in-the-blank questions, with Rouge-L and: evaluation method by using GPT-4 as a judge for | Gemma2-it 27B (Team et al., 2024) as our back-: due to resource constraints. For both stages, we set
+Row 4: for Fill-in-the-blank questions, with Rouge-L and: fill-in-the-blank and open-ended questions. | Gemma2-it 27B (Team et al., 2024) as our back-: the global batch size to 64, with gradient accumuRow 5: for Fill-in-the-blank questions, with Rouge-L and: For the medical domain, we use the corpora | Gemma2-it 27B (Team et al., 2024) as our back-: lation as 8 and train the model for 1 epoch. For
+Row 6: for Fill-in-the-blank questions, with Rouge-L and: from Textbooks (Jin et al., 2021), Wikipedia and | Gemma2-it 27B (Team et al., 2024) as our back-: Stage-I, the learning rate is set to 5e − 7 and for
+Row 7: for Fill-in-the-blank questions, with Rouge-L and: PubMed articles3 to generate pseudo-labeled sam- | Gemma2-it 27B (Team et al., 2024) as our back-: Stage-II, it is set to 2e−7 for the Llama3 backbone
+Row 8: for Fill-in-the-blank questions, with Rouge-L and: ples in Stage-II. For the scientific domain, we | Gemma2-it 27B (Team et al., 2024) as our back-: and 5e − 7 for the Gemma backbone. AdamW
+Row 9: for Fill-in-the-blank questions, with Rouge-L and: leverage Wikipedia. For the CS domain, we use | Gemma2-it 27B (Team et al., 2024) as our back-: optimizer (Loshchilov and Hutter, 2019) is used
+Row 10: for Fill-in-the-blank questions, with Rouge-L and: Wikipedia CS Subset4 and arXiv articles5. | Gemma2-it 27B (Team et al., 2024) as our back-: with β1 = 0.9 and β2 = 0.95. To create contextRow 11: for Fill-in-the-blank questions, with Rouge-L and: 4.2 Baselines | Gemma2-it 27B (Team et al., 2024) as our back-: enhanced examples for our synthetic queries, we
+Row 12: for Fill-in-the-blank questions, with Rouge-L and: | Gemma2-it 27B (Team et al., 2024) as our back-: use Dragon (Lin et al., 2023) to extend context
+Row 13: for Fill-in-the-blank questions, with Rouge-L and: We categorize our baselines into four groups: (1) | Gemma2-it 27B (Team et al., 2024) as our back-:
+Row 14: for Fill-in-the-blank questions, with Rouge-L and: | Gemma2-it 27B (Team et al., 2024) as our back-: length for SimRAG and baselines, which improves
+Row 15: for Fill-in-the-blank questions, with Rouge-L and: Off-the-shelf general domain LLMs, which include | Gemma2-it 27B (Team et al., 2024) as our back-:
+Row 16: for Fill-in-the-blank questions, with Rouge-L and: | Gemma2-it 27B (Team et al., 2024) as our back-: RAG model robustness (Yu et al., 2024, 2023). For
+Row 17: for Fill-in-the-blank questions, with Rouge-L and: GPT-3.5 (OpenAI, 2022), GPT-4 (OpenAI, 2023), | Gemma2-it 27B (Team et al., 2024) as our back-:
+Row 18: for Fill-in-the-blank questions, with Rouge-L and: | Gemma2-it 27B (Team et al., 2024) as our back-: retrieval during evaluation on medical datasets, we
+Row 19: for Fill-in-the-blank questions, with Rouge-L and: Llama3-8B-it (Meta-AI, 2024), and Gemma2-27B- | Gemma2-it 27B (Team et al., 2024) as our back-:
+Row 20: for Fill-in-the-blank questions, with Rouge-L and: | Gemma2-it 27B (Team et al., 2024) as our back-: follow the original MIRAGE benchmark by using
+Row 21: for Fill-in-the-blank questions, with Rouge-L and: it (Team et al., 2024). (2) Off-the-shelf domain- | Gemma2-it 27B (Team et al., 2024) as our back-:
+Row 22: for Fill-in-the-blank questions, with Rouge-L and: | Gemma2-it 27B (Team et al., 2024) as our back-: the top-10 retrieval results as context, ensembled
+Row 23: for Fill-in-the-blank questions, with Rouge-L and: specific LLMs, including PMC-llama-13B (Wu | Gemma2-it 27B (Team et al., 2024) as our back-:
+Row 24: for Fill-in-the-blank questions, with Rouge-L and: | Gemma2-it 27B (Team et al., 2024) as our back-: from multiple models. For other datasets, we fetch
+Row 25: for Fill-in-the-blank questions, with Rouge-L and: 2We convert the multiple-choice questions in SciQ into | Gemma2-it 27B (Team et al., 2024) as our back-: the top-10 passages by Google Search7. All exper-
+[/TABLE]
+
+[PAGE 6]
+Table 1: Results of our proposed method and baselines in the medical domain. All the presented methods use
+RAG for inference. Bold and underline highlight the best and second best performance, respectively. ∗: the main
+metric used for average calculation. †: models trained using synthetic data generated from GPT-4. ‡: our own
+implementation of the models with the same unlabeled corpora. The notations are the same for the following tables.
+Datasets PubMedQA BioASQ MedQA MedMCQA MMLU-med LiveQA MedicationQA Avg.
+Metrics ACC ACC ACC ACC ACC Rouge-L ∗/ MAUVE Rouge-L∗/ MAUVE —
+Proprietary LLMs, For Reference Only
+GPT-3.5 (OpenAI, 2022) 67.40 90.29 66.61 58.04 75.48 42.3 / 62.5 36.3 / 46.0 62.35GPT-4 (OpenAI, 2023) 70.60 92.56 82.80 66.65 87.24 44.0 / 65.9 41.5 / 59.2 69.34
+Medical LLMs
+PMC-Llama 13B (Wu et al., 2024)56.00 65.21 42.58 48.29 52.53 35.7 / 60.6 36.4 / 38.3 48.10MEDITRON 70B (Chen et al., 2023)56.40 76.86 49.57 52.67 65.38 — — —AdaptLLM-v2 8B (Cheng et al., 2024)45.00 78.80 43.13 42.74 51.24 30.2 / 48.0 39.2 / 51.4 47.19BioMistral 7B (Labrak et al., 2024)59.20 82.69 32.52 32.20 47.47 43.1 / 63.2 39.6 / 51.9 48.11MedLlama3 8B (John Snow Labs, 2024)74.20 83.50 61.43 61.18 77.13 27.9 / 45.2 29.8 / 35.0 59.31
+Retrieval-Augmented LLMs
+Self-RAG 13B†(Asai et al., 2024) 71.20 73.70 48.60 44.00 53.90 35.6 / 54.1 39.3 / 46.4 52.33ChatQA1.5 8B (Liu et al., 2024)66.40 82.69 42.36 46.97 61.40 39.3 / 65.5 39.9 / 48.9 54.15ChatQA1.5 70B (Liu et al., 2024)74.80 83.17 68.89 62.54 80.51 40.1 / 66.3 40.8 / 50.2 64.40
+‡Backbone: Llama3-8B-Instruct
+Llama3-8B-it (Meta-AI, 2024)64.60 88.51 55.30 58.91 69.79 34.1 / 54.1 37.2 / 45.6 58.34RAFT 8B†(Zhang et al., 2024c) 73.40 88.67 54.28 60.15 70.25 36.2 / 55.6 38.9 / 56.4 60.26EvidenceRAG 8B†(Schimanski et al., 2024)75.00 90.61 57.74 61.13 72.27 36.6 / 57.8 34.6 / 53.6 61.14SimRAG 8B 80.00 91.75 62.92 67.51 75.57 44.4/ 66.6 40.1 / 57.466.04w/o Stage II 78.00 90.45 60.56 65.22 74.56 42.8 / 62.9 38.5 / 55.6 64.30
+‡Backbone: Gemma2-27B-Instruct
+Gemma2-27B-it (Team et al., 2024)56.20 89.32 59.70 57.30 75.67 37.4 / 52.8 40.2 / 57.0 59.40RAFT 27B†(Zhang et al., 2024c) 67.20 91.70 62.22 61.56 78.97 39.4 / 62.2 40.2 / 48.2 63.04EvidenceRAG 27B†(Schimanski et al., 2024)63.00 90.61 62.14 61.80 79.43 34.5 / 58.6 34.5 / 44.6 60.85SimRAG 27B 73.60 92.07 63.63 64.16 81.63 39.9 /66.8 41.2/62.1 65.17w/o Stage II 66.00 91.59 62.45 58.67 79.61 37.2 / 61.6 40.8 / 58.6 62.33
+Table 2: Results of our proposed method and baselines
+in the scientific domain.
+Models MMLU-sci ARC SciQ Avg.
+Metrics ACC ACC EM / F1∗ —
+Proprietary LLMs, For Reference Only
+GPT-3.5 (OpenAI, 2022) 66.40 75.30 40.30 / 62.73 68.14GPT-4 (OpenAI, 2023) 87.46 94.03 43.24 / 66.0382.51
+Scientific LLMs
+SciTulu 7B (Wadden et al., 2024)55.95 53.84 22.2 / 40.55 50.11SciTulu 70B (Wadden et al., 2024)71.80 52.82 18.6 / 36.69 53.77
+Retrieval-Augmented LLMs
+Self-RAG 13B†(Asai et al., 2024)48.69 73.10 31.60 / 51.87 57.89ChatQA 8B (Liu et al., 2024)54.46 52.22 40.40 / 60.60 55.76ChatQA 70B (Liu et al., 2024)75.21 81.06 50.00 / 68.41 74.89
+‡Backbone: Llama3-8B-Instruct
+Llama3-8B-it (Meta-AI, 2024)67.15 71.08 20.80 / 42.47 60.23RAFT 8B†(Zhang et al., 2024c)69.22 73.12 48.20 / 68.56 70.30EvidenceRAG 8B†(Schimanski et al., 2024)71.59 75.34 53.10 / 70.11 72.35SimRAG 8B 77.3181.4057.50/ 72.1776.96w/o Stage II 75.95 80.20 53.80 / 70.16 75.44
+‡Backbone: Gemma2-27B-Instruct
+Gemma2-27B-it (Team et al., 2024)76.11 85.75 44.80 / 66.99 76.28RAFT 27B†(Zhang et al., 2024c)78.79 86.9553.10 / 70.91 78.88EvidenceRAG 27B†(Schimanski et al., 2024)78.8486.69 45.60 / 67.50 77.68SimRAG 27B 81.2888.6558.10/74.9981.64w/o Stage II 78.38 86.86 54.50 / 72.00 79.08
+ation and inference can be found in Appendix E.
+5 Experimental Results
+5.1 Main Results
+Table 1, Table 2, and Table 3 present the experimental results for the medical, scientific, and computer
+science domains, respectively. The results of the
+14 tasks in MMLU-sci can be found in Appendix D
+From the results, we have the following findings:
+Table 3: Results of our proposed method and baselines
+in the computer science domain. MC, AS, FB, OG
+stands for multiple-choice, assertion, fill-in-the-blank
+and Open-ended generation, respectively.
+Models MC AS FB OE Overall
+Metrics ACC ACC Auto Auto —
+Proprietary LLMs, For Reference Only
+GPT-3.5 (OpenAI, 2022) 54.89 67.30 42.93 50.11 55.74GPT-4 (OpenAI, 2023) 71.48 73.62 56.87 71.4370.34
+Scientific LLMs
+SciTulu 7B (Wadden et al., 2024)38.40 56.56 27.66 32.29 40.44SciTulu 70B (Wadden et al., 2024)44.24 60.18 31.06 54.76 46.87
+Retrieval-Augmented LLMs
+Self-RAG 13B†(Asai et al., 2024)29.87 54.52 30.64 24.94 34.56ChatQA 8B (Liu et al., 2024)35.33 60.18 27.66 29.82 39.11ChatQA 70B (Liu et al., 2024)54.94 62.67 34.89 38.53 53.07
+‡Backbone: Llama3-8B-Instruct
+Llama3-8B-it (Meta-AI, 2024)52.69 60.41 26.81 44.12 50.80RAFT 8B†(Zhang et al., 2024c)54.57 60.86 32.76 40.23 52.38EvidenceRAG 8B†(Schimanski et al., 2024)54.42 62.67 35.02 42.30 53.06SimRAG 8B 60.6364.9334.4747.1157.63w/o Stage II 59.88 61.99 34.47 46.82 56.55
+‡Backbone: Gemma2-27B-Instruct
+Gemma2-27B-it (Team et al., 2024)59.96 62.22 40.0057.5058.08RAFT 27B†(Zhang et al., 2024c)60.93 66.0639.15 53.80 59.07EvidenceRAG 27B†(Schimanski et al., 2024)60.63 62.22 40.85 54.40 58.34SimRAG 27B 62.8766.7443.8354.6060.96w/o Stage II 61.0065.84 41.7054.00 59.36
+(1) SimRAG consistently outperforms baselines
+across these domains and a variety of questionanswering formats. In medical, scientific, and computer science domain, the average performance
+gain is 8.01%, 6.37%, 8.61% over the Llama variant and 1.19%, 3.50%, 3.20% over the Gemma variant, respectively. Besides, SimRAG also achieves
+
+[TABLE page=6 index=1]
+Columns: Datasets | PubMedQA | BioASQ | MedQA | MedMCQA | MMLU-med | LiveQA | MedicationQA | Avg.
+Row 1: Datasets: Metrics | PubMedQA: ACC | BioASQ: ACC | MedQA: ACC | MedMCQA: ACC | MMLU-med: ACC | LiveQA: Rouge-L∗ / MAUVE | MedicationQA: Rouge-L∗ / MAUVE | Avg.: —
+Row 2: Datasets: Proprietary LLMs, For Reference Only | PubMedQA: | BioASQ: | MedQA: | MedMCQA: | MMLU-med: | LiveQA: | MedicationQA: | Avg.:
+Row 3: Datasets: GPT-3.5 (OpenAI, 2022) | PubMedQA: 67.40 | BioASQ: 90.29 | MedQA: 66.61 | MedMCQA: 58.04 | MMLU-med: 75.48 | LiveQA: 42.3 / 62.5 | MedicationQA: 36.3 / 46.0 | Avg.: 62.35
+Row 4: Datasets: GPT-4 (OpenAI, 2023) | PubMedQA: 70.60 | BioASQ: 92.56 | MedQA: 82.80 | MedMCQA: 66.65 | MMLU-med: 87.24 | LiveQA: 44.0 / 65.9 | MedicationQA: 41.5 / 59.2 | Avg.: 69.34
+Row 5: Datasets: Medical LLMs | PubMedQA: | BioASQ: | MedQA: | MedMCQA: | MMLU-med: | LiveQA: | MedicationQA: | Avg.:
+Row 6: Datasets: PMC-Llama 13B (Wu et al., 2024) | PubMedQA: 56.00 | BioASQ: 65.21 | MedQA: 42.58 | MedMCQA: 48.29 | MMLU-med: 52.53 | LiveQA: 35.7 / 60.6 | MedicationQA: 36.4 / 38.3 | Avg.: 48.10
+Row 7: Datasets: MEDITRON 70B (Chen et al., 2023) | PubMedQA: 56.40 | BioASQ: 76.86 | MedQA: 49.57 | MedMCQA: 52.67 | MMLU-med: 65.38 | LiveQA: — | MedicationQA: — | Avg.: —
+Row 8: Datasets: AdaptLLM-v2 8B (Cheng et al., 2024) | PubMedQA: 45.00 | BioASQ: 78.80 | MedQA: 43.13 | MedMCQA: 42.74 | MMLU-med: 51.24 | LiveQA: 30.2 / 48.0 | MedicationQA: 39.2 / 51.4 | Avg.: 47.19
+Row 9: Datasets: BioMistral 7B (Labrak et al., 2024) | PubMedQA: 59.20 | BioASQ: 82.69 | MedQA: 32.52 | MedMCQA: 32.20 | MMLU-med: 47.47 | LiveQA: 43.1 / 63.2 | MedicationQA: 39.6 / 51.9 | Avg.: 48.11
+Row 10: Datasets: MedLlama3 8B (John Snow Labs, 2024) | PubMedQA: 74.20 | BioASQ: 83.50 | MedQA: 61.43 | MedMCQA: 61.18 | MMLU-med: 77.13 | LiveQA: 27.9 / 45.2 | MedicationQA: 29.8 / 35.0 | Avg.: 59.31
+Row 11: Datasets: Retrieval-Augmented LLMs | PubMedQA: | BioASQ: | MedQA: | MedMCQA: | MMLU-med: | LiveQA: | MedicationQA: | Avg.:
+Row 12: Datasets: Self-RAG 13B† (Asai et al., 2024) | PubMedQA: 71.20 | BioASQ: 73.70 | MedQA: 48.60 | MedMCQA: 44.00 | MMLU-med: 53.90 | LiveQA: 35.6 / 54.1 | MedicationQA: 39.3 / 46.4 | Avg.: 52.33
+Row 13: Datasets: ChatQA1.5 8B (Liu et al., 2024) | PubMedQA: 66.40 | BioASQ: 82.69 | MedQA: 42.36 | MedMCQA: 46.97 | MMLU-med: 61.40 | LiveQA: 39.3 / 65.5 | MedicationQA: 39.9 / 48.9 | Avg.: 54.15
+Row 14: Datasets: ChatQA1.5 70B (Liu et al., 2024) | PubMedQA: 74.80 | BioASQ: 83.17 | MedQA: 68.89 | MedMCQA: 62.54 | MMLU-med: 80.51 | LiveQA: 40.1 / 66.3 | MedicationQA: 40.8 / 50.2 | Avg.: 64.40
+Row 15: Datasets: ‡Backbone: Llama3-8B-Instruct | PubMedQA: | BioASQ: | MedQA: | MedMCQA: | MMLU-med: | LiveQA: | MedicationQA: | Avg.:
+Row 16: Datasets: Llama3-8B-it (Meta-AI, 2024) | PubMedQA: 64.60 | BioASQ: 88.51 | MedQA: 55.30 | MedMCQA: 58.91 | MMLU-med: 69.79 | LiveQA: 34.1 / 54.1 | MedicationQA: 37.2 / 45.6 | Avg.: 58.34
+Row 17: Datasets: RAFT 8B† (Zhang et al., 2024c) | PubMedQA: 73.40 | BioASQ: 88.67 | MedQA: 54.28 | MedMCQA: 60.15 | MMLU-med: 70.25 | LiveQA: 36.2 / 55.6 | MedicationQA: 38.9 / 56.4 | Avg.: 60.26
+Row 18: Datasets: EvidenceRAG 8B† (Schimanski et al., 2024) | PubMedQA: 75.00 | BioASQ: 90.61 | MedQA: 57.74 | MedMCQA: 61.13 | MMLU-med: 72.27 | LiveQA: 36.6 / 57.8 | MedicationQA: 34.6 / 53.6 | Avg.: 61.14
+Row 19: Datasets: SimRAG 8B | PubMedQA: 80.00 | BioASQ: 91.75 | MedQA: 62.92 | MedMCQA: 67.51 | MMLU-med: 75.57 | LiveQA: 44.4 / 66.6 | MedicationQA: 40.1 / 57.4 | Avg.: 66.04
+Row 20: Datasets: w/o Stage II | PubMedQA: 78.00 | BioASQ: 90.45 | MedQA: 60.56 | MedMCQA: 65.22 | MMLU-med: 74.56 | LiveQA: 42.8 / 62.9 | MedicationQA: 38.5 / 55.6 | Avg.: 64.30
+Row 21: Datasets: ‡Backbone: Gemma2-27B-Instruct | PubMedQA: | BioASQ: | MedQA: | MedMCQA: | MMLU-med: | LiveQA: | MedicationQA: | Avg.:
+Row 22: Datasets: Gemma2-27B-it (Team et al., 2024) | PubMedQA: 56.20 | BioASQ: 89.32 | MedQA: 59.70 | MedMCQA: 57.30 | MMLU-med: 75.67 | LiveQA: 37.4 / 52.8 | MedicationQA: 40.2 / 57.0 | Avg.: 59.40
+Row 23: Datasets: RAFT 27B† (Zhang et al., 2024c) | PubMedQA: 67.20 | BioASQ: 91.70 | MedQA: 62.22 | MedMCQA: 61.56 | MMLU-med: 78.97 | LiveQA: 39.4 / 62.2 | MedicationQA: 40.2 / 48.2 | Avg.: 63.04
+Row 24: Datasets: EvidenceRAG 27B† (Schimanski et al., 2024) | PubMedQA: 63.00 | BioASQ: 90.61 | MedQA: 62.14 | MedMCQA: 61.80 | MMLU-med: 79.43 | LiveQA: 34.5 / 58.6 | MedicationQA: 34.5 / 44.6 | Avg.: 60.85
+Row 25: Datasets: SimRAG 27B | PubMedQA: 73.60 | BioASQ: 92.07 | MedQA: 63.63 | MedMCQA: 64.16 | MMLU-med: 81.63 | LiveQA: 39.9 / 66.8 | MedicationQA: 41.2 / 62.1 | Avg.: 65.17
+Row 26: Datasets: w/o Stage II | PubMedQA: 66.00 | BioASQ: 91.59 | MedQA: 62.45 | MedMCQA: 58.67 | MMLU-med: 79.61 | LiveQA: 37.2 / 61.6 | MedicationQA: 40.8 / 58.6 | Avg.: 62.33
+[/TABLE]
+
+[TABLE page=6 index=2]
+Columns: Models | MMLU-sci | ARC | SciQ | Avg. | Unnamed: 0
+Row 1: Models: | MMLU-sci: | ARC: | SciQ: | Avg.: | Unnamed: 0: and Open-ended generation, respectively.
+Row 2: Models: Metrics | MMLU-sci: ACC | ARC: ACC | SciQ: EM / F1∗ | Avg.: — | Unnamed: 0:
+[/TABLE]
+
+[PAGE 7]
+Table 4: Performance of SimRAG using Llama-3-8b-it as the backbone and its variants across medical datasets.
+Method PubMedQA BioASQ MedQA MedMCQA MMLU-med LiveQA MedicationQA Avg.
+SimRAG 8B 80.00 91.75 62.92 67.51 75.57 44.4 40.1 66.04
+SimRAG w/o general SFT data 79.60 90.78 59.47 61.92 73.09 39.9 38.9 63.38
+SimRAG w/o general-domain QA 80.20 91.10 61.04 65.31 72.91 42.8 39.4 64.68
+SimRAG w/o general retrieval data 79.40 90.94 57.97 62.42 71.72 39.4 38.9 62.96
+SimRAG w/o Stage-I 76.80 89.81 57.97 60.02 70.71 39.3 38.5 61.87
+comparable performance to strong proprietary models: when using Gemma2-27B as the backbone,
+we achieve 93.99%, 98.95% and 86.66% of the
+performance of GPT-4. This demonstrates the effectiveness and robustness of SimRAG in adapting general-domain LLMs to specialized domain
+knowledge using only unlabeled corpora.
+(2) Domain-specific LLMs (e.g. SciTulu and MedLlama), although fine-tuned on relevant data, underperform compared to SimRAG because they are
+not optimized for RAG tasks, where effectively
+utilizing retrieved context is crucial. As a result,
+they struggle to incorporate relevant context into
+their answers, leading to weaker performance. On
+the other hand, general-domain RAG models (e.g.
+ChatQA) face distribution shifts when applied to
+specialized tasks, as they struggle to integrate the
+retrieved domain-specific knowledge accurately.
+(3) Domain-specific retrieval-augmented LLMs
+such as RAFT and EvidenceRAG still show suboptimal performance despite utilizing the powerful (yet expensive) GPT-4 model to generate synthetic training data. In contrast, SimRAG, finetuned specifically for the QA generation task, produces more accurate and contextually relevant synthetic QA pairs, leading to better downstream performance across all QA tasks.
+(4) Although the CS domain is relatively new and
+less-studied compared to other natural and social
+sciences, SimRAG still demonstrates promising
+performance in this area. This justifies the potential for adapting SimRAG to emerging domains.
+5.2 Ablation Studies
+Effect of Stage-I and Stage-II. Table 1 to 4 show
+that retrieval-oriented fine-tuning (Stage-I) significantly enhances LLM performance on QA tasks
+compared to the original backbone, demonstrating
+its effectiveness. However, further improvements
+become challenging after this stage. When the
+LLMs are fine-tuned on self-synthesized training
+tuples, their performance on target tasks improves
+even more, with an average increase of 2.21% for
+Table 5: Results of the 5 datasets from the medical MIRAGE benchmark (Xiong et al., 2024), using
+DRAGON (Lin et al., 2023) as an alternative retriever.
+Models PubMedQA BioASQ MedQA MedMCQA MMLU-med Avg.
+Llama3-8B-it (2024)57.00 81.55 55.70 55.16 65.93 63.07SimRAG 8B 79.60 91.4260.80 63.88 74.0173.94
+Gemma2-27B-it (2024)58.80 89.48 57.97 55.13 76.67 67.61SimRAG 27B73.60 90.9462.29 60.39 79.0673.26
+Llama and 3.50% for Gemma.. This suggests that,
+with access to a target domain corpus, LLMs can
+generate high-quality synthetic data, enabling selfimprovement and further boosting performance.
+Effect of Different Retrievers. We show the performance of SimRAG using Dragon (Lin et al.,
+2023) as the retriever in Table 5. The results show
+consistent performance improvements of SimRAG
+over the LLM backbone, demonstrating that SimRAG is robust to different retriever choices and
+that its self-improvement mechanism consistently
+enhances performance.
+5.3 Study on Pseudo-labeled Tuples
+We mainly demonstrate the advantage of SimRAG
+in generating pseudo-labeled data from the following three perspectives.
+Effect of different question generation models.
+To demonstrate the benefit of training on question
+generation and question-answering data, we compare the performance of Stage-II using different
+synthetic question-answer pairs. These pairs are
+generated either directly by Llama-3-8b-it or by
+an off-the-shelf QG model with T5-Large (Raffel et al., 2020) as the backbone. The results
+demonstrate that our approach achieves better performance on average, demonstrating the clear advantage of leveraging the fine-tuned model itself
+for pseudo-labeled data generation.
+Effect of question filtering. We further demonstrate the advantages of question filtering in Figure 3, showing that removing low-quality data
+not only improves overall model performance but
+also accelerates the training process. It is also
+worth noting that even without filtering, SimRAG
+can achieve strong performance, suggesting that
+
+[TABLE page=7 index=1]
+Columns: Method | PubMedQA | BioASQ | MedQA | MedMCQA | MMLU-med | LiveQA | MedicationQA | Avg.
+Row 1: Method: SimRAG 8B | PubMedQA: 80.0 | BioASQ: 91.75 | MedQA: 62.92 | MedMCQA: 67.51 | MMLU-med: 75.57 | LiveQA: 44.4 | MedicationQA: 40.1 | Avg.: 66.04
+Row 2: Method: SimRAG w/o general SFT data | PubMedQA: 79.6 | BioASQ: 90.78 | MedQA: 59.47 | MedMCQA: 61.92 | MMLU-med: 73.09 | LiveQA: 39.9 | MedicationQA: 38.9 | Avg.: 63.38
+Row 3: Method: SimRAG w/o general-domain QA | PubMedQA: 80.2 | BioASQ: 91.1 | MedQA: 61.04 | MedMCQA: 65.31 | MMLU-med: 72.91 | LiveQA: 42.8 | MedicationQA: 39.4 | Avg.: 64.68
+Row 4: Method: SimRAG w/o general retrieval data | PubMedQA: 79.4 | BioASQ: 90.94 | MedQA: 57.97 | MedMCQA: 62.42 | MMLU-med: 71.72 | LiveQA: 39.4 | MedicationQA: 38.9 | Avg.: 62.96
+Row 5: Method: SimRAG w/o Stage-I | PubMedQA: 76.8 | BioASQ: 89.81 | MedQA: 57.97 | MedMCQA: 60.02 | MMLU-med: 70.71 | LiveQA: 39.3 | MedicationQA: 38.5 | Avg.: 61.87
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: performance of GPT-4. This demonstrates the ef- | Models | PubMedQA | BioASQ | MedQA | MedMCQA | MMLU-med | Avg.
+Row 1: performance of GPT-4. This demonstrates the ef-: fectiveness and robustness of SimRAG in adapt- | Models: Llama3-8B-it (2024) | PubMedQA: 57.0 | BioASQ: 81.55 | MedQA: 55.7 | MedMCQA: 55.16 | MMLU-med: 65.93 | Avg.: 63.07
+Row 2: performance of GPT-4. This demonstrates the ef-: | Models: SimRAG 8B | PubMedQA: 79.6 | BioASQ: 91.42 | MedQA: 60.8 | MedMCQA: 63.88 | MMLU-med: 74.01 | Avg.: 73.94
+Row 3: performance of GPT-4. This demonstrates the ef-: ing general-domain LLMs to specialized domain | Models: Gemma2-27B-it (2024) | PubMedQA: 58.8 | BioASQ: 89.48 | MedQA: 57.97 | MedMCQA: 55.13 | MMLU-med: 76.67 | Avg.: 67.61
+Row 4: performance of GPT-4. This demonstrates the ef-: | Models: SimRAG 27B | PubMedQA: 73.6 | BioASQ: 90.94 | MedQA: 62.29 | MedMCQA: 60.39 | MMLU-med: 79.06 | Avg.: 73.26
+[/TABLE]
+
+[PAGE 8]
+80ACC
+PubMedQA
+87.5
+90.0
+92.5
+BioASQ 50
+MedQA 60
+MedMCQA 70.0
+72.5
+75.0
+MMLU-med
+SimRAG 8B w/o multi-choice w/o short-span w/o claim
+Figure 2: Effect of diverse types of generated QA pairs.
+66Avg. Perf.
+Medical Domain
+SimRAG
+SimRAG w/o filtering
+T5
+Llama3-8B-it
+Figure 3: Effect of different
+generation model.
+Table 6: Two case studies comparing the generated pseudo-labeled QA pairs from our fine-tuned model after
+Stage-I with those generated by the backbone model, Llama3-8B-it. Green and red texts represent the corresponding
+information between the generated QA pairs and the ground truth context.
+Case Study 1
+Corpus / TypeTextbooks / Claim Verification
+Context Title:Histology Ross,Text:For its survival, the body needs to ensure a continuous delivery of energy despite highly variable supplies of nutrientsfrom the external environment. To meet the body’s energy demands when nutrient supplies are low, adipose tissue efficiently stores excess energy.The body has a limited capacity to store carbohydrate and protein, therefore energy reserves are stored within lipid droplets of adipocytes in the formof triglycerides. Triglycerides represent a dynamic form of energy storage that is added to when food intake is greater than energy expenditure and istapped when energy expenditure is greater than food intake. The energy stored in adipocytes can be rapidly released for use at other sites in the body.
+Llama3-8B-it Claim:The energy stored in adipocytes can be rapidly released for use at other sites in the body.Label:Supported.
+SimRAG(after Stage-I)Claim:The body stores energy in the form of triglycerides in adipose tissue.Label:Supported.
+Case Study 2
+Corpus / TypeWikipedia the medical subset / Short-span QA
+Context Title:Cognitive behavioral therapy,Text:Emerging evidence for cognitive behavioral interventions aimed at reducing symptoms of depression,anxiety, and obsessive-compulsive disorder in autistic adults without intellectual disability has been identified through a systematic review. Whilethe research was focused on adults, cognitive behavioral interventions have also been beneficial to autistic children.
+Llama3-8B-itQuestion:What age group of individuals with autism spectrum disorder, who do not have intellectual disability, have been found to benefit fromcognitive behavioral interventions aimed at reducing symptoms of depression, anxiety, and obsessive-compulsive disorder, and are also a focus of?Answer:children.
+SimRAG(after Stage-I)Question:What is one of the disorders that cognitive behavioral therapy can help with?Answer:anxiery.
+the synthetic questions generated from fine-tuned
+LLMs are already highly relevant to the context.
+Effect of diverse question types. From Figure 2,
+we observe that SimRAG achieves the best performance when all three different types are included.
+These results justify the necessity for incorporating different task types into the fine-tuning step in
+Stage-II. Besides, claim verification benefits PubMedQA and BioASQ more, while multiple-choice
+questions boost performance on MedQA, MedMCQA, and MMLU, aligning with the question types
+in each dataset. Lastly, we observe that removing
+short-span QA leads to the largest performance
+drops, indicating its central role in adapting the
+LLM’s performance towards specialized domains.
+5.4 Case Studies
+To better illustrate the quality of pseudo-labeled
+samples generated by SimRAG after Stage-I finetuning, we present two case studies in Table 6,
+comparing the samples produced by SimRAG with
+those from the baseline model, Llama3-8B-it.
+In the first case, where the model is asked to
+generate a claim supported by the context, Llama38B-it simply selects a sentence from the context.
+This results in relatively simple QA pairs, making
+the task less challenging for Stage-II training.
+In the second case, the model is tasked with
+generating an answer first, and then formulating
+a question based on the context and the answer.
+While Llama3-8B-it does not copy a sentence exactly, it generates a lengthy question that closely
+paraphrases the context. This makes the question
+overly dependent on the original text, making it
+difficult to interpret without it. Additionally, the
+model misinterprets the context by implying that
+the research was focused on children when actually
+adults are the focus. In contrast, after fine-tuning on
+answer generation and query generation in Stage-I,
+SimRAG generates higher-quality QA pairs that are
+self-contained and understandable without relying
+on the context. These QA pairs also present more
+challenging tasks, as they require deeper comprehension of the context, providing harder and more
+effective training data for Stage-II.
+
+[TABLE page=8 index=1]
+Columns: Llama3-8B-it | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.
+Row 1: Llama3-8B-it: | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.: Label: Supported.
+Row 2: Llama3-8B-it: SimRAG | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.: Claim: The body stores energy in the form of triglycerides in adipose tissue.
+Row 3: Llama3-8B-it: (after Stage-I) | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.: Label: Supported.
+Row 4: Llama3-8B-it: | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.: Case Study 2
+Row 5: Llama3-8B-it: Corpus / Type | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.: Wikipedia the medical subset / Short-span QA
+Row 6: Llama3-8B-it: Context | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.: Title: Cognitive behavioral therapy, Text: Emerging evidence for cognitive behavioral interventions aimed at reducing symptoms of depression,
+Row 7: Llama3-8B-it: | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.: anxiety, and obsessive-compulsive disorder in autistic adults without intellectual disability has been identified through a systematic review. While
+Row 8: Llama3-8B-it: | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.: the research was focused on adults, cognitive behavioral interventions have also been beneficial to autistic children.
+Row 9: Llama3-8B-it: Llama3-8B-it | Claim: The energy stored in adipocytes can be rapidly released for use at other sites in the body.: Question: What age group of individuals with autism spectrum disorder, who do not have intellectual disability, have been found to benefit from
+[/TABLE]
+
+[PAGE 9]
+6 Conclusion
+We introduce SimRAG, an instruction fine-tuning
+framework designed to enhance LLMs for domainspecific question-answering tasks. By equipping
+LLMs with joint capabilities for both question answering and question generation, SimRAG enables
+the generation of diverse, high-quality synthetic
+questions from unlabeled domain-relevant corpora.
+This approach facilitates effective adaptation to specialized fields, where distribution shifts and limited
+domain-specific data typically pose challenges. Extensive experiments across 11 datasets in three domains show that SimRAG consistently outperforms
+baseline models, demonstrating its effectiveness
+in tackling the challenges of retrieval-augmented,
+domain-specific question-answering tasks.
+Limitation
+While SimRAG demonstrates notable improvements, there are some limitations to our approach:
+Single Round Pseudo-Label Generation : Our
+current method relies on a single round of query
+generation from the corpus, which may restrict
+the refinement of pseudo label quality. Iterative
+refinement of generated synthetic queries could
+potentially lead to better results.
+Additional Training Time: The incorporation of
+synthetic query generation and filtering adds time
+complexity compared to baseline models, which
+may affect efficiency in environments with limited
+computational resources. However, we would like
+to note that our method will not increase the inference time complexity compared to the existing
+RAG approaches with the same backbone models.
+Stronger Query Generation Models: Although
+we achieved strong performance with Llama3 8B
+and Gemma2 27B models, leveraging more powerful query generation models, such as Llama-3.170B-it (Meta-AI, 2024), could yield further gains.
+However, using larger models would incur higher
+computational costs beyond our current budget.
+References
+Asma Ben Abacha, Eugene Agichtein, Yuval Pinter,
+and Dina Demner-Fushman. 2017. Overview of the
+medical question answering task at trec 2017 liveqa.
+In TREC, pages 1–12.
+Asma Ben Abacha, Yassine Mrabet, Mark Sharp,
+Travis R Goodwin, Sonya E Shooshan, and Dina
+Demner-Fushman. 2019. Bridging the gap between
+consumers medication questions and trusted answers. In MEDINFO 2019: Health and Wellbeing
+e-Networks for All, pages 25–29. IOS Press.
+Anthropic. 2023. Model card and evaluations for claude
+models.
+Eric Arazo, Diego Ortego, Paul Albert, Noel E
+O’Connor, and Kevin McGuinness. 2020. Pseudolabeling and confirmation bias in deep semisupervised learning. In 2020 International joint
+conference on neural networks (IJCNN), pages 1–8.
+IEEE.
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and
+Hannaneh Hajishirzi. 2024. Self-RAG: Learning to
+retrieve, generate, and critique through self-reflection.
+In ICLR.
+Max Bartolo, Tristan Thrush, Robin Jia, Sebastian
+Riedel, Pontus Stenetorp, and Douwe Kiela. 2021.
+Improving question answering model robustness with
+synthetic adversarial data generation. In Proceedings
+of the 2021 Conference on Empirical Methods in Natural Language Processing, pages 8830–8848, Online
+and Punta Cana, Dominican Republic. Association
+for Computational Linguistics.
+Jonathan Berant, Andrew Chou, Roy Frostig, and Percy
+Liang. 2013. Semantic parsing on Freebase from
+question-answer pairs. In Proceedings of the 2013
+Conference on Empirical Methods in Natural Language Processing, pages 1533–1544, Seattle, Washington, USA. Association for Computational Linguistics.
+Sebastian Borgeaud, Arthur Mensch, Jordan Hoffmann,
+Trevor Cai, Eliza Rutherford, Katie Millican, George
+van den Driessche, Jean-Baptiste Lespiau, Bogdan
+Damoc, Aidan Clark, Diego de Las Casas, Aurelia
+Guy, Jacob Menick, Roman Ring, Tom Hennigan,
+Saffron Huang, Loren Maggiore, Chris Jones, Albin
+Cassirer, Andy Brock, Michela Paganini, Geoffrey
+Irving, Oriol Vinyals, Simon Osindero, Karen Simonyan, Jack W. Rae, Erich Elsen, and Laurent Sifre.
+2022. Improving language models by retrieving from
+trillions of tokens. In International Conference on
+Machine Learning, ICML 2022, 17-23 July 2022, Baltimore, Maryland, USA, volume 162 of Proceedings
+of Machine Learning Research , pages 2206–2240.
+PMLR.
+Zeming Chen, Alejandro Hernández Cano, Angelika
+Romanou, Antoine Bonnet, Kyle Matoba, Francesco
+Salvi, Matteo Pagliardini, Simin Fan, Andreas Köpf,
+Amirkeivan Mohtashami, et al. 2023. Meditron-70b:
+Scaling medical pretraining for large language models. ArXiv preprint, abs/2311.16079.
+Daixuan Cheng, Yuxian Gu, Shaohan Huang, Junyu Bi,
+Minlie Huang, and Furu Wei. 2024. Instruction pretraining: Language models are supervised multitask
+learners. arXiv preprint arXiv:2406.14491.
+Christopher Clark, Kenton Lee, Ming-Wei Chang,
+Tom Kwiatkowski, Michael Collins, and Kristina
+
+[TABLE page=9 index=1]
+Columns: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.
+Row 1: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: cialized fields, where distribution shifts and limited IEEE.
+Row 2: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: domain-specific data typically pose challenges. Ex- Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and
+Row 3: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: tensive experiments across 11 datasets in three do- Hannaneh Hajishirzi. 2024. Self-RAG: Learning to
+Row 4: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: mains show that SimRAG consistently outperforms retrieve, generate, and critique through self-reflection.
+Row 5: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: In ICLR.
+Row 6: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: baseline models, demonstrating its effectiveness
+Row 7: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: in tackling the challenges of retrieval-augmented, Max Bartolo, Tristan Thrush, Robin Jia, Sebastian
+Row 8: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: domain-specific question-answering tasks. Riedel, Pontus Stenetorp, and Douwe Kiela. 2021.
+Row 9: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: Improving question answering model robustness with
+Row 10: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: In ProceedingsLimitationsynthetic adversarial data generation.
+Row 11: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: of the 2021 Conference on Empirical Methods in NatRow 12: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: ural Language Processing, pages 8830–8848, Online
+Row 13: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: While SimRAG demonstrates notable improveRow 14: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: and Punta Cana, Dominican Republic. Association
+Row 15: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: ments, there are some limitations to our approach: for Computational Linguistics.
+Row 16: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: Single Round Pseudo-Label Generation: Our
+Row 17: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: Jonathan Berant, Andrew Chou, Roy Frostig, and Percycurrent method relies on a single round of query
+Row 18: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: Liang. 2013. Semantic parsing on Freebase from
+Row 19: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: generation from the corpus, which may restrict question-answer pairs. In Proceedings of the 2013
+Row 20: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: the refinement of pseudo label quality. Iterative Conference on Empirical Methods in Natural LanRow 21: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: refinement of generated synthetic queries could guage Processing, pages 1533–1544, Seattle, WashRow 22: This approach facilitates effective adaptation to spe- conference on neural networks (IJCNN), pages 1–8.: potentially lead to better results. ington, USA. Association for Computational Linguis-
+[/TABLE]
+
+[TABLE page=9 index=2]
+Columns: the generation of diverse, high-quality synthetic | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6
+Row 1: the generation of diverse, high-quality synthetic: | Unnamed: 0: labeling and | Unnamed: 1: confirmation | Unnamed: 2: bias | Unnamed: 3: in | Unnamed: 4: deep | Unnamed: 5: | Unnamed: 6: semi
+Row 2: the generation of diverse, high-quality synthetic: questions from unlabeled domain-relevant corpora. | Unnamed: 0: supervised | Unnamed: 1: learning. | Unnamed: 2: In 2020 | Unnamed: 3: International | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: joint
+[/TABLE]
+
+[PAGE 10]
+Toutanova. 2019. BoolQ: Exploring the surprising
+difficulty of natural yes/no questions. In Proceedings
+of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics:
+Human Language Technologies, Volume 1 (Long and
+Short Papers), pages 2924–2936, Minneapolis, Minnesota. Association for Computational Linguistics.
+Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot,
+Ashish Sabharwal, Carissa Schoenick, and Oyvind
+Tafjord. 2018. Think you have solved question answering? try arc, the ai2 reasoning challenge. ArXiv
+preprint, abs/1803.05457.
+Mike Conover, Matt Hayes, Ankit Mathur, Jianwei Xie,
+Jun Wan, Sam Shah, Ali Ghodsi, Patrick Wendell,
+Matei Zaharia, and Reynold Xin. 2023. Free Dolly:
+Introducing the world’s first truly open instructiontuned llm.
+Pradeep Dasigi, Nelson F. Liu, Ana Marasovi´c, Noah A.
+Smith, and Matt Gardner. 2019. Quoref: A reading comprehension dataset with questions requiring coreferential reasoning. In Proceedings of the
+2019 Conference on Empirical Methods in Natural Language Processing and the 9th International
+Joint Conference on Natural Language Processing
+(EMNLP-IJCNLP), pages 5925–5932, Hong Kong,
+China. Association for Computational Linguistics.
+Guanting Dong, Yutao Zhu, Chenghao Zhang, Zechen
+Wang, Zhicheng Dou, and Ji-Rong Wen. 2024. Understand what llm needs: Dual preference alignment
+for retrieval-augmented generation. arXiv preprint
+arXiv:2406.18676.
+Jingfei Du, Edouard Grave, Beliz Gunel, Vishrav Chaudhary, Onur Celebi, Michael Auli, Veselin Stoyanov,
+and Alexis Conneau. 2021. Self-training improves
+pre-training for natural language understanding. In
+Proceedings of the 2021 Conference of the North
+American Chapter of the Association for Computational Linguistics: Human Language Technologies,
+pages 5408–5418, Online. Association for Computational Linguistics.
+Dheeru Dua, Yizhong Wang, Pradeep Dasigi, Gabriel
+Stanovsky, Sameer Singh, and Matt Gardner. 2019.
+DROP: A reading comprehension benchmark requiring discrete reasoning over paragraphs. In Proceedings of the 2019 Conference of the North American
+Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1
+(Long and Short Papers) , pages 2368–2378, Minneapolis, Minnesota. Association for Computational
+Linguistics.
+Angela Fan, Yacine Jernite, Ethan Perez, David Grangier, Jason Weston, and Michael Auli. 2019. ELI5:
+Long form question answering. In Proceedings of
+the 57th Annual Meeting of the Association for Computational Linguistics, pages 3558–3567, Florence,
+Italy. Association for Computational Linguistics.
+Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia,
+Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, and Haofen
+Wang. 2023. Retrieval-augmented generation for
+large language models: A survey. ArXiv preprint,
+abs/2312.10997.
+Mor Geva, Daniel Khashabi, Elad Segal, Tushar Khot,
+Dan Roth, and Jonathan Berant. 2021. Did aristotle
+use a laptop? a question answering benchmark with
+implicit reasoning strategies. Transactions of the
+Association for Computational Linguistics , 9:346–
+361.
+Caglar Gulcehre, Tom Le Paine, Srivatsan Srinivasan, Ksenia Konyushkova, Lotte Weerts, Abhishek
+Sharma, Aditya Siddhant, Alex Ahern, Miaosen
+Wang, Chenjie Gu, et al. 2023. Reinforced selftraining (rest) for language modeling. ArXiv preprint,
+abs/2308.08998.
+Bernal Jiménez Gutiérrez, Yiheng Shu, Yu Gu, Michihiro Yasunaga, and Yu Su. 2024. Hipporag: Neurobiologically inspired long-term memory for large
+language models. arXiv preprint arXiv:2405.14831.
+Dan Hendrycks, Collin Burns, Steven Basart, Andy
+Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. 2021. Measuring massive multitask language
+understanding. In 9th International Conference on
+Learning Representations, ICLR 2021, Virtual Event,
+Austria, May 3-7, 2021. OpenReview.net.
+Or Honovich, Thomas Scialom, Omer Levy, and Timo
+Schick. 2022. Unnatural instructions: Tuning language models with (almost) no human labor. ArXiv
+preprint, abs/2212.09689.
+Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan
+Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and
+Weizhu Chen. 2022. LoRA: Low-rank adaptation of
+large language models. In International Conference
+on Learning Representations.
+Soyeong Jeong, Jinheon Baek, Sukmin Cho, Sung Ju
+Hwang, and Jong Park. 2024. Adaptive-RAG: Learning to adapt retrieval-augmented large language models through question complexity. In Proceedings of
+the 2024 Conference of the North American Chapter of the Association for Computational Linguistics:
+Human Language Technologies (Volume 1: Long
+Papers), pages 7036–7050, Mexico City, Mexico. Association for Computational Linguistics.
+Zhengbao Jiang, Frank Xu, Luyu Gao, Zhiqing Sun,
+Qian Liu, Jane Dwivedi-Yu, Yiming Yang, Jamie
+Callan, and Graham Neubig. 2023. Active retrieval
+augmented generation. In Proceedings of the 2023
+Conference on Empirical Methods in Natural Language Processing, pages 7969–7992, Singapore. Association for Computational Linguistics.
+Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng,
+Hanyi Fang, and Peter Szolovits. 2021. What disease
+does this patient have? a large-scale open domain
+question answering dataset from medical exams. Applied Sciences, 11(14):6421.
+
+[PAGE 11]
+Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William
+Cohen, and Xinghua Lu. 2019. PubMedQA: A
+dataset for biomedical research question answering.
+In Proceedings of the 2019 Conference on Empirical
+Methods in Natural Language Processing and the
+9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP), pages 2567–
+2577, Hong Kong, China. Association for Computational Linguistics.
+John Snow Labs. 2024. Jsl-medllama-3-8b-v2.0.
+https://huggingface.co/johnsnowlabs/
+JSL-MedLlama-3-8B-v2.0 .
+Hyunwoo Kim, Jack Hessel, Liwei Jiang, Ximing Lu,
+Youngjae Yu, Pei Zhou, Ronan Le Bras, Malihe
+Alikhani, Gunhee Kim, Maarten Sap, et al. 2023.
+Soda: Million-scale dialogue distillation with social
+commonsense contextualization. In EMNLP.
+Tomáš Koˇciský, Jonathan Schwarz, Phil Blunsom, Chris
+Dyer, Karl Moritz Hermann, Gábor Melis, and Edward Grefenstette. 2018. The NarrativeQA reading
+comprehension challenge. Transactions of the Association for Computational Linguistics, 6:317–328.
+Andreas Köpf, Yannic Kilcher, Dimitri von Rütte,
+Sotiris Anagnostidis, Zhi Rui Tam, Keith Stevens,
+Abdullah Barhoum, Duc Minh Nguyen, Oliver
+Stanley, Richárd Nagyfi, Shahul ES, Sameer Suri,
+David Alexandrovich Glushkov, Arnav Varma Dantuluri, Andrew Maguire, Christoph Schuhmann, Huu
+Nguyen, and Alexander Julian Mattick. 2023. Openassistant conversations - democratizing large language model alignment. In Thirty-seventh Conference on Neural Information Processing Systems
+Datasets and Benchmarks Track.
+Tom Kwiatkowski, Jennimaria Palomaki, Olivia Redfield, Michael Collins, Ankur Parikh, Chris Alberti,
+Danielle Epstein, Illia Polosukhin, Jacob Devlin, Kenton Lee, Kristina Toutanova, Llion Jones, Matthew
+Kelcey, Ming-Wei Chang, Andrew M. Dai, Jakob
+Uszkoreit, Quoc Le, and Slav Petrov. 2019. Natural questions: A benchmark for question answering
+research. Transactions of the Association for Computational Linguistics, 7:452–466.
+Yanis Labrak, Adrien Bazoge, Emmanuel Morin, PierreAntoine Gourraud, Mickael Rouvier, and Richard
+Dufour. 2024. Biomistral: A collection of opensource pretrained large language models for medical
+domains. ArXiv preprint, abs/2402.10373.
+Patrick S. H. Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman
+Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih,
+Tim Rocktäschel, Sebastian Riedel, and Douwe
+Kiela. 2020. Retrieval-augmented generation for
+knowledge-intensive NLP tasks. In Advances in Neural Information Processing Systems 33: Annual Conference on Neural Information Processing Systems
+2020, NeurIPS 2020, December 6-12, 2020, virtual.
+Xian Li, Ping Yu, Chunting Zhou, Timo Schick, Omer
+Levy, Luke Zettlemoyer, Jason E Weston, and Mike
+Lewis. 2024. Self-alignment with instruction backtranslation. In The Twelfth International Conference
+on Learning Representations.
+Kevin Lin, Oyvind Tafjord, Peter Clark, and Matt Gardner. 2019. Reasoning over paragraph effects in situations. In Proceedings of the 2nd Workshop on Machine Reading for Question Answering, pages 58–62,
+Hong Kong, China. Association for Computational
+Linguistics.
+Sheng-Chieh Lin, Akari Asai, Minghan Li, Barlas Oguz,
+Jimmy Lin, Yashar Mehdad, Wen-tau Yih, and Xilun
+Chen. 2023. How to train your dragon: Diverse
+augmentation towards generalizable dense retrieval.
+In Findings of EMNLP.
+Xi Victoria Lin, Xilun Chen, Mingda Chen, Weijia
+Shi, Maria Lomeli, Richard James, Pedro Rodriguez,
+Jacob Kahn, Gergely Szilvasy, Mike Lewis, Luke
+Zettlemoyer, and Wen tau Yih. 2024. RA-DIT:
+Retrieval-augmented dual instruction tuning. In
+ICLR.
+Jian Liu, Leyang Cui, Hanmeng Liu, Dandan Huang,
+Yile Wang, and Yue Zhang. 2020. Logiqa: A challenge dataset for machine reading comprehension
+with logical reasoning. In Proceedings of the TwentyNinth International Joint Conference on Artificial
+Intelligence, IJCAI 2020, pages 3622–3628. ijcai.org.
+Linqing Liu, Patrick Lewis, Sebastian Riedel, and Pontus Stenetorp. 2022. Challenges in generalization in
+open domain question answering. In Findings of the
+Association for Computational Linguistics: NAACL
+2022, pages 2014–2029, Seattle, United States. Association for Computational Linguistics.
+Xiao Liu, Hanyu Lai, Hao Yu, Yifan Xu, Aohan
+Zeng, Zhengxiao Du, Peng Zhang, Yuxiao Dong,
+and Jie Tang. 2023. Webglm: Towards an efficient
+web-enhanced question answering system with human preferences. In Proceedings of the 29th ACM
+SIGKDD Conference on Knowledge Discovery and
+Data Mining, pages 4549–4560.
+Zihan Liu, Wei Ping, Rajarshi Roy, Peng Xu, Mohammad Shoeybi, and Bryan Catanzaro. 2024. Chatqa:
+Surpassing gpt-4 on conversational qa and rag. In
+NeurIPS.
+Ilya Loshchilov and Frank Hutter. 2019. Decoupled
+weight decay regularization. In International Conference on Learning Representations.
+Meta-AI. 2024. Llama 3 model card.
+Todor Mihaylov, Peter Clark, Tushar Khot, and Ashish
+Sabharwal. 2018. Can a suit of armor conduct electricity? a new dataset for open book question answering. In Proceedings of the 2018 Conference on
+Empirical Methods in Natural Language Processing,
+pages 2381–2391, Brussels, Belgium. Association
+for Computational Linguistics.
+
+[PAGE 12]
+John Miller, Karl Krauth, Benjamin Recht, and Ludwig
+Schmidt. 2020. The effect of natural distribution shift
+on question answering models. In Proceedings of the
+37th International Conference on Machine Learning,
+ICML 2020, 13-18 July 2020, Virtual Event, volume
+119 of Proceedings of Machine Learning Research,
+pages 6905–6916. PMLR.
+Harsha Nori, Yin Tat Lee, Sheng Zhang, Dean Carignan, Richard Edgar, Nicolo Fusi, Nicholas King,
+Jonathan Larson, Yuanzhi Li, Weishung Liu, et al.
+2023. Can generalist foundation models outcompete special-purpose tuning? case study in medicine.
+arXiv preprint arXiv:2311.16452.
+OpenAI. 2022. Introducing ChatGPT.
+OpenAI. 2023. GPT-4.
+Oded Ovadia, Menachem Brief, Moshik Mishaeli, and
+Oren Elisha. 2023. Fine-tuning or retrieval? comparing knowledge injection in llms. ArXiv preprint,
+abs/2312.05934.
+Ankit Pal, Logesh Kumar Umapathi, and Malaikannan Sankarasubbu. 2022. Medmcqa: A large-scale
+multi-subject multi-choice dataset for medical domain question answering. In CHIL.
+Richard Yuanzhe Pang, Weizhe Yuan, Kyunghyun Cho,
+He He, Sainbayar Sukhbaatar, and Jason Weston.
+2024. Iterative reasoning preference optimization. In
+NeurIPS.
+Jungsoo Park, Sewon Min, Jaewoo Kang, Luke Zettlemoyer, and Hannaneh Hajishirzi. 2022. FaVIQ: FAct
+verification from information-seeking questions. In
+Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1:
+Long Papers), pages 5154–5166, Dublin, Ireland. Association for Computational Linguistics.
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine
+Lee, Sharan Narang, Michael Matena, Yanqi Zhou,
+Wei Li, and Peter J Liu. 2020. Exploring the limits of transfer learning with a unified text-to-text
+transformer. Journal of machine learning research,
+21(140):1–67.
+Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, and
+Percy Liang. 2016. SQuAD: 100,000+ questions for
+machine comprehension of text. In Proceedings of
+the 2016 Conference on Empirical Methods in Natural Language Processing, pages 2383–2392, Austin,
+Texas. Association for Computational Linguistics.
+Chuck Rosenberg, Martial Hebert, and Henry Schneiderman. 2005. Semi-supervised self-training of object detection models. In 2005 Seventh IEEE Workshops on Applications of Computer Vision (WACV/MOTION’05).
+Tobias Schimanski, Jingwei Ni, Mathias Kraus, Elliott
+Ash, and Markus Leippold. 2024. Towards faithful and robust LLM specialists for evidence-based
+question-answering. In Proceedings of the 62nd Annual Meeting of the Association for Computational
+Linguistics (Volume 1: Long Papers), pages 1913–
+1931, Bangkok, Thailand. Association for Computational Linguistics.
+Weijia Shi, Sewon Min, Michihiro Yasunaga, Minjoon
+Seo, Rich James, Mike Lewis, Luke Zettlemoyer, and
+Wen-tau Yih. 2024a. Replug: Retrieval-augmented
+black-box language models. In NAACL.
+Wenqi Shi, Ran Xu, Yuchen Zhuang, Yue Yu, Hang Wu,
+Carl Yang, and May D Wang. 2024b. Medadapter:
+Efficient test-time adaptation of large language models towards medical reasoning. In EMNLP.
+Kurt Shuster, Spencer Poff, Moya Chen, Douwe Kiela,
+and Jason Weston. 2021. Retrieval augmentation
+reduces hallucination in conversation. In Findings
+of the Association for Computational Linguistics:
+EMNLP 2021, pages 3784–3803, Punta Cana, Dominican Republic. Association for Computational
+Linguistics.
+Xiaoshuai Song, Muxi Diao, Guanting Dong,
+Zhengyang Wang, Yujia Fu, Runqi Qiao, Zhexu
+Wang, Dayuan Fu, Huangxuan Wu, Bin Liang, et al.
+2024. Cs-bench: A comprehensive benchmark for
+large language models towards computer science
+mastery. ArXiv preprint, abs/2406.08587.
+Weihang Su, Yichen Tang, Qingyao Ai, Zhijing Wu,
+and Yiqun Liu. 2024. DRAGIN: Dynamic retrieval
+augmented generation based on the real-time information needs of large language models. In Proceedings
+of the 62nd Annual Meeting of the Association for
+Computational Linguistics (Volume 1: Long Papers),
+pages 12991–13013, Bangkok, Thailand. Association
+for Computational Linguistics.
+Gemma Team, Morgane Riviere, Shreya Pathak,
+Pier Giuseppe Sessa, Cassidy Hardin, Surya Bhupatiraju, Léonard Hussenot, Thomas Mesnard, Bobak
+Shahriari, Alexandre Ramé, et al. 2024. Gemma 2:
+Improving open language models at a practical size.
+ArXiv preprint, abs/2408.00118.
+James Thorne, Andreas Vlachos, Christos
+Christodoulopoulos, and Arpit Mittal. 2018.
+FEVER: a large-scale dataset for fact extraction
+and VERification. In Proceedings of the 2018
+Conference of the North American Chapter of
+the Association for Computational Linguistics:
+Human Language Technologies, Volume 1 (Long
+Papers), pages 809–819, New Orleans, Louisiana.
+Association for Computational Linguistics.
+George Tsatsaronis, Georgios Balikas, Prodromos
+Malakasiotis, Ioannis Partalas, Matthias Zschunke,
+Michael R Alvers, Dirk Weissenborn, Anastasia
+Krithara, Sergios Petridis, Dimitris Polychronopoulos, et al. 2015. An overview of the bioasq large-scale
+biomedical semantic indexing and question answering competition. BMC bioinformatics.
+
+[PAGE 13]
+Tu Vu, Minh-Thang Luong, Quoc Le, Grady Simon, and
+Mohit Iyyer. 2021. STraTA: Self-training with task
+augmentation for better few-shot learning. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing , pages 5715–
+5731, Online and Punta Cana, Dominican Republic.
+Association for Computational Linguistics.
+David Wadden, Kejian Shi, Jacob Morrison, Aakanksha
+Naik, Shruti Singh, Nitzan Barzilay, Kyle Lo, Tom
+Hope, Luca Soldaini, Shannon Zejiang Shen, et al.
+2024. Sciriff: A resource to enhance language model
+instruction-following over scientific literature. ArXiv
+preprint, abs/2406.07835.
+Haoyu Wang, Tuo Zhao, and Jing Gao. 2024. Blendfilter: Advancing retrieval-augmented large language
+models via query generation blending and knowledge
+filtering. In EMNLP.
+Kexin Wang, Nandan Thakur, Nils Reimers, and Iryna
+Gurevych. 2022. GPL: Generative pseudo labeling
+for unsupervised domain adaptation of dense retrieval.
+In Proceedings of the 2022 Conference of the North
+American Chapter of the Association for Computational Linguistics: Human Language Technologies,
+pages 2345–2360, Seattle, United States. Association
+for Computational Linguistics.
+Yaqing Wang, Subhabrata Mukherjee, Haoda Chu,
+Yuancheng Tu, Ming Wu, Jing Gao, and Ahmed Hassan Awadallah. 2021. Meta self-training for few-shot
+neural sequence labeling. In Proceedings of the 27th
+ACM SIGKDD Conference on Knowledge Discovery
+& Data Mining, pages 1737–1747.
+Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa
+Liu, Noah A Smith, Daniel Khashabi, and Hannaneh
+Hajishirzi. 2023a. Self-instruct: Aligning language
+models with self-generated instructions. In ACL.
+Yubo Wang, Xueguang Ma, and Wenhu Chen. 2023b.
+Augmenting black-box llms with medical textbooks
+for clinical question answering. ArXiv preprint ,
+abs/2309.02233.
+Zhepei Wei, Wei-Lin Chen, and Yu Meng. 2024.
+Instructrag: Instructing retrieval-augmented generation with explicit denoising. ArXiv preprint ,
+abs/2406.13629.
+Johannes Welbl, Nelson F. Liu, and Matt Gardner. 2017.
+Crowdsourcing multiple choice science questions.
+In Proceedings of the 3rd Workshop on Noisy Usergenerated Text, pages 94–106, Copenhagen, Denmark. Association for Computational Linguistics.
+Chaoyi Wu, Weixiong Lin, Xiaoman Zhang, Ya Zhang,
+Weidi Xie, and Yanfeng Wang. 2024. Pmc-llama:
+toward building open-source language models for
+medicine. Journal of the American Medical Informatics Association, page ocae045.
+Guangzhi Xiong, Qiao Jin, Zhiyong Lu, and Aidong
+Zhang. 2024. Benchmarking retrieval-augmented
+generation for medicine. In Findings of the Association for Computational Linguistics ACL 2024, pages
+6233–6251, Bangkok, Thailand and virtual meeting.
+Association for Computational Linguistics.
+Fangyuan Xu, Weijia Shi, and Eunsol Choi. 2024a. RECOMP: Improving retrieval-augmented LMs with
+context compression and selective augmentation. In
+ICLR.
+Ran Xu, Wenqi Shi, Yue Yu, Yuchen Zhuang, Yanqiao
+Zhu, May D Wang, Joyce C Ho, Chao Zhang, and
+Carl Yang. 2024b. Bmretriever: Tuning large language models as better biomedical text retrievers. In
+EMNLP.
+Ori Yoran, Tomer Wolfson, Ori Ram, and Jonathan
+Berant. 2024. Making retrieval-augmented language
+models robust to irrelevant context. In ICLR.
+Wenhao Yu, Hongming Zhang, Xiaoman Pan, Kaixin
+Ma, Hongwei Wang, and Dong Yu. 2023. Chain-ofnote: Enhancing robustness in retrieval-augmented
+language models. In EMNLP.
+Yue Yu, Wei Ping, Zihan Liu, Boxin Wang, Jiaxuan You,
+Chao Zhang, Mohammad Shoeybi, and Bryan Catanzaro. 2024. Rankrag: Unifying context ranking with
+retrieval-augmented generation in llms. In NeurIPS.
+Weizhe Yuan, Richard Yuanzhe Pang, Kyunghyun Cho,
+Sainbayar Sukhbaatar, Jing Xu, and Jason Weston.
+2024. Self-rewarding language models. In ICML.
+Dan Zhang, Ziniu Hu, Sining Zhoubian, Zhengxiao Du,
+Kaiyu Yang, Zihan Wang, Yisong Yue, Yuxiao Dong,
+and Jie Tang. 2024a. Sciglm: Training scientific
+language models with self-reflective instruction annotation and tuning. ArXiv preprint, abs/2401.07950.
+Kaiyan Zhang, Sihang Zeng, Ermo Hua, Ning Ding,
+Zhang-Ren Chen, Zhiyuan Ma, Haoxin Li, Ganqu
+Cui, Biqing Qi, Xuekai Zhu, et al. 2024b. Ultramedical: Building specialized generalists in biomedicine.
+arXiv preprint arXiv:2406.03949.
+Tianjun Zhang, Shishir G Patil, Naman Jain, Sheng
+Shen, Matei Zaharia, Ion Stoica, and Joseph E. Gonzalez. 2024c. RAFT: Adapting language model to
+domain specific RAG. In COLM.
+Xinlu Zhang, Chenxin Tian, Xianjun Yang, Lichang
+Chen, Zekun Li, and Linda Ruth Petzold. 2023.
+Alpacare: Instruction-tuned large language models for medical application. arXiv preprint
+arXiv:2310.14558.
+Fengbin Zhu, Wenqiang Lei, Youcheng Huang, Chao
+Wang, Shuo Zhang, Jiancheng Lv, Fuli Feng, and TatSeng Chua. 2021. TAT-QA: A question answering
+benchmark on a hybrid of tabular and textual content in finance. In Proceedings of the 59th Annual
+Meeting of the Association for Computational Linguistics and the 11th International Joint Conference
+on Natural Language Processing (Volume 1: Long
+Papers), pages 3277–3287, Online. Association for
+Computational Linguistics.
+
+[PAGE 14]
+A Training Data Details
+We include the training dataset, the number of examples used in each stage, as well as the instruction
+format in Table 7.
+B Test Data Details
+We evaluate on 11 datasets in total from the medical, scientific and computer science domain. (1)
+Medical:
+• MMLU-med (Hendrycks et al., 2021) is a subset of six tasks related to biomedicine, including anatomy, clinical knowledge, professional
+medicine, human genetics, college medicine, and
+college biology. It contains 1089 questions in
+total.
+• MedMCQA (Pal et al., 2022) includes multiplechoice questions derived from Indian medical
+entrance exams, covering 2400 healthcare topics
+across 21 medical subjects. We use the 4,183question development set from MedMCQA, as
+the test set lacks provided ground truths.
+• MedQA (Jin et al., 2021) is collected from the US
+Medical Licensing Examination, containing 1273
+four-option multiple-choice questions focused on
+real-world scenarios from professional medical
+board exams.
+• BioASQ (Tsatsaronis et al., 2015) includes 618
+questions constructed from biomedical literature
+without providing the ground truth snippets, challenging RAG systems to infer answers independently.
+• PubMedQA (Jin et al., 2019) is a biomedical research QA dataset consisting of 1000 manually
+annotated questions based on PubMed abstracts.
+Answers in PubMedQA are structured as yes/no/maybe to reflect the validity of the questions.
+• LiveQA (Abacha et al., 2017) and MedicationQA (Abacha et al., 2019) are two QA datasets
+focusing on answering consumer health questions about medications, including 100 and 674
+question-answer pairs, respectively.
+(2) Scientific:
+• SciQ (Welbl et al., 2017) is a scientific questionanswering dataset containing 13,679 crowdsourced science exam questions about Physics,
+Chemistry, and Biology, among others.
+• ARC-easy/challenge (Clark et al., 2018) contains
+7,787 authentic multiple-choice science questions at the grade-school level, designed to foster advanced question-answering research. The
+dataset is divided into a Challenge Set, with questions that stumped both a retrieval-based and a
+word co-occurrence algorithm, and an Easy Set.
+• MMLU-Sci (Hendrycks et al., 2021) is the Massive Multitask Language Understanding dataset,
+designed to test a wide range of language understanding abilities across 57 tasks. In this work,
+we select 14 subjects to ensure the evaluation is
+not limited to certain fields.
+(3) Computer Science:
+• CS-Bench (Song et al., 2024) is a recentlyproposed benchmark specifically designed to assess the performance of large language models
+(LLMs) in computer science. It contains around
+5,000 carefully selected test samples that span 26
+subfields within four major areas of computer science, covering various task forms and divisions
+of knowledge and reasoning.
+C Baseline Descriptions
+• Self-RAG (Asai et al., 2024) utilizes instruction
+fine-tuning to adaptively retrieve passages based
+on the question and determine if the passage contains useful information for answering the question.
+• ChatQA (Liu et al., 2024) is a fine-tuning
+pipeline tailored for RAG and conversational QA
+tasks via aggregating multiple QA and dialogue
+datasets.
+• RAFT (Zhang et al., 2024c) is a domain-specific
+fine-tuning approach that incorporates top-k passages as context during fine-tuning, helping to
+address discrepancies between training and testing data.
+• EvidenceRAG (Schimanski et al., 2024) leverage
+off-the-shelf LLMs (GPT-4) to generate contextaware question answering datasets, which is then
+used to fine-tune the student model.
+D Additional Experimental Results
+We list the per-task results of MMLU-sci in Table 8.
+
+[TABLE page=14 index=1]
+Columns: • | MMLU-med (Hendrycks et al., 2021) is a sub- | Unnamed: 0
+Row 1: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: standing abilities across 57 tasks. In this work,
+Row 2: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: set of six tasks related to biomedicine, includ- | Unnamed: 0:
+Row 3: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: we select 14 subjects to ensure the evaluation is
+Row 4: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: ing anatomy, clinical knowledge, professional | Unnamed: 0:
+Row 5: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: not limited to certain fields.
+Row 6: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: medicine, human genetics, college medicine, and | Unnamed: 0:
+Row 7: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: college biology. It contains 1089 questions in | Unnamed: 0: (3) Computer Science:
+Row 8: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: total. | Unnamed: 0:
+Row 9: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: • | Unnamed: 0: CS-Bench (Song et al., 2024) is a recentlyRow 10: •: • | MMLU-med (Hendrycks et al., 2021) is a sub-: MedMCQA (Pal et al., 2022) includes multiple- | Unnamed: 0:
+Row 11: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: proposed benchmark specifically designed to asRow 12: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: choice questions derived from Indian medical | Unnamed: 0:
+Row 13: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: sess the performance of large language models
+Row 14: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: entrance exams, covering 2400 healthcare topics | Unnamed: 0:
+Row 15: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: (LLMs) in computer science. It contains around
+Row 16: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: across 21 medical subjects. We use the 4,183- | Unnamed: 0:
+Row 17: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: 5,000 carefully selected test samples that span 26
+Row 18: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: question development set from MedMCQA, as | Unnamed: 0:
+Row 19: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: subfields within four major areas of computer sciRow 20: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: the test set lacks provided ground truths. | Unnamed: 0:
+Row 21: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: ence, covering various task forms and divisions
+Row 22: •: • | MMLU-med (Hendrycks et al., 2021) is a sub-: MedQA (Jin et al., 2021) is collected from the US | Unnamed: 0: of knowledge and reasoning.
+Row 23: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: Medical Licensing Examination, containing 1273 | Unnamed: 0:
+Row 24: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: C | Unnamed: 0: Baseline Descriptions
+Row 25: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: four-option multiple-choice questions focused on | Unnamed: 0:
+Row 26: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: real-world scenarios from professional medical • | Unnamed: 0: Self-RAG (Asai et al., 2024) utilizes instruction
+Row 27: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: board exams. | Unnamed: 0: fine-tuning to adaptively retrieve passages based
+Row 28: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: on the question and determine if the passage conRow 29: •: • | MMLU-med (Hendrycks et al., 2021) is a sub-: BioASQ (Tsatsaronis et al., 2015) includes 618 | Unnamed: 0:
+Row 30: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: tains useful information for answering the quesRow 31: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: questions constructed from biomedical literature | Unnamed: 0:
+Row 32: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: tion.
+Row 33: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: without providing the ground truth snippets, chal- | Unnamed: 0:
+Row 34: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: lenging RAG systems to infer answers indepen- | Unnamed: 0:
+Row 35: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: • | Unnamed: 0: ChatQA (Liu et al., 2024) is a fine-tuning
+Row 36: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: dently. | Unnamed: 0:
+Row 37: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: pipeline tailored for RAG and conversational QA
+Row 38: •: • | MMLU-med (Hendrycks et al., 2021) is a sub-: PubMedQA (Jin et al., 2019) is a biomedical re- | Unnamed: 0: tasks via aggregating multiple QA and dialogue
+Row 39: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: search QA dataset consisting of 1000 manually | Unnamed: 0: datasets.
+Row 40: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: annotated questions based on PubMed abstracts. | Unnamed: 0:
+Row 41: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: RAFT (Zhang et al., 2024c) is a domain-specificAnswers in PubMedQA are structured as yes/no/-• | Unnamed: 0:
+Row 42: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: fine-tuning approach that incorporates top-k pas-maybe to reflect the validity of the questions. | Unnamed: 0:
+Row 43: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: sages as context during fine-tuning, helping to
+Row 44: •: • | MMLU-med (Hendrycks et al., 2021) is a sub-: LiveQA (Abacha et al., 2017) and Medica- | Unnamed: 0: address discrepancies between training and testRow 45: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: tionQA (Abacha et al., 2019) are two QA datasets | Unnamed: 0: ing data.
+Row 46: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: focusing on answering consumer health ques- | Unnamed: 0:
+Row 47: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: tions about medications, including 100 and 674 • | Unnamed: 0: EvidenceRAG (Schimanski et al., 2024) leverage
+Row 48: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: question-answer pairs, respectively. | Unnamed: 0: off-the-shelf LLMs (GPT-4) to generate contextRow 49: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: | Unnamed: 0: aware question answering datasets, which is then
+Row 50: •: | MMLU-med (Hendrycks et al., 2021) is a sub-: (2) Scientific: | Unnamed: 0: used to fine-tune the student model.
+Row 51: •: • | MMLU-med (Hendrycks et al., 2021) is a sub-: SciQ (Welbl et al., 2017) is a scientific question- | Unnamed: 0:
+[/TABLE]
+
+[TABLE page=14 index=2]
+Columns: Unnamed: 0 | Unnamed: 1 | ter advanced question-answering research. The
+Row 1: Unnamed: 0: format in Table 7. | Unnamed: 1: | ter advanced question-answering research. The:
+Row 2: Unnamed: 0: | Unnamed: 1: | ter advanced question-answering research. The: dataset is divided into a Challenge Set, with quesRow 3: Unnamed: 0: B Test Data Details | Unnamed: 1: | ter advanced question-answering research. The: tions that stumped both a retrieval-based and a
+Row 4: Unnamed: 0: | Unnamed: 1: | ter advanced question-answering research. The: word co-occurrence algorithm, and an Easy Set.
+Row 5: Unnamed: 0: We evaluate on 11 datasets in total from the med- | Unnamed: 1: | ter advanced question-answering research. The:
+Row 6: Unnamed: 0: ical, scientific and computer science domain. (1) | Unnamed: 1: • | ter advanced question-answering research. The: MMLU-Sci (Hendrycks et al., 2021) is the MasRow 7: Unnamed: 0: Medical: | Unnamed: 1: | ter advanced question-answering research. The: sive Multitask Language Understanding dataset,
+[/TABLE]
+
+[PAGE 15]
+Table 7: The blending ratio of different datasets with their specific prompt format in Stage-I and Stage-II fine-tuning.
+For Stage-II Pseudo-labeled QA Samples, the two numbers represent the # sample for the Llama and Gemma
+backbones, respectively.
+Dataset Specific Instruction Stage-I Stage-I Stage-II Stage-II# Samples Blending Ratio # Samples Blending Ratio
+Instruction Fine-tuning
+ChatQA SFT Data — 60000 0.18 128000 0.12
+Question Answering
+DROP
+Answer the following question with a short span.
+12000 0.034 29195 0.04
+NarrativeQA 12000 0.034 40000 0.04
+Quoref 4800 0.014 10996 0.015
+ROPES 4800 0.014 10924 0.015
+Squad1.1 16000 0.045 40000 0.035
+Squad2.0 16000 0.045 52474 0.05
+OpenbookQA Answer the following question by selecting one of the providedoptions with A, B, C, or D. Please answer with the capitalizedalphabet only, without adding any extra phrase or period.
+2000 0.006 82092 0.005
+LogiQA 4000 0.012 7376 0.006
+NQ Answer the following question with a short phrase.16000 0.045 46426 0.04
+TatQA-arithmeticAnswer the following question with a number from context or themath arithmetic using +,-,*, or /. 8325 0.045 24975 0.034
+TatQA-others Answer the following question with a short span, or a full andcomplete answer. 3176 0.023 9528 0.013
+WebGLM
+Please give a full and complete answer for the question using onlythe provided search results (some of which might be irrelevant)and cite them properly. Use an unbiased and journalistic tone.When citing several search results, use [1][2][3].
+12000 0.034 43579 0.023
+StrategyQA Answer the following question with Yes or No.1526 0.005 4578 0.006
+BoolQ 4000 0.012 9427 0.013
+FaVIQ Answer the following question with Yes or No. Is the statement{claim} correct? 2000 0.006 10906 0.01
+FEVER 2000 0.006 10444 0.01
+Pseudo-labeled Question Answering
+Short-span QA Answer the following question with a short span.— — 150,000 / 45,000 0.2625
+Multiple-choice QAAnswer the following question by selecting one of the providedoptions with A, B, C, or D. Please answer with the capitalizedalphabet only, without adding any extra phrase or period.— — 50,000 / 15,000 0.0875
+Claim VerificationAnswer the following question with Yes or No. Is the statement{claim} correct? — — 100,000 / 30,000 0.175
+Answer Generaion
+Squad1.1 Based on the context, generate candidate spans within the passagethat are likely to be answers to a question. Separate differentcandidate answers with a semicolon (’;’).
+18877 0.063 — —
+Squad2.0 18863 0.059 — —
+DROP 4984 0.023 — —
+WebQuestions 1084 0.012 — —
+Query Generaion
+NQ
+Based on the context, please generate a question. The answer tothe question should be {answer}.
+20000 0.068 — —
+Squad1.1 20000 0.068 — —
+StrategyQA 131 0.023 — —
+WebQuestions 24000 0.068 — —
+FaVIQ Based on the context, please generate a claim that can besupported/refuted by the context.
+10000 0.028 — —
+FEVER 10000 0.028 — —
+E Prompt Details
+E.1 Answer Generation
+[System]
+[Context]
+Based on the context , generate
+several candidate spans within
+the passage that are likely to be
+answers to a question . The
+answers can be entities , verbs or
+even numbers . Make sure that the
+answers are different and
+diverse . Separate different
+
+[TABLE page=15 index=1]
+Columns: DROP | Unnamed: 0 | 12000 0.034 | 29195 | 0.04
+Row 1: DROP: NarrativeQA | Unnamed: 0: | 12000 0.034: 12000 0.034 | 29195: 40000.0 | 0.04: 0.04
+Row 2: DROP: Quoref | Unnamed: 0: | 12000 0.034: 4800 0.014 | 29195: 10996.0 | 0.04: 0.015
+Row 3: DROP: | Unnamed: 0: Answer the following question with a short span. | 12000 0.034: | 29195: | 0.04:
+Row 4: DROP: ROPES | Unnamed: 0: | 12000 0.034: 4800 0.014 | 29195: 10924.0 | 0.04: 0.015
+Row 5: DROP: Squad1.1 | Unnamed: 0: | 12000 0.034: 16000 0.045 | 29195: 40000.0 | 0.04: 0.035
+Row 6: DROP: Squad2.0 | Unnamed: 0: | 12000 0.034: 16000 0.045 | 29195: 52474.0 | 0.04: 0.05
+Row 7: DROP: OpenbookQA | Unnamed: 0: Answer the following question by selecting one of the provided | 12000 0.034: 2000 0.006 | 29195: 82092.0 | 0.04: 0.005
+Row 8: DROP: | Unnamed: 0: options with A, B, C, or D. Please answer with the capitalized | 12000 0.034: | 29195: | 0.04:
+Row 9: DROP: LogiQA | Unnamed: 0: 0.006alphabet only, without adding any extra phrase or period. | 12000 0.034: 4000 0.012 | 29195: 7376.0 | 0.04:
+Row 10: DROP: NQ | Unnamed: 0: Answer the following question with a short phrase. | 12000 0.034: 16000 0.045 | 29195: 46426.0 | 0.04: 0.04
+Row 11: DROP: | Unnamed: 0: Answer the following question with a number from context or the | 12000 0.034: | 29195: | 0.04:
+Row 12: DROP: TatQA-arithmetic | Unnamed: 0: | 12000 0.034: 8325 0.045 | 29195: 24975.0 | 0.04: 0.034
+Row 13: DROP: | Unnamed: 0: math arithmetic using +,-,*, or /. | 12000 0.034: | 29195: | 0.04:
+Row 14: DROP: | Unnamed: 0: Answer the following question with a short span, or a full and | 12000 0.034: | 29195: | 0.04:
+Row 15: DROP: TatQA-others | Unnamed: 0: | 12000 0.034: 3176 0.023 | 29195: 9528.0 | 0.04: 0.013
+Row 16: DROP: | Unnamed: 0: complete answer. | 12000 0.034: | 29195: | 0.04:
+Row 17: DROP: | Unnamed: 0: Please give a full and complete answer for the question using only | 12000 0.034: | 29195: | 0.04:
+Row 18: DROP: | Unnamed: 0: the provided search results (some of which might be irrelevant) | 12000 0.034: | 29195: | 0.04:
+Row 19: DROP: WebGLM | Unnamed: 0: | 12000 0.034: 12000 0.034 | 29195: 43579.0 | 0.04: 0.023
+Row 20: DROP: | Unnamed: 0: and cite them properly. Use an unbiased and journalistic tone. | 12000 0.034: | 29195: | 0.04:
+Row 21: DROP: | Unnamed: 0: When citing several search results, use [1][2][3]. | 12000 0.034: | 29195: | 0.04:
+Row 22: DROP: StrategyQA | Unnamed: 0: | 12000 0.034: 1526 0.005 | 29195: 4578.0 | 0.04: 0.006
+Row 23: DROP: | Unnamed: 0: Answer the following question with Yes or No. | 12000 0.034: | 29195: | 0.04:
+Row 24: DROP: BoolQ | Unnamed: 0: | 12000 0.034: 4000 0.012 | 29195: 9427.0 | 0.04: 0.013
+Row 25: DROP: FaVIQ | Unnamed: 0: Answer the following question with Yes or No. Is the statement | 12000 0.034: 2000 0.006 | 29195: 10906.0 | 0.04: 0.01
+Row 26: DROP: | Unnamed: 0: {claim} correct? | 12000 0.034: | 29195: | 0.04:
+Row 27: DROP: FEVER | Unnamed: 0: | 12000 0.034: 2000 0.006 | 29195: 10444.0 | 0.04: 0.01
+[/TABLE]
+
+[TABLE page=15 index=2]
+Columns: Unnamed: 0 | Unnamed: 1 | Stage-I | Stage-I.1 | Stage-II | Stage-II.1
+Row 1: Unnamed: 0: Dataset | Unnamed: 1: Specific Instruction | Stage-I: | Stage-I.1: | Stage-II: | Stage-II.1:
+Row 2: Unnamed: 0: | Unnamed: 1: | Stage-I: # Samples | Stage-I.1: Blending Ratio | Stage-II: # Samples | Stage-II.1: Blending Ratio
+[/TABLE]
+
+[PAGE 16]
+Table 8: Results of our proposed method and baselines in the scientific domain.
+Models astronomycollege college college computer high school high school high school high school high school high school humannutrition virology Avg.biology chemistry physics security geography macroeconomics microeconomics psychology US history world history sexualityMetrics ACC ACC ACC ACC ACC ACC ACC ACC ACC ACC ACC ACC ACC ACC —Proprietary LLMs, For Reference OnlyGPT-3.5 (OpenAI, 2022)66.45 65.28 35.00 46.53 65.00 77.27 91.54 64.29 83.12 78.43 72.15 70.99 66.01 47.59 66.40GPT-4 (OpenAI, 2023)93.42 93.75 61.00 73.27 91.00 94.95 97.95 94.54 96.15 95.59 94.51 93.13 89.22 56.02 87.46Scientific LLMsSciTulu 7B (Wadden et al., 2024)69.74 63.89 31.00 18.63 62.00 70.20 56.58 57.08 77.43 53.06 57.38 65.65 54.90 45.78 55.95SciTulu 70B (Wadden et al., 2024)83.55 80.56 36.00 28.43 83.00 89.39 80.26 79.83 91.19 77.55 77.22 78.63 68.95 50.60 71.80Retrieval-Augmented LLMsSelf-RAG 13B (Asai et al., 2024)55.26 58.33 24.00 21.57 60.00 61.11 32.89 45.49 67.89 58.67 58.23 53.44 43.79 40.96 48.69ChatQA 8B (Liu et al., 2024)60.53 54.17 29.00 33.33 70.00 64.65 51.32 58.37 74.86 49.49 54.85 59.54 57.19 45.18 54.46ChatQA 70B (Liu et al., 2024)82.89 79.17 46.00 48.04 83.00 84.85 80.26 84.98 91.7486.73 82.28 74.05 77.78 51.20 75.21Backbone: Llama3-8B-InstructLlama3-8B-it (Meta-AI, 2024)78.29 71.53 38.00 40.20 83.00 82.32 63.16 72.96 84.04 65.31 72.15 69.47 70.26 49.40 67.15RAFT 8B (Zhang et al., 2024c)80.26 75.69 37.00 42.16 84.00 79.80 65.79 74.68 83.67 72.45 77.22 73.28 71.24 51.81 69.22EvidenceRAG 8B (Schimanski et al., 2024)77.63 78.47 44.00 45.10 85.00 84.85 72.37 74.68 86.24 74.49 79.32 74.05 74.84 51.20 71.59SimRAG 8B 85.5381.9447.0050.9888.0089.90 76.32 84.55 92.66 83.16 81.4384.7381.3754.8277.31w/o Stage II 84.87 81.2549.0049.02 87.0088.89 73.68 82.83 90.64 80.61 81.01 83.21 79.41 51.81 75.95Backbone: Gemma2-27B-InstructGemma2-27B-it (Team et al., 2024)82.89 84.03 47.0055.88 84.00 89.39 77.63 81.12 91.93 80.61 84.81 81.68 72.22 52.40 76.11RAFT 27B (Zhang et al., 2024c)84.87 88.8947.0063.7386.00 90.91 86.84 84.55 93.58 81.12 85.65 81.68 76.47 51.81 78.79EvidenceRAG 27B (Schimanski et al., 2024)84.87 87.5049.0060.78 86.00 91.4186.84 85.41 93.94 81.63 86.08 81.68 76.80 51.81 78.84SimRAG 27B 90.1391.6749.0068.6387.0092.42 85.53 87.98 95.05 84.18 86.9285.5078.4355.4281.28w/o Stage II 84.21 87.5049.0059.80 84.00 89.90 84.21 82.83 93.58 83.16 86.50 81.68 76.14 54.8278.38
+candidate answers with a
+semicolon ( '; ') .
+E.2 Query Generation
+[System]
+[Context]
+Based on the context , please
+generate a question that is
+relevant to the information
+provided . The question should
+stand alone and not refer back to
+the context explicitly . The
+question should be clear and
+understandable without needing
+the context . The answer to the
+question should be [Answer].
+E.3 Inference
+[System]
+[Top 10 Contexts]
+[Specific Instruction]
+[Question]
+The [Specifc Instruction] for each evaluation
+dataset depends on their question type and can refer
+to those in Table 7.
+
+[TABLE page=16 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | college | college.1 | college.2 | computer | high school | high school.1 | high school.2 | high school.3 | high school.4 | high school.5 | human | Unnamed: 2 | Unnamed: 3 | Unnamed: 4
+Row 1: Unnamed: 0: Models | Unnamed: 1: astronomy | college: | college.1: | college.2: | computer: | high school: | high school.1: | high school.2: | high school.3: | high school.4: | high school.5: | human: | Unnamed: 2: nutrition | Unnamed: 3: virology | Unnamed: 4: Avg.
+Row 2: Unnamed: 0: | Unnamed: 1: | college: biology | college.1: chemistry | college.2: physics | computer: security | high school: geography | high school.1: macroeconomics | high school.2: microeconomics | high school.3: psychology | high school.4: US history | high school.5: world history | human: sexuality | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+[/TABLE]

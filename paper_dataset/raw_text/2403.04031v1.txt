@@ -1,0 +1,1530 @@
+[PAGE 1]
+Can Large Language Models do Analytical Reasoning?
+Yebowen Hu⋆, Kaiqiang Song†, Sangwoo Cho†, Xiaoyang Wang†
+Hassan Foroosh⋆, Dong Yu†, Fei Liu⋄
+⋆University of Central Florida †Tencent AI Lab, Bellevue, WA ⋄Emory University
+{yebowen.hu, hassan.foroosh }@ucf.edu
+{riversong, swcho, shawnxywang, dyu }@global.tencent.com
+fei.liu@emory.edu
+Abstract
+This paper explores the cutting-edge Large Language Model with analytical reasoning on sports. Our analytical reasoning embodies the tasks of
+letting large language models count how many points each team scores in
+a quarter in the NBA and NFL games. Our major discoveries are in two
+folds. Firstly, we find among all the models we employed, GPT-4 stands
+out in effectiveness, followed by Claude-2.1, with GPT-3.5, Gemini-Pro,
+and Llama-2-70b lagging behind. Specifically, we compare three different
+prompting techniques and a divide-and-conquer approach, we find that
+the latter was the most effective. Our divide-and-conquer approach breaks
+down play-by-play data into smaller, more manageable segments, solves
+each piece individually, and then aggregates them together. Besides the
+divide-and-conquer approach, we also explore the Chain of Thought (CoT)
+strategy, which markedly improves outcomes for certain models, notably
+GPT-4 and Claude-2.1, with their accuracy rates increasing significantly.
+However, the CoT strategy has negligible or even detrimental effects on
+the performance of other models like GPT-3.5 and Gemini-Pro. Secondly,
+to our surprise, we observe that most models, including GPT-4, struggle to
+accurately count the total scores for NBA quarters despite showing strong
+performance in counting NFL quarter scores. This leads us to further investigate the factors that impact the complexity of analytical reasoning tasks
+with extensive experiments, through which we conclude that task complexity depends on the length of context, the information density, and the
+presence of related information. Our research provides valuable insights
+into the complexity of analytical reasoning tasks and potential directions
+for developing future large language models.
+1 Introduction
+In recent years, advancements in large language models have been remarkable, with OpenAI’s ChatGPT (OpenAI, 2023a) leading the way in demonstrating exceptional capabilities
+across a broad spectrum of natural language processing tasks. These tasks encompass
+information extraction (Lu et al., 2023; Liu et al., 2023a), question answering (Tonmoy et al.,
+2024; Tan et al., 2023), natural language understanding (Mao et al., 2023; Liu et al., 2023b),
+text generation (Sun et al., 2024; Zhao et al., 2023), translation (Fan et al., 2020; Wu et al.,
+2024), and summarization (Liu et al., 2023c; Hu et al., 2023). Additionally, ChatGPT exhibits a profound capacity to manipulate other data formats, including tables and code.
+Competing models, such as Anthropic’s Claude (Anthropic, 2023), Google’s Gemini (Team,
+2023), Meta’s Llama (Hugo et al., 2023), and Mistral’s Mixtral (MistralAI, 2023) have also
+displayed performance levels that are on par with benchmarks, showcasing their significant
+contributions to the field. However, such models remain imperfect as they lack some tasks
+like math (Zhu et al., 2023; Cobbe et al., 2021; Hendrycks et al., 2021) and complex reasoning (Masry et al., 2022; Chen et al., 2022). To evaluate the capabilities of recent cutting-edge
+language models in interpreting and analyzing sports statistics, our research focused on
+examining play-by-play data from the NBA and NFL, as provided by ESPN. The primary
+arXiv:2403.04031v1 [cs.CL] 6 Mar 2024
+
+[TABLE page=1 index=1]
+Columns: strategy, which markedly improves outcomes for certain models, notably
+Row 1: strategy, which markedly improves outcomes for certain models, notably: GPT-4 and Claude-2.1, with their accuracy rates increasing significantly.
+Row 2: strategy, which markedly improves outcomes for certain models, notably: However, the CoT strategy has negligible or even detrimental effects on
+Row 3: strategy, which markedly improves outcomes for certain models, notably: the performance of other models like GPT-3.5 and Gemini-Pro. Secondly,
+Row 4: strategy, which markedly improves outcomes for certain models, notably: to our surprise, we observe that most models, including GPT-4, struggle to
+Row 5: strategy, which markedly improves outcomes for certain models, notably: accurately count the total scores for NBA quarters despite showing strong
+Row 6: strategy, which markedly improves outcomes for certain models, notably: performance in counting NFL quarter scores. This leads us to further invesRow 7: strategy, which markedly improves outcomes for certain models, notably: tigate the factors that impact the complexity of analytical reasoning tasks
+Row 8: strategy, which markedly improves outcomes for certain models, notably: with extensive experiments, through which we conclude that task com-
+[/TABLE]
+
+[PAGE 2]
+Anthony
+Davis
+
+misses
+free
+throw
+of
+3:49
+Moses
+Moody
+
+defensive
+rebound
+3:46
+Jordan
+Poole
+
+makes
+14-foot
+jumper
+(
+Kevon
+Looney
+
+assists)
+3:34
+LeBron
+James
+
+makes
+driving
+layup
+3:10
+2:59
+Stephen ?
+Curry
+
+makes
+driving
+floating
+jump
+shot
+LeBron
+Ja?
+mes
+
+makes
+driving
+layup
+Lonnie
+Walker?
+IV
+
+personal
+foul
+Lakers
+Full
+timeout
+2:31
+2:22
+2:22
+63:81
+:81
+65:
+:83
+67:
+63:81
+63:81
+NBA
+Play
+By
+Play
+Descriptions
+Time
+Team
+Affiliations
+LeBron
+James,
+Anthony
+Davis,
+Lonnie
+Walker,
+...
+Los
+Angeles
+Lakers
+Stephen
+Curry,
+Moses
+Moody,
+Kevon
+Looney,
+...
+Golden
+State
+Warriors
+63:81
+Points
+How
+many
+points
+did
+each
+team
+score
+in
+the
+given
+game
+input?
+The
+Los
+Angeles
+Lakers
+
+scored
+
+points
+and
+Golden
+State
+Warriors
+
+made
+
+points
+as
+well
+Figure 1: Play-by-play descriptions of an NBA game, including timestamps, play-by-play descriptions, team affiliations and total points. The content indicated in dot circles are inputs for our task.
+The total points for both teams are withheld from LLMs. Highlighted descriptions are scoring moves
+originally labeled in source data. This image was created with the assistance of DALL·E
+goal was to assess the models’ ability to answer straightforward analytical questions, such
+as determining the total points scored by each team within a specific quarter. Figure 1
+illustrates an example of the task at hand, where both the team affiliations and the detailed
+play-by-play descriptions are provided. The AI system is then asked to count the total
+points scored by both teams in the game clip.
+Upon analyzing NBA data, it was observed that the majority of the models were unable to
+accurately respond to the queries posed. Our findings also revealed a significant disparity in
+performance among the evaluated models. Remarkably, GPT-4 emerged as the only model
+capable of delivering a somewhat accurate response to the posed questions, achieving an
+accuracy rate of 11%. In contrast, other models, including Claude-2.1, GPT-3.5, Gemini-Pro,
+and Llama-2-70b-chat, were found to have accuracy rates of less than 5%. Furthermore, we
+observed that incorporating a ”chain of thought” approach markedly improved outcomes
+for certain models. Specifically, GPT-4 and the Claude model benefited substantially from
+this technique, with their accuracy rates increasing to 40% and 17%, respectively. Conversely,
+this strategy yielded negligible or even detrimental effects on the performance of the other
+models.
+Additionally, rather than solely relying on the models, we sought to incorporate human
+insights through a divide-and-conquer method. This approach involves a program to
+segment play-by-play data into smaller, manageable segments. Subsequently, language
+models serve as executors to process these segments, extracting partial results. These partial
+results are then aggregated to formulate the final results. Our findings indicate a notable
+enhancement in performance through this approach, however, it continues to exhibit some
+limitations when applied to NBA games.
+Furthermore, analyses of NFL quarter results reveal consistent patterns across models and
+methodologies. Yet, as the complexity of the task decreases, the benefits of sophisticated
+methods diminish, rendering them unnecessary. These observations amplify our intent of
+understanding the factors that contribute to the difficulty of analytical reasoning tasks and
+understand why models struggle with these challenges.
+To achieve this goal, we formulated several hypotheses and carefully tested them through
+extensive experiments, focusing on a range of factors. Our detailed analyses indicate that
+context length and information density significantly influence task complexity. Moreover, it
+has been noticed that including relevant information, even if not essential, improves the
+model’s effectiveness.
+To conclude, we summarize our contributions into three parts:
+• We conducted experiments on NBA and NFL play-by-play data to investigate
+the analytical reasoning capabilities of LLMs. According to empirical evidence,
+
+[TABLE page=2 index=1]
+Columns: 3:49 Anthony Davis misses free throw 2 of 2 | 63:81 | Unnamed: 0 | Unnamed: 1
+Row 1: 3:49 Anthony Davis misses free throw 2 of 2: 3:46 Moses Moody defensive rebound | 63:81: 63:81 | Unnamed: 0: | Unnamed: 1:
+Row 2: 3:49 Anthony Davis misses free throw 2 of 2: 3:34 Jordan Poole makes 14-foot jumper (Kevon Looney assists) | 63:81: 65:81 | Unnamed: 0: | Unnamed: 1:
+Row 3: 3:49 Anthony Davis misses free throw 2 of 2: 3:10 LeBron James makes driving layup | 63:81: 65:83 | Unnamed: 0: | Unnamed: 1:
+Row 4: 3:49 Anthony Davis misses free throw 2 of 2: | 63:81: | Unnamed: 0: | Unnamed: 1: How many points did each team
+Row 5: 3:49 Anthony Davis misses free throw 2 of 2: 2:59 Stephen ?Curry makes driving floating jump shot | 63:81: 67:83 | Unnamed: 0: | Unnamed: 1: score in the given game input?
+Row 6: 3:49 Anthony Davis misses free throw 2 of 2: 2:31 LeBron Ja?mes makes driving layup | 63:81: 67:85 | Unnamed: 0: | Unnamed: 1:
+Row 7: 3:49 Anthony Davis misses free throw 2 of 2: | 63:81: | Unnamed: 0: | Unnamed: 1: The Los Angeles Lakers scored 4
+Row 8: 3:49 Anthony Davis misses free throw 2 of 2: 2:22 Lonnie Walker ?IV personal foul | 63:81: 63:81 | Unnamed: 0: | Unnamed: 1:
+Row 9: 3:49 Anthony Davis misses free throw 2 of 2: | 63:81: | Unnamed: 0: | Unnamed: 1: points and Golden State Warriors
+Row 10: 3:49 Anthony Davis misses free throw 2 of 2: 2:22 Lakers Full timeout | 63:81: 63:81 | Unnamed: 0: | Unnamed: 1: made 4 points as well
+Row 11: 3:49 Anthony Davis misses free throw 2 of 2: Team Affiliations | 63:81: | Unnamed: 0: | Unnamed: 1:
+Row 12: 3:49 Anthony Davis misses free throw 2 of 2: Los Angeles Lakers | 63:81: LeBron James, Anthony Davis, Lonnie Walker, ... | Unnamed: 0: | Unnamed: 1:
+Row 13: 3:49 Anthony Davis misses free throw 2 of 2: Golden State Warriors | 63:81: Stephen Curry, Moses Moody, Kevon Looney, ... | Unnamed: 0: | Unnamed: 1:
+[/TABLE]
+
+[TABLE page=2 index=2]
+Columns: accurately respond to the queries posed. Our findings also revealed a significant disparity in
+Row 1: accurately respond to the queries posed. Our findings also revealed a significant disparity in: performance among the evaluated models. Remarkably, GPT-4 emerged as the only model
+Row 2: accurately respond to the queries posed. Our findings also revealed a significant disparity in: capable of delivering a somewhat accurate response to the posed questions, achieving an
+Row 3: accurately respond to the queries posed. Our findings also revealed a significant disparity in: accuracy rate of 11%. In contrast, other models, including Claude-2.1, GPT-3.5, Gemini-Pro,
+Row 4: accurately respond to the queries posed. Our findings also revealed a significant disparity in: and Llama-2-70b-chat, were found to have accuracy rates of less than 5%. Furthermore, we
+Row 5: accurately respond to the queries posed. Our findings also revealed a significant disparity in: observed that incorporating a ”chain of thought” approach markedly improved outcomes
+Row 6: accurately respond to the queries posed. Our findings also revealed a significant disparity in: for certain models. Specifically, GPT-4 and the Claude model benefited substantially from
+Row 7: accurately respond to the queries posed. Our findings also revealed a significant disparity in: this technique, with their accuracy rates increasing to 40% and 17%, respectively. Conversely,
+Row 8: accurately respond to the queries posed. Our findings also revealed a significant disparity in: this strategy yielded negligible or even detrimental effects on the performance of the other
+[/TABLE]
+
+[PAGE 3]
+the current state-of-the-art language models (LLMs) are not capable of effectively
+solving such tasks.
+• Through extensive experiments, we found the context length, the information
+density and the presence of related information play an important role in affecting
+the task difficulty.
+• We propose that analytical reasoning can be viewed as a common assessment
+task for evaluating the planning abilities of LLMs. Our analysis of the divideand-conquer method shows that the skill of step planning is crucial for improved
+performance.
+2 Related Work
+Analytical Reasoning: Previous works on mathematical reasoning of LLMs emphasis
+on solving math world problems. Datasets include SVAMP (Patel et al., 2021), GSM8k
+(Cobbe et al., 2021) and PRM800K (Lightman et al., 2023) aggregate problems ranging
+from elementary to graduate level, benchmark LLMs according to reasoning paths and
+numerical results. Our proposed analytical reasoning task is distinguished from those
+works in terms of question length and reasoning complexity. We expect LLMs to perform
+contextual understand on sports descriptions and consistent addition operations across
+lengthy game input. Prompting Methods: As LLMs scale up, natural language instructions have become the dominant method to steer arithmetical ability of model (Wei et al.,
+2022). Chain-of-Thought(CoT) (Wei et al., 2023) first presents a significant improvement on
+numerical reasoning tasks through step-by-step reasoning process. Step-back prompting
+(Zheng et al., 2023) illustrate an abstraction principle step before reasoning. SKiC (Chen
+et al., 2023) introduce a prompting framework to guide LLMs to compose basic skills to
+solve complex problem. Our work focuses on investigating whether LLMs are capable of
+handling analytical reasoning instead of prompting optimization. Therefore, we conducted
+experiments utilizing natural language instructions combined with formatting constraints
+or CoT for comparison. Sports Analysis: Previous works using sports data for news and
+live commentary generation(Wang et al., 2021; 2022; Huang et al., 2020). Sports-QA propose
+a dataset for bridging the gap between multi-modality resources in sports analysis (Li et al.,
+2024). Hu et al. (2024) aggregate a benchmark, SportsMetrics, as test bed to evaluate LLMs
+long context information fusion capability. In our work, we introduce a novel reasoning
+task, sports analytical reasoning, and provide a detail analysis on possible mechanisms
+underlying the reasoning process of LLMs.
+3 Methodology
+3.1 Data & Task
+To evaluate the analytical reasoning abilities of advanced language models, we conducted
+a study utilizing sports clips and corresponding play-by-play data sourced from ESPN.
+These play-by-play data was well-crafted by ESPN’s sports journalists to describe temporal
+event that occurred on court. In this work, we employed SportsMetrics dataset, which was
+original aggregated by Hu et al. (2024).
+We randomly sampled 100 NBA games out of a total of 28,492 collected matches and 100 NFL
+games out of 5,867. As depicted in Figure 1: the data includes a “time“ column indicating
+the specific moment of each play within the game, and a “play“ column detailing the actions
+occurring at those times. Scoring plays that affect the game’s score are highlighted by ESPN,
+though these particular labels are not disclosed to the language models in our experiments.
+Team affiliation is also accessible from dataset.
+# Plays # Scoring Plays # Tokens # Athletes
+NBA 116.47 28.78 1,557 17.69
+NFL 42.68 1.98 1,459 39.60
+Table 1: Quarter-level statistics are analyzed based on 100 games selected from each sport.
+
+[PAGE 4]
+In our study, we segmented each game into quarters based on labels provided by ESPN.
+As detailed in Table 1, we present test set statistics in both NBA and NFL games. The high
+number of short play descriptions and scoring plays in NBA games can be attributed to
+the fast-paced, continuous nature of basketball. In contrast, NFL games, with longer play
+description and fewer scoring plays per quarter, reflect the more strategic, play-by-play
+nature of American football. This may indicate the fundamentally natural different between
+NBA and NFL.
+In this work, we will focus on “POINTS “ as our main experiments, representing the scores
+accrued by both teams at the end of given game input. Reasoning on “ POINTS “ requires
+model to understand contextual meaning and perform consistent math reasoning ability. So
+we regard it as a sufficient task to illustrate analytical capability of LLM. Results analysis
+will be discussed in later section.
+3.2 Applied Models
+To better evaluate the performance on sports analytical reasoning tasks mentioned above,
+we employ five of the most cutting-edge conversational AI systems containing both open
+and closed-sourced models. These include OpenAI’s GPT-3.5-turbo-1106 (Ouyang et al.,
+2022), GPT-4-1106-preview (OpenAI, 2023b):, Anthropic’s Claude-2.1 (Anthropic, 2023),
+Google’s Gemini-Pro (Team, 2023) and Meta’s Llama-2-70b-chat (Hugo et al., 2023). The cost
+to call GPT API is based on the pricing plan provided by OpenAI. GPT-4-1106-preview costs
+$0.01 for input and $0.03 for completion per 1,000 tokens. GPT-3.5 is more cost-effective
+which costs $0.001 for input and $0.002 for completion. The overall expenditure for 100
+games on a single task cost around$12 for GPT-4 and $1.12 for GPT-3.5. Testing with smaller
+step-size, like 3 plays at a time, would cost no more than $30 for 100 games. For Claude-2.1
+and Gemini-Pro, all designated tasks can be accomplished within the free usage limits.
+3.3 Applied Methods
+To effectively evaluate the analytical reasoning abilities of the state-of-the-art LLMs, we
+employ a diversity of methodologies, including three prompting-based methods and a
+divide-and-conquer approach. In the prompting-based methods, we present specifically
+designed prompts to language models and carefully record their responses. Conversely,
+the divide-and-conquer approach involves a human-designed program to decompose the
+tasks into a series of elementary subtasks. Subsequently, these subtasks are addressed
+individually by the language model Finally, the responses are aggregated to formulate a
+comprehensive solution.
+As illustrated in Figure 2, our prompting-based methods follow a certain order of prompts.
+Initially, the prompt starts with a ” system message ” that outlines the AI system’s role,
+contextual background, and a comprehensive description of the data formats involved. After
+the ”system message ”, a ”user message ” follows, which includes the user’s instructions [A],
+the initial scores of both teams [B], details regarding player affiliations [C], and a list of the
+game’s events [D]. Three distinct approaches are considered to crafting user instructions:
+1) Natural Instructions: Utilizing natural language questions as instructions;
+2) Natural Instructions + JSON : Integrating JSON format with natural instructions;
+3) Natural Instructions + CoT: Employing a chain of thought (CoT) prompting approach to
+enhance the models’ complex reasoning capability.
+Additionally, we have developed a divide-and-conquer approach to assess reasoning capabilities. In this approach, the sub-tasks are created by programs, while AI systems function
+solely as task executors. The entire quarter is segmented into various game clips with the
+same number of plays n in each clip except the last one. Then, each clip is processed by
+LLMs, guided by the aforementioned Natural Instructions. This process facilitates the collection of the required metrics on each clip. Finally, these individual metrics are aggregated to
+derive the overall metrics. In Figure 3, an illustration is presented, demonstrating a scenario
+from the first quarter of an NBA game with n = 3 plays per clip.
+
+[PAGE 5]
+USER
+MESSAGE
+SYSTEM
+MESSAGE
+You
+are
+a
+helpful
+assistant
+tasked
+with
+analyzing
+sports
+games.
+You
+have
+been
+given
+a
+play-by-play
+breakdown
+of
+an
+[
+NBA
+basketball
+
+/
+NFL
+football
+]
+game
+between
+two
+teams.
+The
+"Time"
+column
+shows
+the
+exact
+time
+on
+the
+game
+clock
+when
+each
+play
+took
+place.
+The
+game
+clock
+counts
+down,
+so
+this
+column
+displays
+times
+in
+a
+descending
+order.
+The
+"Play"
+column
+describes
+the
+action
+that
+happened
+at
+the
+respective
+times.
+It
+provides
+details
+of
+specific
+plays,
+movements,
+and
+outcomes
+on
+the
+court.
+Team
+players
+are
+listed
+in
+two
+rows,
+each
+row
+representing
+one
+of
+the
+two
+[
+basketball
+
+/
+football
+]
+teams
+involved
+in
+the
+game.
+Kenyon
+Martin,
+Carmelo
+Anthony,
+Andrea
+Bargnani,
+...
+New
+York
+Knicks
+Wilson
+Chandler,
+Kenneth
+Faried,
+J.J.
+Hickson,
+...
+Denver
+Nuggets
+C.
+Team
+Player
+Table
+{"New
+York
+Knicks":
+0,
+"Denver
+Nuggets":
+0}
+B.
+Initial
+Scores
+A.
+Instructions
+How
+many
+points
+did
+each
+team
+score
+in
+the
+given
+game
+input?
+Return
+if
+no
+team
+scored.
+Don?t
+present
+the
+calculation
+process.
+Natrual
+Instruction
+How
+many
+points
+did
+each
+team
+score
+in
+the
+given
+game
+input?
+Only
+response
+in
+JSON
+format
+as
+below.
+Natrual
+Instruction
++
+JSON
+How
+many
+points
+did
+each
+team
+score
+in
+the
+given
+game
+input?
+Let's
+think
+step
+by
+step.
+Natrual
+Instruction
++
+CoT
+D.
+Game
+Input
+Carmelo
+Anthony
+vs.
+J.J.
+Hickson
+(Kenneth
+Faried
+gains
+possession)
+3:49
+Randy
+Foye
+makes
+driving
+layup
+3:46
+Carmelo
+Anthony
+misses
+18-foot
+jumper
+3:34
+Time
+Play
+Figure 2: We conducted comparative experiments on [A] three instructions as figure presents. After
+instruction, We attach sports content in order of [B] initial scores, [C] team player table and [D] game
+input. Aggregating the entire user message as our task instance.
+12:00
+
+Carmelo
+Anthony
+vs.
+J.J.
+Hickson
+(Kenneth
+Faried
+gains
+possession)
+11:22
+
+Carmelo
+Anthony
+misses
+18-foot
+jumper
+11:40
+
+Randy
+Foye
+makes
+driving
+layup
+Quarter
+PBP
+Descriptions
+LLMs
+The
+New
+York
+Knicks
+scored
+points,
+and
+the
+Denver
+Nuggets
+scored
+points.
+The
+New
+York
+Knicks
+scored
+points
+in
+the
+given
+game
+input,
+and
+the
+Denver
+Nuggets
+scored
+points.
+{
+"New
+York
+Knicks":
+20,
+"Denver
+Nuggets":
+}
+SUM
+Quarter
+Scores
+11:21
+
+Kenneth
+Faried
+defensive
+rebound
+11:03
+
+Andrea
+Bargnani
+makes
+19-foot
+jumper
+(Kenyon
+Martin
+assists)
+11:02
+
+Carmelo
+Anthony
+defensive
+rebound
+Responses
+10:48
+
+Ty
+Lawson
+makes
+25-foot
+three
+point
+jumper
+10:37
+
+Iman
+Shumpert
+misses
+26-foot
+three
+point
+jumper
+10:10
+
+J.J.
+Hickson
+defensive
+rebound
+The
+New
+York
+Knicks
+scored
+points
+in
+the
+given
+game
+input,
+and
+the
+Denver
+Nuggets
+did
+not
+scored.
+Figure 3: A workflow depict the divide-and-conquer approach at step-size of three. We truncate a
+quarter of the play-by-play(PBP) description into segments then bind with natural language instruction as input to LLMs. Finally, all responses are tallied to calculate the quarter scores.
+4 Experiments
+We conduct our experiments on 100 NBA games and 100 NFL games, focusing on the task
+of predicting the total scores from both teams within a given quarter. To evaluate the model
+predictions, we employ two distinct metrics: 1) Quarter-level accuracy (ACC): This metric
+assesses the precision of our predictions on a per-quarter basis. A prediction is accurate if it
+exactly matches the total score of that quarter. 2) Quarter-level Mean Absolute Percentage
+Error (MAPE): This metric offers a smoothed measure of predictive accuracy by quantifying
+the relative deviation between the predicted and actual scores. The formula for calculating
+MAPE is as follows:
+MAPE = 1
+m
+m
+∑
+i=1
+|pi − ai|
+ai
+(1)
+Here, m represents the total number of observations, pi denotes the predicted score for the
+i-th observation, and ai signifies the actual score for the i-th observation. This metric is
+
+[PAGE 6]
+particularly valuable for understanding the magnitude of prediction errors with the actual
+scores, thereby providing a more detailed insight into the performance of the predictive
+model.
+Natural Instruction Divide-and-Conquer
+Models NI + JSON + CoT n=1 n=3 n=10 n=30
+Accuracy
+GPT-4 4.08 11.26 40.47 20.54 60.14 38.37 18.31
+GPT-3.5 4.45 3.59 2.37 1.00 16.58 0.24 0.70
+Claude-2.1 3.02 4.33 16.96 32.67 29.46 12.87 2.23
+Gemini-Pro 2.49 2.83 2.60 3.71 26.23 4.46 1.48
+Llama-2-70b 3.21 4.34 4.84 0.00 6.44 4.14 0.99
+MAPE
+GPT-4 18.18 7.84 2.74 30.84 1.70 2.24 4.86
+GPT-3.5 14.00 15.99 19.84 15.26 4.39 19.87 28.20
+Claude-2.1 16.62 17.41 13.12 11.74 5.48 7.65 14.56
+Gemini-Pro 42.87 41.49 41.13 >100 14.12 13.69 35.54
+Llama-2-70b 22.25 19.34 21.11 >100 >100 57 >100
+Table 2: Total Score Results on NBA quarters. Both accuracy and the Mean Absolute Percentage
+Error (MAPE) are expressed in percentages. The best results achieved by each model, considering
+different prompting methods and various step size, are highlighted in bold. We found that LLM
+usually hallucinates the total scores in step by step reasoning, leading to the value of MAPE > 100.
+Table 2 presents the performance results of various reasoning methods applied across
+different AI models in predicting NBA quarter scores. The methods explored include three
+prompting-based approaches and a divide-and-conquer approach with varying step sizes
+(n ∈ {1, 3, 10, 30}). The key observations from the table are as follows:
+First, comparing the performance across all the models, GPT-4 stands out as the most
+effective model, with Claude-2.1 following closely behind. The Llama-2-70b model, despite
+being open-sourced, performs comparably to GPT-3.5 and Gemini-Pro. Notably, nearly all
+models and the combined reasoning approaches fail at the task. Only GPT-4, when paired
+with the divide-and-conquer approach using a step size of n = 3, demonstrates superior
+performance. This indicates that such analytical reasoning tasks are very challenging for
+current LLMs.
+Additionally, for prompting-based methods, the use of JSON generally enhances performance across all models. Conversely, the Chain of Thought (CoT) approach yields mixed
+results; while it benefits GPT-4, Claude-2.1, and Llama-2-70b, it negatively impacts GPT-3.5
+and Gemini-Pro. This inconsistency may be attributed to the variance in training datasets
+among the models, suggesting that incorporating more data in the CoT style could potentially improve complex reasoning capabilities.
+Subsequently, the divide-and-conquer approach, despite requiring more human efforts,
+tends to have better results compared to prompting only. We observed a significant increase
+in Mean Absolute Percentage Error (MAPE) for Llama-2-70b and Gemini-Pro at certain step
+sizes. This degradation usually indicates a significant difference between the estimated
+and real values. Further investigation 1 revealed that these models frequently generated
+incorrect game scores for various single steps, which cumulatively resulted in significantly
+inflated aggregates. As a result, we employ MAPE to show the variance of error predictions.
+And higher MAPE scores in the table indicates a greater possibility of inaccuracies.
+Table 3 compares the prediction performance of NFL quarter-level total scores across different models, which confirms the trend in model efficacy. Remarkably, all models and
+reasoning strategies outperform NBA quarter prediction accuracies, which suggests that
+NFL score predictions may be inherently more straightforward. Among all the promptingbased methods, Natural Instructions result in the least performance differential as compared
+to the other two variants. However, as the task becomes easier, the gap between these
+methods is largely reduced. In the field of divide-and-conquer methods, GPT-4 stands
+out with near-perfect accuracy, closely tailed by Claude-2.1 and GPT-3.5. Despite these
+1See Appendix A.1
+
+[TABLE page=6 index=1]
+Columns: Unnamed: 0 | Natural Instruction | Divide-and-Conquer | Unnamed: 1 | Unnamed: 2
+Row 1: Unnamed: 0: Models | Natural Instruction: NI + JSON + CoT | Divide-and-Conquer: n=1 n=3 n=10 n=30 | Unnamed: 1: MAPE | Unnamed: 2: Accuracy
+Row 2: Unnamed: 0: GPT-4 | Natural Instruction: 4.08 11.26 40.47 | Divide-and-Conquer: 20.54 60.14 38.37 18.31 | Unnamed: 1: | Unnamed: 2:
+Row 3: Unnamed: 0: GPT-3.5 | Natural Instruction: 4.45 3.59 2.37 | Divide-and-Conquer: 1.00 16.58 0.24 0.70 | Unnamed: 1: | Unnamed: 2:
+Row 4: Unnamed: 0: Claude-2.1 | Natural Instruction: 3.02 4.33 16.96 | Divide-and-Conquer: 32.67 29.46 12.87 2.23 | Unnamed: 1: | Unnamed: 2:
+Row 5: Unnamed: 0: Gemini-Pro | Natural Instruction: 2.49 2.83 2.60 | Divide-and-Conquer: 3.71 26.23 4.46 1.48 | Unnamed: 1: | Unnamed: 2:
+Row 6: Unnamed: 0: Llama-2-70b | Natural Instruction: 3.21 4.34 4.84 | Divide-and-Conquer: 0.00 6.44 4.14 0.99 | Unnamed: 1: | Unnamed: 2:
+Row 7: Unnamed: 0: GPT-4 | Natural Instruction: 18.18 7.84 2.74 | Divide-and-Conquer: 30.84 1.70 2.24 4.86 | Unnamed: 1: | Unnamed: 2:
+Row 8: Unnamed: 0: GPT-3.5 | Natural Instruction: 14.00 15.99 19.84 | Divide-and-Conquer: 15.26 4.39 19.87 28.20 | Unnamed: 1: | Unnamed: 2:
+Row 9: Unnamed: 0: Claude-2.1 | Natural Instruction: 16.62 17.41 13.12 | Divide-and-Conquer: 11.74 5.48 7.65 14.56 | Unnamed: 1: | Unnamed: 2:
+Row 10: Unnamed: 0: Gemini-Pro | Natural Instruction: 42.87 41.49 41.13 | Divide-and-Conquer: >100 14.12 13.69 35.54 | Unnamed: 1: | Unnamed: 2:
+Row 11: Unnamed: 0: Llama-2-70b | Natural Instruction: 22.25 19.34 21.11 | Divide-and-Conquer: >100 >100 57 >100 | Unnamed: 1: | Unnamed: 2:
+[/TABLE]
+
+[PAGE 7]
+Natural Instruction Divide-and-Conquer
+Models NI + JSON + CoT n=1 n=3 n=10 n=30
+Accuracy
+GPT-4 55.38 57.38 55.91 95.76 98.25 98.75 97.00
+GPT-3.5 45.38 50.41 48.00 39.50 81.25 81.25 79.50
+Claude-2.1 45.69 53.02 56.68 85.39 71.53 81.61 76.50
+Gemini-Pro 35.23 35.13 33.02 60.50 51.00 49.23 50.46
+Llama2-70b 33.54 35.87 31.53 5.29 9.82 36.75 52.25
+MAPE
+GPT-4 24.01 23.92 25.39 2.31 1.08 0.66 1.13
+GPT-3.5 29.27 29.50 27.56 >100 14.39 9.49 15.23
+Claude-2.1 30.84 27.01 23.59 7.84 18.23 10.58 10.64
+Gemini-Pro 35.71 42.00 40.06 17.24 22.40 17.44 21.81
+Llama2-70b 43.44 38.80 46.07 >100 >100 >100 37.63
+Table 3: Total Score Results on NFL quarters. Both accuracy and the Mean Absolute Percentage
+Error (MAPE) are expressed in percentages. The best performance results in both the prompting and
+planning-based methods are bolded We found that Llama-2-70b and GPT-3.5 usually hallucinate a
+final score during the reasoning on a single step.
+NBA NFL
+Models n=1 n=3 n=10 n=30 n=1 n=3 n=10 n=30
+Precision
+GPT-4 97.85 97.03 92.28 66.43 97.75 98.87 99.35 98.51
+GPT-3.5 65.81 90.16 65.14 25.65 53.01 89.79 92.16 85.63
+Claude-2.1 96.94 94.23 76.87 34.28 87.27 86.27 85.73 88.76
+Gemini-Pro 93.47 93.61 66.08 21.07 79.66 71.90 68.54 58.73
+Llama-2-70b 10.43 78.18 53.27 11.43 13.04 30.51 58.75 63.25
+Recall
+GPT-4 97.22 97.57 92.25 66.41 98.61 99.11 99.61 98.22
+GPT-3.5 27.14 82.23 62.00 24.97 91.28 93.42 90.24 82.07
+Claude-2.1 94.31 93.02 76.65 34.17 93.76 85.35 89.72 84.29
+Gemini-Pro 71.86 93.19 64.34 20.69 82.58 76.99 69.67 63.07
+Llama-2-70b 45.38 80.25 53.45 10.21 79.42 77.36 82.05 66.81
+Table 4: To further explore what factors, in divide-and-conquer method, could influence the accuracy
+on entire quarter. We compute precision and recall on scoring plays. We notice that precision results
+are more correlated to the accuracy evaluation on quarter level.
+advancements, the issue of hallucination persists in NFL quarter predictions, notably in the
+GPT-3.5 and Llama-2-70b models.
+Moreover, in both Table 2 and Table 3, interestingly, we found that a step size of one
+does not necessarily achieve the best performance when employing a divide-and-conquer
+approach. Actually, the optimal step sizes for different models and tasks are different. This
+phenomenon can be attributed to the fact that a smaller step size usually requires a larger
+amount of total steps, leading to an accumulation of errors in individual steps. Therefore,
+choosing an appropriate step size is essential for optimizing quarter-level accuracy, while
+balancing single-step prediction accuracy and the total number of steps required for these
+tasks. For a more fine-grained understanding of results obtained by the divide-and-conquer
+approach with different step sizes, we further calculate the precision and recall for scoring
+plays on step-level predictions. As presented in Table 4, surprisingly, using a step size of
+one may not necessarily yield the optimal performance even on the step level. This can be
+attributed to the system messages and instructions potentially overshadowing the critical
+play-by-play data when the step size is minimal. We usually observe that models have
+higher precision scores than recall scores on scoring plays, except for the LLama-2-70b
+model. This may indicate that such models are more likely to mistakenly predict clips
+without any scoring play.
+5 Analysis
+The experiments described in Section 4 highlight the complex nature of sports reasoning
+tasks. In pursuit of a deeper understanding of the complexities associated with these
+problems, we undertake a series of analyses. Through a methodical approach of hypoth7
+
+[TABLE page=7 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Natural Instruction Divide-and-Conquer | Unnamed: 2 | Unnamed: 3 | Unnamed: 4
+Row 1: Unnamed: 0: | Unnamed: 1: Models | Natural Instruction Divide-and-Conquer: NI + JSON + CoT n=1 n=3 n=10 n=30 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 2: Unnamed: 0: | Unnamed: 1: GPT-4 | Natural Instruction Divide-and-Conquer: 55.38 57.38 55.91 95.76 98.25 98.75 97.00 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 3: Unnamed: 0: | Unnamed: 1: GPT-3.5 | Natural Instruction Divide-and-Conquer: 45.38 50.41 48.00 39.50 81.25 81.25 79.50 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 4: Unnamed: 0: | Unnamed: 1: Claude-2.1 | Natural Instruction Divide-and-Conquer: 45.69 53.02 56.68 85.39 71.5R3 eca8l1l .61 P7r6e.c5i0sion | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 5: Unnamed: 0: | Unnamed: 1: Gemini-Pro | Natural Instruction Divide-and-Conquer: 35.23 35.13 33.02 60.50 51.00 49.23 50.46 | Unnamed: 2: | Unnamed: 3: MAPE | Unnamed: 4: Accuracy
+Row 6: Unnamed: 0: | Unnamed: 1: Llama2-70b | Natural Instruction Divide-and-Conquer: 33.54 35.87 31.53 5.29 9.82 36.75 52.25 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 7: Unnamed: 0: | Unnamed: 1: GPT-4 | Natural Instruction Divide-and-Conquer: 24.01 23.92 25.39 2.31 1.08 0.66 1.13 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 8: Unnamed: 0: | Unnamed: 1: GPT-3.5 | Natural Instruction Divide-and-Conquer: 29.27 29.50 27.56 >100 14.39 9.49 15.23 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 9: Unnamed: 0: | Unnamed: 1: Claude-2.1 | Natural Instruction Divide-and-Conquer: 30.84 27.01 23.59 7.84 18.23 10.58 10.64 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 10: Unnamed: 0: | Unnamed: 1: Gemini-Pro | Natural Instruction Divide-and-Conquer: 35.71 42.00 40.06 17.24 22.40 17.44 21.81 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 11: Unnamed: 0: | Unnamed: 1: Llama2-70b | Natural Instruction Divide-and-Conquer: 43.44 38.80 46.07 >100 >100 >100 37.63 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 12: Unnamed: 0: 3: | Unnamed: 1: Total Score Results on NFL quarters. | Natural Instruction Divide-and-Conquer: Both accuracy and the Mean Absolute Percentage | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 13: Unnamed: 0: (MAPE) are expressed in percentages. The best performance results in both the prompting and | Unnamed: 1: | Natural Instruction Divide-and-Conquer: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 14: Unnamed: 0: ing-based methods are bolded We found that Llama-2-70b and GPT-3.5 usually hallucinate a | Unnamed: 1: | Natural Instruction Divide-and-Conquer: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 15: Unnamed: 0: core during the reasoning on a single step. | Unnamed: 1: | Natural Instruction Divide-and-Conquer: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 16: Unnamed: 0: | Unnamed: 1: | Natural Instruction Divide-and-Conquer: NBA NFL | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 17: Unnamed: 0: | Unnamed: 1: Models | Natural Instruction Divide-and-Conquer: n=1 n=3 n=10 n=30 n=1 n=3 n=10 n=30 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 18: Unnamed: 0: | Unnamed: 1: GPT-4 | Natural Instruction Divide-and-Conquer: 97.85 97.03 92.28 66.43 97.75 98.87 99.35 98.51 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 19: Unnamed: 0: | Unnamed: 1: GPT-3.5 | Natural Instruction Divide-and-Conquer: 65.81 90.16 65.14 25.65 53.01 89.79 92.16 85.63 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 20: Unnamed: 0: | Unnamed: 1: Claude-2.1 | Natural Instruction Divide-and-Conquer: 96.94 94.23 76.87 34.28 87.27 86.27 85.73 88.76 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 21: Unnamed: 0: | Unnamed: 1: Gemini-Pro | Natural Instruction Divide-and-Conquer: 93.47 93.61 66.08 21.07 79.66 71.90 68.54 58.73 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 22: Unnamed: 0: | Unnamed: 1: Llama-2-70b | Natural Instruction Divide-and-Conquer: 10.43 78.18 53.27 11.43 13.04 30.51 58.75 63.25 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 23: Unnamed: 0: | Unnamed: 1: GPT-4 | Natural Instruction Divide-and-Conquer: 97.22 97.57 92.25 66.41 98.61 99.11 99.61 98.22 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 24: Unnamed: 0: | Unnamed: 1: GPT-3.5 | Natural Instruction Divide-and-Conquer: 27.14 82.23 62.00 24.97 91.28 93.42 90.24 82.07 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 25: Unnamed: 0: | Unnamed: 1: Claude-2.1 | Natural Instruction Divide-and-Conquer: 94.31 93.02 76.65 34.17 93.76 85.35 89.72 84.29 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 26: Unnamed: 0: | Unnamed: 1: Gemini-Pro | Natural Instruction Divide-and-Conquer: 71.86 93.19 64.34 20.69 82.58 76.99 69.67 63.07 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 27: Unnamed: 0: | Unnamed: 1: Llama-2-70b | Natural Instruction Divide-and-Conquer: 45.38 80.25 53.45 10.21 79.42 77.36 82.05 66.81 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+[/TABLE]
+
+[PAGE 8]
+esis formulation and subsequent verification, we aim to dissect the multifaceted factors
+contributing to task difficulties.
+5.1 Length Factor
+Initial observations suggest an increase in task difficulties correlated with length, as evidenced by the decline in performance of the divide-and-conquer methods with increasing
+step sizes, detailed in Table 2. To further investigate this phenomenon, we expanded our
+experimental analysis to include a broader range of lengths for NBA games, specifically
+2-minute intervals, quarters, half-games, and full games. For a more focused analysis, the
+study was limited to examining prompting-based methods.
+2min Quarter HalfGame FullGame
+Length of Game
+100%
+50%
+10%
+1%
+Acc (Log Scale)
+Claude-2.1 NL Inst
+Claude-2.1 NL Inst + JSON
+Claude-2.1 NL Inst + CoT
+GPT-4 NL Inst
+GPT-4 NL Inst + JSON
+GPT-4 NL Inst + CoT
+Figure 4: Length Analysis on NBA data
+The performance trends of three such methods across different length scales are plotted in Figure 4. To mitigate the impact of
+model limitations, this analysis exclusively
+considers the top-2 models, namely GPT-4
+and Claude-2.1. Based on the analysis of
+the plot, it is observed that all curves exhibit
+a downward trend as the context length increases. This deviation could potentially be
+attributed to the prevalence of whole game
+scores in news reports, suggesting that these
+outliers may result from background knowledge acquired during the model’s training
+phase. Consequently, it is reasonable to infer
+that within the confines of the same task, the
+complexity of the task escalates in correlation
+with an increase in context length.
+5.2 Information Density Factor
+Another interesting observation is the discrepancy in the performance between the NBA and
+the NFL games. Upon examination of Table 1, it is evident that the intrinsic characteristics of
+the two sports differ significantly, with basketball generally featuring a higher frequency of
+scoring plays in comparison to American football. Consequently, we propose a hypothesis
+that the complexity of the task may be influenced by the information density in the provided
+context. Here, we define information density as the ratio of scoring plays to the total number
+of plays within a given game clip. Figure 5 illustrates the tendency in model prediction
+Low Medium High
+Density Level
+20%
+30%
+40%
+50%
+60%Accuracy
+Natural Instruction
+Low Medium High
+Density Level
+30%
+40%
+50%
+60%
+Natural Instruction + JSON
+Low Medium High
+Density Level
+30%
+40%
+50%
+60%
+Natural Instruction + CoT
+gpt-3.5-turbo-1106 gpt-4-1106-preview claude-2.1 gemini-pro llama2-70b
+Figure 5: Density analysis on NFL data
+accuracy across distinct levels of information density within NFL quarters. The data points
+are classified into three tiers: low density, medium density, and high density, corresponding
+respectively to the bottom one-third, middle one-third, and top one-third of the information
+density values. Across all models and reasoning methods, a consistent trend emerges
+indicating a decline in model performance with increasing information density levels. This
+
+[PAGE 9]
+observation allows us to infer that the complexity of the reasoning task escalates in direct
+proportion to the level of information density.
+5.3 Related Information Factor
+It is important to decide whether the information provided to the model for analytical
+reasoning should be restricted to the necessary details or include related but non-essential
+information. When calculating the total number of scores from both teams, the players and
+the teams are the essential entities that are involved in the reasoning process. However,
+their names are not required for the reasoning steps. You can replace their names with any
+other synonymous identifiers without affecting the outcome or the logical progression of the
+reasoning. Thus, we propose to replace the names of these entities with identifiers such as
+”Player-1”, ”Player-2”, and ”Team-1, Team-2” to evaluate the impact of such modifications
+on the model’s predictions. Table 5 showcases the performance of the Chain of Thought
+Information Provided GPT-4 GPT-3.5 Claude-2.1 Gemini-Pro Llama-2-70b
+Whole 40.47 2.37 16.96 2.60 4.84
+- Team Name 40.84 ↑ 2.10↓ 14.73↓ 3.22↑ 3.06↓
+- Player Name 32.30 ↓ 2.35↓ 18.56↑ 2.85↑ 2.58↓
+- Both 28.58 ↓ 2.84↑ 15.84↓ 1.60↓ 3.79↓
+Table 5: Assessing the impacts of related sports information on reasoning performance. All values
+in the table are presented in percentages(%). The evaluation was conducted on quarter-level scores
+inference utilizing chain of thought(CoT) prompting.
+(CoT) prompting approach in calculating total scores across different models, where part
+of the entity names have been replaced, specifically within the context of NBA quarters.
+After analyzing the data in the table, we have found that in most cases, the performance
+of the model decreases if some parts of the entity names are missing. However, we have
+also discovered a few cases where the model’s performance improves. It indicates that
+while the model should be trained more robustly to handle missing information, adding
+relative but non-essential information generally helps to enhance performance. This may be
+because such information acts as pre-conditions for the next token predictions, leveraging
+the model’s internal knowledge, therefore narrowing down the option of the prediction.
+6 Conclusion
+In this paper, we investigate the analytical reasoning capabilities of LLMs by analyzing
+play-by-play data from NBA and NFL games, focusing on the models’ ability to compute
+the total points scored by each team. Despite advancements in LLMs, such as OpenAI’s GPT
+series and others like Claude, Gemini, and Llama, these models generally struggle with
+sports analytical reasoning tasks. This study reveals significant disparities in performance
+among different models, with GPT-4 showing somewhat better results in specific scenarios,
+especially when using techniques like Chain of Thought prompting.
+Further, our research explores the impact of different methodologies on model performance,
+including the Chain of Thought prompting and a divide-and-conquer strategy that segments
+data into smaller, more manageable parts. These methods aim to enhance the models’
+analytical capabilities, but the study reveals that, despite these efforts, LLMs still struggle
+with accurately processing and analyzing sports statistics, indicating a gap in their ability to
+handle complex reasoning tasks effectively.
+Additionally, the extensive analysis showcases the factors that affect the task complexity.
+These include the length, information density, and presence of relative information. It
+suggests, that to develop a better system, we should focus more on enhancing the models’
+data-processing capabilities. To improve the understanding and use of complex information,
+it may be necessary to collect more diverse and intricate training data, including Chain of
+Thought style data. Additionally, models should be developed to be more robust to both
+relevant and irrelevant information. Finally, building the model to work effectively with
+precise tools such as code and databases is essential.
+
+[TABLE page=9 index=1]
+Columns: Information Provided | GPT-4 | GPT-3.5 | Claude-2.1 | Gemini-Pro | Llama-2-70b
+Row 1: Information Provided: Whole | GPT-4: 40.47 | GPT-3.5: 2.37 | Claude-2.1: 16.96 | Gemini-Pro: 2.60 | Llama-2-70b: 4.84
+Row 2: Information Provided: - Team Name | GPT-4: 40.84↑ | GPT-3.5: 2.10↓ | Claude-2.1: 14.73↓ | Gemini-Pro: 3.22↑ | Llama-2-70b: 3.06↓
+Row 3: Information Provided: - Player Name | GPT-4: 32.30↓ | GPT-3.5: 2.35↓ | Claude-2.1: 18.56↑ | Gemini-Pro: 2.85↑ | Llama-2-70b: 2.58↓
+Row 4: Information Provided: - Both | GPT-4: 28.58↓ | GPT-3.5: 2.84↑ | Claude-2.1: 15.84↓ | Gemini-Pro: 1.60↓ | Llama-2-70b: 3.79↓
+[/TABLE]
+
+[PAGE 10]
+References
+Anthropic. Introducing Claude 2.1. https://www.anthropic.com/index/claude-2-1, 2023.
+Accessed on: Nov 21, 2023.
+Jiaao Chen, Xiaoman Pan, Dian Yu, Kaiqiang Song, Xiaoyang Wang, Dong Yu, and Jianshu
+Chen. Skills-in-context prompting: Unlocking compositionality in large language models,
+2023.
+Zhiyu Chen, Wenhu Chen, Charese Smiley, Sameena Shah, Iana Borova, Dylan Langdon,
+Reema Moussa, Matt Beane, Ting-Hao Huang, Bryan Routledge, and William Yang Wang.
+Finqa: A dataset of numerical reasoning over financial data, 2022.
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser,
+Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and
+John Schulman. Training verifiers to solve math word problems, 2021.
+Angela Fan, Shruti Bhosale, Holger Schwenk, Zhiyi Ma, Ahmed El-Kishky, Siddharth
+Goyal, Mandeep Baines, Onur Celebi, Guillaume Wenzek, Vishrav Chaudhary, Naman
+Goyal, Tom Birch, Vitaliy Liptchinsky, Sergey Edunov, Edouard Grave, Michael Auli, and
+Armand Joulin. Beyond english-centric multilingual machine translation, 2020.
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and
+Jacob Steinhardt. Measuring massive multitask language understanding, 2021.
+Yebowen Hu, Timothy Ganter, Hanieh Deilamsalehy, Franck Dernoncourt, Hassan Foroosh,
+and Fei Liu. MeetingBank: A benchmark dataset for meeting summarization. In Anna
+Rogers, Jordan Boyd-Graber, and Naoaki Okazaki (eds.), Proceedings of the 61st Annual
+Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pp. 16409–
+16423, Toronto, Canada, July 2023. Association for Computational Linguistics. doi: 10.
+18653/v1/2023.acl-long.906. URL https://aclanthology.org/2023.acl-long.906.
+Yebowen Hu, Kaiqiang Song, Sangwoo Cho, Xiaoyang Wang, Hassan Foroosh, Dong Yu,
+and Fei Liu. Sportsmetrics: Blending text and numerical data to understand information
+fusion in llms, 2024.
+Kuan-Hao Huang, Chen Li, and Kai-Wei Chang. Generating sports news from live commentary: A Chinese dataset for sports game summarization. In Kam-Fai Wong, Kevin
+Knight, and Hua Wu (eds.), Proceedings of the 1st Conference of the Asia-Pacific Chapter of
+the Association for Computational Linguistics and the 10th International Joint Conference on
+Natural Language Processing, pp. 609–615, Suzhou, China, December 2020. Association for
+Computational Linguistics. URL https://aclanthology.org/2020.aacl-main.61.
+Touvron Hugo, Martin Louis, Stone Kevin, Albert Peter, Almahairi Amjad, Babaei Yasmine,
+Bashlykov Nikolay, Batra Soumya, Bhargava Prajjwal, Bhosale Shruti, Bikel Dan, Blecher
+Lukas, Canton Ferrer Cristian, Chen Moya, Cucurull Guillem, Esiobu David, Fernandes
+Jude, Fu Jeremy, and Wenyin Fu. Llama 2: Open foundation and fine-tuned chat models,
+2023.
+Haopeng Li, Andong Deng, Qiuhong Ke, Jun Liu, Hossein Rahmani, Yulan Guo, Bernt
+Schiele, and Chen Chen. Sports-qa: A large-scale video question answering benchmark
+for complex and professional sports, 2024.
+Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri Edwards, Bowen Baker, Teddy Lee,
+Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. Let’s verify step by step, 2023.
+Fuxiao Liu, Xiaoyang Wang, Wenlin Yao, Jianshu Chen, Kaiqiang Song, Sangwoo Cho, Yaser
+Yacoob, and Dong Yu. Mmc: Advancing multimodal chart understanding with large-scale
+instruction tuning, 2023a.
+Xiao Liu, Yanan Zheng, Zhengxiao Du, Ming Ding, Yujie Qian, Zhilin Yang, and Jie Tang.
+Gpt understands, too. AI Open , 2023b. ISSN 2666-6510. doi: https://doi.org/10.
+1016/j.aiopen.2023.08.012. URL https://www.sciencedirect.com/science/article/pii/
+S2666651023000141.
+
+[PAGE 11]
+Yixin Liu, Kejian Shi, Katherine S He, Longtian Ye, Alexander R. Fabbri, Pengfei Liu,
+Dragomir Radev, and Arman Cohan. On learning to summarize with large language
+models as references, 2023c.
+Keming Lu, Xiaoman Pan, Kaiqiang Song, Hongming Zhang, Dong Yu, and Jianshu Chen.
+Pivoine: Instruction tuning for open-world information extraction, 2023.
+Jiageng Mao, Yuxi Qian, Junjie Ye, Hang Zhao, and Yue Wang. Gpt-driver: Learning to
+drive with gpt, 2023.
+Ahmed Masry, Do Xuan Long, Jia Qing Tan, Shafiq Joty, and Enamul Hoque. Chartqa: A
+benchmark for question answering about charts with visual and logical reasoning, 2022.
+MistralAI. Mixtral of experts. https://mistral.ai/news/mixtral-of-experts/, 2023. Accessed on: December 11, 2023.
+OpenAI. Chatgpt. https://chat.openai.com/chat, 2023a. Large language model.
+OpenAI. New models and developer products announced at DevDay.https://openai.com/
+blog/new-models-and-developer-products-announced -at-devday , 2023b. Accessed on:
+November 6, 2023.
+Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin,
+Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob
+Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul
+Christiano, Jan Leike, and Ryan Lowe. Training language models to follow instructions
+with human feedback, 2022.
+Arkil Patel, Satwik Bhattamishra, and Navin Goyal. Are nlp models really able to solve
+simple math word problems?, 2021.
+Lichao Sun, Yue Huang, and et al. Trustllm: Trustworthiness in large language models,
+2024.
+Yiming Tan, Dehai Min, Yu Li, Wenbo Li, Nan Hu, Yongrui Chen, and Guilin Qi. Can
+chatgpt replace traditional kbqa models? an in-depth analysis of the question answering
+performance of the gpt llm family, 2023.
+Gemini Team. Gemini: A family of highly capable multimodal models, 2023.
+S. M Towhidul Islam Tonmoy, S M Mehedi Zaman, Vinija Jain, Anku Rani, Vipula Rawte,
+Aman Chadha, and Amitava Das. A comprehensive survey of hallucination mitigation
+techniques in large language models, 2024.
+Jiaan Wang, Zhixu Li, Tingyi Zhang, Duo Zheng, Jianfeng Qu, An Liu, Lei Zhao, and
+Zhigang Chen. Knowledge enhanced sports game summarization, 2021.
+Jiaan Wang, Tingyi Zhang, and Haoxiang Shi. Goal: Towards benchmarking few-shot sports
+game summarization, 2022.
+Jason Wei, Maarten Bosma, Vincent Y. Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan
+Du, Andrew M. Dai, and Quoc V . Le. Finetuned language models are zero-shot learners,
+2022.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed Chi,
+Quoc Le, and Denny Zhou. Chain-of-thought prompting elicits reasoning in large language models, 2023.
+Minghao Wu, Thuy-Trang Vu, Lizhen Qu, George Foster, and Gholamreza Haffari. Adapting
+large language models for document-level machine translation, 2024.
+Zoie Zhao, Sophie Song, Bridget Duah, Jamie Macbeth, Scott Carter, Monica P Van,
+Nayeli Suseth Bravo, Matthew Klenk, Kate Sick, and Alexandre L. S. Filipowicz. More
+human than human: Llm-generated narratives outperform human-llm interleaved narratives. In Proceedings of the 15th Conference on Creativity and Cognition, C&C ’23, pp. 368–370,
+New York, NY, USA, 2023. Association for Computing Machinery. ISBN 9798400701801.
+doi: 10.1145/3591196.3596612. URL https://doi.org/10.1145/3591196.3596612.
+
+[PAGE 12]
+Huaixiu Steven Zheng, Swaroop Mishra, Xinyun Chen, Heng-Tze Cheng, Ed H. Chi, Quoc V
+Le, and Denny Zhou. Take a step back: Evoking reasoning via abstraction in large
+language models, 2023.
+Xinyu Zhu, Junjie Wang, Lin Zhang, Yuxiang Zhang, Yongfeng Huang, Ruyi Gan, Jiaxing
+Zhang, and Yujiu Yang. Solving math word problems via cooperative reasoning induced
+language models. In Anna Rogers, Jordan Boyd-Graber, and Naoaki Okazaki (eds.),
+Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume
+1: Long Papers), pp. 4471–4485, Toronto, Canada, July 2023. Association for Computational
+Linguistics. doi: 10.18653/v1/2023.acl-long.245. URL https://aclanthology.org/2023.
+acl-long.245.
+A Appendix
+A.1 Hallucinated Responses
+The
+following
+players
+scored
+for
+the
+Pistons:
+*
+Tayshaun
+Prince:
+points
+*
+Greg
+Monroe:
+points
+*
+Andre
+Drummond:
+points
+*
+Reggie
+Jackson:
+points
+*
+Kentavious
+Caldwell-Pope:
+points
+*
+Anthony
+Tolliver:
+points
+*
+Caron
+Butler:
+points
+*
+John
+Lucas
+III:
+points
+*
+Spencer
+Dinwiddie:
+points
+*
+Jodie
+Meeks:
+points
+Total
+points
+scored
+by
+the
+Pistons:
+Therefore,
+the
+Cavaliers
+won
+the
+game
+with
+a
+score
+of
+107-97.
+Llama2-70b Response
+Figure 6: Hallucinated response when task contains only one sport description (step size=1)
+We addressed one particular type of hallucination is overestimation of scores as shown in 6.
+We analyze model outputs from NBA divide-and-conquer experiments. Once the model’s
+prediction exceeds the threshold, defined by maximum points gained in ground truth at a
+certain step size, we identify it as hallucinations. We found that Llama-2-70b exhibited a
+significant error rate of 46.84% at step size = 1 which directly results in oddly high MAPE
+as we presented in Table 2. The close-source models responsed with fewer than 1% of
+hallucinations.
+Claude 2.1 GPT-3.5
+Initial
+scores:Team
+(Timberwolves):
+Team
+(Spurs):
+We'll
+start
+with
+the
+initial
+scores:
+Team
+(Raptors):
+Team
+(Pacers):
+Llama2-70b
+Sure!
+Here
+are
+the
+points
+scored
+by
+each
+team
+throughout
+the
+game:
+Team
+(Warriors):
+Figure 7: LLMs predict a team name when player and team identities were masked.
+When we assessing the impacts of related sports information, an unusual response caught
+our attention as presented in Figure 7. In this task, all teams and player should be masked
+out. But LLMs includes GPT-3.5, Claude-2.1 and Llama2-70b predict a team name in their
+responses and reasoning based on it. In analysis results from Table 5, those models present
+a close or even better reasoning performance over natural game input. Meanwhile, other
+models, GPT-4 and Gemini-Pro, which didn’t predict related sports information shows a
+great performance degradation.
+
+[PAGE 13]
+Error response example - From Llama2-70b
+Sure! Here are the points scored by each team at the end of the 2nd quarter:
+Brooklyn Nets: 47 points
+Memphis Grizzlies: 55 points
+The Grizzlies have a 8-point lead over the Nets at the end of the 2nd quarter
+Table 6: Responses not includes reasoning steps given CoT prompt.
+Alright,
+let's
+dive
+into
+the
+data
+and
+extract
+the
+scores
+for
+each
+team.
+1.
+Initialize
+the
+scores
+for
+each
+team:
+```python
+team_scores
+=
+{'Cleveland
+Cavaliers':
+0,
+'Golden
+State
+Warriors':
+0}
+```
+2.
+Iterate
+through
+the
+game
+input
+data,
+looking
+for
+events
+that
+indicate
+scoring
+plays:
+```python
+for
+play
+in
+game_input:
+
+#
+Split
+the
+play
+description
+into
+parts
+
+parts
+=
+play.split()
+
+#
+Check
+if
+the
+play
+is
+a
+scoring
+play
+
+if
+'makes'
+in
+parts
+and
+'point'
+in
+parts:
+
+#
+Get
+the
+team
+name
+and
+the
+number
+of
+points
+scored
+
+team_name
+=
+parts[0]
+
+points
+=
+int(parts[2])
+
+#
+Add
+the
+points
+to
+the
+appropriate
+team's
+score
+
+team_scores[team_name]
++=
+points
+```
+3.
+After
+processing
+the
+entire
+game
+input,
+the
+`team_scores`
+dictionary
+will
+contain
+the
+final
+scores
+for
+each
+team.
+4.
+Print
+the
+final
+scores:
+```python
+print("Final
+Scores:")
+for
+team_name,
+score
+in
+team_scores.items():
+
+print(f"{team_name}:
+{score}")
+```
+Here's
+an
+example
+output
+based
+on
+the
+game
+input
+you
+provided:
+```
+Final
+Scores:
+Cleveland
+Cavaliers:
+Golden
+State
+Warriors:
+```
+Gemini-Pro
+CoT
+Response
+Figure 8: Example from HalfGame reasoning task with CoT instruction. Gemini-Pro is the only
+model respond with Python script. We regard this as error presentation of middle steps since it does
+not showing the math reasoning procedure.
+A.2 Instruction Following Verification
+The content in Table 6 is an example of a common error response occurred when we use
+CoT method. We present another type of error response in Figure 8. Finally, We post the
+overall accuracy comparison across all tasks whichever requires JSON formatting or CoT
+instruction following capability in Figure 9 and Figure 10.
+
+[TABLE page=13 index=1]
+Columns: # Spl | i | t | t he pl ay | descr i pt i on | i nt o | par t s | Unnamed: 0 | Unnamed: 1 | Unnamed: 2
+Row 1: # Spl: par t s | i: | t: = | t he pl ay: pl ay. spl i | descr i pt i on: t ( ) | i nt o: | par t s: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2:
+Row 3: # Spl: # Check | i: | t: | t he pl ay: i f t he pl ay | descr i pt i on: i s a | i nt o: scor i ng | par t s: pl ay | Unnamed: 0: | Unnamed: 1: | Unnamed: 2:
+Row 4: # Spl: i f ' makes' | i: | t: | t he pl ay: i n par t s | descr i pt i on: and | i nt o: ' poi nt ' | par t s: i n par t s: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2:
+Row 5: # Spl: # | i: | t: Get | t he pl ay: t he t eam | descr i pt i on: name | i nt o: and t he | par t s: number | Unnamed: 0: of | Unnamed: 1: poi nt s | Unnamed: 2: scor ed
+Row 6: # Spl: t eam_name | i: | t: | t he pl ay: = par t s[ 0] | descr i pt i on: | i nt o: | par t s: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2:
+Row 7: # Spl: poi nt s | i: | t: | t he pl ay: = i nt ( par t s[ 2] ) | descr i pt i on: | i nt o: | par t s: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2:
+Row 9: # Spl: # | i: | t: Add | t he pl ay: t he poi nt s | descr i pt i on: t o | i nt o: t he appr opr i at e | par t s: | Unnamed: 0: | Unnamed: 1: t eam' s | Unnamed: 2: scor e
+Row 10: # Spl: t eam_scor es[ t eam_name] | i: | t: | t he pl ay: | descr i pt i on: | i nt o: += | par t s: poi nt s | Unnamed: 0: | Unnamed: 1: | Unnamed: 2:
+[/TABLE]
+
+[PAGE 14]
+CoT JSON
+0%
+20%
+40%
+60%
+80%
+100%Accuracy
+98.91
+96.45
+88.20
+53.96
+31.02
+100.00 100.00 99.74 98.11 97.28
+NBA
+gpt-3.5-turbo-1106 gpt-4-1106-preview claude-2.1 gemini-pro llama2-70b
+Figure 9: Instruction following accuracy bar chart for NBA tasks. We calculated number of non-zero
+digits in the response to assess whether LLM perform step-by-step reasoning process. For NBA tasks,
+we set 10 as threshold and we analyze the model’s instruction following ability through trends.
+CoT JSON
+0%
+20%
+40%
+60%
+80%
+100%Accuracy
+83.50
+64.74
+44.19
+38.00
+28.50
+100.00 100.00 100.00 99.24
+52.25
+NFL
+claude-2.1 gpt-3.5-turbo-1106 gpt-4-1106-preview gemini-pro llama2-70b
+Figure 10: Instruction following accuracy bar chart for NBA tasks. We applied same justification
+method for CoT accuracy. For NFL tasks, we set 6 as threshold because less scoring moves included in
+game input.
+
+[TABLE page=14 index=1]
+Columns: Unnamed: 0 | 88.20 | Unnamed: 1 | Unnamed: 2
+Row 1: Unnamed: 0: 80% | 88.20: | Unnamed: 1: | Unnamed: 2:
+Row 2: Unnamed: 0: 60% | 88.20: | Unnamed: 1: | Unnamed: 2:
+Row 3: Unnamed: 0: | 88.20: | Unnamed: 1: 53.96 | Unnamed: 2:
+Row 4: Unnamed: 0: 40% | 88.20: | Unnamed: 1: | Unnamed: 2:
+Row 5: Unnamed: 0: | 88.20: | Unnamed: 1: | Unnamed: 2: 31.02
+Row 6: Unnamed: 0: 20% | 88.20: | Unnamed: 1: | Unnamed: 2:
+[/TABLE]

@@ -1,0 +1,1577 @@
+[PAGE 1]
+TaSR-RAG: Taxonomy-guided Structured Reasoning for
+Retrieval-Augmented Generation
+Jiashuo Sun, Yixuan Xie, Jimeng Shi, Shaowen Wang, Jiawei Han
+University of Illinois Urbana-Champaign
+{jiashuo5,hanj}@illinois.edu
+Abstract
+Retrieval-Augmented Generation (RAG) helps large language models (LLMs) answer knowledge-intensive and time-sensitive questions by conditioning generation on external evidence. However,
+most RAG systems still retrieve unstructured chunks and rely on
+one-shot generation, which often yields redundant context, low
+information density, and brittle multi-hop reasoning. While structured RAG pipelines can improve grounding, they typically require
+costly and error-prone graph construction or impose rigid entitycentric structures that do not align with the query’s reasoning chain.
+We proposeTaSR-RAG, a taxonomy-guided structured reasoning
+framework for evidence selection. We represent both queries and
+documents as relational triples, and constrain entity semantics with
+a lightweight two-level taxonomy to balance generalization and
+precision. Given a complex question,TaSR-RAGdecomposes it into
+an ordered sequence of triple sub-queries with explicit latent variables, then performs step-wise evidence selection via hybrid triple
+matching that combines semantic similarity over raw triples with
+structural consistency over typed triples. By maintaining an explicit
+entity binding table across steps,TaSR-RAGresolves intermediate
+variables and reduces entity conflation without explicit graph construction or exhaustive search. Experiments on multiple multi-hop
+question answering benchmarks show thatTaSR-RAGconsistently
+outperforms strong RAG and structured-RAG baselines by up to
+14%, while producing clearer evidence attribution and more faithful
+reasoning traces.
+Keywords
+Large Language Models, Retrieval-Augmented Generation, Multihop Question-Answering
+ACM Reference Format:
+Jiashuo Sun, Yixuan Xie, Jimeng Shi, Shaowen Wang, Jiawei Han . 2018.
+TaSR-RAG: Taxonomy-guided Structured Reasoning for Retrieval-Augmented
+Generation. InProceedings of Make sure to enter the correct conference title
+from your rights confirmation email (Conference acronym ’XX).ACM, New
+York, NY, USA, 14 pages. https://doi.org/XXXXXXX.XXXXXXX
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specific permission
+and/or a fee. Request permissions from permissions@acm.org.
+Conference acronym ’XX, Woodstock, NY
+©2018 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM ISBN 978-1-4503-XXXX-X/2018/06
+https://doi.org/XXXXXXX.XXXXXXX
+1 Introduction
+Large language models (LLMs) have demonstrated strong performance on knowledge-intensive tasks, yet their parametric knowledge alone is often insufficient for answering factual or time-sensitive
+questions [11, 15]. Retrieval-Augmented Generation (RAG) mitigates this limitation by retrieving external documents and conditioning generation on the retrieved evidence [9, 17]. In principle,
+this paradigm can provide grounded answers with citations and
+enable models to access up-to-date information beyond training
+data. However, most RAG systems still operate on unstructured text
+chunks and rely on one-shot prompting, which frequently leads to
+redundant context, low information density, and brittle multi-hop
+reasoning [19, 29]. These weaknesses are amplified for multi-hop
+queries, where the evidence is scattered across documents and intermediate conclusions must be carried forward to answer the final
+question, often under tight context-window budgets.
+Recent structured RAG methods incorporate knowledge graphs
+or extracted triples to improve factual grounding [2, 3, 12, 13, 18,
+27]. Nevertheless, graph-based pipelines often require expensive
+construction and may introduce hallucinated nodes or misaligned
+structure, while entity-centric triple extraction can be overly sparse
+and poorly aligned with the query’s reasoning chain. More broadly,
+existing structured pipelines often lack a principled way to jointly
+leverage semantic relevance (what the query asks for) and structural
+compatibility (whether the retrieved facts satisfy the required entity
+types and relations) when selecting evidence across hops.
+We argue that the core challenge is multi-hop evidence selection:
+selecting and organizing evidence in the order needed to resolve
+intermediate unknowns. Considering a compositional question in
+Figure 1: “Which database doesScience Activity Planneruse, and
+which company developed it?” a standard one-shot RAG pipeline
+may retrieve passages that mention multiple databases and vendors,
+then generate a plausible but weakly supported answer due to entity
+conflation. Ideally, the system should first resolve the intermediate
+unknown (the database) from direct evidence (e.g., “Science Activity
+Planner uses MySQL database”), and then use that resolved entity
+to guide retrieval for the next hop (who developedMySQL). To
+make this step-wise evidence selection reliable, we should match
+facts by jointly considering semantic similarity over raw triples
+and structural consistency over typed triples (e.g.,WORK/System
+→WORK/Software→Organization/Company).
+Based on this motivation, we proposeTaSR-RAG, a taxonomyguided sequential reasoning framework that represents both documents and queries as relational triples and augments them with
+lightweight two-level taxonomy types.TaSR-RAGdecomposes
+the query into an ordered sequence of triple-form sub-queries
+with latent variables (e.g., 𝑠1 =(Science Activity Planner,uses,
+arXiv:2603.09341v1 [cs.CL] 10 Mar 2026
+
+[TABLE page=1 index=1]
+Columns: most RAG systems still retrieve unstructured chunks and rely on | questions [11, 15]. Retrieval-Augmented Generation (RAG) mitiRow 1: most RAG systems still retrieve unstructured chunks and rely on: one-shot generation, which often yields redundant context, low | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: gates this limitation by retrieving external documents and condiRow 2: most RAG systems still retrieve unstructured chunks and rely on: information density, and brittle multi-hop reasoning. While struc- | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: tioning generation on the retrieved evidence [9, 17]. In principle,
+Row 3: most RAG systems still retrieve unstructured chunks and rely on: tured RAG pipelines can improve grounding, they typically require | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: this paradigm can provide grounded answers with citations and
+Row 4: most RAG systems still retrieve unstructured chunks and rely on: costly and error-prone graph construction or impose rigid entity- | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: enable models to access up-to-date information beyond training
+Row 5: most RAG systems still retrieve unstructured chunks and rely on: centric structures that do not align with the query’s reasoning chain. | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: data. However, most RAG systems still operate on unstructured text
+Row 6: most RAG systems still retrieve unstructured chunks and rely on: We propose TaSR-RAG, a taxonomy-guided structured reasoning | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: chunks and rely on one-shot prompting, which frequently leads to
+Row 7: most RAG systems still retrieve unstructured chunks and rely on: framework for evidence selection. We represent both queries and | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: redundant context, low information density, and brittle multi-hop
+Row 8: most RAG systems still retrieve unstructured chunks and rely on: documents as relational triples, and constrain entity semantics with | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: reasoning [19, 29]. These weaknesses are amplified for multi-hop
+Row 9: most RAG systems still retrieve unstructured chunks and rely on: a lightweight two-level taxonomy to balance generalization and | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: queries, where the evidence is scattered across documents and inRow 10: most RAG systems still retrieve unstructured chunks and rely on: precision. Given a complex question, TaSR-RAG decomposes it into | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: termediate conclusions must be carried forward to answer the final
+Row 11: most RAG systems still retrieve unstructured chunks and rely on: an ordered sequence of triple sub-queries with explicit latent vari- | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: question, often under tight context-window budgets.
+Row 12: most RAG systems still retrieve unstructured chunks and rely on: ables, then performs step-wise evidence selection via hybrid triple | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: Recent structured RAG methods incorporate knowledge graphs
+Row 13: most RAG systems still retrieve unstructured chunks and rely on: matching that combines semantic similarity over raw triples with | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: or extracted triples to improve factual grounding [2, 3, 12, 13, 18,
+Row 14: most RAG systems still retrieve unstructured chunks and rely on: structural consistency over typed triples. By maintaining an explicit | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: 27]. Nevertheless, graph-based pipelines often require expensive
+Row 15: most RAG systems still retrieve unstructured chunks and rely on: entity binding table across steps, TaSR-RAG resolves intermediate | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: construction and may introduce hallucinated nodes or misaligned
+Row 16: most RAG systems still retrieve unstructured chunks and rely on: variables and reduces entity conflation without explicit graph con- | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: structure, while entity-centric triple extraction can be overly sparse
+Row 17: most RAG systems still retrieve unstructured chunks and rely on: struction or exhaustive search. Experiments on multiple multi-hop | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: and poorly aligned with the query’s reasoning chain. More broadly,
+Row 18: most RAG systems still retrieve unstructured chunks and rely on: question answering benchmarks show that TaSR-RAG consistently | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: existing structured pipelines often lack a principled way to jointly
+Row 19: most RAG systems still retrieve unstructured chunks and rely on: outperforms strong RAG and structured-RAG baselines by up to | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: leverage semantic relevance (what the query asks for) and structural
+Row 20: most RAG systems still retrieve unstructured chunks and rely on: 14%, while producing clearer evidence attribution and more faithful | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: compatibility (whether the retrieved facts satisfy the required entity
+Row 21: most RAG systems still retrieve unstructured chunks and rely on: reasoning traces. | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: types and relations) when selecting evidence across hops.
+Row 22: most RAG systems still retrieve unstructured chunks and rely on: | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: We argue that the core challenge is multi-hop evidence selection:
+Row 23: most RAG systems still retrieve unstructured chunks and rely on: | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: selecting and organizing evidence in the order needed to resolve
+Row 24: most RAG systems still retrieve unstructured chunks and rely on: Keywords | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-:
+Row 25: most RAG systems still retrieve unstructured chunks and rely on: | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: intermediate unknowns. Considering a compositional question in
+Row 26: most RAG systems still retrieve unstructured chunks and rely on: Large Language Models, Retrieval-Augmented Generation, Multi- | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-:
+Row 27: most RAG systems still retrieve unstructured chunks and rely on: | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: Figure 1: “Which database does Science Activity Planner use, and
+Row 28: most RAG systems still retrieve unstructured chunks and rely on: hop Question-Answering | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-:
+Row 29: most RAG systems still retrieve unstructured chunks and rely on: | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: which company developed it?” a standard one-shot RAG pipeline
+Row 30: most RAG systems still retrieve unstructured chunks and rely on: | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: may retrieve passages that mention multiple databases and vendors,
+Row 31: most RAG systems still retrieve unstructured chunks and rely on: ACM Reference Format: | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: then generate a plausible but weakly supported answer due to entity
+Row 32: most RAG systems still retrieve unstructured chunks and rely on: Jiashuo Sun, Yixuan Xie, Jimeng Shi, Shaowen Wang, Jiawei Han . 2018. | questions [11, 15]. Retrieval-Augmented Generation (RAG) miti-: conflation. Ideally, the system should first resolve the intermediate
+[/TABLE]
+
+[PAGE 2]
+Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Trovato et al.
+…Science Activity Planner
+uses several open-source
+components, including the
+MySQL database
+middleware to provide a
+shared SQL database for
+mission planning data.
+Science Activity Planner
+System
+MySQL
+Database
+Software
+Map to the closest
+category in taxonomy
+…
+Taxonomy-guided Entity Typing
+What open-source relational database
+is used for the Mars Rover?
+Which company originally developed
+this open-source relational database?
+(System, Uses,Software)
+(Company, Developed,Software)
+(Science Activity Planner, Supported by, MySQL database)
+(MySQL AB, Developed, MySQL database) (Organization/Company, Developed, WORK/Software)
+Matching
+𝛼 +𝛽
+Semantic Score
+Structural Score
+3️⃣
+4️⃣
+Entity Binding
+Triplet Extraction
+(WORK/System, Uses, WORK/Software)
+(Science Activity Planner,
+uses, ?Database)
+(?Database,
+developed_by,?Company)
+Software
+WORK
+System
+…
+…
+WORK
+Query: Which company originally developed the open-source relational database
+used in NASA/JPL’s Science Activity Planner for the Mars Rover?
+Query Decomposition
+(WORK/System,uses,
+WORK/Software)
+(WORK/System,
+developed_by,
+Organization/Company)
+Document-Level
+Query-Level
+Filter &
+Mapping
+?Database = MySQL Database
+Filter &
+Mapping
+?Company = MySQL AB
+Figure 1: Overview ofTaSR-RAG. We illustrate Documentlevel triple extraction and taxonomy-guided entity typing,
+query decomposition with latent variables, hybrid triple
+matching for document reranking, and sequential entity
+binding.
+?Database), 𝑠2 =(?Database,developed_by,?Company) ) and performs step-wise context selection with explicit bindings. At each
+step, we rerank candidate documents with a hybrid (semantic +
+structural) triple matching function that enforces consistency over
+both raw triples and taxonomy-typed triples, and then update bindings; this enables later retrieval and generation to be conditioned
+on earlier resolutions and improves faithfulness over one-shot RAG.
+This design yields an efficient and interpretable RAG system that
+produces explicit reasoning traces (sub-queries, matched triples,
+and bindings) without explicit graph construction. Because each
+step produces a small set of type-consistent candidate facts, later
+LLM calls are less likely to be distracted by irrelevant context and
+can be audited using the intermediate bindings. Empirically,TaSRRAGconsistently outperforms strong baselines across seven QA
+benchmarks. On Qwen2.5-72B-Instruct, we improve the average
+EM from 29.7 (standard RAG) to 42.5. On Qwen2.5-7B-Instruct,
+we improve the average EM from 21.1 (standard RAG) to 37.0, and
+achieve up to a 103% relative gain on Musique compared to the
+strongest baseline.
+Our contributions are threefold: (1) we introduce a taxonomyguided typed-triple representation for both documents and queries;
+(2) we propose a hybrid matching function that combines semantic
+similarity over raw triples with structural consistency over typed
+triples; and (3) we develop a sequential context selection procedure
+with explicit latent-variable binding for interpretable multi-hop
+reasoning. Notably,TaSR-RAGis training-free and can be integrated
+with existing dense retrievers and LLMs as a modular rerankingand-reasoning layer.
+2 Related Work
+2.1 Retrieval-Augmented Generation
+RAG enhances LLM performance by incorporating external evidence, improving factual grounding and reducing hallucination in
+knowledge-intensive tasks [4, 11]. Beyond chunk-based retrieval,
+work on retrieval-augmented next-token prediction [ 9, 15] and
+end-to-end training frameworks [ 19–21, 23] aims to tighten the
+integration between retriever and generator. Self-reflective RAG
+systems such as Asai et al. [1] employ special control tokens and a
+critic model to adaptively trigger retrieval and improve reasoning
+stability.
+While these efforts address retrieval quality or retriever–generator
+integration, our work targets a different bottleneck: multi-hop context selection. Instead of retrieving unstructured passages and delegating all reasoning to the LLM,TaSR-RAGrepresents both documents and queries as relational triples and augments them with
+taxonomy-guided entity types. This enables a hybrid matching
+function that combines semantic similarity over raw triples with
+structural consistency over typed triples, and supports sequential
+reasoning via explicit latent-variable binding.
+2.2 Structure-aware Retrieval and Reasoning
+A complementary line of work introduces structural supervision
+into retrieval through knowledge graphs, LLM-generated topic
+graphs, or symbolic abstractions [22]. GraphRAG [2], HippoRAG
+[3], and HyperGraphRAG [13] construct large hierarchical graphs
+from LLM-generated summaries, supporting multi-hop reasoning
+but suffering from hallucinated nodes, misaligned structure, and
+prohibitive construction cost. StructRAG [ 12] and Structure-R1
+[27] and related triple-based systems extract entity-level triples to
+reduce noise, yet these triples remain sparse, overly fine-grained,
+and lack structural alignment with the query, limiting multi-hop
+generalization. Ontology-based information extraction has also
+been explored in traditional IR and semantic parsing, but prior
+methods typically assume fixed schemas and do not integrate typed
+reasoning patterns from the query itself.
+Our approach differs by avoiding explicit graph construction
+while still exploiting structure.TaSR-RAGconverts retrieved documents into triples and their corresponding taxonomy-typed triples,
+decomposes the query into typed sub-queries with latent variables,
+and reranks documents at each step using hybrid (semantic + structural) triple matching. By iteratively answering sub-queries and
+binding intermediate entities, our method aligns the evidence selection process with the query’s reasoning chain, yielding interpretable
+reasoning traces without relying on hallucinated graph nodes or
+expensive graph-building pipelines.
+3 Method
+3.1 Design Motivation
+The key insight behind TaSR-RAG is that complex multi-hop queries
+require structured reasoning over retrieved documents, yet existing
+RAG systems typically rely on flat, query-document similarity that
+ignores the relational structure of information needs. Our design
+addresses this gap through three principles:
+
+[PAGE 3]
+TaSR-RAG: Taxonomy-guided Structured Reasoning for Retrieval-Augmented Generation Conference acronym ’XX, June 03–05, 2018, Woodstock, NY
+(1) Decomposition for multi-hop reasoning.Complex queries
+often involve chained information needs where intermediate answers serve as inputs to subsequent questions. By decomposing
+queries into ordered sub-queries with explicit latent variables, we
+enable step-by-step reasoning where each step can be independently matched and verified.
+(2) Taxonomy-guided matching.Pure semantic similarity can be
+misled by lexical overlap or topic drift. By introducing hierarchical
+entity typing, we add a structural constraint that ensures type-level
+compatibility between query requirements and document content.
+This acts as a coarse filter that complements fine-grained semantic
+matching.
+(3) Structured reasoning with evidence selection.Rather than
+selecting all context at once, we iteratively resolve latent variables
+and refine context selection. This allows later reasoning steps to
+benefit from earlier resolutions, mimicking how humans would
+approach multi-hop questions by first answering prerequisite subquestions.
+3.2 Overview
+We proposeTaSR-RAG(Taxonomy-guidedStructuredReasoning
+for RAG), a multi-hop retrieval-augmented framework that treats
+taxonomy-guided evidence selection as an explicit reasoning process. Given a complex query 𝑞, we (i) convert retrieved documents
+into relational triples and their corresponding taxonomy-typed
+triples, (ii) decompose the query into ordered sub-queries (triples
+with latent variables) and construct their typed counterparts, and
+(iii) traverse sub-queries from left to right, repeatedly reranking
+candidate documents with hybrid matching and using an LLM to
+resolve latent variables.
+Let D denote the document collection, and let T={T (1) ,T (2) }
+denote a two-level taxonomy. T (1) ={𝑐 (1)
+1 , . . . , 𝑐(1)
+𝐿 } are first-level
+classes and T (2) (𝑐 (1) )={𝑐 (2)
+1 , . . . , 𝑐(2)
+𝑀 } are second-level classes
+under 𝑐 (1) . We build T based on Schema.org 1 and adopt a twolevel hierarchy to balance coverage and discriminability.
+The overall pipeline consists of the following stages:
+(1) Initial Retrieval: retrieve top- 𝐾0 candidate documents via
+dense retrieval.
+(2) Triple Extraction and Typing (Document-level): for each
+retrieved document, extract relational triples R𝑑 and construct
+typed triples ˜R𝑑 by applying taxonomy-guided entity typing to
+the head and tail entities.
+(3) Query Decomposition and Typing (Query-level): decompose 𝑞 into an ordered list of sub-queries {𝑠𝑖 }𝑁
+𝑖=1 (triples with
+latent variables) and construct their typed forms{ ˜𝑠𝑖 }𝑁
+𝑖=1.
+(4) Structured Reasoning with Entity Binding: for 𝑖= 1 . . . 𝑁 ,
+resolve already-bound variables in 𝑠𝑖, rerank/filter documents
+using hybrid matching over (𝑠𝑖, ˜𝑠𝑖 ) against (R𝑑, ˜R𝑑 ), prompt
+the LLM to answer the current sub-query, and bind its latent
+variable for subsequent steps. The final answer is the output of
+the last sub-query.
+Example 1.0(Running example) We use query 𝑄: “Which company originally developed the open-source relational database used in
+1Schema.org
+NASA/JPL’s Science Activity Planner for the Mars Rover?" as a running example throughout this section, illustrating the end-to-end
+pipeline at each stage (retrieval, Document-level triple construction,
+query decomposition, hybrid matching, and entity binding).
+3.3 Initial Retrieval
+Given query 𝑞, we first retrieve top-𝐾0 candidate documents via
+dense retrieval. This step is shared by all methods and serves as a
+common preprocessing stage for fair comparison:
+Dcand =Top-𝐾 0
+𝑑∈ D
+cos 𝑓enc (𝑞), 𝑓enc (𝑑) (1)
+Example 1.1 (Fig. 1)For query Q in Ex. 1.0, dense retrieval returns
+candidate documents that mention Science Activity Planner and
+database-related evidence (e.g., a sentence stating that the system
+uses the MySQL database). These retrieved documents form Dcand
+and will be converted into triples in the next stage.
+3.4 Triple Extraction and Typing
+(Document-level)
+3.4.1 Triple Extraction.After Example 1.1, we obtain a candidate
+document set Dcand that is likely to contain the multi-hop evidence
+needed by the query. We now transform each candidate document
+into a compact, comparable set of relational triples.
+Triple Extraction.For each candidate document 𝑑∈ D cand, we
+employ an LLM to extract relational triples:
+R𝑑 =LLM extract (𝑑)={(ℎ, 𝑟, 𝑡) 1, . . . ,(ℎ, 𝑟, 𝑡) | R𝑑 | }(2)
+Example 1.2 (Fig. 1)From a retrieved document that states that
+Science Activity PlannerusesMySQL database, the extracted triples
+may include:
+(Science Activity Planner,uses,MySQL database),(3)
+(MySQL AB,developed,MySQL database).(4)
+Triple Typing.After extracting R𝑑, we assign hierarchical types
+to the head and tail entities (described in the next subsection) and
+obtain typed triples:
+˜R𝑑 =
+
+(𝜏(ℎ), 𝑟, 𝜏(𝑡)):(ℎ, 𝑟, 𝑡) ∈ R 𝑑
+
+(5)
+Note that relations 𝑟 retain their surface forms without typing, as
+their typing (i.e., generation) will lose its sharpness, confirmed by
+our experiments.
+A natural question is why not extract triples from all documents
+beforehand. We adopt query-time extraction because incorporating
+the query during extraction significantly improves the relevance
+and accuracy of extracted triples. The query provides contextual
+guidance that helps the LLM focus on pertinent relations rather than
+exhaustively extracting all possible triples. We empirically compare
+this design with query-agnostic pre-extraction in our experiments
+(Section 4.4).
+When extracting relations, we instruct the LLM to focus on relations that best characterize the relationship between two entities,
+avoiding both overly specific predicates and overly generic ones.
+This ensures that extracted relations are informative for matching
+while maintaining sufficient generality for cross-document comparison.
+
+[TABLE page=3 index=1]
+Columns: swers serve as inputs to subsequent questions. By decomposing | pipeline at each stage (retrieval, Document-level triple construction,
+Row 1: swers serve as inputs to subsequent questions. By decomposing: queries into ordered sub-queries with explicit latent variables, we | pipeline at each stage (retrieval, Document-level triple construction,: query decomposition, hybrid matching, and entity binding).
+Row 2: swers serve as inputs to subsequent questions. By decomposing: enable step-by-step reasoning where each step can be indepen- | pipeline at each stage (retrieval, Document-level triple construction,:
+Row 3: swers serve as inputs to subsequent questions. By decomposing: dently matched and verified. | pipeline at each stage (retrieval, Document-level triple construction,: 3.3 Initial Retrieval
+Row 4: swers serve as inputs to subsequent questions. By decomposing: (2) Taxonomy-guided matching. Pure semantic similarity can be | pipeline at each stage (retrieval, Document-level triple construction,: Given query q, we first retrieve top-K0 candidate documents via
+Row 5: swers serve as inputs to subsequent questions. By decomposing: misled by lexical overlap or topic drift. By introducing hierarchical | pipeline at each stage (retrieval, Document-level triple construction,: dense retrieval. This step is shared by all methods and serves as a
+[/TABLE]
+
+[TABLE page=3 index=2]
+Columns: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end
+Row 1: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: swers serve as inputs to subsequent questions. By decomposing pipeline at each stage (retrieval, Document-level triple construction,
+Row 2: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: queries into ordered sub-queries with explicit latent variables, we query decomposition, hybrid matching, and entity binding).
+Row 3: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: enable step-by-step reasoning where each step can be indepenRow 4: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: dently matched and verified. 3.3 Initial Retrieval
+Row 5: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: (2) Taxonomy-guided matching. Pure semantic similarity can be Given query q, we first retrieve top-K0 candidate documents via
+Row 6: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: misled by lexical overlap or topic drift. By introducing hierarchical dense retrieval. This step is shared by all methods and serves as a
+Row 7: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: entity typing, we add a structural constraint that ensures type-level common preprocessing stage for fair comparison:
+Row 8: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: compatibility between query requirements and document content. ( )
+Row 9: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: This acts as a coarse filter that complements fine-grained semantic Dcand = Top-K0 cos fenc (q), fenc (d) (1)
+Row 10: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: d∈D
+Row 11: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: matching.
+Row 12: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: (3) Structured reasoning with evidence selection. Rather thanExample 1.1 (Fig. 1) For query Q in Ex. 1.0, dense retrieval returns
+Row 13: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: selecting all context at once, we iteratively resolve latent variables candidate documents that mention Science Activity Planner and
+Row 14: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: and refine context selection. This allows later reasoning steps to database-related evidence (e.g., a sentence stating that the system
+Row 15: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: benefit from earlier resolutions, mimicking how humans would uses the MySQL database). These retrieved documents form Dcand
+Row 16: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: approach multi-hop questions by first answering prerequisite sub- and will be converted into triples in the next stage.
+Row 17: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: questions.
+Row 18: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: 3.4 Triple Extraction and Typing
+Row 19: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: (Document-level)
+Row 20: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: 3.2 Overview
+Row 21: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: We propose TaSR-RAG Ta ( xonomy-guided S tructured Reasoning 3.4.1 Triple Extraction. After Example 1.1, we obtain a candidate
+Row 22: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: for RAG), a multi-hop retrieval-augmented framework that treats document setDcand that is likely to contain the multi-hop evidence
+Row 23: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: taxonomy-guided evidence selection as an explicit reasoning pro- needed by the query. We now transform each candidate document
+Row 24: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: cess. Given a complex query q, we (i) convert retrieved documents into a compact, comparable set of relational triples.
+Row 25: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: into relational triples and their corresponding taxonomy-typed Triple Extraction. For each candidate document d ∈ Dcand, we
+Row 26: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: triples, (ii) decompose the query into ordered sub-queries (triples employ an LLM to extract relational triples:
+Row 27: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: with latent variables) and construct their typed counterparts, and
+Row 28: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: (iii) traverse sub-queries from left to right, repeatedly reranking R = LLMextract (d) = {(h, r , t)1, . . . , (h, r , t)d |R | } d(2)
+Row 29: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: candidate documents with hybrid matching and using an LLM toExample 1.2 (Fig. 1) From a retrieved document that states that
+Row 30: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: resolve latent variables. Science Activity Planner uses MySQL database, the extracted triples
+Row 31: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: LetD denote the document collection, and let T = {T (1) T (2), } may include:
+Row 32: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: denote a two-level taxonomy. T (1) = {c } are first-level1 (1) , . . . , c L(1)
+Row 33: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: classes and T (2) ( (1)c ) = {c } are second-level classes1 (2) , . . . , c M(2) (Science Activity Planner, uses,MySQL database), (3)
+Row 34: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: under c (1) . We build T based on Schema.org 1 and adopt a two-(MySQL AB, developed,MySQL database). (4)
+Row 35: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: level hierarchy to balance coverage and discriminability. Triple Typing. After extracting R , we assign hierarchical types
+Row 36: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: d
+Row 37: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: The overall pipeline consists of the following stages: to the head and tail entities (described in the next subsection) and
+Row 38: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: (1) Initial Retrieval: retrieve top-K0 candidate documents via obtain typed triples:
+Row 39: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: dense retrieval. { }
+Row 40: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: (2) dTriple Extraction and Typing (Document-level): for eachR̃ d = (τ (h), r , τ (t)) : (h, r , t) ∈ R (5)
+Row 41: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: retrieved document, extract relational triples R and construct
+Row 42: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: d Note that relations r retain their surface forms without typing, as
+Row 43: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: typed triples R̃ by applying taxonomy-guided entity typing to
+Row 44: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: d their typing (i.e., generation) will lose its sharpness, confirmed by
+Row 45: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: the head and tail entities. our experiments.
+Row 46: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: (3) Query Decomposition and Typing (Query-level): decom- A natural question is why not extract triples from all documents
+Row 47: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: pose q into an ordered list of sub-queries {s }N (triples withi beforehand. We adopt query-time extraction because incorporatingi=1
+Row 48: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: latent variables) and construct their typed forms { }Ns .i i=1 the query during extraction significantly improves the relevance
+Row 49: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: (4) Structured Reasoning with Entity Binding: for i = 1 . . . N , and accuracy of extracted triples. The query provides contextual
+Row 50: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: resolve already-bound variables in s , rerank/filter documentsi guidance that helps the LLM focus on pertinent relations rather than
+Row 51: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: using hybrid matching over (s , s ) against (R , R̃ ), prompti i d d exhaustively extracting all possible triples. We empirically compare
+Row 52: often involve chained information needs where intermediate an- ning example throughout this section, illustrating the end-to-end: the LLM to answer the current sub-query, and bind its latent this design with query-agnostic pre-extraction in our experiments
+[/TABLE]
+
+[PAGE 4]
+Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Trovato et al.
+3.4.2 Taxonomy-Guided Entity Typing.We adopt a simple twostage entity typing procedure that uses an LLM to directly select
+taxonomy labels. For each entity 𝑒 (from extracted triples or query
+sub-queries), we assign a hierarchical type 𝜏(𝑒)=(𝑐 (1) , 𝑐(2) ) in a
+coarse-to-fine manner:
+Stage 1: First-Level LLM Selection.The LLM selects the best first-level
+class fromT (1) :
+𝑐 (1) =LLM select
+T (1) , 𝑒 (6)
+Stage 2: Second-Level LLM Selection.Conditioned on 𝑐 (1) , the LLM
+selects the best second-level class from its children:
+𝑐 (2) =LLM select
+T (2) (𝑐 (1) ), 𝑒 (7)
+The final hierarchical type is 𝜏(𝑒)=(𝑐 (1) , 𝑐(2) ), where 𝑐 (1) is the
+parent of 𝑐 (2) . For query-level latent variables (e.g., ?Olympics), the
+type is inferred from the variable semantics during query decomposition and used as a constraint in later matching.
+Example 1.3 (Fig. 1)Continuing from Ex. 1.2, we assign each entity
+a two-level taxonomy type 𝜏(𝑒)=(𝑐 (1) , 𝑐(2) ). These types yield the
+corresponding typed triples used in downstream matching.
+3.5 Query Decomposition and Typing
+(Query-level)
+After constructing (typed) triples for the retrieved documents (Examples 1.1–1.3), we decompose the complex multi-hop query 𝑞
+into an ordered sequence of sub-queries that explicitly exposes the
+intermediate unknowns and guides step-wise reranking. Given a
+complex multi-hop query 𝑞, we employ an LLM to decompose it
+into an ordered sequence of sub-queries:
+{𝑠1, 𝑠2, . . . , 𝑠𝑁 }=LLM decomp (𝑞)(8)
+where each sub-query𝑠 𝑖 is represented as a relational triple:
+𝑠𝑖 =(ℎ 𝑖, 𝑟𝑖, 𝑡𝑖 )(9)
+Here ℎ𝑖 denotes the head entity, 𝑟𝑖 denotes the relation, and 𝑡𝑖
+denotes the tail entity. Crucially, either ℎ𝑖 or 𝑡𝑖 may be alatent
+variable(denoted with prefix “?”), representing an unknown entity
+to be resolved through reasoning.
+Because the downstream matching is performed over both raw
+triples and taxonomy-typed triples, our decomposition prompt also
+enforces query-level typing semantics: for each explicit entity and
+latent variable, the LLM infers a coarse type description that is
+mapped into the two-level taxonomy, yielding 𝜏(ℎ 𝑖 ) and 𝜏(𝑡 𝑖 ) (or
+type constraints for variables). This makes query decomposition the
+place where query-level triple formation and (lightweight) typing
+are performed, complementing the document-level triple extraction
+and typing above.
+Example 1.4 (decomposition) (Fig. 1)For the query in Section 4.8,
+the LLM produces two sub-queries with latent variables:
+𝑠1 =(Science Activity Planner,uses,?Database),(10)
+𝑠2 =(?Database,developed_by,?Company).(11)
+Example 1.5 (Query-level typed triples) (Fig. 1)We then apply taxonomy-guided typing to both explicit entities and latent
+variables to obtain typed sub-queries:
+˜𝑠1 =(WORK/System,uses,WORK/Software),(12)
+˜𝑠2 =(WORK/Software,developed_by,Organization/Company).
+(13)
+These typed sub-queries are used together with the raw sub-queries
+in document reranking.
+Query-level Typed Triples.After obtaining {𝑠𝑖 }𝑁
+𝑖=1, we apply the
+same taxonomy-guided entity typing procedure (Section 4.4) to the
+head and tail entities in each sub-query and obtain the typed form
+˜𝑠𝑖 =(𝜏(ℎ 𝑖 ), 𝑟𝑖, 𝜏(𝑡 𝑖 )).(14)
+These typed sub-queries provide type-level constraints for downstream matching and are used in our taxonomy-guided document
+scoring module.
+The decomposition is implemented via prompting, where the
+LLM is instructed to identify the reasoning steps required to answer
+the query and express each step as a relational triple with explicit
+latent variables. We provide an error analysis of decomposition
+quality in Section 4.9.
+3.6 Structured Reasoning with Entity Binding
+3.6.1 Hybrid Triple Matching for Document Reranking.For each
+resolved sub-query 𝑠 ′
+𝑖 and its typed form ˜𝑠 ′
+𝑖 , we score each candidate
+document 𝑑 by matching the query triple against the document’s
+extracted triples and matching the typed query triple against the
+document’s typed triples. We then combine the two signals into a
+single score used to rerank documents for the current reasoning
+step.
+Example 1.6 (hybrid matching) (Fig. 1)For the first-hop subquery 𝑠1, the semantic score favors document triples that are close
+in meaning to the query. The structural score enforces type compatibility between matched entities.
+Structural Score.The structural score measures type-level compatibility between the query triple and document triples. For a
+query-document triple pair, we compute:
+𝑆type (𝜏𝑞, 𝜏𝑑 )=𝑤 (1) ·⊮[𝑐 (1)
+𝑞 =𝑐 (1)
+𝑑 ] +𝑤 (2) ·⊮[𝑐 (2)
+𝑞 =𝑐 (2)
+𝑑 ](15)
+where 𝜏𝑞 =(𝑐 (1)
+𝑞 , 𝑐(2)
+𝑞 ) and 𝜏𝑑 =(𝑐 (1)
+𝑑 , 𝑐(2)
+𝑑 ) are hierarchical types,
+and𝑤 (1) +𝑤 (2) =1control the relative importance of each level.
+The structural score for a triple pair is:
+𝑆struct ( ˜𝑠𝑖, ˜𝜌)=𝑤 ℎ ·𝑆 type (𝜏(ℎ 𝑖 ), 𝜏(ℎ)) +𝑤 𝑡 ·𝑆 type (𝜏(𝑡 𝑖 ), 𝜏(𝑡))(16)
+where ˜𝜌=(𝜏(ℎ), 𝑟, 𝜏(𝑡)) ∈ ˜R𝑑 and𝑤 ℎ +𝑤 𝑡 =1.
+Semantic Score.The semantic score captures embedding-level
+similarity between raw triples. We encode each component separately with role-specific prefixes:
+vℎ =𝑓 enc ("S: "∥ℎ),v 𝑟 =𝑓 enc ("P: "∥𝑟),v 𝑡 =𝑓 enc ("O: "∥𝑡)
+(17)
+The semantic score between query triple 𝑠𝑖 =(ℎ 𝑖, 𝑟𝑖, 𝑡𝑖 ) and document triple𝜌=(ℎ, 𝑟, 𝑡)is:
+𝑆sem (𝑠𝑖, 𝜌)=𝜆 ℎ cos(vℎ𝑖 ,v ℎ) +𝜆 𝑟 cos(v𝑟𝑖 ,v 𝑟 ) +𝜆 𝑡 cos(v𝑡𝑖 ,v 𝑡 )(18)
+where𝜆 ℎ +𝜆 𝑟 +𝜆 𝑡 =1.
+
+[TABLE page=4 index=1]
+Columns: into an ordered sequence of sub-queries that explicitly exposes the | document’s typed triples. We then combine the two signals into a
+Row 1: into an ordered sequence of sub-queries that explicitly exposes the: intermediate unknowns and guides step-wise reranking. Given a | document’s typed triples. We then combine the two signals into a: single score used to rerank documents for the current reasoning
+Row 2: into an ordered sequence of sub-queries that explicitly exposes the: complex multi-hop query q, we employ an LLM to decompose it | document’s typed triples. We then combine the two signals into a: step.
+Row 3: into an ordered sequence of sub-queries that explicitly exposes the: into an ordered sequence of sub-queries: | document’s typed triples. We then combine the two signals into a: Example 1.6 (hybrid matching) (Fig. 1) For the first-hop subRow 4: into an ordered sequence of sub-queries that explicitly exposes the: | document’s typed triples. We then combine the two signals into a: query s1, the semantic score favors document triples that are close
+Row 5: into an ordered sequence of sub-queries that explicitly exposes the: {s1, s2, . . . , s } = LLMdecomp (q) (8)N | document’s typed triples. We then combine the two signals into a:
+Row 6: into an ordered sequence of sub-queries that explicitly exposes the: | document’s typed triples. We then combine the two signals into a: in meaning to the query. The structural score enforces type comRow 7: into an ordered sequence of sub-queries that explicitly exposes the: where each sub-query s is represented as a relational triple: | document’s typed triples. We then combine the two signals into a: patibility between matched entities.
+Row 8: into an ordered sequence of sub-queries that explicitly exposes the: i | document’s typed triples. We then combine the two signals into a:
+Row 9: into an ordered sequence of sub-queries that explicitly exposes the: s = (h , r , t ) (9) | document’s typed triples. We then combine the two signals into a: Structural Score. The structural score measures type-level comRow 10: into an ordered sequence of sub-queries that explicitly exposes the: i i i i | document’s typed triples. We then combine the two signals into a:
+Row 11: into an ordered sequence of sub-queries that explicitly exposes the: | document’s typed triples. We then combine the two signals into a: patibility between the query triple and document triples. For a
+Row 12: into an ordered sequence of sub-queries that explicitly exposes the: Here h denotes the relation, and ti denotes the head entity, r i i | document’s typed triples. We then combine the two signals into a: query-document triple pair, we compute:
+Row 13: into an ordered sequence of sub-queries that explicitly exposes the: denotes the tail entity. Crucially, either h or t may be a latenti i | document’s typed triples. We then combine the two signals into a: (1) (1) (1) (2) (2) (2)
+Row 14: into an ordered sequence of sub-queries that explicitly exposes the: variable (denoted with prefix “?”), representing an unknown entity | document’s typed triples. We then combine the two signals into a: Stype (τ , τ ) = w (15)q d · ⊮[c q = c d ] + w · ⊮[c q= c d]
+Row 15: into an ordered sequence of sub-queries that explicitly exposes the: to be resolved through reasoning. | document’s typed triples. We then combine the two signals into a: (1) (2) (1) (2)
+Row 16: into an ordered sequence of sub-queries that explicitly exposes the: | document’s typed triples. We then combine the two signals into a: where τ ) are hierarchical types,q = (c q , c q ) and τ d= (c , c
+Row 17: into an ordered sequence of sub-queries that explicitly exposes the: Because the downstream matching is performed over both raw | document’s typed triples. We then combine the two signals into a: d d
+Row 18: into an ordered sequence of sub-queries that explicitly exposes the: | document’s typed triples. We then combine the two signals into a: and w (1) + w (2)= 1 control the relative importance of each level.
+Row 19: into an ordered sequence of sub-queries that explicitly exposes the: triples and taxonomy-typed triples, our decomposition prompt also | document’s typed triples. We then combine the two signals into a:
+Row 20: into an ordered sequence of sub-queries that explicitly exposes the: | document’s typed triples. We then combine the two signals into a: The structural score for a triple pair is:
+Row 21: into an ordered sequence of sub-queries that explicitly exposes the: enforces query-level typing semantics: for each explicit entity and | document’s typed triples. We then combine the two signals into a:
+Row 22: into an ordered sequence of sub-queries that explicitly exposes the: latent variable, the LLM infers a coarse type description that is | document’s typed triples. We then combine the two signals into a: Sstruct (s , ρ) = w · Stype (τ (h ), τ (h)) + w · Stype (τ (t ), τ (t)) (16)i h i t i
+Row 23: into an ordered sequence of sub-queries that explicitly exposes the: mapped into the two-level taxonomy, yielding τ (h ) and τ (t ) (ori i | document’s typed triples. We then combine the two signals into a:
+Row 24: into an ordered sequence of sub-queries that explicitly exposes the: | document’s typed triples. We then combine the two signals into a: where ρ = (τ (h), r , τ (t)) ∈ R̃ and w + w = 1.
+Row 25: into an ordered sequence of sub-queries that explicitly exposes the: type constraints for variables). This makes query decomposition the | document’s typed triples. We then combine the two signals into a: d h t
+Row 26: into an ordered sequence of sub-queries that explicitly exposes the: place where query-level triple formation and (lightweight) typing | document’s typed triples. We then combine the two signals into a: Semantic Score. The semantic score captures embedding-level
+Row 27: into an ordered sequence of sub-queries that explicitly exposes the: are performed, complementing the document-level triple extraction | document’s typed triples. We then combine the two signals into a: similarity between raw triples. We encode each component sepa-
+[/TABLE]
+
+[PAGE 5]
+TaSR-RAG: Taxonomy-guided Structured Reasoning for Retrieval-Augmented Generation Conference acronym ’XX, June 03–05, 2018, Woodstock, NY
+Triple-Level Score.The overall score for a query-document triple
+pair combines structural and semantic components:
+𝑆triple (𝑠𝑖, 𝜌)=𝛼·𝑆 struct ( ˜𝑠𝑖, ˜𝜌) + (1−𝛼) ·𝑆 sem (𝑠𝑖, 𝜌)(19)
+Document-Level Aggregation.To obtain a document-level score,
+we first compute the best matching score for each query triple
+within the document:
+𝑆best (𝑠𝑖, 𝑑)=max
+𝜌∈ R𝑑
+𝑆triple (𝑠𝑖, 𝜌)(20)
+The document score aggregates across all query triples using a
+mixture of max and mean:
+𝑆(𝑑)=𝛾·max
+𝑖
+𝑆best (𝑠𝑖, 𝑑) + (1−𝛾) · 1
+|S𝑡 |
+∑︁
+𝑠∈ S𝑡
+𝑆best (𝑠, 𝑑)(21)
+where S𝑡 denotes the top-𝑡 sub-queries ranked by their best matching scores.
+Threshold Filtering and Reranking.Documents with scores below
+a threshold 𝜃 are filtered out, and the remaining documents are
+reranked by𝑆(𝑑):
+D𝑖 =Rank {𝑑∈ D cand :𝑆(𝑑) ≥𝜃};𝑆(𝑑)  (22)
+This reranked list D𝑖 is then passed to the LLM to answer the
+current sub-query and resolve its latent variables.
+3.6.2 Entity Binding and Sub-query Execution.We maintain an
+entity binding table B that maps latent variables to their resolved
+values, and iteratively resolve latent variables while reranking evidence at each step.
+Initialization.
+B (0) =∅(23)
+Iterative Resolution.For each sub-query𝑠 𝑖 in order:
+Step 1: Variable Substitution.
+𝑠 ′
+𝑖 =Resolve(𝑠 𝑖,B (𝑖−1) )(24)
+where Resolve(·) substitutes any latent variable in 𝑠𝑖 with its binding fromB (𝑖−1) if available.
+Step 2: Evidence Selection (Filter + Rerank).Compute document
+scores using 𝑠 ′
+𝑖 (and ˜𝑠 ′
+𝑖 ) and obtain a filtered, reranked document
+list:
+D𝑖 =Rank {𝑑∈ D cand :𝑆(𝑑|𝑠 ′
+𝑖 ) ≥𝜃};𝑆(𝑑|𝑠 ′
+𝑖 ) (25)
+Step 3: Sub-query Answering.Given the reranked documents, the
+LLM answers the current sub-query and outputs the value of its
+latent variable (if any):
+ˆ𝑜𝑖 =LLM answer(𝑠 ′
+𝑖 ,D 𝑖 )(26)
+Step 4: Entity Binding Update.
+B (𝑖) =B (𝑖−1) ∪ {𝑣 𝑖 ↦→ ˆ𝑜𝑖 }(27)
+where𝑣 𝑖 is the latent variable in𝑠 𝑖 (if any).
+After processing all sub-queries, the answer to the original question is taken to be the output of the final sub-query, i.e., ˆ𝑎= ˆ𝑜𝑁 ,
+together with its supporting evidence from the reranked documents
+in the last step.
+Example 1.7 (entity binding) (Fig. 1)In the running example,
+the first step resolves
+?Database=MySQL database.
+We then substitute this binding into𝑠2 and rerank documents again
+to resolve
+?Company=MySQL AB.
+4 Experiments
+To demonstrate the efficacy of our TaSR-RAG, we conduct extensive
+evaluations on a variety of open-domain and multi-hop Question
+Answering (QA) benchmarks.
+4.1 Datasets and Evaluation Metrics
+Our evaluation spans seven representative knowledge-intensive
+datasets, selected to cover a broad spectrum of reasoning challenges. For single-step retrieval, we utilize Natural Questions (NQ)
+[8], TriviaQA [7], and PopQA [14]. To investigate complex reasoning, we include several multi-hop datasets: HotpotQA [28], 2WikiMultiHopQA [5], MuSiQue [ 24], and Bamboogle [ 16]. Together,
+these benchmarks provide a rigorous testing ground for both basic retrieval-augmented generation and sophisticated multi-step
+reasoning.
+We employ standard QA metrics, specifically Exact Match (EM)
+and F1 scores, as the primary performance indicators, following
+prior studies [6, 10, 27].
+4.2 Baselines
+We compare the performance of TaSR-RAG against two distinct
+groups of baseline models. The first category consists of Retrievalfree Methods: (1) Direct Inference, which relies solely on the generator’s internal knowledge; (2) Chain-of-Thought (CoT) [26], utilizing step-by-step prompting. The second category encompasses
+Retrieval-augmented Frameworks, with a particular focus on stateof-the-art graph-based approaches: (1) RAG [19], the conventional
+dense retrieval-generation pipeline; (2) IRCoT [ 25], which interleaves retrieval with intermediate reasoning steps to iteratively
+gather multi-hop evidence; (3) GraphRAG [ 2], which leverages
+community detection and global summarization over knowledge
+graphs to capture holistic dataset themes; (4) HippoRAG [ 3], a
+neurobiologically inspired framework that employs Personalized
+PageRank to achieve long-term memory integration and multihop associative retrieval; (5) HyperGraphRAG [13], which models
+high-order relationships using hyperedges to better represent complex, multi-entity interactions; and (6) StructRAG [12], a structured
+retrieval-augmented approach that dynamically adapts the retrieval
+granularity and structural organization based on the complexity of
+the query. These baselines encompass a wide array of prompting
+and fine-tuning strategies, providing a comprehensive context for
+our results.
+4.3 Main Results
+Table 1 reports Exact Match (EM) results on seven QA benchmarks using Qwen2.5-72B-Instruct and Qwen2.5-7B-Instruct
+as the underlying generators. Across both model scales,TaSRRAGachieves the best overall average performance, indicating
+that taxonomy-typed triples and sequential latent-variable binding
+improve evidence selection robustness.
+Qwen2.5-72B-Instruct.Our method achieves the highest average
+EM (42.5), substantially outperforming standard RAG (29.7) and
+
+[PAGE 6]
+Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Trovato et al.
+Table 1: Performance comparison (EM / F1) of different methods on Qwen2.5-7B-Instruct and Qwen2.5-72B-Instruct. The best
+results are in bold and the second best are underlined .
+Methods
+General QA Multi-Hop QA
+Avg. EM Avg. F1NQ TriviaQA PopQA HotpotQA 2WikimQA Musique Bamboogle
+EM F1 EM F1 EM F1 EM F1 EM F1 EM F1 EM F1
+Qwen2.5-72B-Instruct
+Direct Inference 19.9 28.3 45.4 53.1 19.7 24.4 20.6 29.0 15.3 19.6 5.5 10.3 17.6 27.8 20.6 27.5
+CoT 23.8 33.8 51.6 60.4 24.4 30.3 26.4 37.2 20.5 26.2 9.9 18.6 19.6 31.0 25.2 33.9
+RAG 34.248.653.4 62.5 33.2 41.2 32.8 46.2 22.7 29.1 10.6 19.9 21.6 34.1 29.7 40.2
+IRCoT 23.3 33.171.9 84.2 52.0 64.521.9 30.8 25.1 32.1 13.2 24.823.2 36.6 32.9 43.7
+GraphRAG 26.6 38.5 61.7 70.9 36.7 45.8 31.2 42.7 30.9 38.5 9.2 17.9 6.4 15.8 29.0 38.6
+HippoRAG 36.5 48.2 61.9 71.9 41.1 49.7 37.2 48.5 55.563.6 11.7 19.8 29.6 35.9 39.1 48.2
+HyperGraphRAG 25.7 37.3 57.4 68.1 36.0 45.9 29.6 42.8 42.1 51.5 9.0 17.4 19.2 27.0 31.3 41.4
+StructRAG 27.9 40.6 60.8 71.9 36.5 45.0 27.5 41.8 24.5 37.2 8.8 17.2 44.8 54.533.0 44.0
+Ours 40.648.3 64.5 69.9 37.7 43.238.7 48.551.8 66.2 18.324.4 45.649.1 42.5 49.9
+Qwen2.5-7B-Instruct
+Direct Inference 13.4 23.2 40.8 49.7 14.0 16.4 18.3 27.1 12.6 30.1 3.1 11.9 12.0 17.2 16.3 25.1
+CoT 4.8 19.3 18.5 49.7 5.4 16.4 9.2 13.0 10.8 15.1 2.2 5.1 23.2 20.8 10.6 19.9
+RAG 32.9 40.0 35.567.219.2 44.3 19.9 41.9 13.5 47.7 5.8 13.0 20.8 22.4 21.1 39.5
+IRCoT 22.4 34.7 47.8 65.9 30.1 60.213.3 20.2 14.9 21.3 7.2 20.7 22.432.122.6 36.4
+GraphRAG 22.0 21.4 35.9 48.0 12.8 27.4 22.1 33.6 30.5 37.8 4.1 11.8 8.0 14.9 17.0 27.9
+HippoRAG 18.2 25.1 37.0 51.0 26.8 37.0 18.2 32.2 19.7 38.2 4.4 12.8 15.2 23.7 18.8 31.4
+HypergraphRAG 1.3 2.7 3.8 6.2 0.8 1.6 4.4 6.2 1.6 1.9 0.4 1.2 3.2 3.9 2.2 3.4
+StructRAG 20.8 32.2 50.0 60.4 31.4 40.1 18.5 29.8 16.7 23.9 4.1 10.7 13.6 24.5 22.2 31.7
+Ours 38.2 45.2 55.160.536.543.935.1 42.0 45.9 65.6 14.6 22.0 25.628.6 35.9 44.0
+other retrieval-augmented baselines. At the dataset level,TaSR-RAG
+attains the best scores on NQ (40.6), HotpotQA (38.7), Musique (18.3),
+and Bamboogle (45.6), while remaining competitive on TriviaQA
+(64.5), PopQA (37.7), and 2WikimQA (51.8). Notably, the strongest
+competing methods are highly dataset-dependent (e.g., IRCoT on
+TriviaQA and HippoRAG on 2WikimQA), whereas our approach
+provides consistently strong results across both general and multihop QA.
+Qwen2.5-7B-Instruct.The gains are even more pronounced in
+the smaller-model setting.TaSR-RAGachieves the highest average
+EM (37.0), improving over standard RAG (21.1) by a large margin.
+Moreover, it ranks first on all seven datasets, suggesting that explicit
+structure and step-by-step binding can effectively compensate for
+limited model capacity by guiding the model to focus on highdensity, type-consistent evidence.
+4.4 Ablation Studies
+To better understand the contribution of each component in TaSRRAG, we conduct a series of ablation studies that systematically
+remove or modify key design choices. All ablation variants are evaluated under the same experimental settings and retrieval budgets
+for fair comparison. Results are reported using Exact Match (EM).
+4.5 Query-level vs. Document-level
+Structuredization
+Our framework introduces structure on both the document side
+and the query side, raising a natural question: which component
+Table 2: Ablation to disentangle the effects of Document-level
+and Query-level structuredization under the Qwen2.5-72BInstruct setting. Doc-level Structure applies triple extraction
+and taxonomy typing to documents while keeping the original query unchanged. Query-level Structure enables query
+decomposition and typed sub-queries but disables documentlevel structural representations.
+Method HotpotQA 2WikiMQA Bamboogle Avg.
+RAG 32.8 22.7 21.6 25.7
+Doc-level Structure 44.0 34.0 40.8 39.6
+Query-level Structure 42.5 31.5 43.2 39.1
+Full 46.2 35.6 45.1 42.3
+contributes more to the overall performance gains? To disentangle their individual effects, we conduct a targeted ablation study
+under the Qwen2.5-72B setting on three representative multi-hop
+benchmarks. Specifically, we compare (i) a Doc-level variant, which
+converts retrieved documents into relational triples and taxonomytyped triples while keeping the query as a single, undecomposed
+request, and (ii) a Query-level variant, which enables query decomposition into sequential, typed sub-queries but leaves documents
+in their original unstructured form. As shown in Table 2, both
+variants substantially outperform the unstructured RAG baseline,
+indicating that structured representations on either side already
+provide strong inductive bias for multi-hop reasoning. Interestingly, the two variants achieve comparable average performance
+(39.6 vs. 39.1 EM), but exhibit different dataset-specific strengths:
+Document-level structure is slightly more effective on HotpotQA
+
+[TABLE page=6 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | General QA | Unnamed: 3 | Unnamed: 4 | Multi-Hop QA | Unnamed: 5 | Unnamed: 6 | Unnamed: 7
+Row 1: Unnamed: 0: Methods | Unnamed: 1: | Unnamed: 2: | General QA: | Unnamed: 3: | Unnamed: 4: | Multi-Hop QA: | Unnamed: 5: | Unnamed: 6: Avg. EM | Unnamed: 7: Avg. F1
+Row 2: Unnamed: 0: | Unnamed: 1: NQ | Unnamed: 2: | General QA: TriviaQA | Unnamed: 3: PopQA | Unnamed: 4: HotpotQA | Multi-Hop QA: 2WikimQA Musique | Unnamed: 5: Bamboogle | Unnamed: 6: | Unnamed: 7:
+Row 3: Unnamed: 0: | Unnamed: 1: EM F1 | Unnamed: 2: | General QA: EM F1 | Unnamed: 3: EM F1 | Unnamed: 4: EM F1 | Multi-Hop QA: EM F1 EM F1 | Unnamed: 5: EM F1 | Unnamed: 6: | Unnamed: 7:
+Row 4: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | General QA: | Unnamed: 3: Qwen2.5-72B-Instruct | Unnamed: 4: | Multi-Hop QA: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7:
+Row 5: Unnamed: 0: Direct Inference | Unnamed: 1: 19.9 28.3 | Unnamed: 2: | General QA: 45.4 53.1 | Unnamed: 3: 19.7 24.4 | Unnamed: 4: 20.6 29.0 | Multi-Hop QA: 15.3 19.6 5.5 10.3 | Unnamed: 5: 17.6 27.8 | Unnamed: 6: 20.6 | Unnamed: 7: 27.5
+Row 6: Unnamed: 0: CoT | Unnamed: 1: 23.8 33.8 | Unnamed: 2: | General QA: 51.6 60.4 | Unnamed: 3: 24.4 30.3 | Unnamed: 4: 26.4 37.2 | Multi-Hop QA: 20.5 26.2 9.9 18.6 | Unnamed: 5: 19.6 31.0 | Unnamed: 6: 25.2 | Unnamed: 7: 33.9
+Row 7: Unnamed: 0: RAG | Unnamed: 1: 34.2 48.6 | Unnamed: 2: | General QA: 53.4 62.5 | Unnamed: 3: 33.2 41.2 | Unnamed: 4: 32.8 46.2 | Multi-Hop QA: 22.7 29.1 10.6 19.9 | Unnamed: 5: 21.6 34.1 | Unnamed: 6: 29.7 | Unnamed: 7: 40.2
+Row 8: Unnamed: 0: IRCoT | Unnamed: 1: 23.3 33.1 | Unnamed: 2: | General QA: 71.9 84.2 | Unnamed: 3: 52.0 64.5 | Unnamed: 4: 21.9 30.8 | Multi-Hop QA: 25.1 32.1 13.2 24.8 | Unnamed: 5: 23.2 36.6 | Unnamed: 6: 32.9 | Unnamed: 7: 43.7
+Row 9: Unnamed: 0: GraphRAG | Unnamed: 1: 26.6 38.5 | Unnamed: 2: | General QA: 61.7 70.9 | Unnamed: 3: 36.7 45.8 | Unnamed: 4: 31.2 42.7 | Multi-Hop QA: 30.9 38.5 9.2 17.9 | Unnamed: 5: 6.4 15.8 | Unnamed: 6: 29.0 | Unnamed: 7: 38.6
+Row 10: Unnamed: 0: HippoRAG | Unnamed: 1: 36.5 48.2 | Unnamed: 2: | General QA: 61.9 71.9 | Unnamed: 3: 41.1 49.7 | Unnamed: 4: 37.2 48.5 | Multi-Hop QA: 55.5 63.6 11.7 19.8 | Unnamed: 5: 29.6 35.9 | Unnamed: 6: 39.1 | Unnamed: 7: 48.2
+Row 11: Unnamed: 0: HyperGraphRAG | Unnamed: 1: 25.7 37.3 | Unnamed: 2: | General QA: 57.4 68.1 | Unnamed: 3: 36.0 45.9 | Unnamed: 4: 29.6 42.8 | Multi-Hop QA: 42.1 51.5 9.0 17.4 | Unnamed: 5: 19.2 27.0 | Unnamed: 6: 31.3 | Unnamed: 7: 41.4
+Row 12: Unnamed: 0: StructRAG | Unnamed: 1: 27.9 40.6 | Unnamed: 2: | General QA: 60.8 71.9 | Unnamed: 3: 36.5 45.0 | Unnamed: 4: 27.5 41.8 | Multi-Hop QA: 24.5 37.2 8.8 17.2 | Unnamed: 5: 44.8 54.5 | Unnamed: 6: 33.0 | Unnamed: 7: 44.0
+Row 13: Unnamed: 0: Ours | Unnamed: 1: 40.6 48.3 | Unnamed: 2: | General QA: 64.5 69.9 | Unnamed: 3: 37.7 43.2 | Unnamed: 4: 38.7 48.5 | Multi-Hop QA: 51.8 66.2 18.3 24.4 | Unnamed: 5: 45.6 49.1 | Unnamed: 6: 42.5 | Unnamed: 7: 49.9
+Row 14: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | General QA: | Unnamed: 3: Qwen2.5-7B-Instruct | Unnamed: 4: | Multi-Hop QA: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7:
+Row 15: Unnamed: 0: Direct Inference | Unnamed: 1: 13.4 23.2 | Unnamed: 2: | General QA: 40.8 49.7 | Unnamed: 3: 14.0 16.4 | Unnamed: 4: 18.3 27.1 | Multi-Hop QA: 12.6 30.1 3.1 11.9 | Unnamed: 5: 12.0 17.2 | Unnamed: 6: 16.3 | Unnamed: 7: 25.1
+Row 16: Unnamed: 0: CoT | Unnamed: 1: 4.8 19.3 | Unnamed: 2: | General QA: 18.5 49.7 | Unnamed: 3: 5.4 16.4 | Unnamed: 4: 9.2 13.0 | Multi-Hop QA: 10.8 15.1 2.2 5.1 | Unnamed: 5: 23.2 20.8 | Unnamed: 6: 10.6 | Unnamed: 7: 19.9
+Row 17: Unnamed: 0: RAG | Unnamed: 1: 32.9 40.0 | Unnamed: 2: | General QA: 35.5 67.2 | Unnamed: 3: 19.2 44.3 | Unnamed: 4: 19.9 41.9 | Multi-Hop QA: 13.5 47.7 5.8 13.0 | Unnamed: 5: 20.8 22.4 | Unnamed: 6: 21.1 | Unnamed: 7: 39.5
+Row 18: Unnamed: 0: IRCoT | Unnamed: 1: 22.4 34.7 | Unnamed: 2: | General QA: 47.8 65.9 | Unnamed: 3: 30.1 60.2 | Unnamed: 4: 13.3 20.2 | Multi-Hop QA: 14.9 21.3 7.2 20.7 | Unnamed: 5: 22.4 32.1 | Unnamed: 6: 22.6 | Unnamed: 7: 36.4
+Row 19: Unnamed: 0: GraphRAG | Unnamed: 1: 22.0 21.4 | Unnamed: 2: | General QA: 35.9 48.0 | Unnamed: 3: 12.8 27.4 | Unnamed: 4: 22.1 33.6 | Multi-Hop QA: 30.5 37.8 4.1 11.8 | Unnamed: 5: 8.0 14.9 | Unnamed: 6: 17.0 | Unnamed: 7: 27.9
+Row 20: Unnamed: 0: HippoRAG | Unnamed: 1: 18.2 25.1 | Unnamed: 2: | General QA: 37.0 51.0 | Unnamed: 3: 26.8 37.0 | Unnamed: 4: 18.2 32.2 | Multi-Hop QA: 19.7 38.2 4.4 12.8 | Unnamed: 5: 15.2 23.7 | Unnamed: 6: 18.8 | Unnamed: 7: 31.4
+Row 21: Unnamed: 0: HypergraphRAG | Unnamed: 1: 1.3 2.7 | Unnamed: 2: | General QA: 3.8 6.2 | Unnamed: 3: 0.8 1.6 | Unnamed: 4: 4.4 6.2 | Multi-Hop QA: 1.6 1.9 0.4 1.2 | Unnamed: 5: 3.2 3.9 | Unnamed: 6: 2.2 | Unnamed: 7: 3.4
+Row 22: Unnamed: 0: StructRAG | Unnamed: 1: 20.8 32.2 | Unnamed: 2: | General QA: 50.0 60.4 | Unnamed: 3: 31.4 40.1 | Unnamed: 4: 18.5 29.8 | Multi-Hop QA: 16.7 23.9 4.1 10.7 | Unnamed: 5: 13.6 24.5 | Unnamed: 6: 22.2 | Unnamed: 7: 31.7
+Row 23: Unnamed: 0: Ours | Unnamed: 1: 38.2 45.2 | Unnamed: 2: | General QA: 55.1 60.5 | Unnamed: 3: 36.5 43.9 | Unnamed: 4: 35.1 42.0 | Multi-Hop QA: 45.9 65.6 14.6 22.0 | Unnamed: 5: 25.6 28.6 | Unnamed: 6: 35.9 | Unnamed: 7: 44.0
+[/TABLE]
+
+[TABLE page=6 index=2]
+Columns: Qwen2.5-7B-Instruct. The gains are even more pronounced in | Method HotpotQA | 2WikiMQA | Bamboogle | Avg.
+Row 1: Qwen2.5-7B-Instruct. The gains are even more pronounced in: the smaller-model setting. TaSR-RAG achieves the highest average | Method HotpotQA: RAG 32.8 | 2WikiMQA: 22.7 | Bamboogle: 21.6 | Avg.: 25.7
+Row 2: Qwen2.5-7B-Instruct. The gains are even more pronounced in: EM (37.0), improving over standard RAG (21.1) by a large margin. | Method HotpotQA: Doc-level Structure 44.0 | 2WikiMQA: 34.0 | Bamboogle: 40.8 | Avg.: 39.6
+Row 3: Qwen2.5-7B-Instruct. The gains are even more pronounced in: | Method HotpotQA: Query-level Structure 42.5 | 2WikiMQA: 31.5 | Bamboogle: 43.2 | Avg.: 39.1
+Row 4: Qwen2.5-7B-Instruct. The gains are even more pronounced in: Moreover, it ranks first on all seven datasets, suggesting that explicit | Method HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.:
+Row 5: Qwen2.5-7B-Instruct. The gains are even more pronounced in: | Method HotpotQA: Full 46.2 | 2WikiMQA: 35.6 | Bamboogle: 45.1 | Avg.: 42.3
+Row 6: Qwen2.5-7B-Instruct. The gains are even more pronounced in: structure and step-by-step binding can effectively compensate for | Method HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.:
+Row 7: Qwen2.5-7B-Instruct. The gains are even more pronounced in: limited model capacity by guiding the model to focus on high- | Method HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.:
+Row 8: Qwen2.5-7B-Instruct. The gains are even more pronounced in: density, type-consistent evidence. | Method HotpotQA: contributes more to the overall performance gains? To disentan- | 2WikiMQA: | Bamboogle: | Avg.:
+Row 9: Qwen2.5-7B-Instruct. The gains are even more pronounced in: | Method HotpotQA: gle their individual effects, we conduct a targeted ablation study | 2WikiMQA: | Bamboogle: | Avg.:
+Row 10: Qwen2.5-7B-Instruct. The gains are even more pronounced in: | Method HotpotQA: under the Qwen2.5-72B setting on three representative multi-hop | 2WikiMQA: | Bamboogle: | Avg.:
+Row 11: Qwen2.5-7B-Instruct. The gains are even more pronounced in: 4.4 Ablation Studies | Method HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.:
+Row 12: Qwen2.5-7B-Instruct. The gains are even more pronounced in: | Method HotpotQA: benchmarks. Specifically, we compare (i) a Doc-level variant, which | 2WikiMQA: | Bamboogle: | Avg.:
+Row 13: Qwen2.5-7B-Instruct. The gains are even more pronounced in: To better understand the contribution of each component in TaSR- | Method HotpotQA: converts retrieved documents into relational triples and taxonomy- | 2WikiMQA: | Bamboogle: | Avg.:
+Row 14: Qwen2.5-7B-Instruct. The gains are even more pronounced in: RAG, we conduct a series of ablation studies that systematically | Method HotpotQA: typed triples while keeping the query as a single, undecomposed | 2WikiMQA: | Bamboogle: | Avg.:
+Row 15: Qwen2.5-7B-Instruct. The gains are even more pronounced in: remove or modify key design choices. All ablation variants are eval- | Method HotpotQA: request, and (ii) a Query-level variant, which enables query decom- | 2WikiMQA: | Bamboogle: | Avg.:
+Row 16: Qwen2.5-7B-Instruct. The gains are even more pronounced in: uated under the same experimental settings and retrieval budgets | Method HotpotQA: position into sequential, typed sub-queries but leaves documents | 2WikiMQA: | Bamboogle: | Avg.:
+[/TABLE]
+
+[PAGE 7]
+TaSR-RAG: Taxonomy-guided Structured Reasoning for Retrieval-Augmented Generation Conference acronym ’XX, June 03–05, 2018, Woodstock, NY
+Table 3: Effect of taxonomy granularity on multi-hop QA
+performance under the Qwen2.5-72B-Instruct setting.
+Method HotpotQA 2WikiMQA Bamboogle Avg.
+No Typing 32.8 22.7 21.6 25.7
+Top-level Taxonomy 43.0 34.5 33.6 37.0
+Top-two level Taxonomy 46.2 35.6 45.1 42.3
+Top-three level Taxonomy 42.0 34.1 36.0 37.4
+Table 4: Ablation on matching strategies under the Qwen2.572B setting. Semantic-only matching relies solely on triple
+embedding similarity, structural-only matching uses typed
+triple consistency, and hybrid matching combines both signals.
+Matching Strategy HotpotQA 2WikiMQA Bamboogle Avg.
+Semantic-only Matching 43.5 23.5 43.2 36.7
+Structural-only Matching 44.0 33.5 44.8 40.8
+Hybrid Matching (Full) 46.2 35.6 45.1 42.3
+and 2WikiMQA, while query-level structure yields stronger gains
+on Bamboogle, which involves more implicit multi-step inference.
+The full model, which combines structured queries with structured
+documents, achieves the best results across all datasets, improving
+the average EM to 42.3. Crucially, their combination is complementary rather than redundant, and both are necessary to fully
+realize the benefits of structured, sequential reasoning in retrievalaugmented generation. Moreover, the ablation helps pinpoint where
+each form of structure matters most: query-level decomposition
+primarily stabilizes hop ordering and reduces reasoning drift, while
+document-level tripleization improves evidence precision by filtering distractor spans. This motivates our full design, which aligns
+structured queries with structured documents to maximize both
+recall of relevant hops and faithfulness of the final answer.
+The full TaSR-RAG consistently outperforms both variants, with
+especially pronounced improvements on multi-hop datasets. While
+No-Seq suffers from limited reasoning depth, Seq-NoBind exhibits
+clear degradation, highlighting the importance of maintaining consistent entity bindings across reasoning steps. These results demonstrate that sequential reasoning alone is insufficient without explicit
+variable binding.
+4.6 Impact of Taxonomy-Guided Entity Typing
+We next investigate how the granularity of entity typing affects
+structured retrieval and reasoning. Using the same pipeline and
+retrieval budget, we vary the depth of the taxonomy used for typing
+entities on both the query and document sides. Here,Top-level
+Taxonomyuses only the top-level taxonomy (L1),Top-two level
+Taxonomyuses the top two levels (L1+L2), andTop-three level
+Taxonomyuses three levels (L1+L2+L3). As shown in Table 3, introducing even Top-level typing leads to a substantial improvement
+over the untyped variant, confirming that explicit type constraints
+are essential for reducing retrieval noise and entity conflation. Moving from Top-level to Top-two level yields further gains across
+all datasets, with especially pronounced improvements on Bamboogle, suggesting that mid-level semantic distinctions provide
+stronger guidance for multi-step inference. However, increasing
+41%
+36%
+23%
+Type Mismatch Triple Gap Rank Error
+33%
+30%
+15%
+13%
+9%
+Extraction Error Context Error Synthesis Error
+Propagation Error Decomposition Error
+Figure 2: Error distribution in our manual analysis. The left
+figure illustrates Matching Errors and right figure illustrates
+Generation Errors.
+the granularity to Top-three level results in consistent performance
+degradation, despite using more detailed type information. We attribute this drop to increased sparsity and error propagation: overly
+fine-grained types reduce matching recall and amplify the impact
+of occasional typing errors, which in turn destabilize downstream
+reasoning.
+4.7 Effect of Matching Strategy
+We further analyze the contribution of the proposed hybrid matching mechanism by comparing it against single-mode alternatives.
+Specifically, we evaluate semantic-only matching, which scores documents solely based on embedding similarity between query and
+document triples, and structural-only matching, which relies exclusively on taxonomy-typed triple consistency. As shown in Table 4,
+semantic-only matching performs well on datasets with strong lexical or semantic overlap, but suffers significantly on 2WikiMQA,
+indicating vulnerability to topic drift and insufficient structural
+constraints during multi-hop retrieval. In contrast, structural-only
+matching yields higher and more stable performance, confirming
+that typed structural constraints effectively reduce noise and entity
+conflation; however, its performance remains limited by reduced
+recall when exact structural matches are sparse. The hybrid strategy consistently outperforms both alternatives across all datasets,
+achieving the highest average EM. These results demonstrate that
+semantic similarity and structural consistency provide complementary signals: semantic matching ensures coverage and recall, while
+structural matching enforces type-level precision.
+4.8 Analysis
+Beyond aggregate performance, we provide further analyses to
+shed light on the behavior and robustness ofTaSR-RAG.
+4.9 Error Breakdown Analysis.
+We manually inspect a subset of error cases where the ground-truth
+evidence is present in the retrieved pool, and conduct an error analysis to isolate failures introduced by our pipeline. Following our
+two-tier taxonomy, we group errors into (i)Matching Errors
+arising from typed triple matching and reranking, and (ii)Generation Errorsarising from sequential reasoning over the selected
+context.
+
+[TABLE page=7 index=1]
+Columns: Method | HotpotQA | 2WikiMQA | Bamboogle | Avg. | Unnamed: 0 | Unnamed: 1
+Row 1: Method: No Typing | HotpotQA: 32.8 | 2WikiMQA: 22.7 | Bamboogle: 21.6 | Avg.: 25.7 | Unnamed: 0: | Unnamed: 1: 41%
+Row 2: Method: Top-level Taxonomy | HotpotQA: 43.0 | 2WikiMQA: 34.5 | Bamboogle: 33.6 | Avg.: 37.0 | Unnamed: 0: | Unnamed: 1:
+Row 3: Method: Top-two level Taxonomy | HotpotQA: 46.2 | 2WikiMQA: 35.6 | Bamboogle: 45.1 | Avg.: 42.3 | Unnamed: 0: | Unnamed: 1:
+Row 4: Method: Top-three level Taxonomy | HotpotQA: 42.0 | 2WikiMQA: 34.1 | Bamboogle: 36.0 | Avg.: 37.4 | Unnamed: 0: 36% | Unnamed: 1:
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: Matching Strategy HotpotQA | 2WikiMQA | Bamboogle | Avg. | Unnamed: 0 | Unnamed: 1
+Row 1: Matching Strategy HotpotQA: Semantic-only Matching 43.5 | 2WikiMQA: 23.5 | Bamboogle: 43.2 | Avg.: 36.7 | Unnamed: 0: | Unnamed: 1: the granularity to Top-three level results in consistent performance
+Row 2: Matching Strategy HotpotQA: Structural-only Matching 44.0 | 2WikiMQA: 33.5 | Bamboogle: 44.8 | Avg.: 40.8 | Unnamed: 0: | Unnamed: 1: degradation, despite using more detailed type information. We atRow 3: Matching Strategy HotpotQA: Hybrid Matching (Full) 46.2 | 2WikiMQA: 35.6 | Bamboogle: 45.1 | Avg.: 42.3 | Unnamed: 0: | Unnamed: 1:
+Row 4: Matching Strategy HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: tribute this drop to increased sparsity and error propagation: overly
+Row 5: Matching Strategy HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: fine-grained types reduce matching recall and amplify the impact
+Row 6: Matching Strategy HotpotQA: and 2WikiMQA, while query-level structure yields stronger gains | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: of occasional typing errors, which in turn destabilize downstream
+Row 7: Matching Strategy HotpotQA: on Bamboogle, which involves more implicit multi-step inference. | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: reasoning.
+Row 8: Matching Strategy HotpotQA: The full model, which combines structured queries with structured | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1:
+Row 9: Matching Strategy HotpotQA: documents, achieves the best results across all datasets, improving | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: 4.7 Effect of Matching Strategy
+Row 10: Matching Strategy HotpotQA: the average EM to 42.3. Crucially, their combination is comple- | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: We further analyze the contribution of the proposed hybrid matchRow 11: Matching Strategy HotpotQA: mentary rather than redundant, and both are necessary to fully | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: ing mechanism by comparing it against single-mode alternatives.
+Row 12: Matching Strategy HotpotQA: realize the benefits of structured, sequential reasoning in retrieval- | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: Specifically, we evaluate semantic-only matching, which scores docRow 13: Matching Strategy HotpotQA: augmented generation. Moreover, the ablation helps pinpoint where | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: uments solely based on embedding similarity between query and
+Row 14: Matching Strategy HotpotQA: each form of structure matters most: query-level decomposition | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: document triples, and structural-only matching, which relies excluRow 15: Matching Strategy HotpotQA: primarily stabilizes hop ordering and reduces reasoning drift, while | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: sively on taxonomy-typed triple consistency. As shown in Table 4,
+Row 16: Matching Strategy HotpotQA: document-level tripleization improves evidence precision by filter- | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: semantic-only matching performs well on datasets with strong lexRow 17: Matching Strategy HotpotQA: ing distractor spans. This motivates our full design, which aligns | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: ical or semantic overlap, but suffers significantly on 2WikiMQA,
+Row 18: Matching Strategy HotpotQA: structured queries with structured documents to maximize both | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: indicating vulnerability to topic drift and insufficient structural
+Row 19: Matching Strategy HotpotQA: recall of relevant hops and faithfulness of the final answer. | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: constraints during multi-hop retrieval. In contrast, structural-only
+Row 20: Matching Strategy HotpotQA: The full TaSR-RAG consistently outperforms both variants, with | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: matching yields higher and more stable performance, confirming
+Row 21: Matching Strategy HotpotQA: especially pronounced improvements on multi-hop datasets. While | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: that typed structural constraints effectively reduce noise and entity
+Row 22: Matching Strategy HotpotQA: No-Seq suffers from limited reasoning depth, Seq-NoBind exhibits | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: conflation; however, its performance remains limited by reduced
+Row 23: Matching Strategy HotpotQA: clear degradation, highlighting the importance of maintaining con- | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: recall when exact structural matches are sparse. The hybrid stratRow 24: Matching Strategy HotpotQA: sistent entity bindings across reasoning steps. These results demon- | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: egy consistently outperforms both alternatives across all datasets,
+Row 25: Matching Strategy HotpotQA: strate that sequential reasoning alone is insufficient without explicit | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: achieving the highest average EM. These results demonstrate that
+Row 26: Matching Strategy HotpotQA: variable binding. | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: semantic similarity and structural consistency provide complemenRow 27: Matching Strategy HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: tary signals: semantic matching ensures coverage and recall, while
+Row 28: Matching Strategy HotpotQA: 4.6 Impact of Taxonomy-Guided Entity Typing | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: structural matching enforces type-level precision.
+Row 29: Matching Strategy HotpotQA: We next investigate how the granularity of entity typing affects | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1:
+Row 30: Matching Strategy HotpotQA: structured retrieval and reasoning. Using the same pipeline and | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1:
+Row 31: Matching Strategy HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: 4.8 Analysis
+Row 32: Matching Strategy HotpotQA: retrieval budget, we vary the depth of the taxonomy used for typing | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1:
+Row 33: Matching Strategy HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: Beyond aggregate performance, we provide further analyses to
+Row 34: Matching Strategy HotpotQA: entities on both the query and document sides. Here, Top-level | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1:
+Row 35: Matching Strategy HotpotQA: | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: shed light on the behavior and robustness of TaSR-RAG.
+Row 36: Matching Strategy HotpotQA: Taxonomy uses only the top-level taxonomy (L1), Top-two level | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1:
+Row 37: Matching Strategy HotpotQA: Taxonomy uses the top two levels (L1+L2), and Top-three level | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1:
+Row 38: Matching Strategy HotpotQA: Taxonomyuses three levels (L1+L2+L3). As shown in Table 3, in- | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: 4.9 Error Breakdown Analysis.
+Row 39: Matching Strategy HotpotQA: troducing even Top-level typing leads to a substantial improvement | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: We manually inspect a subset of error cases where the ground-truth
+Row 40: Matching Strategy HotpotQA: over the untyped variant, confirming that explicit type constraints | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: evidence is present in the retrieved pool, and conduct an error analRow 41: Matching Strategy HotpotQA: are essential for reducing retrieval noise and entity conflation. Mov- | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: ysis to isolate failures introduced by our pipeline. Following our
+Row 42: Matching Strategy HotpotQA: ing from Top-level to Top-two level yields further gains across | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: two-tier taxonomy, we group errors into (i)Matching Errors
+Row 43: Matching Strategy HotpotQA: all datasets, with especially pronounced improvements on Bam- | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: arising from typed triple matching and reranking, and (ii) GenerRow 44: Matching Strategy HotpotQA: boogle, suggesting that mid-level semantic distinctions provide | 2WikiMQA: | Bamboogle: | Avg.: | Unnamed: 0: | Unnamed: 1: ation Errors arising from sequential reasoning over the selected
+[/TABLE]
+
+[PAGE 8]
+Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Trovato et al.
+As shown in Figure 2, most failures (64.5%) occur after retrieval
+and reranking, indicating that the dominant bottleneck is reasoning
+and answer construction rather than document ranking.
+Generation errors.Within sequential reasoning, the most frequent issues areExtraction Error(33%) andContext Error(30%),
+where relevant documents are highly ranked but the LLM either
+fails to extract the exact answer string (format/normalization) or
+fails to derive the correct step result from the provided evidence.
+This suggests that, once relevant evidence is retrieved, the dominant bottleneck shifts to faithful utilization of the selected context:
+extraction failures are often triggered by aliasing/normalization
+(e.g., abbreviations, date formats) and by answers expressed implicitly rather than as a single span, while context errors indicate
+that hop-level evidence can still be noisy or incomplete, causing
+the model to follow a locally plausible but globally incorrect chain.
+We also observeSynthesis Error(15%) where intermediate steps
+appear consistent but the final answer becomes inconsistent, and
+Propagation Error(13%) caused by incorrect variable substitution
+across sub-queries. Finally,Decomposition Error(10%) suggests
+that imperfect sub-query formation remains a non-negligible source
+of downstream failures.
+Matching errors.Among typed triple matching failures,Type
+Mismatch(41%) andTriple Gap(36%) dominate. This highlights a
+key trade-off in our structured pipeline: typing constraints improve
+precision, but they also amplify upstream typing mistakes and brittleness in triple extraction/coverage. The remainingRank Error
+(23%) suggests that even when types and triples are adequate, the
+hybrid (semantic+structural) scoring can still mis-rank evidence.
+4.10 Efficiency
+We analyze the computational efficiency of different RAG frameworks by separating the cost into two stages: offline preprocessing and inference-time execution. Figure 3 reports the trade-off
+between performance and time cost forGraphRAG,HippoRAG,
+HyperGraphRAG, andTaSR-RAG.
+Offline Efficiency.Offline preprocessing exhibits substantial variance across methods. Graph-based approaches such asGraphRAG
+andHyperGraphRAGincur high offline costs due to expensive
+graph construction and indexing, withGraphRAGbeing particularly costly. In contrast,HippoRAGachieves very low preprocessing
+time, whileTaSR-RAGrequires only a modest offline cost despite
+incorporating structured retrieval and matching. Importantly,TaSRRAGachieves the highest performance among all methods while
+maintaining an offline time that is an order of magnitude lower
+than heavy graph-based baselines.
+Inference Efficiency.Inference-time efficiency reveals a different
+trade-off. WhileHyperGraphRAGachieves fast inference by relying on precomputed structures,HippoRAGsuffers from significant
+inference overhead.GraphRAGalso incurs non-trivial inference
+cost. In contrast,TaSR-RAGmaintains consistently low inference
+time while delivering the best performance, demonstrating that
+its structured reasoning and retrieval design does not introduce
+prohibitive online overhead.
+Across both offline and inference settings,TaSR-RAGoccupies a
+favorable position on the performance–efficiency frontier. It avoids
+0 20 40 60 80
+Offline Time (seconds)
+50Performance (Exact Match)
+Efficiency Comparison (Offline)
+GraphRAG
+HippoRAG
+HyperGraphRAG
+TaSR-RAG (Ours)
+(a) Offline efficiency.
+20 40 60 80 100
+Inference Time (seconds)
+50Performance (Exact Match)
+Efficiency Comparison (Inference)
+GraphRAG
+HippoRAG
+HyperGraphRAG
+TaSR-RAG (Ours)
+(b) Inference efficiency.
+Figure 3: Performance–efficiency trade-off under offline preprocessing and inference-time execution.TaSR-RAG(ours)
+achieves the best overall balance, avoiding the high offline cost of graph-based methods while maintaining low
+inference-time overhead.
+the extreme offline cost of graph-heavy methods and the high
+inference latency of retrieval-intensive approaches, achieving a
+balanced and practical trade-off without sacrificing accuracy.
+5 Conclusion
+We presentedTaSR-RAG, a taxonomy-guided sequential reasoning
+framework for multi-hop context selection in retrieval-augmented
+generation. By representing queries and documents as relational
+triples, imposing lightweight two-level type constraints, and combining semantic and structural signals for step-wise reranking,
+TaSR-RAGselects denser and more relevant evidence than standard
+chunk-based retrieval. Crucially,TaSR-RAGmaintains an explicit
+entity binding table to resolve latent variables across reasoning
+steps, reducing entity conflation and improving the faithfulness of
+
+[TABLE page=8 index=1]
+Columns: and reranking, indicating that the dominant bottleneck is reasoning | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3
+Row 1: and reranking, indicating that the dominant bottleneck is reasoning: and answer construction rather than document ranking. 50 | Unnamed: 0: | Unnamed: 1: TaSR-RAG (Ours) | Unnamed: 2: | Unnamed: 3:
+Row 2: and reranking, indicating that the dominant bottleneck is reasoning: Generation errors. Within sequential reasoning, the most fre- | Unnamed: 0: | Unnamed: 1: HippoRAG | Unnamed: 2: | Unnamed: 3:
+Row 3: and reranking, indicating that the dominant bottleneck is reasoning: 48 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 4: and reranking, indicating that the dominant bottleneck is reasoning: quent issues are Extraction Error (33%) and Context Error (30%), | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 5: and reranking, indicating that the dominant bottleneck is reasoning: where relevant documents are highly ranked but the LLM either 46 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 6: and reranking, indicating that the dominant bottleneck is reasoning: fails to extract the exact answer string (format/normalization) or | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 7: and reranking, indicating that the dominant bottleneck is reasoning: 44 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 8: and reranking, indicating that the dominant bottleneck is reasoning: fails to derive the correct step result from the provided evidence. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 9: and reranking, indicating that the dominant bottleneck is reasoning: This suggests that, once relevant evidence is retrieved, the domi- 42 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: HyperGraphRAG | Unnamed: 3:
+Row 10: and reranking, indicating that the dominant bottleneck is reasoning: nant bottleneck shifts to faithful utilization of the selected context: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 11: and reranking, indicating that the dominant bottleneck is reasoning: extraction failures are often triggered by aliasing/normalization 40 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: GraphRAG
+Row 12: and reranking, indicating that the dominant bottleneck is reasoning: (e.g., abbreviations, date formats) and by answers expressed im- | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 13: and reranking, indicating that the dominant bottleneck is reasoning: 38 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 14: and reranking, indicating that the dominant bottleneck is reasoning: plicitly rather than as a single span, while context errors indicate | Unnamed: 0: 0.0 | Unnamed: 1: 20 40 | Unnamed: 2: 60 | Unnamed: 3: 80
+Row 15: and reranking, indicating that the dominant bottleneck is reasoning: that hop-level evidence can still be noisy or incomplete, causing | Unnamed: 0: | Unnamed: 1: Offline Time (seconds) | Unnamed: 2: | Unnamed: 3:
+Row 16: and reranking, indicating that the dominant bottleneck is reasoning: the model to follow a locally plausible but globally incorrect chain. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 17: and reranking, indicating that the dominant bottleneck is reasoning: We also observe Synthesis Error (15%) where intermediate steps | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 18: and reranking, indicating that the dominant bottleneck is reasoning: (a) Offline efficiency.appear consistent but the final answer becomes inconsistent, and | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 19: and reranking, indicating that the dominant bottleneck is reasoning: Propagation Error (13%) caused by incorrect variable substitution | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 20: and reranking, indicating that the dominant bottleneck is reasoning: | Unnamed: 0: | Unnamed: 1: Efficiency Comparison (Inference) | Unnamed: 2: | Unnamed: 3:
+Row 21: and reranking, indicating that the dominant bottleneck is reasoning: across sub-queries. Finally, Decomposition Error (10%) suggests | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 22: and reranking, indicating that the dominant bottleneck is reasoning: that imperfect sub-query formation remains a non-negligible source | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 23: and reranking, indicating that the dominant bottleneck is reasoning: 50 | Unnamed: 0: | Unnamed: 1: TaSR-RAG (Ours) | Unnamed: 2: | Unnamed: 3:
+Row 24: and reranking, indicating that the dominant bottleneck is reasoning: of downstream failures. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 25: and reranking, indicating that the dominant bottleneck is reasoning: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: HippoRAG
+Row 26: and reranking, indicating that the dominant bottleneck is reasoning: Matching errors. Among typed triple matching failures, Type 48 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 27: and reranking, indicating that the dominant bottleneck is reasoning: Mismatch (41%) and Triple Gap (36%) dominate. This highlights a | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 28: and reranking, indicating that the dominant bottleneck is reasoning: 46 | Unnamed: 0: | Unnamed: 1: Performance (Exact Match) | Unnamed: 2: | Unnamed: 3:
+Row 29: and reranking, indicating that the dominant bottleneck is reasoning: key trade-off in our structured pipeline: typing constraints improve | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 30: and reranking, indicating that the dominant bottleneck is reasoning: precision, but they also amplify upstream typing mistakes and brit- 44 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 31: and reranking, indicating that the dominant bottleneck is reasoning: tleness in triple extraction/coverage. The remaining Rank Error | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 32: and reranking, indicating that the dominant bottleneck is reasoning: HyperGraphRAG(23%) suggests that even when types and triples are adequate, the 42 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 33: and reranking, indicating that the dominant bottleneck is reasoning: hybrid (semantic+structural) scoring can still mis-rank evidence. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 34: and reranking, indicating that the dominant bottleneck is reasoning: 40 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 35: and reranking, indicating that the dominant bottleneck is reasoning: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: GraphRAG | Unnamed: 3:
+Row 36: and reranking, indicating that the dominant bottleneck is reasoning: 38 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 37: and reranking, indicating that the dominant bottleneck is reasoning: 4.10 Efficiency | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 38: and reranking, indicating that the dominant bottleneck is reasoning: | Unnamed: 0: | Unnamed: 1: 20 40 | Unnamed: 2: 60 | Unnamed: 3: 80 100
+Row 39: and reranking, indicating that the dominant bottleneck is reasoning: We analyze the computational efficiency of different RAG frame- | Unnamed: 0: | Unnamed: 1: Inference Time (seconds) | Unnamed: 2: | Unnamed: 3:
+Row 40: and reranking, indicating that the dominant bottleneck is reasoning: works by separating the cost into two stages: offline preprocess- | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 41: and reranking, indicating that the dominant bottleneck is reasoning: ing and inference-time execution. Figure 3 reports the trade-off | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 42: and reranking, indicating that the dominant bottleneck is reasoning: between performance and time cost for GraphRAG, HippoRAG, | Unnamed: 0: | Unnamed: 1: (b) Inference efficiency. | Unnamed: 2: | Unnamed: 3:
+Row 43: and reranking, indicating that the dominant bottleneck is reasoning: HyperGraphRAG, and TaSR-RAG. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 44: and reranking, indicating that the dominant bottleneck is reasoning: Figure 3: Performance–efficiency trade-off under offline pre- | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 45: and reranking, indicating that the dominant bottleneck is reasoning: Offline Efficiency. Offline preprocessing exhibits substantial vari- processing and inference-time execution. TaSR-RAG (ours) | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 46: and reranking, indicating that the dominant bottleneck is reasoning: ance across methods. Graph-based approaches such as GraphRAG achieves the best overall balance, avoiding the high of- | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 47: and reranking, indicating that the dominant bottleneck is reasoning: and HyperGraphRAG incur high offline costs due to expensive fline cost of graph-based methods while maintaining low | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+[/TABLE]
+
+[PAGE 9]
+TaSR-RAG: Taxonomy-guided Structured Reasoning for Retrieval-Augmented Generation Conference acronym ’XX, June 03–05, 2018, Woodstock, NY
+intermediate reasoning traces. Experiments across multiple multihop QA benchmarks demonstrate consistent gains over strong RAG
+and structured-RAG baselines. Looking ahead, we will study how to
+better construct and adapt the two-level taxonomy for specialized
+domains (e.g., via semi-automatic curation and domain-specific label retrieval), while keeping the hierarchy lightweight. We also plan
+to explore tighter integration with generation-time verification to
+further improve robustness under noisy or conflicting evidence.
+References
+[1] Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and Hannaneh Hajishirzi. 2024.
+Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection.
+InThe Twelfth International Conference on Learning Representations, ICLR 2024,
+Vienna, Austria, May 7-11, 2024. OpenReview.net. https://openreview.net/forum?
+id=hSyW5go0v8
+[2] Darren Edge, Ha Trinh, Newman Cheng, Joshua Bradley, Alex Chao, Apurva
+Mody, Steven Truitt, and Jonathan Larson. 2024. From Local to Global: A Graph
+RAG Approach to Query-Focused Summarization.CoRRabs/2404.16130 (2024).
+arXiv:2404.16130 doi:10.48550/ARXIV.2404.16130
+[3] Bernal Jimenez Gutierrez, Yiheng Shu, Yu Gu, Michihiro Yasunaga, and Yu Su.
+2024. HippoRAG: Neurobiologically Inspired Long-Term Memory for Large Language Models. InAdvances in Neural Information Processing Systems 38: Annual
+Conference on Neural Information Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024, Amir Globersons, Lester Mackey,
+Danielle Belgrave, Angela Fan, Ulrich Paquet, Jakub M. Tomczak, and Cheng
+Zhang (Eds.).
+[4] Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat, and Ming-Wei Chang.
+2020. REALM: retrieval-augmented language model pre-training. InInternational
+Conference on Machine Learning. Article 368, 10 pages.
+[5] Xanh Ho, Anh-Khoa Duong Nguyen, Saku Sugawara, and Akiko Aizawa. 2020.
+Constructing A Multi-hop QA Dataset for Comprehensive Evaluation of Reasoning Steps. InProceedings of the 28th International Conference on Computational
+Linguistics, Donia Scott, Nuria Bel, and Chengqing Zong (Eds.). International
+Committee on Computational Linguistics, Barcelona, Spain (Online), 6609–6625.
+doi:10.18653/v1/2020.coling-main.580
+[6] Bowen Jin, Hansi Zeng, Zhenrui Yue, Dong Wang, Hamed Zamani, and Jiawei
+Han. 2025. Search-R1: Training LLMs to Reason and Leverage Search Engines
+with Reinforcement Learning.CoRRabs/2503.09516 (2025). arXiv:2503.09516
+doi:10.48550/ARXIV.2503.09516
+[7] Mandar Joshi, Eunsol Choi, Daniel Weld, and Luke Zettlemoyer. 2017. TriviaQA: A
+Large Scale Distantly Supervised Challenge Dataset for Reading Comprehension.
+InProceedings of the 55th Annual Meeting of the Association for Computational
+Linguistics (Volume 1: Long Papers), Regina Barzilay and Min-Yen Kan (Eds.).
+Association for Computational Linguistics, Vancouver, Canada, 1601–1611. doi:10.
+18653/v1/P17-1147
+[8] Tom Kwiatkowski, Jennimaria Palomaki, Olivia Redfield, Michael Collins, Ankur
+Parikh, Chris Alberti, Danielle Epstein, Illia Polosukhin, Jacob Devlin, Kenton Lee,
+Kristina Toutanova, Llion Jones, Matthew Kelcey, Ming-Wei Chang, Andrew M.
+Dai, Jakob Uszkoreit, Quoc Le, and Slav Petrov. 2019. Natural Questions: A
+Benchmark for Question Answering Research.Transactions of the Association for
+Computational Linguistics7 (2019), 452–466. doi:10.1162/tacl_a_00276
+[9] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin,
+Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel,
+Sebastian Riedel, and Douwe Kiela. 2020. Retrieval-Augmented Generation for
+Knowledge-Intensive NLP Tasks. InAdvances in Neural Information Processing
+Systems 33: Annual Conference on Neural Information Processing Systems 2020,
+NeurIPS 2020, December 6-12, 2020, virtual, Hugo Larochelle, Marc’Aurelio Ranzato,
+Raia Hadsell, Maria-Florina Balcan, and Hsuan-Tien Lin (Eds.).
+[10] Xiaoxi Li, Guanting Dong, Jiajie Jin, Yuyao Zhang, Yujia Zhou, Yutao Zhu, Peitian
+Zhang, and Zhicheng Dou. 2025. Search-o1: Agentic Search-Enhanced Large
+Reasoning Models.CoRRabs/2501.05366 (2025). arXiv:2501.05366 doi:10.48550/
+ARXIV.2501.05366
+[11] Yangning Li, Weizhi Zhang, Yuyao Yang, Wei-Chieh Huang, Yaozu Wu, Junyu
+Luo, Yuanchen Bei, Henry Peng Zou, Xiao Luo, Yusheng Zhao, Chunkit Chan,
+Yankai Chen, Zhongfen Deng, Yinghui Li, Hai-Tao Zheng, Dongyuan Li, Renhe
+Jiang, Ming Zhang, Yangqiu Song, and Philip S. Yu. 2025. Towards Agentic RAG
+with Deep Reasoning: A Survey of RAG-Reasoning Systems in LLMs.CoRR
+abs/2507.09477 (2025). arXiv:2507.09477 doi:10.48550/ARXIV.2507.09477
+[12] Zhuoqun Li, Xuanang Chen, Haiyang Yu, Hongyu Lin, Yaojie Lu, Qiaoyu Tang,
+Fei Huang, Xianpei Han, Le Sun, and Yongbin Li. 2025. StructRAG: Boosting
+Knowledge Intensive Reasoning of LLMs via Inference-time Hybrid Information
+Structurization. InThe Thirteenth International Conference on Learning Representations, ICLR 2025, Singapore, April 24-28, 2025. OpenReview.net.
+[13] Haoran Luo, Haihong E, Guanting Chen, Yandan Zheng, Xiaobao Wu, Yikai Guo,
+Qika Lin, Yu Feng, Zemin Kuang, Meina Song, Yifan Zhu, and Luu Anh Tuan. 2025.
+HyperGraphRAG: Retrieval-Augmented Generation via Hypergraph-Structured
+Knowledge Representation. arXiv:2503.21322 [cs.AI] https://arxiv.org/abs/2503.
+[14] Alex Mallen, Akari Asai, Victor Zhong, Rajarshi Das, Daniel Khashabi, and Hannaneh Hajishirzi. 2023. When Not to Trust Language Models: Investigating
+Effectiveness of Parametric and Non-Parametric Memories. InProceedings of
+the 61st Annual Meeting of the Association for Computational Linguistics (Volume
+1: Long Papers), ACL 2023, Toronto, Canada, July 9-14, 2023, Anna Rogers, Jordan L. Boyd-Graber, and Naoaki Okazaki (Eds.). Association for Computational
+Linguistics, 9802–9822. doi:10.18653/V1/2023.ACL-LONG.546
+[15] Fabio Petroni, Aleksandra Piktus, Angela Fan, Patrick Lewis, Majid Yazdani,
+Nicola De Cao, James Thorne, Yacine Jernite, Vladimir Karpukhin, Jean Maillard, Vassilis Plachouras, Tim Rocktäschel, and Sebastian Riedel. 2021. KILT: a
+Benchmark for Knowledge Intensive Language Tasks. InProceedings of the 2021
+Conference of the North American Chapter of the Association for Computational
+Linguistics: Human Language Technologies, NAACL-HLT 2021, Online, June 6-11,
+2021, Kristina Toutanova, Anna Rumshisky, Luke Zettlemoyer, Dilek HakkaniTür, Iz Beltagy, Steven Bethard, Ryan Cotterell, Tanmoy Chakraborty, and Yichao
+Zhou (Eds.). Association for Computational Linguistics, 2523–2544.
+[16] Ofir Press, Muru Zhang, Sewon Min, Ludwig Schmidt, Noah A. Smith, and Mike
+Lewis. 2023. Measuring and Narrowing the Compositionality Gap in Language
+Models. InFindings of the Association for Computational Linguistics: EMNLP 2023,
+Singapore, December 6-10, 2023, Houda Bouamor, Juan Pino, and Kalika Bali (Eds.).
+Association for Computational Linguistics, 5687–5711. doi:10.18653/V1/2023.
+FINDINGS-EMNLP.378
+[17] Ori Ram, Yoav Levine, Itay Dalmedigos, Dor Muhlgay, Amnon Shashua, Kevin
+Leyton-Brown, and Yoav Shoham. 2023. In-Context Retrieval-Augmented Language Models.Transactions of the Association for Computational Linguistics(2023),
+1316–1331.
+[18] Jimeng Shi, Sizhe Zhou, Bowen Jin, Wei Hu, Runchu Tian, Shaowen Wang, Giri
+Narasimhan, and Jiawei Han. 2025. Hypercube-Based Retrieval-Augmented
+Generation for Scientific Question-Answering. arXiv:2505.19288 [cs.LG] https:
+//arxiv.org/abs/2505.19288
+[19] Weijia Shi, Sewon Min, Michihiro Yasunaga, Minjoon Seo, Richard James, Mike
+Lewis, Luke Zettlemoyer, and Wen-tau Yih. 2024. REPLUG: Retrieval-Augmented
+Black-Box Language Models. InProceedings of the 2024 Conference of the North
+American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers), Kevin Duh, Helena Gomez, and
+Steven Bethard (Eds.). Association for Computational Linguistics, Mexico City,
+Mexico, 8371–8384. doi:10.18653/v1/2024.naacl-long.463
+[20] Jiashuo Sun, Pengcheng Jiang, Saizhuo Wang, Jiajun Fan, Heng Wang, Siru
+Ouyang, Ming Zhong, Yizhu Jiao, Chengsong Huang, Xueqiang Xu, Pengrui Han,
+Peiran Li, Jiaxin Huang, Ge Liu, Heng Ji, and Jiawei Han. 2026. Rethinking the
+Reranker: Boundary-Aware Evidence Selection for Robust Retrieval-Augmented
+Generation. arXiv:2602.03689 [cs.CL] https://arxiv.org/abs/2602.03689
+[21] Jiashuo Sun, Shixuan Liu, Zhaochen Su, Xianrui Zhong, Pengcheng Jiang, Bowen
+Jin, Peiran Li, Weijia Shi, and Jiawei Han. 2025. GRACE: Generative Representation Learning via Contrastive Policy Optimization.CoRRabs/2510.04506 (2025).
+arXiv:2510.04506 doi:10.48550/ARXIV.2510.04506
+[22] Jiashuo Sun, Chengjin Xu, Lumingyuan Tang, Saizhuo Wang, Chen Lin, Yeyun
+Gong, Lionel M. Ni, Heung-Yeung Shum, and Jian Guo. 2024. Think-on-Graph:
+Deep and Responsible Reasoning of Large Language Model on Knowledge Graph.
+InThe Twelfth International Conference on Learning Representations, ICLR 2024,
+Vienna, Austria, May 7-11, 2024. OpenReview.net. https://openreview.net/forum?
+id=nnVO1PvbTv
+[23] Jiashuo Sun, Xianrui Zhong, Sizhe Zhou, and Jiawei Han. 2025. DynamicRAG: Leveraging Outputs of Large Language Model as Feedback for Dynamic
+Reranking in Retrieval-Augmented Generation.CoRRabs/2505.07233 (2025).
+arXiv:2505.07233 doi:10.48550/ARXIV.2505.07233
+[24] Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal.
+2022. ♪ MuSiQue: Multihop Questions via Single-hop Question Composition.
+Transactions of the Association for Computational Linguistics10 (2022), 539–554.
+doi:10.1162/tacl_a_00475
+[25] Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal.
+2023. Interleaving Retrieval with Chain-of-Thought Reasoning for KnowledgeIntensive Multi-Step Questions. InProceedings of the 61st Annual Meeting of
+the Association for Computational Linguistics (Volume 1: Long Papers), ACL 2023,
+Toronto, Canada, July 9-14, 2023, Anna Rogers, Jordan L. Boyd-Graber, and Naoaki
+Okazaki (Eds.). Association for Computational Linguistics, 10014–10037. doi:10.
+18653/V1/2023.ACL-LONG.557
+[26] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei
+Xia, Ed H. Chi, Quoc V. Le, and Denny Zhou. 2022. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models. InAdvances in Neural Information Processing Systems 35: Annual Conference on Neural Information Processing Systems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - December 9, 2022, Sanmi Koyejo, S. Mohamed, A. Agarwal, Danielle Belgrave,
+
+[PAGE 10]
+Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Trovato et al.
+K. Cho, and A. Oh (Eds.). http://papers.nips.cc/paper_files/paper/2022/hash/
+9d5609613524ecf4f15af0f7b31abca4-Abstract-Conference.html
+[27] Junlin Wu, Xianrui Zhong, Jiashuo Sun, Bolian Li, Bowen Jin, Jiawei Han, and
+Qingkai Zeng. 2025. Structure-R1: Dynamically Leveraging Structural Knowledge
+in LLM Reasoning through Reinforcement Learning.CoRRabs/2510.15191 (2025).
+arXiv:2510.15191 doi:10.48550/ARXIV.2510.15191
+[28] Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William W. Cohen, Ruslan
+Salakhutdinov, and Christopher D. Manning. 2018. HotpotQA: A Dataset for
+Diverse, Explainable Multi-hop Question Answering. InProceedings of the 2018
+Conference on Empirical Methods in Natural Language Processing, Brussels, Belgium,
+October 31 - November 4, 2018, Ellen Riloff, David Chiang, Julia Hockenmaier,
+and Jun’ichi Tsujii (Eds.). Association for Computational Linguistics, 2369–2380.
+doi:10.18653/V1/D18-1259
+[29] Yue Yu, Wei Ping, Zihan Liu, Boxin Wang, Jiaxuan You, Chao Zhang, Mohammad
+Shoeybi, and Bryan Catanzaro. 2024. RankRAG: Unifying Context Ranking with
+Retrieval-Augmented Generation in LLMs. InAdvances in Neural Information Processing Systems 38: Annual Conference on Neural Information Processing Systems
+2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024, Amir Globersons, Lester Mackey, Danielle Belgrave, Angela Fan, Ulrich Paquet, Jakub M.
+Tomczak, and Cheng Zhang (Eds.). http://papers.nips.cc/paper_files/paper/2024/
+hash/db93ccb6cf392f352570dd5af0a223d3-Abstract-Conference.html
+
+[PAGE 11]
+TaSR-RAG: Taxonomy-guided Structured Reasoning for Retrieval-Augmented Generation Conference acronym ’XX, June 03–05, 2018, Woodstock, NY
+A Algorithm
+We present algorithm of TaSR-RAG in Algorithm 1.
+Algorithm 1Taxonomy-Guided Structured Reasoning for Evidence
+Selection (TaSR-RAG)
+Require: Query 𝑞, document collection D, two-level taxonomy T , dense-retrieval top-𝐾0, threshold 𝜃, LLMs LLMextract,
+LLMdecomp, LLMselect, LLManswer
+Ensure: Final answer ˆ𝑎 (returned as the output of the last subquery)
+1:D cand ←Top-𝐾 0DenseRetrieve(𝑞,D)
+2:for all𝑑∈ D cand do
+3:R 𝑑 ←LLM extract (𝑑)⊲Document triples
+4:for all𝑒∈Entities(R 𝑑 )do
+5:𝑐 (1) ←LLM select (T (1) , 𝑒)
+6:𝑐 (2) ←LLM select (T (2) (𝑐 (1) ), 𝑒)
+7:𝜏(𝑒) ← (𝑐 (1) , 𝑐(2) )
+8:end for
+9: ˜R𝑑 ← {(𝜏(ℎ), 𝑟, 𝜏(𝑡)):(ℎ, 𝑟, 𝑡) ∈ R 𝑑 }
+10:end for
+11:{𝑠 1, . . . , 𝑠𝑁 } ←LLM decomp (𝑞)⊲Sub-queries (triples with
+latent variables)
+12:for all𝑒∈Entities({𝑠 𝑖 }𝑁
+𝑖=1)do
+13:𝑐 (1) ←LLM select (T (1) , 𝑒)
+14:𝑐 (2) ←LLM select (T (2) (𝑐 (1) ), 𝑒)⊲Query-level typing (incl.
+variables)
+15:𝜏(𝑒) ← (𝑐 (1) , 𝑐(2) )
+16:end for
+17: ˜𝑠𝑖 ← (𝜏(ℎ 𝑖 ), 𝑟𝑖, 𝜏(𝑡 𝑖 )) ∀𝑖
+18:B ← ∅⊲Entity binding table
+19:for𝑖=1to𝑁do
+20:𝑠 ′
+𝑖 ←Resolve(𝑠 𝑖,B); ˜𝑠 ′
+𝑖 ←Resolve( ˜𝑠𝑖,B)
+21:for all𝑑∈ D cand do
+22:𝑆(𝑑) ←HybridMatch (𝑠 ′
+𝑖 , ˜𝑠 ′
+𝑖 ),(R 𝑑, ˜R𝑑 )
+23:end for
+24:D 𝑖 ←Rank({𝑑∈ D cand :𝑆(𝑑) ≥𝜃};𝑆(𝑑))
+25: ˆ𝑜𝑖 ←LLM answer(𝑠 ′
+𝑖 ,D 𝑖 )
+26:B ← B ∪Bind(𝑠 𝑖, ˆ𝑜𝑖 )
+27:end for
+28: ˆ𝑎← ˆ𝑜𝑁
+29:return ˆ𝑎
+B Additional Experiments
+B.1 Sensitivity to Retrieval Budget.
+We study the effect of retrieval budget by varying the number of
+retrieved documents as follows:
+𝐾∈ {1,3,5,10,15,20,30}.(28)
+As shown in Figure 5,TaSR-RAGconsistently outperforms standard
+RAG across all retrieval budgets and datasets, demonstrating robust
+performance under different resource constraints.
+The performance gap betweenTaSR-RAGand RAG is particularly pronounced in certain regimes. On HotpotQA,TaSR-RAG
+achieves 38.7% at Top-10, compared to RAG’s 32.8%, representing an 18% relative improvement. On 2WikimQA, the advantage
+is even more striking: TaSR-RAG reaches 51.8% at Top-10 versus
+RAG’s 22.7%, more than doubling the baseline performance. For
+Bamboogle, TaSR-RAG attains 45.6% at Top-10 compared to RAG’s
+21.6%, demonstrating substantial gains across multi-hop reasoning
+scenarios.
+Interestingly, TaSR-RAG exhibits different scaling behaviors
+across datasets. On HotpotQA and Bamboogle, performance generally improves with larger 𝐾, peaking around Top-15 to Top-20
+before slight degradation at Top-30, suggesting that retrieval noise
+accumulates beyond optimal budget. In contrast, on 2WikimQA,
+TaSR-RAG shows remarkable efficiency at lower budgets, with
+performance jumping dramatically from Top-1 (25.2%) to Top-10
+(51.8%), then maintaining stable high performance through Top-30.
+This suggests that TaSR-RAG’s structured reasoning and dynamic
+matching mechanism enable it to identify and utilize relevant evidence more efficiently, particularly when the retrieval budget is
+constrained.
+These results highlight TaSR-RAG’s ability to extract maximal
+value from retrieved documents through its question decomposition
+and adaptive reasoning strategy, rather than simply relying on
+retrieving more documents.
+B.2 Performance by Reasoning Depth.
+To explicitly evaluate multi-hop reasoning ability, we analyze model
+performance as a function of reasoning depth. Specifically, we group
+test instances by hop count and report performance for hop values
+with non-empty support. Figure 4 comparesTaSR-RAGwith standard RAG across three representative multi-hop QA benchmarks.
+Across all datasets, both methods exhibit comparable performance on shallow reasoning cases. However, as reasoning depth
+increases, standard RAG degrades rapidly, reflecting its reliance on
+flat retrieval and one-shot generation. In contrast,TaSR-RAGmaintains strong performance and shows increasingly larger gains in
+deeper reasoning regimes. The advantage becomes particularly pronounced at 3-hop and beyond, where explicit sequential structure
+and entity binding are critical.
+The trend is most evident on Bamboogle, which emphasizes
+implicit and indirect multi-hop inference, whereTaSR-RAGsubstantially outperforms RAG at higher hop counts. Similar patterns
+are observed on 2WikiMultiHopQA and HotpotQA, indicating that
+the benefits of taxonomy-guided sequential context selection generalize across different multi-hop reasoning styles.
+C Two-level Entity Taxonomy
+Table 5 lists the two-level entity taxonomy used throughoutTaSRRAGfor taxonomy-guided typing. We use the top-level label (L1) to
+provide coarse semantic constraints (e.g., PERSON, ORGANIZATION),
+and the second-level label (L2) to capture finer distinctions (e.g.,
+Scientist vs. Politician) that improve precision during multihop evidence selection.
+
+[TABLE page=11 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | erally improves with larger K , peaking around Top-15 to Top-20
+Row 1: Unnamed: 0: 1: Dcand ← Top-K0DenseRetrieve(q,D) | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20: before slight degradation at Top-30, suggesting that retrieval noise
+Row 2: Unnamed: 0: 2: for all d ∈ Dcand do | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20: accumulates beyond optimal budget. In contrast, on 2WikimQA,
+Row 3: Unnamed: 0: 3: R ← LLM (d) | Unnamed: 1: ⊲ Document triples | erally improves with larger K , peaking around Top-15 to Top-20:
+Row 4: Unnamed: 0: d extract | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20: TaSR-RAG shows remarkable efficiency at lower budgets, with
+Row 5: Unnamed: 0: 4: for all e ∈ Entities(R ) do | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20:
+Row 6: Unnamed: 0: d | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20: performance jumping dramatically from Top-1 (25.2%) to Top-10
+Row 7: Unnamed: 0: (1)5: c ← LLM select (T (1), e) | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20: (51.8%), then maintaining stable high performance through Top-30.
+Row 8: Unnamed: 0: (2) | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20:
+Row 9: Unnamed: 0: 6: c ← LLMselect (T(2) ( (1)c ), e) | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20: This suggests that TaSR-RAG’s structured reasoning and dynamic
+Row 10: Unnamed: 0: 7: τ e ( ) ← ( (1) c , c (2)) | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20: matching mechanism enable it to identify and utilize relevant evRow 11: Unnamed: 0: 8: end for | Unnamed: 1: | erally improves with larger K , peaking around Top-15 to Top-20: idence more efficiently, particularly when the retrieval budget is
+[/TABLE]
+
+[TABLE page=11 index=2]
+Columns: (1) | (2) | Unnamed: 0 | Unnamed: 1 | To explicitly evaluate multi-hop reasoning ability, we analyze model
+Row 1: (1): , c | (2): ) | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model:
+Row 2: (1): | (2): | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model: performance as a function of reasoning depth. Specifically, we group
+Row 3: (1): | (2): | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model: test instances by hop count and report performance for hop values
+Row 4: (1): , τ (t )) ∀ii | (2): | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model:
+Row 5: (1): | (2): | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model: with non-empty support. Figure 4 compares TaSR-RAG with stanRow 6: (1): | (2): | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model: dard RAG across three representative multi-hop QA benchmarks.
+Row 7: (1): | (2): | Unnamed: 0: | Unnamed: 1: ⊲ Entity binding table | To explicitly evaluate multi-hop reasoning ability, we analyze model:
+Row 8: (1): | (2): | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model: Across all datasets, both methods exhibit comparable perforRow 9: (1): do | (2): | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model:
+Row 10: (1): mance on shallow reasoning cases. However, as reasoning depthlve(s ,B); s ← Resolve(s ,B)i | (2): | Unnamed: 0: ′ ii | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model:
+Row 11: (1): | (2): | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model: increases, standard RAG degrades rapidly, reflecting its reliance on
+Row 12: (1): Dcand do | (2): | Unnamed: 0: | Unnamed: 1: | To explicitly evaluate multi-hop reasoning ability, we analyze model:
+Row 13: (1): | (2): | Unnamed: 0: | Unnamed: 1: ( ) | To explicitly evaluate multi-hop reasoning ability, we analyze model:
+Row 14: (1): | (2): | Unnamed: 0: | Unnamed: 1: ′ ′ | To explicitly evaluate multi-hop reasoning ability, we analyze model: flat retrieval and one-shot generation. In contrast, TaSR-RAGmain-
+[/TABLE]
+
+[TABLE page=11 index=3]
+Columns: Unnamed: 0 | ′ ′ | Unnamed: 1 | Unnamed: 2 | mance on shallow reasoning cases. However, as reasoning depth
+Row 1: Unnamed: 0: 20: | ′ ′: s ← Resolve(s ,B); s ← Resolve(s ,B)i ii i | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 2: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: increases, standard RAG degrades rapidly, reflecting its reliance on
+Row 3: Unnamed: 0: 21: | ′ ′: for all d ∈ Dcand do | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 4: Unnamed: 0: | ′ ′: | Unnamed: 1: ( ) | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 5: Unnamed: 0: | ′ ′: | Unnamed: 1: ′ ′ | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: flat retrieval and one-shot generation. In contrast, TaSR-RAGmainRow 6: Unnamed: 0: 22: | ′ ′: S (d) ← HybridMatch (s , s ), (R , R̃ ) | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 7: Unnamed: 0: | ′ ′: | Unnamed: 1: di i d | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 8: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: tains strong performance and shows increasingly larger gains in
+Row 9: Unnamed: 0: 23: | ′ ′: end for | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 10: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: deeper reasoning regimes. The advantage becomes particularly proRow 11: Unnamed: 0: 24: | ′ ′: D ← Rank({d ∈ Di cand : S (d) ≥ θ }; S (d)) | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 12: Unnamed: 0: | ′ ′: ′ | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: nounced at 3-hop and beyond, where explicit sequential structure
+Row 13: Unnamed: 0: 25: | ′ ′: o ← LLMi answer (s ,D )ii | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 14: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: and entity binding are critical.
+Row 15: Unnamed: 0: 26: | ′ ′: B ← B ∪ Bind(s , o )i i | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 16: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: The trend is most evident on Bamboogle, which emphasizes
+Row 17: Unnamed: 0: 27: end for | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 18: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: implicit and indirect multi-hop inference, where TaSR-RAG subRow 19: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: stantially outperforms RAG at higher hop counts. Similar patterns
+Row 20: Unnamed: 0: 28: a ← oN | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 21: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: are observed on 2WikiMultiHopQA and HotpotQA, indicating that
+Row 22: Unnamed: 0: 29: return a | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 23: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: the benefits of taxonomy-guided sequential context selection genRow 24: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: eralize across different multi-hop reasoning styles.
+Row 25: Unnamed: 0: B | ′ ′: Additional Experiments | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 26: Unnamed: 0: B.1 | ′ ′: Sensitivity to Retrieval Budget. | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 27: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: C Two-level Entity Taxonomy
+Row 28: Unnamed: 0: We study the effect of retrieval budget by varying the number of | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth:
+Row 29: Unnamed: 0: retrieved documents as follows: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: Table 5 lists the two-level entity taxonomy used throughout TaSRRow 30: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: RAG for taxonomy-guided typing. We use the top-level label (L1) to
+Row 31: Unnamed: 0: | ′ ′: K ∈ {1, 3, 5, 10, 15, 20, 30}. | Unnamed: 1: | Unnamed: 2: (28) | mance on shallow reasoning cases. However, as reasoning depth:
+Row 32: Unnamed: 0: | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: provide coarse semantic constraints (e.g., PERSON, ORGANIZATION),
+Row 33: Unnamed: 0: As shown in Figure 5, TaSR-RAG consistently outperforms standard | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: and the second-level label (L2) to capture finer distinctions (e.g.,
+Row 34: Unnamed: 0: RAG across all retrieval budgets and datasets, demonstrating robust | ′ ′: | Unnamed: 1: | Unnamed: 2: | mance on shallow reasoning cases. However, as reasoning depth: Scientist vs. Politician) that improve precision during multi-
+[/TABLE]
+
+[PAGE 12]
+Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Trovato et al.
+2 3 5 6
+50Performance (Exact Match)
+2WikiMultiHopQA
+TaSR-RAG
+RAG
+2 3 4 5 6
+50Performance (Exact Match)
+HotpotQA
+TaSR-RAG
+RAG
+2 3
+80Performance (Exact Match)
+Bamboogle
+TaSR-RAG
+RAG
+Figure 4: Performance by reasoning depth (hop count). We report results for hop counts with non-empty support. While RAG
+performance degrades as reasoning depth increases,TaSR-RAGmaintains strong performance and exhibits increasingly larger
+gains in deeper reasoning regimes, with particularly pronounced improvements at 3-hop and beyond.
+1 3 5 10 15 20 30
+Top-K
+40Performance (Exact Match)
+HotpotQA
+RAG
+T aSR-RAG
+(a) HotpotQA
+1 3 5 10 15 20 30
+Top-K
+50Performance (Exact Match)
+2WikimQA
+RAG
+T aSR-RAG (b) 2WikimQA
+1 3 5 10 15 20 30
+Top-K
+50Performance (Exact Match)
+Bamboogle
+RAG
+T aSR-RAG (c) Bamboogle
+Figure 5: Performance comparison betweenTaSR-RAGand standard RAG across different retrieval budgets (Top-K) on
+three multi-hop QA datasets.TaSR-RAGconsistently outperforms RAG across all settings, with particularly strong gains on
+2WikimQA (over 100% relative improvement at Top-10) and substantial improvements on HotpotQA and Bamboogle.
+D Dataset Statistics
+Our method does not require any additional training; therefore, we
+only report the evaluation datasets used in our experiments. Table 6
+summarizes dataset sizes and task types.
+E Implementation Details
+We evaluate our method using Qwen2.5-7B-Instruct and Qwen2.572B-Instruct as the backbone generators. All components involving
+prompting—including query decomposition, relational triple extraction, entity typing decisions, sub-query answering, and final answer
+synthesis—are implemented via LLM inference. For initial dense
+retrieval, we retrieve top-𝐾0 candidate documents with 𝐾0 = 10.
+During structured reasoning (evidence selection), the number of
+selected documents 𝐾 is dynamic and determined by score-based
+filtering with a threshold 𝜃= 0.3. For taxonomy-guided entity typing, we use a retrieval-first, coarse-to-fine strategy: for each entity,
+top-𝑁 first-level type candidates are retrieved using embedding
+similarity with 𝑁= 10, from which the LLM selects the top-3 labels;
+under each selected first-level label, top-𝑀 second-level candidates
+are retrieved with 𝑀= 20, and the LLM selects the final (L1,L2)
+pair from their union. Document-level scoring aggregates over the
+top-𝑡= 3sub-queries. Hybrid matching combines structural and semantic signals with𝛼= 0.5; type-level matching uses𝑤 (1) = 0.5for
+L1 and 𝑤 (2) = 0.5for L2, head and tail contributions use 𝑤 ℎ = 0.5
+and 𝑤 𝑡 = 0.5, and semantic matching weights are set to 𝜆ℎ = 0.3,
+𝜆𝑟 = 0.3, and 𝜆𝑡 = 0.4. All embedding-based retrieval, including
+taxonomy label retrieval, uses an E5 encoder with L2-normalized
+embeddings and inner-product FAISS search, which is equivalent
+to cosine similarity. Hierarchical typing is implemented with a twostage FAISS setup consisting of a global L1 index and separate L2
+indexes for each L1 branch, enabling efficient coarse-to-fine candidate retrieval. To reduce LLM overhead, we apply simple rule-based
+typing for structured entities such as years, dates, and percentages
+before invoking embedding- or LLM-based typing. For robustness,
+all classification-style prompting steps use deterministic decoding (temperature = 0), enforce JSON-only outputs, and optionally
+include lightweight disambiguation context constructed from document titles and evidence sentences associated with extracted triples.
+Unless otherwise specified, all experiments use the same settings
+across datasets and model scales.
+F Case Study
+We present a representative case aligned with Figure 1 to illustrate
+howTaSR-RAGperforms taxonomy-guided structured reasoning
+for evidence selection. The question asks for two linked facts: (i)
+
+[TABLE page=12 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | TaSR-RAG | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | TaSR-RAG.1 | Unnamed: 7 | Unnamed: 8 | Unnamed: 9 | Unnamed: 10 | Unnamed: 11 | Unnamed: 12 | Unnamed: 13 | Unnamed: 14 | Unnamed: 15 | Unnamed: 16 | Unnamed: 17 | Unnamed: 18
+Row 1: Unnamed: 0: 40 | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 50.0 | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: 45.0 | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 2: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: 40.0 | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 3: Unnamed: 0: 35 | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 40.0 | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: 35.0 | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 4: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: 30.0 | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 5: Unnamed: 0: 30 | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 30.0 | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: 25.0 | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 6: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: 20.0 | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 7: Unnamed: 0: 25 | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: 20.0 | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 8: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: 15.0 | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18: RAG
+Row 9: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18: TaSR-RAG
+Row 10: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: 10.0 | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 11: Unnamed: 0: | Unnamed: 1: 1 | TaSR-RAG: 3 5 10 15 | Unnamed: 2: 20.0 | Unnamed: 3: | Unnamed: 4: 30.0 | Unnamed: 5: | Unnamed: 6: 1.0 | TaSR-RAG.1: 3 5 10 | Unnamed: 7: 15 | Unnamed: 8: 20 | Unnamed: 9: | Unnamed: 10: 30 | Unnamed: 11: | Unnamed: 12: 1.0 | Unnamed: 13: 3.0 | Unnamed: 14: 5.0 | Unnamed: 15: 10 15 | Unnamed: 16: 20.0 | Unnamed: 17: | Unnamed: 18: 30
+Row 12: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: Top-K | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: Top-K | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: Top-K | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 13: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: (a) HotpotQA | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: (b) 2WikimQA | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: (c) Bamboogle | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 14: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: Performance (Exact Match) | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 15: Unnamed: 0: Figure 5: Performance comparison between TaSR-RAG and standard RAG across different retrieval budgets (Top-K) on | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 16: Unnamed: 0: three multi-hop QA datasets. TaSR-RAG consistently outperforms RAG across all settings, with particularly strong gains on | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 17: Unnamed: 0: 2WikimQA (over 100% relative improvement at Top-10) and substantial improvements on HotpotQA and Bamboogle. | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 18: Unnamed: 0: D | Unnamed: 1: Dataset Statistics | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: L1 and | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: (2)w = 0.5 for L2, head and tail contributions use w | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18: = 0.5h
+Row 19: Unnamed: 0: Our method does not require any additional training; therefore, we | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: and w | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: = 0.3,t = 0.5, and semantic matching weights are set to λ | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18: h
+Row 20: Unnamed: 0: only report the evaluation datasets used in our experiments. Table 6 | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: λ | Unnamed: 8: = 0.4. All embedding-based retrieval, includingr = 0.3, and λ | Unnamed: 9: | Unnamed: 10: t | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 21: Unnamed: 0: summarizes dataset sizes and task types. | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: taxonomy label retrieval, uses an E5 encoder with L2-normalized | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 22: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: embeddings and inner-product FAISS search, which is equivalent | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 23: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: to cosine similarity. Hierarchical typing is implemented with a two- | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 24: Unnamed: 0: E | Unnamed: 1: Implementation Details | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 25: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: stage FAISS setup consisting of a global L1 index and separate L2 | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 26: Unnamed: 0: We evaluate our method using Qwen2.5-7B-Instruct and Qwen2.5- | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 27: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: indexes for each L1 branch, enabling efficient coarse-to-fine candi- | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 28: Unnamed: 0: 72B-Instruct as the backbone generators. All components involving | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 29: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: date retrieval. To reduce LLM overhead, we apply simple rule-based | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 30: Unnamed: 0: prompting—including query decomposition, relational triple extrac- | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 31: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: typing for structured entities such as years, dates, and percentages | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 32: Unnamed: 0: tion, entity typing decisions, sub-query answering, and final answer | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 33: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: before invoking embedding- or LLM-based typing. For robustness, | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 34: Unnamed: 0: synthesis—are implemented via LLM inference. For initial dense | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 35: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: all classification-style prompting steps use deterministic decod- | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 36: Unnamed: 0: retrieval, we retrieve top-K0 candidate documents with K0 = 10. | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: ing (temperature = 0), enforce JSON-only outputs, and optionally | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 37: Unnamed: 0: During structured reasoning (evidence selection), the number of | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 38: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: include lightweight disambiguation context constructed from docu- | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 39: Unnamed: 0: selected documents K is dynamic and determined by score-based | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 40: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: ment titles and evidence sentences associated with extracted triples. | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 41: Unnamed: 0: filtering with a threshold θ = 0.3. For taxonomy-guided entity typ- | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 42: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: Unless otherwise specified, all experiments use the same settings | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 43: Unnamed: 0: ing, we use a retrieval-first, coarse-to-fine strategy: for each entity, | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 44: Unnamed: 0: | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: across datasets and model scales. | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 45: Unnamed: 0: top-N first-level type candidates are retrieved using embedding | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 46: Unnamed: 0: similarity with N = 10, from which the LLM selects the top-3 labels; | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 47: Unnamed: 0: under each selected first-level label, top-M second-level candidates | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 48: Unnamed: 0: are retrieved with M = 20, and the LLM selects the final (L1, L2) | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: F | Unnamed: 8: | Unnamed: 9: Case Study | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+Row 49: Unnamed: 0: pair from their union. Document-level scoring aggregates over the | Unnamed: 1: | TaSR-RAG: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | TaSR-RAG.1: | Unnamed: 7: We present a representative case aligned with Figure 1 to illustrate | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Unnamed: 11: | Unnamed: 12: | Unnamed: 13: | Unnamed: 14: | Unnamed: 15: | Unnamed: 16: | Unnamed: 17: | Unnamed: 18:
+[/TABLE]
+
+[PAGE 13]
+TaSR-RAG: Taxonomy-guided Structured Reasoning for Retrieval-Augmented Generation Conference acronym ’XX, June 03–05, 2018, Woodstock, NY
+Table 5: Two-level entity taxonomy used for type constraints (L1 and L2).
+L1 L2 categories
+PERSON Scientist, Engineer, Academic, Politician, Businessperson, Athlete, Actor, Musician, Writer, Journalist, Inventor,
+MilitaryPerson
+ORGANIZATION Company, University, ResearchInstitute, GovernmentAgency, Nonprofit, InternationalOrganization, MilitaryUnit, SportsTeam,
+PoliticalParty,MediaOutlet,Hospital,School
+LOCATION Country,StateOrProvince,City,Region,Continent,River,Lake,Mountain,Island,SeaOrOcean,Desert,Park
+FACILITY Building,Bridge,Airport,Station,Port,Museum,Stadium,Campus,Laboratory,PowerPlant
+EVENT War,Election,Tournament,Conference,Festival,Disaster,Protest,LaunchEvent,MergerEvent,Trial
+WORK Book,Film,TVSeries,Song,Album,VideoGame,SoftwareProject,ResearchPaper,LawOrPolicy,Dataset
+PRODUCT CloudService, Database, ProgrammingLanguage, HardwareDevice, VehicleModel, Drug, Chemical, ConsumerProduct,
+ModelOrAlgorithm
+BIOENTITY Animal,Plant,Bacteria,Virus,Disease,ProteinOrGene
+TIME Year,Date,TimePeriod
+QUANTITY Count,Money,Percentage,Measurement
+CONCEPT Technology,Method,Theory,FieldOfStudy,RoleOrTitle
+OTHER Other
+Table 6: Dataset statistics for evaluation.
+Split Dataset #Examples Task Type
+Eval
+NQ 3,610 Single-hop
+TriviaQA 11,313 Single-hop
+PopQA 14,267 Single-hop
+HotpotQA 7,405 Multi-hop
+2WikiMultiHopQA 12,576 Multi-hop
+Musique 2,417 Multi-hop
+Bamboogle 125 Multi-hop
+which databaseScience Activity Planneruses, and (ii) which company developed that database. After dense retrieval (Step 0), the candidate pool Dcand contains heterogeneous snippets: Doc[1] directly
+states thatScience Activity PlannerusesMySQL, Doc[3] mentions
+PostgreSQLandMySQLonly as deployment options, and Doc[6] provides a developer fact aboutMySQL.TaSR-RAGfirst converts each
+candidate document into relational triples and taxonomy-typed
+triples (Step 1), then decomposes the question into an ordered
+chain of triple sub-queries with latent variables (Step 2).
+𝑠1 =(Science Activity Planner,uses,?𝑥),
+𝑠2 =(?𝑥,developed_by,?𝑦),
+with corresponding typed forms that enforce the intended reasoning pattern,
+˜𝑠1 =(Work/System,uses,Work/Database),
+˜𝑠2 =(Work/Database,developed_by,Organization/Company).
+This typed decomposition makes the required reasoning pattern
+explicit and prevents the second hop from drifting to irrelevant
+entities or types.
+With the binding table initialized (Step 3),TaSR-RAGperforms
+hop-wise evidence selection via hybrid (semantic + structural) triple
+matching. For hop 1 (Step 4), we compute HybridMatch scores𝑆(𝑑)
+between (𝑠1, ˜𝑠1) and each (R𝑑, ˜R𝑑 ), then filter by 𝑆(𝑑) ≥𝜃 and
+rank. In this pool, Doc[1] is retained because it contains a relationconsistent and type-consistent triple supporting
+(Science Activity Planner,uses,MySQL),
+whereas Doc[3] is filtered since it does not entail a uses relation (it
+only lists options). The hop-1 answerer updates the binding table
+(Step 5) with? 𝑥←MySQL , which turns hop 2 into the grounded
+query
+𝑠 ′
+2 =(MySQL,developed_by,?𝑦).
+For hop 2 (Step 6), HybridMatch is recomputed conditioned on the
+resolved entity, promoting Doc[6] and down-weighting any nondeveloper mentions ofMySQL; the final hop binds?𝑦←MySQL AB
+and returnsMySQL; MySQL AB(Step 7). This example highlights
+how sequential binding interacts with hybrid matching: the first
+hop resolves an intermediate entity with high precision, and the
+second hop uses that binding to retrieve developer evidence that
+would be hard to isolate under a single, unconstrained retrieval
+step.
+Received 20 February 2007; revised 12 March 2009; accepted 5 June 2009
+
+[PAGE 14]
+Conference acronym ’XX, June 03–05, 2018, Woodstock, NY Trovato et al.
+Question:Which database doesScience Activity Planneruse, and which company developed it?
+Step Sub-query / operation Retrieved/selected content Binding update
+0 Candidate retrieval Dense retrieval returns an evidence pool Dcand containing
+Doc[1], Doc[3], Doc[6].
+—
+1 Document triples + typing Extract triplesR 𝑑 and typed triples ˜R𝑑 for each𝑑∈ D cand. —
+2 Query decomposition + typing𝑠 1 =(Science Activity Planner,uses, ?𝑥) ; 𝑠2 =
+(?𝑥,developed_by,?𝑦).
+˜𝑠1 =(Work/System,uses,Work/Database) ; ˜𝑠2 =
+(Work/Database,developed_by,Organization/Company) .
+—
+3 Initialize bindings Initialize entity binding tableB ← ∅.B 0 =∅
+4 Hop 1: context selection Compute HybridMatch scores 𝑆(𝑑) for 𝑑∈ D cand w.r.t. (𝑠1, ˜𝑠1 ),
+then filter by 𝑆(𝑑) ≥𝜃 and rank. In this pool, Doc[1] is kept
+(relation- and type-consistent), while Doc[3] is filtered (option
+list; weak match). SelectD 1 ={Doc[1]}.
+—
+5 Hop 1: bind variable ˆ𝑜1 ←LLM answer (𝑠1,D 1 ); bind the latent variable in𝑠 1.B 1 : ?𝑥←MySQL
+6 Hop 2: context selection Resolve 𝑠 ′
+2 =(MySQL,developed_by, ?𝑦) , then recompute
+𝑆(𝑑) for all 𝑑∈ D cand conditioned on the binding. Filter by
+𝑆(𝑑) ≥𝜃 and rank; Doc[6] is kept as the top match, while
+non-developer mentions of MySQL are down-weighted. Select
+D2 ={Doc[6]}.
+—
+7 Hop 2: bind + answer ˆ𝑜2 ←LLM answer (𝑠 ′
+2,D 2 ); update bindings and return ˆ𝑎= ˆ𝑜2.B 2 : ?𝑦←MySQL AB
+Answer: MySQL; MySQL AB
+Table 7: Case study aligned with Figure 1 and our method.TaSR-RAGperforms step-wise evidence selection via hybrid (semantic
++ structural) triple matching and maintains explicit bindings (B 1,B 2) to carry resolved entities across hops.

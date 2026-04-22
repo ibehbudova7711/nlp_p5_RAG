@@ -1,0 +1,2093 @@
+[PAGE 1]
+The Optimal BERT Surgeon: Scalable and Accurate Second-Order
+Pruning for Large Language Models
+Eldar Kurtic∗ 1, Daniel Campos2,3, Tuan Nguyen2, Elias Frantar1, Mark Kurtz2,
+Benjamin Fineran2, Michael Goin2, and Dan Alistarh1,2
+1Institute of Science and Technology Austria
+2Neural Magic Inc.
+3Department of Computer Science, University of Illinois Urbana-Champaign
+Abstract
+In this paper, we consider the problem of
+sparsifying BERT models, which are a key
+building block for natural language processing, in order to reduce their storage and
+computational cost. We introduce the Optimal
+BERT Surgeon (oBERT), an efﬁcient and accurate pruning method based on approximate
+second-order information, which we show to
+yield state-of-the-art results for compression
+in both stages of language tasks: pre-training
+and ﬁne-tuning. Speciﬁcally, oBERT extends
+existing work on second-order pruning by
+allowing for pruning blocks of weights, and
+is the ﬁrst such method that is applicable at
+BERT scale. Second, we investigate compounding compression approaches to obtain
+highly compressed but accurate models for
+deployment on edge devices. These models
+signiﬁcantly push boundaries of the current
+state-of-the-art sparse BERT models with
+respect to all metrics: model size, inference
+speed and task accuracy. For example, relative to the dense BERT BASE , we obtain 10x
+model size compression with < 1% accuracy
+drop, 10x CPU-inference speedup with
+< 2% accuracy drop, and 29x CPU-inference
+speedup with < 7.5% accuracy drop. Our
+code, fully integrated with Transformers and
+SparseML, is available at https://github.
+com/neuralmagic/sparseml/tree/main/
+research/optimal_BERT_surgeon_oBERT.
+1 Introduction
+Pre-trained Transformer models (Vaswani et al.,
+2017; Devlin et al., 2019) provide robust language
+representations which can be specialized on various tasks. Given their massive growth (Radford
+et al., 2019; Smith et al., 2022), techniques for
+reducing their computational overheads have become popular. One classic technique is Knowledge
+∗ Corresponding author: eldar.kurtic@ist.ac.at.
+60 70 80 90 97
+Sparsity (%)
+70.0
+72.5
+75.0
+77.5
+80.0
+82.5
+85.0
+87.5
+90.0F1 score
+BERTBASE
+Lottery Ticket
+Sparse BERT
+Movement Pruning
+oBERT (ours)
+Figure 1: Performance overview relative to stateof-the-art unstructured downstream pruning methods
+Chen et al. (2020), Xu et al. (2021), Sanh et al.
+(2020), in this order, of the BERT BASE model on the
+SQuADv1.1 task.
+Distillation (KD) (Hinton et al., 2015), which transfers knowledge from a larger teacher to a smaller
+student model. Other work has leveraged lowerprecision representations to produce quantized
+models. An orthogonal approach, which is our
+primary focus, has been to apply unstructured and
+block pruning, i.e. removing individual weights, to
+produce compressed but accurate language models. Figure 1 provides a comparative overview of
+state-of-the-art results for unstructured pruning.
+In this paper, we introduce a method for improved unstructured and semi-structured (block)
+pruning, by leveraging the second-order approach
+pioneered by the Optimal Brain Surgeon framework (LeCun et al., 1989; Hassibi and Stork, 1992),
+which we scale for the ﬁrst time to LLMs. Further,
+we put our results in the context of a compound
+compression approach, which combines several
+compression techniques to obtain sparse models
+which we execute on a sparsity-aware CPU-based
+runtime (NeuralMagic, 2021), showing order-ofmagnitude speedups at low accuracy loss.
+In summary, our contributions are as follows:
+• We perform a thorough exploration of
+arXiv:2203.07259v3 [cs.CL] 17 Oct 2022
+
+[PAGE 2]
+weight pruning approaches applied to LLMs,
+including lottery-ticket, movement pruning,
+magnitude and second-order pruning.
+• We introduce a general second-order pruning method called Optimal BERT Surgeon
+(oBERT), which supports unstructured and
+block pruning, and is the ﬁrst second-order
+method to be both highly-accurate and scalable to the dimensionality of BERT models.
+• We illustrate the beneﬁts of oBERT by
+signiﬁcantly improving upon existing stateof-the-art pruning methods, in both stages
+of language tasks: pre-training and ﬁnetuning. For illustration, when pruning
+BERTBASE , oBERT outperforms Movement
+Pruning (MvP), the most accurate prior approach, by more than 2% absolute F1 score at
+the same sparsity, and can match the accuracy
+of MvP models with 3x fewer parameters.
+• We investigate the applicability of this pruning method in a framework which compounds
+popular compression approaches for LLMs,
+i.e. applying pruning in combination with
+layer dropping and/or quantization. In this
+context, we show that our resulting sparse
+models provide order-of-magnitude improvements compared to other compound compressed models, and that they can be easily
+deployed for CPU inference.
+2 Background and Related Work
+Transformer LLMs are usually built using multiple transformer layers with self-attention (Vaswani
+et al., 2017). Each transformer has a variation of
+two sub-components: multi head attention (MHA)
+and fully connected feed forward network (FFN).
+Given the massive size of well-performing models,
+there has been growing interest in LLM compression. They have been shown to be fragile as minor
+perturbations can lead to model collapse (Kovaleva
+et al., 2021). Pruning schemes are motivated by
+weight saliency metrics which represent the loss
+in accuracy due to pruning. It is common to prune
+in iterative steps, each of which removes weights
+until a desired sparsity level is reached. Now, we
+brieﬂy overview existing approaches.
+Structured pruning for LLMs focuses on reducing the number of layers and/or attention heads,
+and requires structural understanding of the model.
+Michel et al. (2019) and V oita et al. (2019) demonstrated that for some tasks nearly 40% of attention
+heads can be removed without major impact on
+accuracy. Other work has focused on removing
+layers (Sridhar and Sarah, 2020), and on the order
+in which they are removed (Sajjad et al., 2020). In
+some of our experiments, we apply standard “direct” layer dropping in conjunction with pruning.
+Semi-structured pruning is an intermediate approach, by which smaller groups, e.g. rectangular
+sets of weights (Lagunas et al., 2021), are set to
+zero. This approach has recently gained in popularity thanks to efﬁcient computational support.
+We extend the second-order pruning formulation
+to such groupings, and show results for a speciﬁc
+grouping supported by a CPU-inference engine.
+Unstructured pruning removes individual
+weights by setting them to zero. Gradual Magnitude Pruning (GMP) is a classic approach, which
+makes use of weight magnitudes as a saliency metric for pruning (Han et al., 2015; Gale et al., 2019).
+First-order pruning methods use a gradient
+based formulation of the saliency metric. A popular method is Movement Pruning (MvP) (Sanh
+et al., 2020), speciﬁcally designed for pruning
+in the ﬁne-tuning stage. Intuitively, it removes
+weights that are moving towards zero. The
+resulting models were the ﬁrst to achieve high
+sparsity with tolerable accuracy loss. Methods
+such as PLATON (Zhang et al., 2022) attempt
+to capture the uncertainty of weights importance
+scores by upper conﬁdence bound estimation.
+Prior to our work, MvP and PLATON approaches
+set state-of-the-art results for unstructured pruning.
+Second-order pruning methods (LeCun et al.,
+1989; Hassibi and Stork, 1992; Singh and Alistarh, 2020; Frantar et al., 2021) were developed
+in the context of image classiﬁcation, and leverage complex approximations of the loss curvature.
+However, second-order pruning methods require
+an approximation of the inverse Hessian, which
+is expensive to store and compute with for LLM
+parameter counts. The approach we propose is similar to WoodFisher/M-FAC methods (Singh and
+Alistarh, 2020; Frantar et al., 2021), but is the
+ﬁrst to work accurately at LLM scale. Speciﬁcally, the WoodFisher approach is infeasible at
+BERT scale, as it requires storing gradients for
+inverse Fisher calculation in memory at the point
+of pruning. The M-FAC approach scales, but we
+show that its parametrization yields worse prun2
+
+[TABLE page=2 index=1]
+Columns: ple transformer layers with self-attention (Vaswani | set state-of-the-art results for unstructured pruning.
+Row 1: ple transformer layers with self-attention (Vaswani: et al., 2017). Each transformer has a variation of | set state-of-the-art results for unstructured pruning.: Second-order pruning methods (LeCun et al.,
+Row 2: ple transformer layers with self-attention (Vaswani: two sub-components: multi head attention (MHA) | set state-of-the-art results for unstructured pruning.: 1989; Hassibi and Stork, 1992; Singh and AlisRow 3: ple transformer layers with self-attention (Vaswani: and fully connected feed forward network (FFN). | set state-of-the-art results for unstructured pruning.: tarh, 2020; Frantar et al., 2021) were developed
+Row 4: ple transformer layers with self-attention (Vaswani: Given the massive size of well-performing models, | set state-of-the-art results for unstructured pruning.: in the context of image classification, and leverRow 5: ple transformer layers with self-attention (Vaswani: there has been growing interest in LLM compres- | set state-of-the-art results for unstructured pruning.: age complex approximations of the loss curvature.
+Row 6: ple transformer layers with self-attention (Vaswani: sion. They have been shown to be fragile as minor | set state-of-the-art results for unstructured pruning.: However, second-order pruning methods require
+Row 7: ple transformer layers with self-attention (Vaswani: perturbations can lead to model collapse (Kovaleva | set state-of-the-art results for unstructured pruning.: an approximation of the inverse Hessian, which
+Row 8: ple transformer layers with self-attention (Vaswani: et al., 2021). Pruning schemes are motivated by | set state-of-the-art results for unstructured pruning.: is expensive to store and compute with for LLM
+Row 9: ple transformer layers with self-attention (Vaswani: weight saliency metrics which represent the loss | set state-of-the-art results for unstructured pruning.: parameter counts. The approach we propose is simRow 10: ple transformer layers with self-attention (Vaswani: in accuracy due to pruning. It is common to prune | set state-of-the-art results for unstructured pruning.: ilar to WoodFisher/M-FAC methods (Singh and
+[/TABLE]
+
+[TABLE page=2 index=2]
+Columns: method to be both highly-accurate and scal- | Semi-structured pruning is an intermediate apRow 1: method to be both highly-accurate and scal-: able to the dimensionality of BERT models. | Semi-structured pruning is an intermediate ap-: proach, by which smaller groups, e.g. rectangular
+Row 2: method to be both highly-accurate and scal-: • We illustrate the benefits of oBERT by | Semi-structured pruning is an intermediate ap-: sets of weights (Lagunas et al., 2021), are set to
+Row 3: method to be both highly-accurate and scal-: significantly improving upon existing state- | Semi-structured pruning is an intermediate ap-: zero. This approach has recently gained in popRow 4: method to be both highly-accurate and scal-: of-the-art pruning methods, in both stages | Semi-structured pruning is an intermediate ap-: ularity thanks to efficient computational support.
+Row 5: method to be both highly-accurate and scal-: of language tasks: pre-training and fine- | Semi-structured pruning is an intermediate ap-: We extend the second-order pruning formulation
+Row 6: method to be both highly-accurate and scal-: tuning. For illustration, when pruning | Semi-structured pruning is an intermediate ap-: to such groupings, and show results for a specific
+Row 7: method to be both highly-accurate and scal-: BERTBASE , oBERT outperforms Movement | Semi-structured pruning is an intermediate ap-: grouping supported by a CPU-inference engine.
+Row 8: method to be both highly-accurate and scal-: Pruning (MvP), the most accurate prior ap- | Semi-structured pruning is an intermediate ap-: Unstructured pruning removes individual
+Row 9: method to be both highly-accurate and scal-: proach, by more than 2% absolute F1 score at | Semi-structured pruning is an intermediate ap-: weights by setting them to zero. Gradual MagniRow 10: method to be both highly-accurate and scal-: the same sparsity, and can match the accuracy | Semi-structured pruning is an intermediate ap-: tude Pruning (GMP) is a classic approach, which
+Row 11: method to be both highly-accurate and scal-: of MvP models with 3x fewer parameters. | Semi-structured pruning is an intermediate ap-: makes use of weight magnitudes as a saliency metRow 12: method to be both highly-accurate and scal-: • We investigate the applicability of this prun- | Semi-structured pruning is an intermediate ap-: ric for pruning (Han et al., 2015; Gale et al., 2019).
+[/TABLE]
+
+[TABLE page=2 index=3]
+Columns: weight pruning approaches applied to LLMs, | strated that for some tasks nearly 40% of attention
+Row 1: weight pruning approaches applied to LLMs,: including lottery-ticket, movement pruning, | strated that for some tasks nearly 40% of attention: heads can be removed without major impact on
+Row 2: weight pruning approaches applied to LLMs,: magnitude and second-order pruning. | strated that for some tasks nearly 40% of attention: accuracy. Other work has focused on removing
+Row 3: weight pruning approaches applied to LLMs,: • We introduce a general second-order prun- | strated that for some tasks nearly 40% of attention: layers (Sridhar and Sarah, 2020), and on the order
+Row 4: weight pruning approaches applied to LLMs,: ing method called Optimal BERT Surgeon | strated that for some tasks nearly 40% of attention: in which they are removed (Sajjad et al., 2020). In
+Row 5: weight pruning approaches applied to LLMs,: (oBERT), which supports unstructured and | strated that for some tasks nearly 40% of attention: some of our experiments, we apply standard “diRow 6: weight pruning approaches applied to LLMs,: block pruning, and is the first second-order | strated that for some tasks nearly 40% of attention: rect” layer dropping in conjunction with pruning.
+[/TABLE]
+
+[TABLE page=2 index=4]
+Columns: until a desired sparsity level is reached. Now, we | first to work | accurately at | LLM | Unnamed: 0 | scale. Specifi- | Unnamed: 1
+Row 1: until a desired sparsity level is reached. Now, we: briefly overview existing approaches. | first to work: cally, the | accurately at: WoodFisher approach | LLM: | Unnamed: 0: | scale. Specifi-: is infeasible | Unnamed: 1: at
+Row 2: until a desired sparsity level is reached. Now, we: Structured pruning for LLMs focuses on reduc- | first to work: BERT scale, | accurately at: as it requires storing gradients | LLM: | Unnamed: 0: | scale. Specifi-: | Unnamed: 1: for
+Row 3: until a desired sparsity level is reached. Now, we: ing the number of layers and/or attention heads, | first to work: inverse Fisher calculation in memory at the point | accurately at: | LLM: | Unnamed: 0: | scale. Specifi-: | Unnamed: 1:
+Row 4: until a desired sparsity level is reached. Now, we: and requires structural understanding of the model. | first to work: of pruning. The M-FAC approach scales, but we | accurately at: | LLM: | Unnamed: 0: | scale. Specifi-: | Unnamed: 1:
+Row 5: until a desired sparsity level is reached. Now, we: Michel et al. (2019) and Voita et al. (2019) demon- | first to work: show that its parametrization yields worse prun- | accurately at: | LLM: | Unnamed: 0: | scale. Specifi-: | Unnamed: 1:
+[/TABLE]
+
+[PAGE 3]
+ing results (Appendix Figure 3). This is because
+M-FAC performs full-matrix (non-blocked) inversion by default, which is inherently noisy. In addition, we extend the theoretical OBS approach
+to semi-structured (block) compression. We also
+show that our method can be applied during LLM
+pre-training and ﬁne-tuning, yielding state-of-theart results in both regimes.
+Knowledge Distillation (Hinton et al., 2015)
+trains a smaller student model against outputs of a
+larger teacher model by adding a loss component
+which minimizes the KL-divergence between the
+two output distributions, which is the approach we
+adopt in our setup too. A hardness parameter is
+used to control the mixture of regular and distillation loss, and a temperature parameter to control softness of the distribution. Contrary to this,
+approaches like DistilBERT (Sanh et al., 2019),
+TinyBERT (Jiao et al., 2020), MobileBERT (Sun
+et al., 2020a), and MiniLM (Wang et al., 2020) utilize more complex distillation schemes, based on
+transferring knowledge from intermediate model’s
+representations. Our sparse models provide orderof-magnitude improvements upon some of these
+methods.
+Quantization represents weights and activations
+in lower precision (Courbariaux et al., 2016), and
+was used to obtain models such as Q8BERT (Zafrir
+et al., 2019) and TernaryBERT (Zhang et al., 2020).
+Shen et al. (2020) uses information about
+the Hessian spectrum to choose quantization bitwidths, whereas Yu et al. (2022) uses an approximation of the Hessian trace for structured pruning.
+These Hessian-based approaches are different from
+the one we propose, as we use completely different
+inverse-Hessian approximations to guide pruning
+decisions. The focus of our work is onweight pruning, and on computational speedups achievable on
+commodity CPUs. As such, the methods we investigate are orthogonal to quantization. Moreover, it
+is impossible to directly compare to low-bitwidth
+quantized models as most inference frameworks
+do not support such custom formats. Therefore, we
+will only make use of the standard QuantizationAware Training (QAT) to 8-bit weights, which is
+well-supported on Intel CPUs, and showcase the
+resulting speedups in conjunction with layer dropping and weight pruning.
+Downstream compression methods attempt to
+compress directly while ﬁne-tuning on a speciﬁc
+task. MvP method is specially designed for this
+setup. Upstream compression methods compress
+during the pre-training phase, reducing the need
+for task-speciﬁc pruning. Chen et al. (2020)
+examined the “Lottery Ticket” strategies (Frankle
+and Carbin, 2018) which, as we illustrate later,
+incur huge accuracy loss even at moderate
+sparsities. Recent work “Prune Once for All”
+(Prune OFA) by Zafrir et al. (2021) showed that
+well-tuned magnitude pruning can be competitive
+with downstream methods like MvP.
+We ﬁrst examine the performance of prior pruning methods, notably MvP, Prune OFA, and Lottery
+Tickets, relative to the new second-order oBERT
+method. The approach we propose consistently
+improves upon all these prior methods, both in
+pre-training (upstream) and ﬁne-tuning (downstream) stages, and can be compounded with other
+compression techniques to obtain models that are
+smaller, faster and more accurate than models like
+DistilBERT, TinyBERT, and block MvP.
+Additional approaches for efﬁcient inference of
+LLMs exist, like token-pruning and early-exiting.
+These approaches are orthogonal to ours; therefore
+we discuss them in Appendix A.2.
+3 The Optimal BERT Surgeon (oBERT)
+3.1 Generalized Second-Order Block
+Pruning
+The pruning problem starts from a well-optimized
+dense model w∗∈ Rd, and aims to ﬁnd a sparse
+version of w∗, where many of the weights are set
+to zero, and the remaining weights may be updated accordingly in order to preserve the loss. It
+is common for this process to occur gradually, i.e.
+by progressively removing the weights. A classic
+approach (LeCun et al., 1989; Hassibi and Stork,
+1992) for “optimal” pruning of weights from w∗
+at a step is to expand the loss function L locally
+around w∗ with respect to a sparse 0/1 weight mask
+M. If we denote by wM = (M⊙ w∗), the model
+resulting from the Hadamard (element-wise) product between M∈{ 0, 1}d and w∗, we can use the
+Taylor expansion at wM to obtain:
+L(wM)≃L (w∗) + (wM− w∗)⊤∇L(w∗)
++1
+2(wM− w∗)⊤HL(w∗)(wM− w∗).
+Given that w∗ is well-optimized, it is reasonable
+in practice to assume that ∇L(w∗)≈ 0. Then,
+
+[TABLE page=3 index=1]
+Columns: used to control the mixture of regular and distil- | method. The approach we propose consistently
+Row 1: used to control the mixture of regular and distil-: lation loss, and a temperature parameter to con- | method. The approach we propose consistently: improves upon all these prior methods, both in
+Row 2: used to control the mixture of regular and distil-: trol softness of the distribution. Contrary to this, | method. The approach we propose consistently: pre-training (upstream) and fine-tuning (downRow 3: used to control the mixture of regular and distil-: approaches like DistilBERT (Sanh et al., 2019), | method. The approach we propose consistently: stream) stages, and can be compounded with other
+Row 4: used to control the mixture of regular and distil-: TinyBERT (Jiao et al., 2020), MobileBERT (Sun | method. The approach we propose consistently: compression techniques to obtain models that are
+Row 5: used to control the mixture of regular and distil-: et al., 2020a), and MiniLM (Wang et al., 2020) uti- | method. The approach we propose consistently: smaller, faster and more accurate than models like
+Row 6: used to control the mixture of regular and distil-: lize more complex distillation schemes, based on | method. The approach we propose consistently: DistilBERT, TinyBERT, and block MvP.
+Row 7: used to control the mixture of regular and distil-: transferring knowledge from intermediate model’s | method. The approach we propose consistently: Additional approaches for efficient inference of
+Row 8: used to control the mixture of regular and distil-: representations. Our sparse models provide order- | method. The approach we propose consistently: LLMs exist, like token-pruning and early-exiting.
+Row 9: used to control the mixture of regular and distil-: of-magnitude improvements upon some of these | method. The approach we propose consistently: These approaches are orthogonal to ours; therefore
+Row 10: used to control the mixture of regular and distil-: methods. | method. The approach we propose consistently: we discuss them in Appendix A.2.
+Row 11: used to control the mixture of regular and distil-: Quantization represents weights and activations | method. The approach we propose consistently:
+Row 12: used to control the mixture of regular and distil-: | method. The approach we propose consistently: 3 The Optimal BERT Surgeon (oBERT)
+Row 13: used to control the mixture of regular and distil-: in lower precision (Courbariaux et al., 2016), and | method. The approach we propose consistently:
+Row 14: used to control the mixture of regular and distil-: was used to obtain models such as Q8BERT (Zafrir | method. The approach we propose consistently: 3.1 Generalized Second-Order Block
+Row 15: used to control the mixture of regular and distil-: et al., 2019) and TernaryBERT (Zhang et al., 2020). | method. The approach we propose consistently: Pruning
+Row 16: used to control the mixture of regular and distil-: Shen et al. (2020) uses information about | method. The approach we propose consistently: The pruning problem starts from a well-optimized
+Row 17: used to control the mixture of regular and distil-: the Hessian spectrum to choose quantization bit- | method. The approach we propose consistently: dense model w∗ ∈ Rd, and aims to find a sparse
+Row 18: used to control the mixture of regular and distil-: widths, whereas Yu et al. (2022) uses an approxi- | method. The approach we propose consistently: version of w∗, where many of the weights are set
+Row 19: used to control the mixture of regular and distil-: mation of the Hessian trace for structured pruning. | method. The approach we propose consistently: to zero, and the remaining weights may be upRow 20: used to control the mixture of regular and distil-: These Hessian-based approaches are different from | method. The approach we propose consistently: dated accordingly in order to preserve the loss. It
+Row 21: used to control the mixture of regular and distil-: the one we propose, as we use completely different | method. The approach we propose consistently: is common for this process to occur gradually, i.e.
+Row 22: used to control the mixture of regular and distil-: inverse-Hessian approximations to guide pruning | method. The approach we propose consistently: by progressively removing the weights. A classic
+Row 23: used to control the mixture of regular and distil-: decisions. The focus of our work is on weight prun- | method. The approach we propose consistently: approach (LeCun et al., 1989; Hassibi and Stork,
+Row 24: used to control the mixture of regular and distil-: ing, and on computational speedups achievable on | method. The approach we propose consistently: 1992) for “optimal” pruning of weights from w∗
+Row 25: used to control the mixture of regular and distil-: commodity CPUs. As such, the methods we inves- | method. The approach we propose consistently: at a step is to expand the loss function L locally
+Row 26: used to control the mixture of regular and distil-: tigate are orthogonal to quantization. Moreover, it | method. The approach we propose consistently: around w∗ with respect to a sparse 0/1 weight mask
+Row 27: used to control the mixture of regular and distil-: is impossible to directly compare to low-bitwidth | method. The approach we propose consistently: M. If we denote by w w∗M = (M ), the model
+Row 28: used to control the mixture of regular and distil-: quantized models as most inference frameworks | method. The approach we propose consistently: resulting from the Hadamard (element-wise) prodRow 29: used to control the mixture of regular and distil-: do not support such custom formats. Therefore, we | method. The approach we propose consistently: uct between M ∈ {0, 1}d and w∗, we can use the
+[/TABLE]
+
+[PAGE 4]
+the change in loss incurred by pruning a subset of
+weights can be expressed as
+δL(δw)≃ 1
+2δw⊤HL(w∗)δw (1)
+whereδL(δw) :=L(wM)−L (w∗) andδw :=
+wM− w∗. A popular way of approximating the
+Hessian at w∗ is via a dampened empirical Fisher
+information matrix (Hassibi and Stork, 1992):
+HL(w)≃ˆF(w)=λId+ 1
+m
+m∑
+i=1
+∇Li(w)∇L⊤
+i (w),
+(2)
+where λ ≥ 0 is a small dampening constant,
+Id∈ Rd×d identity matrix and m is the number
+of gradient outer products used to approximate the
+Hessian. Given the positive-deﬁniteness of(2), the
+quadratic form (1) is always nonnegative which
+is why we will refer toδL(δw) as a loss increase
+incurred by pruning.
+Returning to our pruning problem, assume we
+wish to identify a block of weights Q of a given
+shape whose removal by zero-masking would incur minimum increase in loss. This leads to the
+following constrained optimization problem:
+min
+δw
+2δw⊤ˆF(w∗)δw
+s.t. e⊤
+kδw +wk = 0, ∀k∈ Q
+(3)
+where ek ∈ Rd stands for the k-th canonical
+basis vector. Here, we will provide a generalized solution, which applies to general Q. First,
+for convenience, we express the system of |Q|
+equality constraints in matrix-equation form as
+EQδw + EQw∗ = 0, where EQ ∈ R|Q|×d is
+a matrix composed of the corresponding canonical basis vectors ek (∀k∈ Q) arranged in rows.
+This optimization problem can be solved with the
+method of Lagrange multipliers. Speciﬁcally, we
+wish to ﬁnd stationary points of the Lagrangian
+L(δw, λ), where λ∈ R|Q| denotes a vector of
+Lagrange multipliers. Solving the system of equations ∂L(δw,λ)
+∂δw = 0 and ∂L(δw,λ)
+∂λ = 0 yields the
+following optimal weight update:
+δw∗ =−ˆF−1(w∗)E⊤
+Q
+(
+EQˆF−1(w∗)E⊤
+Q
+)−1
+EQw∗
+which prunes a set of weights Q and updates the
+remaining weights to preserve the loss. Now, the
+corresponding loss increase incurred by the optimal weight update δw∗ can be expressed as the
+saliency score of weightsQ, which we denote by:
+ρQ = 1
+2 (EQw∗)⊤
+(
+EQˆF−1(w∗)E⊤
+Q
+)−1
+EQw∗.
+We use this saliency/importance score to rank
+groups of weights for pruning. As a sanity check,
+if we prune a single weightwj at a time, our derivations will yield the standard formulas of (Hassibi
+and Stork, 1992). The full version of Singh and
+Alistarh (2020) provided a slightly less general
+derivation for the blocked case, under additional
+assumptions.
+3.2 An Efﬁcient Implementation
+Directly implementing the previously described
+approach for LLMs, where number of weights
+w∈ Rd is huge, is infeasible. In particular, this is
+due to the dependence on the inverse of the empirical Fisher information matrix ˆF−1(w)∈ Rd×d,
+appearing in formulations of the saliency score and
+of the optimal weight update. We now describe
+how to circumvent these issues.
+3.2.1 Pruning the optimal set of weights
+Assume a gradual pruning setup, in which at each
+pruning step we wish to prune a model to a target sparsity s ∈ (0, 1], effectively zeroing out
+s×d weights, in groups of size |Q|. Typically
+s×d≫| Q|, meaning that we want to remove
+multiple groups at the same time. Finding the
+optimal set of s×d
+|Q| groups is an intractable combinatorial problem, due to all possible correlations
+between them, given by the binomial coefﬁcient(n
+k
+)
+, where n = d
+|Q| andk = s×d
+|Q| . This problem
+can be alleviated by ignoring correlations between
+different groups of weightsQ, and solving only for
+correlations between the weights within the same
+group. In practice, this boils down to evaluating the
+saliency scoreρQ for each groupQ, and pruning
+the s×d
+|Q| groups with the lowest score. As pruning
+many weights in the same step can make the Taylor
+approximation of the loss function less accurate,
+one can consider pruning with multiple smaller
+sub-steps with recomputations of the Hessian approximation in between (without intermediate ﬁnetuning). While this can further improve the quality
+of the pruning step (Frantar et al., 2021), we do not
+implement this additional optimization since the
+competing methods do not utilize recomputations.
+
+[TABLE page=4 index=1]
+Columns: of gradient outer products used to approximate the | Directly implementing the previously described
+Row 1: of gradient outer products used to approximate the: Hessian. Given the positive-definiteness of (2), the | Directly implementing the previously described: approach for LLMs, where number of weights
+Row 2: of gradient outer products used to approximate the: quadratic form (1) is always nonnegative which | Directly implementing the previously described: w ∈ Rd is huge, is infeasible. In particular, this is
+Row 3: of gradient outer products used to approximate the: is why we will refer to δL(δw) as a loss increase | Directly implementing the previously described: due to the dependence on the inverse of the empirRow 4: of gradient outer products used to approximate the: incurred by pruning. | Directly implementing the previously described: ical Fisher information matrix F̂−1(w) ∈ Rd×d,
+Row 5: of gradient outer products used to approximate the: Returning to our pruning problem, assume we | Directly implementing the previously described: appearing in formulations of the saliency score and
+Row 6: of gradient outer products used to approximate the: wish to identify a block of weights Q of a given | Directly implementing the previously described: of the optimal weight update. We now describe
+Row 7: of gradient outer products used to approximate the: shape whose removal by zero-masking would in- | Directly implementing the previously described: how to circumvent these issues.
+Row 8: of gradient outer products used to approximate the: cur minimum increase in loss. This leads to the | Directly implementing the previously described:
+Row 9: of gradient outer products used to approximate the: following constrained optimization problem: | Directly implementing the previously described: 3.2.1 Pruning the optimal set of weights
+Row 10: of gradient outer products used to approximate the: | Directly implementing the previously described: Assume a gradual pruning setup, in which at each
+Row 11: of gradient outer products used to approximate the: ∗min 1 δw F̂(w > )δw | Directly implementing the previously described: pruning step we wish to prune a model to a tarRow 12: of gradient outer products used to approximate the: δw 2 (3) | Directly implementing the previously described: get sparsity s ∈ (0, 1], effectively zeroing out
+Row 13: of gradient outer products used to approximate the: >s.t. ek δw + wk = 0, ∀k ∈ Q | Directly implementing the previously described: s × d weights, in groups of size |Q|. Typically
+Row 14: of gradient outer products used to approximate the: | Directly implementing the previously described: s × d |Q|, meaning that we want to remove
+Row 15: of gradient outer products used to approximate the: where e k ∈ R dstands for the k-th canonical | Directly implementing the previously described: multiple groups at the same time. Finding the
+Row 16: of gradient outer products used to approximate the: basis vector. Here, we will provide a general- | Directly implementing the previously described: optimal set of s×d groups is an intractable combiRow 17: of gradient outer products used to approximate the: | Directly implementing the previously described: |Q|
+Row 18: of gradient outer products used to approximate the: ized solution, which applies to general Q. First, | Directly implementing the previously described: natorial problem, due to all possible correlations
+Row 19: of gradient outer products used to approximate the: for convenience, we express the system of |Q| | Directly implementing the previously described: between them, given by the binomial coefficient
+Row 20: of gradient outer products used to approximate the: | Directly implementing the previously described: ( )
+Row 21: of gradient outer products used to approximate the: equality constraints in matrix-equation form as | Directly implementing the previously described: n , where n = d and k = s×d . This problem
+Row 22: of gradient outer products used to approximate the: | Directly implementing the previously described: k |Q| |Q|
+Row 23: of gradient outer products used to approximate the: E δw + E w∗ = 0, where E ∈ R|Q|×dQ Q Q is | Directly implementing the previously described: can be alleviated by ignoring correlations between
+Row 24: of gradient outer products used to approximate the: a matrix composed of the corresponding canon- | Directly implementing the previously described: different groups of weights Q, and solving only for
+Row 25: of gradient outer products used to approximate the: ical basis vectors ek (∀k ∈ Q) arranged in rows. | Directly implementing the previously described: correlations between the weights within the same
+Row 26: of gradient outer products used to approximate the: This optimization problem can be solved with the | Directly implementing the previously described: group. In practice, this boils down to evaluating the
+Row 27: of gradient outer products used to approximate the: method of Lagrange multipliers. Specifically, we | Directly implementing the previously described: saliency score ρQ for each group Q, and pruning
+Row 28: of gradient outer products used to approximate the: wish to find stationary points of the Lagrangian | Directly implementing the previously described: the s×d groups with the lowest score. As pruning
+Row 29: of gradient outer products used to approximate the: | Directly implementing the previously described: |Q|
+Row 30: of gradient outer products used to approximate the: L(δw,λ), where λ ∈ R|Q| denotes a vector of | Directly implementing the previously described: many weights in the same step can make the Taylor
+[/TABLE]
+
+[PAGE 5]
+3.2.2 Inverse empirical Fisher computation
+The key space and time complexity cost of the
+above procedure is computing products with the
+inverse empirical Fisher. A direct approach would
+be to perform a block-wise diagonal approximation
+of this matrix (which we detail next), and perform
+direct block inversion. However, we found experimentally that this approach is too expensive
+in terms of time, and quite numerically-sensitive.
+As an alternative, we rely on the fact that the matrix we wish to invert is a sum of rank-1 matrices, and employ the Woodbury/Sherman-Morrison
+(WSM) inversion formula. Speciﬁcally, given a
+sum (A + uv⊤) of an invertible matrix A and an
+outer product of vectors u and v with compatible dimensions, the inverse (A + uv⊤)−1 can be
+exactly calculated as A−1− A−1uv⊤A−1
+1+v⊤A−1u . Placing the expression of the empirical Fisher in the
+WSM formula, we obtain the following recursive
+formulation, wherem is the number of gradients
+employed in the approximation:
+ˆF−1(w) =ˆF−1
+m (w) =
+(
+ˆFm−1(w) + 1
+m∇Lm(w)∇L⊤
+m(w)
+)−1
+.
+Unrolling the recursion withˆF−1
+0 (w) = 1
+λ Id, we
+can obtain an iterative formula to exactly calculate
+the inverse of the empirical Fisher matrix as
+ˆF−1(w) =ˆF−1
+m (w) =
+λ Id−∑m
+i=1
+(ˆF−1
+i−1(w)∇Li(w))(ˆF−1
+i−1(w)∇Li(w))
+⊤
+m+∇L⊤
+i (w)ˆF−1
+i−1(w)∇Li(w) .
+The iterative formulation enjoys a number of computational advantages over the direct implementation. The most notable ones are 1) avoiding explicit
+calls to the expensive and dampening-sensitive matrix inversions, and 2) allowing successive updates
+of the inverse as new gradients are computed, never
+needing to store allm gradients of sized and thus
+signiﬁcantly reducing memory requirements.
+3.3 Memory and run-time complexity
+Computing and storing the inverse empirical Fisher
+ˆF−1(w) ∈ Rd×d is prohibitively expensive for
+modern LLMs, which have hundreds of millions of
+parameters, due to the quadratic complexity on the
+number of weightsd. However, Singh and Alistarh
+(2020) have shown that a diagonal block-wise approximation of the empirical Fisher matrix can be
+very accurate for pruning of convolutional neural
+networks. We adapt the same approach here, in
+the context of LLMs. Thus, for blocks of width
+B along the main diagonal, memory requirements
+for the computation of the inverse Fisher matrix
+are reduced from the quadraticO(d2) to a linear
+O(Bd) dependence on the number of weights d.
+At the same time, run-time complexity relaxes
+fromO(md2) toO(mBd). As we will show, this
+computation can be efﬁciently and accurately performed for moderate values ofm andB.
+Another alternative we investigated was the
+matrix-free approach of Frantar et al. (2021), which
+does not require a block-wise approximation and
+has complexity Θ(dm). However, our investigation showed that this approach required high values
+ofm to be accurate (Appendix Figure 3), which
+leads to excessive memory cost in the case of
+BERT models.
+3.4 Efﬁcient and scalable implementation
+On the practical side, we have identiﬁed general
+hyper-parametersB = 50 for the block size, and
+m = 1024 for the number of gradients which produce state-of-the-art results for all analyzed BERT
+models (for more details please see Appendix A.4),
+while still being able to ﬁt on the 24GB RTX 3090
+GPU. We reﬂect upon the computational costs
+in more detail in Appendix A.3. Moreover, for
+these parameter values, the block-wise approximation ofˆF−1(w) can be implemented very efﬁciently on modern accelerators. Speciﬁcally, we
+take advantage of the fact that such hardware favors batched matrix operations, and that the blocks
+of sizeB×B inˆF−1(w) are independent. With
+NB = d
+B we refer to the total number of blocks,
+i.e. the batch-dimension. The procedure works as
+follows. First, we compute batched matrix-vector
+productsˆF−1
+i−1(w)∇Li(w)∈ RNB×B and scalar
+denominatorsm +∇L⊤
+i (w)ˆF−1
+i−1(w)∇Li(w)∈
+RNB. Then, we update the inverse Fisher for each
+block by computing the scalar-scaled outer products
+(
+ˆF−1
+i−1(w)∇Li(w)
+)(
+ˆF−1
+i−1(w)∇Li(w)
+)⊤
+of shape RNB×B×B.
+4 Experimental Validation
+To ease reproducibility, we conduct our experiments in modiﬁed versions of the popular
+open-source libraries: Transformers (Wolf et al.,
+
+[TABLE page=5 index=1]
+Columns: above procedure is computing products with the | the context of LLMs. Thus, for blocks of width
+Row 1: above procedure is computing products with the: inverse empirical Fisher. A direct approach would | the context of LLMs. Thus, for blocks of width: B along the main diagonal, memory requirements
+Row 2: above procedure is computing products with the: be to perform a block-wise diagonal approximation | the context of LLMs. Thus, for blocks of width: for the computation of the inverse Fisher matrix
+Row 3: above procedure is computing products with the: | the context of LLMs. Thus, for blocks of width: 2
+Row 4: above procedure is computing products with the: of this matrix (which we detail next), and perform | the context of LLMs. Thus, for blocks of width: are reduced from the quadratic O(d ) to a linear
+Row 5: above procedure is computing products with the: direct block inversion. However, we found ex- | the context of LLMs. Thus, for blocks of width: O(Bd) dependence on the number of weights d.
+Row 6: above procedure is computing products with the: perimentally that this approach is too expensive | the context of LLMs. Thus, for blocks of width: At the same time, run-time complexity relaxes
+Row 7: above procedure is computing products with the: | the context of LLMs. Thus, for blocks of width: 2
+Row 8: above procedure is computing products with the: in terms of time, and quite numerically-sensitive. | the context of LLMs. Thus, for blocks of width: from O(md ) to O(mBd). As we will show, this
+Row 9: above procedure is computing products with the: As an alternative, we rely on the fact that the ma- | the context of LLMs. Thus, for blocks of width: computation can be efficiently and accurately perRow 10: above procedure is computing products with the: trix we wish to invert is a sum of rank-1 matri- | the context of LLMs. Thus, for blocks of width: formed for moderate values of m and B.
+Row 11: above procedure is computing products with the: ces, and employ the Woodbury/Sherman-Morrison | the context of LLMs. Thus, for blocks of width: Another alternative we investigated was the
+Row 12: above procedure is computing products with the: (WSM) inversion formula. Specifically, given a | the context of LLMs. Thus, for blocks of width: matrix-free approach of Frantar et al. (2021), which
+Row 13: above procedure is computing products with the: sum (A + uv>) of an invertible matrix A and an | the context of LLMs. Thus, for blocks of width: does not require a block-wise approximation and
+Row 14: above procedure is computing products with the: outer product of vectors u and v with compati- | the context of LLMs. Thus, for blocks of width: has complexity Θ(dm). However, our investigaRow 15: above procedure is computing products with the: ble dimensions, the inverse (A + uv>)−1 can be | the context of LLMs. Thus, for blocks of width: tion showed that this approach required high values
+Row 16: above procedure is computing products with the: exactly calculated as A−1 − A 1+v −1 uv > −1 A > −1Au. Plac- | the context of LLMs. Thus, for blocks of width: of m to be accurate (Appendix Figure 3), which
+Row 17: above procedure is computing products with the: ing the expression of the empirical Fisher in the | the context of LLMs. Thus, for blocks of width: leads to excessive memory cost in the case of
+Row 18: above procedure is computing products with the: WSM formula, we obtain the following recursive | the context of LLMs. Thus, for blocks of width: BERT models.
+Row 19: above procedure is computing products with the: formulation, where m is the number of gradients | the context of LLMs. Thus, for blocks of width:
+Row 20: above procedure is computing products with the: | the context of LLMs. Thus, for blocks of width: 3.4 Efficient and scalable implementation
+Row 21: above procedure is computing products with the: employed in the approximation: | the context of LLMs. Thus, for blocks of width:
+Row 22: above procedure is computing products with the: | the context of LLMs. Thus, for blocks of width: On the practical side, we have identified general
+Row 23: above procedure is computing products with the: F̂−1(w) = F̂−1m (w) = | the context of LLMs. Thus, for blocks of width: hyper-parameters B = 50 for the block size, and
+Row 24: above procedure is computing products with the: ( )−1 | the context of LLMs. Thus, for blocks of width: m = 1024 for the number of gradients which proRow 25: above procedure is computing products with the: F̂ m−1(w) + ∇Lm(w)∇Lm 1>m(w) . | the context of LLMs. Thus, for blocks of width: duce state-of-the-art results for all analyzed BERT
+Row 26: above procedure is computing products with the: | the context of LLMs. Thus, for blocks of width: models (for more details please see Appendix A.4),
+Row 27: above procedure is computing products with the: −1Unrolling the recursion with F̂ (w) = 10 Id, weλ | the context of LLMs. Thus, for blocks of width: while still being able to fit on the 24GB RTX 3090
+Row 28: above procedure is computing products with the: can obtain an iterative formula to exactly calculate | the context of LLMs. Thus, for blocks of width: GPU. We reflect upon the computational costs
+Row 29: above procedure is computing products with the: the inverse of the empirical Fisher matrix as | the context of LLMs. Thus, for blocks of width: in more detail in Appendix A.3. Moreover, for
+[/TABLE]
+
+[PAGE 6]
+2020), and SparseML (Kurtz et al., 2020). All
+of our experiments are using publicly available
+datasets via Lhoest et al. (2021) and focus on the
+BERTBASE model (Devlin et al., 2019), one of the
+most commonly used LLMs, composed of 12 transformer layers with 110M parameters. Following
+community standards, we prune encoder’s weights
+(85M) and report sparsities relative to this number.
+All of our models, compression recipes and the full
+implementation will be made public.
+4.1 Downstream Unstructured Pruning
+We ﬁrst revisit the accuracy-compression trade-off
+for pruning on downstream tasks.
+Goals and setup. We compare existing approaches, notably Movement Pruning (MvP) (Sanh
+et al., 2020) and Lottery Ticket (LT-BERT) (Chen
+et al., 2020), against the gradual unstructured
+oBERT method, introduced in Section 3. Our experiments evaluate performance on a variety of
+downstream (English) tasks commonly used to
+evaluate model compression: question answering
+SQuAD v1.1 (Rajpurkar et al., 2016), sentence
+classiﬁcation Quora Duplicate Query Dataset QQP
+(Shankar et al., 2017), and natural language inference MNLI (Williams et al., 2018).
+Comparison with MvP. For a fair comparison
+with MvP, we consider the 10-epoch gradual pruning setup used to obtain the best results by Sanh
+et al. (2020). Speciﬁcally, we start from the
+BERTBASE model and perform 2 epochs of ﬁnetuning, followed by 6 epochs of pruning, and 2 further epochs of ﬁne-tuning of the compressed model.
+We impose a global sparsity distribution over all
+layers, prune with oBERT two times per epoch,
+and use KD from the ﬁne-tunedBERTBASE teacher.
+For oBERT pruning we usem = 1024 gradients,
+block size B = 50 , and dampening λ = 10−7
+to approximate the inverse Hessian matrix. In
+all of our runs, the ﬁrst pruning step prunes 70%
+of weights and then follows the cubic interpolation (Zhu and Gupta, 2018) to the target sparsity.
+This large ﬁrst pruning step gives more time to
+recover from the later pruning steps, which impose higher sparsities. All hyper-parameters are
+described in detail in Appendix A.5, and the results
+are given in Table 1 (in the 10 Epochs section).
+We observe that Optimal BERT Surgeon outperforms Movement Pruning by a signiﬁcant margin,
+more than 2 points of F1 score at the same sparTable 1: Downstream tasks dev-set performance of
+pruned BERTBASE models. ( ∗ approximate results as
+the exact numbers are not available.)
+Task BERT
+BASE Spars. Soft
+MvP
+oBERT
+(ours)
+LTBERT
+oBERT
+(ours)
+Epochs 10 Epochs 30 Epochs
+SQuAD
+F1 88.54
+80%
+90%
+97%
+84.90
+82.30
+87.98
+84.65
+86.54
+68.00∗
+89.04
+88.31
+85.98
+MNLI
+m-acc 84.54
+80%
+90%
+97%
+81.20
+79.50
+83.20
+81.00
+82.60
+75.00∗
+84.32
+83.79
+81.77
+QQP
+Acc 91.06
+80%
+90%
+97%
+90.20
+89.10
+90.89
+90.23
+90.30
+90.00
+91.57
+91.35
+90.87
+sity. Remarkably, the model pruned with oBERT to
+97% sparsity has similar accuracy to MvP-pruned
+model at 90% sparsity, which has roughly 3x
+more weights. This reinforces the effectiveness
+of second-order information for pruning.
+Extended pruning and ﬁne-tuning. Next, we examine effects of extending the gradual schedule
+to 30 epochs, matching the setup used for LTBERT (Chen et al., 2020). The only difference
+compared to our 10 epoch setup is that we now
+prune with oBERT every four epochs, and rewind
+learning rate after each pruning step. The extended
+setup leaves more time to recover from pruning,
+which reﬂects in the improved results in Table 1
+(30 Epochs section). We report the mean over three
+runs. For additional evaluation metrics and standard deviations please see Tables 12 and 15 in the
+Appendix. The results show a clear accuracy difference between oBERT and LT-BERT, especially
+at high sparsities. This difference is justiﬁed since
+the LT based approach attempts to mainly transfer
+network connectivity, whereas the oBERT can also
+beneﬁt from the weight values. Finally, we examined the impact of extended setup with Soft MvP
+on SQuAD, targeting 90% sparsity (not shown in
+the Table), leading to an (F1, EM) combination
+of (87.42, 79.83) for MvP. The F1 gap in favor of
+oBERT is lower than at 10 epochs, suggesting that
+extended ﬁnetuning helps all methods; yet, it is far
+from negligible.
+4.2 Upstream Unstructured Pruning
+An appealing alternative to downstream pruning
+is to compress models upstream, on the semisupervised pre-training task (Zafrir et al., 2021).
+Given the upstream pruned model, computational
+
+[TABLE page=6 index=1]
+Columns: BERTBASE model (Devlin et al., 2019), one of the | BERT | Unnamed: 0 | Soft oBERT | Unnamed: 1 | LT- oBERT
+Row 1: BERTBASE model (Devlin et al., 2019), one of the: most commonly used LLMs, composed of 12 trans- Task | BERT: BASE | Unnamed: 0: Spars. | Soft oBERT: MvP (ours) | Unnamed: 1: | LT- oBERT: BERT (ours)
+Row 2: BERTBASE model (Devlin et al., 2019), one of the: former layers with 110M parameters. Following | BERT: Epochs | Unnamed: 0: | Soft oBERT: 10 Epochs | Unnamed: 1: | LT- oBERT: 30 Epochs
+Row 3: BERTBASE model (Devlin et al., 2019), one of the: community standards, we prune encoder’s weights | BERT: | Unnamed: 0: 80% | Soft oBERT: - - | Unnamed: 1: | LT- oBERT: 86.54 89.04
+Row 4: BERTBASE model (Devlin et al., 2019), one of the: SQuAD | BERT: | Unnamed: 0: | Soft oBERT: | Unnamed: 1: | LT- oBERT: ∗
+Row 5: BERTBASE model (Devlin et al., 2019), one of the: (85M) and report sparsities relative to this number. F1 | BERT: 88.54 | Unnamed: 0: 90% | Soft oBERT: 84.90 87.98 | Unnamed: 1: | LT- oBERT: 68.00 88.31
+Row 6: BERTBASE model (Devlin et al., 2019), one of the: | BERT: | Unnamed: 0: 97% | Soft oBERT: 82.30 84.65 | Unnamed: 1: | LT- oBERT: - 85.98
+Row 7: BERTBASE model (Devlin et al., 2019), one of the: All of our models, compression recipes and the full | BERT: | Unnamed: 0: | Soft oBERT: | Unnamed: 1: | LT- oBERT:
+Row 8: BERTBASE model (Devlin et al., 2019), one of the: 84.32implementation will be made public. MNLI | BERT: | Unnamed: 0: 80% | Soft oBERT: - - | Unnamed: 1: | LT- oBERT: 82.60 ∗
+Row 9: BERTBASE model (Devlin et al., 2019), one of the: | BERT: 84.54 | Unnamed: 0: 90% | Soft oBERT: 81.20 83.20 | Unnamed: 1: | LT- oBERT: 75.00 83.79
+Row 10: BERTBASE model (Devlin et al., 2019), one of the: m-acc | BERT: | Unnamed: 0: | Soft oBERT: | Unnamed: 1: | LT- oBERT:
+Row 11: BERTBASE model (Devlin et al., 2019), one of the: | BERT: | Unnamed: 0: 97% | Soft oBERT: 79.50 81.00 | Unnamed: 1: | LT- oBERT: - 81.77
+Row 12: BERTBASE model (Devlin et al., 2019), one of the: 4.1 Downstream Unstructured Pruning | BERT: | Unnamed: 0: 80% | Soft oBERT: - - | Unnamed: 1: | LT- oBERT: 90.30 91.57
+Row 13: BERTBASE model (Devlin et al., 2019), one of the: QQP | BERT: | Unnamed: 0: | Soft oBERT: | Unnamed: 1: | LT- oBERT:
+Row 14: BERTBASE model (Devlin et al., 2019), one of the: | BERT: 91.06 | Unnamed: 0: 90% | Soft oBERT: 90.20 90.89 | Unnamed: 1: | LT- oBERT: 90.00 91.35
+Row 15: BERTBASE model (Devlin et al., 2019), one of the: We first revisit the accuracy-compression trade-off Acc | BERT: | Unnamed: 0: 97% | Soft oBERT: 89.10 90.23 | Unnamed: 1: | LT- oBERT: - 90.87
+[/TABLE]
+
+[PAGE 7]
+requirements for obtaining downstream ﬁne-tuned
+models are signiﬁcantly reduced, as only ﬁnetuning of the remaining weights is necessary.
+Goals and setup. To compare with existing approaches, notably Prune OFA (Zafrir et al., 2021)
+and LT-BERT (Chen et al., 2020), we gradually
+prune with oBERT directly at upstream datasets,
+BookCorpus and English Wikipedia, and then ﬁnetune the remaining unpruned weights on the subset
+of GLUE tasks.
+Teacher preparation. Following Liu et al. (2019),
+we start with the HuggingFace BERTBASE uncased
+model, and ﬁne-tune it for additional 10 epochs
+only on the masked language modeling task.
+Pruning at upstream. Once the distillation
+teacher is trained, we gradually prune and ﬁne-tune
+the BERTBASE model for 3 epochs, using KD from
+the dense teacher. We prune four times per epoch,
+and rewind learning rate to the initial value after
+each pruning step. Hyper-parameters for oBERT
+are the same as for downstream pruning in 4.1; a
+full description can be found in Appendix A.6.
+Sparse-transfer to downstream. To evaluate the
+resulting upstream-pruned models, we ﬁnetune the
+unpruned weights on downstream tasks with KD
+from the ﬁne-tuned BERTBASE model. For a fair
+comparison with Prune OFA, we ﬁne-tune for 8
+epochs. The results in Table 2 show that sparse
+models produced by oBERT outperform state-ofthe-art methods by signiﬁcant margins. We report
+the mean over four runs. For additional evaluation metrics and standard deviations please see Appendix Tables 13 and 16. It is worth emphasizing
+that in contrast to Prune OFA, which performed extensive hyper-parameter tuning for sparse-transfer,
+our recipe is simple and general across downstream
+tasks: 8 epochs of ﬁne-tuning with linearly decaying learning rate. This suggests that sparse
+pre-trained models found by oBERT constitute a
+strong starting point for sparse transfer learning,
+which can be further improved by task-speciﬁc
+hyper-parameter tuning.
+4.3 Compound Compression for CPUs
+To probe the potential practical impact of our approach, we specialize the technique for deployment
+on CPUs, corresponding to “edge” deployments.
+Speciﬁcally, we tailor our sparse models to the
+DeepSparse (NeuralMagic, 2021) sparsity-aware
+runtime, by compounding unstructured pruning
+Table 2: Sparse-transfer dev-set performance of
+upstream-pruned BERT BASE models. ( ∗ approximate
+results as the exact numbers are not available.)
+Task BERT
+BASE Sparsity LTBERT
+Prune
+OFA
+oBERT
+(ours)
+SQuAD
+F1 88.54 90%
+97%
+68.00∗
+87.25
+88.49
+84.92
+MNLI
+m-acc 84.54 90%
+97%
+75.00∗
+81.45
+83.40
+80.91
+QQP
+Acc 91.06 90%
+97%
+90.00
+90.93
+90.99
+90.33
+SST-2
+Acc 93.01 90% 85.00∗ 90.88 92.20
+QNLI
+Acc 91.25 90% 80.00∗ 89.07 89.97
+with additional compression techniques.
+Direct layer dropping. The competitive results
+obtained at high sparsities in sections 4.1 and 4.2
+suggest that BERTBASE may be overparameterized
+for downstream tasks. To improve compression
+ratio and inference speed, we apply “direct” layer
+dropping: we initially drop all but 3 or 6 of the
+BERT’s 12 layers. We drop layers from our upstream teacher, and, following (Turc et al., 2019),
+ﬁne-tune them with KD in the same setup used
+to prepare the upstream teacher. These 3 and 6
+layer models are used as starting points for downstream pruning. More sophisticated layer dropping
+techniques (Fan et al., 2019), could bring further
+accuracy gains; we leave this for future work.
+Block pruning and QAT. High-performance inference usually beneﬁts more from (semi) structured sparsity patterns than from the unstructured
+ones. Hence, we employ the generalized oBERT
+formulation introduced in the section 3 and prune
+weights in the 4-block pattern, meaning that contiguous blocks of 4 weights are either set to zero
+or kept dense. Both pruning types, unstructured
+and 4-block, can be leveraged for computational
+speedups with the DeepSparse runtime, but 4block pruning coupled with INT8 quantization can
+provide further performance gains. For quantization, we apply standard quantization-aware training (QAT) (Jacob et al., 2018) on top of the 4-block
+models (see Appendix A.7 for a full description).
+Compounding for deployment. To determine the
+impact of different compression schemes, we investigate unstructured and 4-block pruning of the 3, 6,
+and 12-layer models. For all runs, we use the same
+set of hyper-parameters from the extended pruning
+
+[TABLE page=7 index=1]
+Columns: and LT-BERT (Chen et al., 2020), we gradually | ∗SQuAD 90% | 68.00 | Unnamed: 0 | 87.25 | 88.49
+Row 1: and LT-BERT (Chen et al., 2020), we gradually: | ∗SQuAD 90%: 88.54 | 68.00: | Unnamed: 0: | 87.25: | 88.49:
+Row 2: and LT-BERT (Chen et al., 2020), we gradually: prune with oBERT directly at upstream datasets, | ∗SQuAD 90%: F1 97% | 68.00: - | Unnamed: 0: | 87.25: - | 88.49: 84.92
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: BookCorpus and English Wikipedia, and then fine- | ∗MNLI 90% | 75.00 | Unnamed: 0 | 81.45 | 83.40
+Row 1: BookCorpus and English Wikipedia, and then fine-: | ∗MNLI 90%: 84.54 | 75.00: | Unnamed: 0: | 81.45: | 83.40:
+Row 2: BookCorpus and English Wikipedia, and then fine-: tune the remaining unpruned weights on the subset | ∗MNLI 90%: m-acc 97% | 75.00: - | Unnamed: 0: | 81.45: - | 83.40: 80.91
+[/TABLE]
+
+[PAGE 8]
+Table 3: F1 score of the 3, 6, and 12-layer models
+compound-compressed on the SQuADv1.1.
+Layers Sparsity Unstructured 4-block +QAT
+0%
+80%
+90%
+89.48
+89.04
+88.31
+89.48
+88.57
+87.57
+89.06
+87.89
+86.68
+0%
+80%
+90%
+88.32
+88.20
+86.78
+88.32
+87.00
+85.34
+87.94
+86.10
+84.59
+0%
+80%
+90%
+84.66
+84.08
+82.50
+84.66
+82.79
+80.69
+84.25
+82.04
+79.66
+F1 recall (%)
+30Magnitude of improvement
+Inference speed
+Model compression
+Figure 2: F1 recall on the SQuADv1.1 task relative to
+improvements in CPU-inference speed and model size.
+and ﬁne-tuning setup in Section 4.1. The results
+are given in Table 3, where we also report accuracy
+of the corresponding dense models (0% sparsity)
+in the same setup. For additional evaluation metrics, please see Table 14. The results indicate that
+compression methods can be combined without
+model collapse, although the accuracy drops do
+compound. The fact that the layer-dropped models
+are also highly compressible suggests that structured and ﬁne-grained (unstructured) compression
+are complementary. We ﬁnd it remarkable that
+our 6-layer unstructured oBERT-pruned model is
+competitive with the 12-layer MvP-pruned model
+when both are pruned to 90% sparsity.
+Practical trade-offs. We now benchmark these
+models in end-to-end fashion, both in terms of
+model size and inference speed. For model size,
+we report size of the checkpoint in MB after standard gzip compression. For inference speed, we
+report number of items per second (throughput) on
+the well-established SQuAD v1.1 CPU-inference
+benchmark with a sequence length of 128 and a
+batch size of 32. Figure 2 depicts relative accuracy versus magnitude of improvement in speed
+and model size. As baseline for full recovery, we
+follow the community-standard e.g. (Sanh et al.,
+2020), and adopt the dense BERTBASE model with
+88.54 F1 score. The baseline for inference speed
+is dense BERTBASE inference with DeepSparse,
+which matches the industry-standard ONNX Runtime inference engine. Results suggest a roughlylinear trade-off between compression and accuracy
+loss, with a compression jump around 1% accuracy
+drop, due to quantization being applied. Speciﬁcally, we observe 8.4x higher inference speedup at
+< 1% accuracy drop, 10x speedup at < 2% drop,
+15x speedup at < 3% drop, and 29x speedup at <
+7.5% accuracy drop. This shows how compound
+compression can optimize LLMs to various latencies. See Appendix Table 17 for full results.
+4.4 Pruning for GPU speedups (N:M
+sparsity)
+Even though our previous results targeted CPUs
+for deployment, we now show that our pruning
+approach can also be relevant to GPUs. We apply the semi-structured variant of oBERT to impose the 2-out-of-4 sparsity pattern, which is supported on NVIDIA Ampere GPUs (Mishra et al.,
+2021). More speciﬁcally, we prune in one-shot,
+and compare against the magnitude pruning baseline in Table 4. All other methods require full
+ﬁne-tuning, and thus don’t support the one-shot
+setup. oBERT signiﬁcantly outperforms magnitude pruning, and with only 1-epoch of ﬁne-tuning
+it is able to fully recover dense accuracy with (F1,
+EM) = (88.58, 81.16). With this sparsity pattern,
+the pruned model achieves 1.85x speedup on Ampere devices.
+Table 4: One-shot 2:4 pruning of the ﬁne-tuned
+BERTBASE model.
+Task BERTBASE Magnitude oBERT (ours)
+SQuAD
+F1 / EM 88.54 / 81.41 49.97 / 35.24 83.17 / 74.18
+5 Discussion
+Comparison with concurrent work. Concurrent
+work introduced PLATON (Zhang et al., 2022),
+which addresses unstructured pruning of BERT
+models via estimates of conﬁdence bounds. It does
+not make use of KD, so for a fair comparison we
+
+[TABLE page=8 index=1]
+Columns: Layers | Sparsity | Unstructured | 4-block | +QAT | Unnamed: 0
+Row 1: Layers: | Sparsity: | Unstructured: | 4-block: | +QAT: | Unnamed: 0: 88.54 F1 score. The baseline for inference speed
+Row 2: Layers: | Sparsity: 0% | Unstructured: 89.48 | 4-block: 89.48 | +QAT: 89.06 | Unnamed: 0: is dense BERTBASE inference with DeepSparse,
+Row 3: Layers: 12.0 | Sparsity: 80% | Unstructured: 89.04 | 4-block: 88.57 | +QAT: 87.89 | Unnamed: 0:
+Row 4: Layers: | Sparsity: 90% | Unstructured: 88.31 | 4-block: 87.57 | +QAT: 86.68 | Unnamed: 0: which matches the industry-standard ONNX RunRow 5: Layers: | Sparsity: | Unstructured: | 4-block: | +QAT: | Unnamed: 0: time inference engine. Results suggest a roughlyRow 6: Layers: | Sparsity: 0% | Unstructured: 88.32 | 4-block: 88.32 | +QAT: 87.94 | Unnamed: 0:
+Row 7: Layers: 6.0 | Sparsity: 80% | Unstructured: 88.2 | 4-block: 87.0 | +QAT: 86.1 | Unnamed: 0: linear trade-off between compression and accuracy
+Row 8: Layers: | Sparsity: 90% | Unstructured: 86.78 | 4-block: 85.34 | +QAT: 84.59 | Unnamed: 0: loss, with a compression jump around 1% accuracy
+Row 9: Layers: | Sparsity: 0% | Unstructured: 84.66 | 4-block: 84.66 | +QAT: 84.25 | Unnamed: 0: drop, due to quantization being applied. SpecifiRow 10: Layers: 3.0 | Sparsity: 80% | Unstructured: 84.08 | 4-block: 82.79 | +QAT: 82.04 | Unnamed: 0: cally, we observe 8.4x higher inference speedup at
+Row 11: Layers: | Sparsity: 90% | Unstructured: 82.5 | 4-block: 80.69 | +QAT: 79.66 | Unnamed: 0:
+[/TABLE]
+
+[PAGE 9]
+rerun our experiments without KD as well. Contrary to PLATON, which reports best results after
+an extensive hyper-parameter search for each task
+independently, we apply our sparse-transfer setup
+with the upstream pruned model and only sweep
+for the number of epochs ∈ [1, 8]. We employ
+early stopping to prevent overﬁtting on smaller
+GLUE tasks. As can be seen from Table 5, oBERT
+outperforms PLATON across all tasks.
+Table 5: Compressed BERT BASE models to 90% sparsity on GLUE tasks without knowledge distillation.
+Task BERTBASE PLATON oBERT
+(ours)
+MNLI
+m / mm 84.6 / 83.4 82.0 / 82.2 82.2 / 82.5
+QQP
+Acc / F1 91.5 / 88.5 90.2 / 86.8 90.4 / 87.1
+QNLI
+Acc 91.3 88.9 89.3
+MRPC
+Acc / F1 86.4 / 90.3 84.3 / 88.8 85.6 / 89.3
+SST-2
+Acc 92.7 90.5 92.0
+CoLA
+Mcc 58.3 44.3 48.47
+STS-B
+Pear / Spear 90.2 / 89.7 87.4 / 87.1 88.0 / 87.6
+Broader comparison. We now contrast our
+compound-compressed BERTBASE models relative
+to alternative compression techniques. We compare against DistilBERT (Sanh et al., 2019), TinyBERT (Jiao et al., 2020), and Block Pruning For
+Faster Transformers (Hybrid Filled MvP) (Lagunas
+et al., 2021). DistilBERT leverages KD during pretraining and ﬁne-tuning to obtain a 6-layer model
+ﬁne-tuned for a speciﬁc downstream task. TinyBERT makes use of a specialized Transformer-KD
+scheme to distill knowledge and intermediate representations at both stages, pre-training and ﬁnetuning on a speciﬁc task. In contrast, we use a
+simpler approach and employ KD from teacher’s
+outputs only. Hybrid Filled MvP (Lagunas et al.,
+2021) employs semi-structured pruning and weight
+reintroduction. The comparison is given in Table 6, where we report the number of unpruned
+encoder weights as size, compression ratio and inference speedup relative to the dense BERTBASE in
+the same inference environment, and F1 score on
+the dev-set of the SQuAD v1.1 dataset. The results suggest that our compressed models improve
+upon the current state-of-the-art techniques, setting
+new very competitive baselines with respect to all
+metrics: accuracy, model size, and inference speed.
+Table 6: Compressed BERT BASE models on the
+SQuADv1.1 task. (oBERT 6,80 stands for the 6-layer
+model pruned to 80% sparsity.)
+Model Size Compr. Speedup F1 Dev.
+BERTBASE 85.0M 1.00x 1.00x 88.54
+< 6-layers
+TinyBERT4 4.5M 18.88x 9.40x 82.10 GPU
+oBERT3,90 2.1M 40.00x 14.80x 82.50 CPU
+6-layers
+DistilBERT 42.5M 2.00x 2.00x 86.90 GPU
+TinyBERT6 42.5M 2.00x 2.00x 87.50 GPU
+oBERT6,80 8.5M 10.00x 6.38x 88.20 CPU
+12-layers
+Hybrid F. MvP 30.7M 2.76x 1.84x 88.70 GPU
+oBERT12,80 17.0M 5.00x 3.38x 89.04 CPU
+BERTLARGE results. Most of our results presented in Section 4 targeted the widely-adopted
+BERTBASE model. This gave us an opportunity for
+a fair comparison against many different methods.
+To verify that our approach does not pertain only to
+the BERTBASE model, in Table 7 we present downstream pruning results on the three times larger
+BERTLARGE model and the SQuADv1.1 task. As
+can be seen from the Table, even the model pruned
+with oBERT at double the sparsity (95%) outperforms Prune OFA (90%).
+Table 7: Compressed BERT LARGE models on the
+SQuADv1.1 task.
+BERTLARGE
+F1 / EM Sparsity Prune
+OFA
+oBERT
+(ours)
+91.22 / 84.45 90% 90.20 / 83.35 91.07 / 84.61
+91.22 / 84.45 95% NA 90.29 / 83.58
+MLPerf Inference Benchmark. Motivated by
+our state-of-the-art results across-the-board, we
+apply our full compound compression pipeline
+to compress BERTLARGE and MobileBERT (Sun
+et al., 2020b) models in the context of the industrial MLPerf Inference Benchmark1. In brief,
+we were able to achieve order-of-magnitude improvements in terms of model size and inference
+speedups, while maintaining >99% of the dense
+1https://mlcommons.org/en/
+
+[TABLE page=9 index=1]
+Columns: independently, we apply our sparse-transfer setup | metrics: accuracy, model size, and inference speed.
+Row 1: independently, we apply our sparse-transfer setup: with the upstream pruned model and only sweep | metrics: accuracy, model size, and inference speed.:
+Row 2: independently, we apply our sparse-transfer setup: for the number of epochs ∈ [1, 8]. We employ | metrics: accuracy, model size, and inference speed.: Table 6: Compressed BERTBASE models on the
+[/TABLE]
+
+[TABLE page=9 index=2]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | oBERT | oBERT3,90 2.1M | 40.00x | 14.80x | 82.50 | CPU
+Row 1: Unnamed: 0: Task | Unnamed: 1: BERTBASE | Unnamed: 2: PLATON | oBERT: | oBERT3,90 2.1M: | 40.00x: | 14.80x: | 82.50: | CPU:
+Row 2: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | oBERT: (ours) | oBERT3,90 2.1M: 6-layers | 40.00x: | 14.80x: | 82.50: | CPU:
+Row 3: Unnamed: 0: MNLI | Unnamed: 1: | Unnamed: 2: | oBERT: | oBERT3,90 2.1M: DistilBERT 42.5M | 40.00x: 2.00x | 14.80x: 2.00x | 82.50: 86.9 | CPU: GPU
+Row 4: Unnamed: 0: | Unnamed: 1: 84.6 / 83.4 | Unnamed: 2: 82.0 / 82.2 | oBERT: 82.2 / 82.5 | oBERT3,90 2.1M: | 40.00x: | 14.80x: | 82.50: | CPU:
+Row 5: Unnamed: 0: m / mm | Unnamed: 1: | Unnamed: 2: | oBERT: | oBERT3,90 2.1M: TinyBERT GPU642.5M | 40.00x: 2.00x | 14.80x: 2.00x | 82.50: 87.5 | CPU:
+Row 6: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | oBERT: | oBERT3,90 2.1M: oBERT6,80 8.5M | 40.00x: 10.00x | 14.80x: 6.38x | 82.50: 88.2 | CPU: CPU
+Row 7: Unnamed: 0: QQP | Unnamed: 1: | Unnamed: 2: | oBERT: | oBERT3,90 2.1M: | 40.00x: | 14.80x: | 82.50: | CPU:
+Row 8: Unnamed: 0: | Unnamed: 1: 91.5 / 88.5 | Unnamed: 2: 90.2 / 86.8 | oBERT: 90.4 / 87.1 | oBERT3,90 2.1M: | 40.00x: | 14.80x: | 82.50: | CPU:
+Row 9: Unnamed: 0: Acc / F1 | Unnamed: 1: | Unnamed: 2: | oBERT: | oBERT3,90 2.1M: 12-layers | 40.00x: | 14.80x: | 82.50: | CPU:
+Row 10: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | oBERT: | oBERT3,90 2.1M: Hybrid F. MvP 30.7M | 40.00x: 2.76x | 14.80x: 1.84x | 82.50: 88.7 | CPU: GPU
+Row 11: Unnamed: 0: QNLI | Unnamed: 1: 91.3 | Unnamed: 2: 88.9 | oBERT: 89.3 | oBERT3,90 2.1M: oBERT12,80 17.0M | 40.00x: 5.00x | 14.80x: 3.38x | 82.50: 89.04 | CPU: CPU
+Row 12: Unnamed: 0: Acc | Unnamed: 1: | Unnamed: 2: | oBERT: | oBERT3,90 2.1M: | 40.00x: | 14.80x: | 82.50: | CPU:
+[/TABLE]
+
+[PAGE 10]
+BERTLARGE accuracy. For details please see Appendix A.1, as well as our open-source submission.
+6 Broader Impact
+Our work is part of the general trend of producing inference efﬁcient models which approximate
+performance of their larger bases. By and large,
+this work should help increase model efﬁciency,
+thereby reducing computational and ultimately
+monetary cost of executing such models. Moreover, it could allow models to be used by those
+who do not have access to expensive specialized
+computing clusters: for instance, our main speedup
+results are aimed at widely-available CPUs.
+7 Limitations
+As any academic study, our work is not without
+its limitations. We split their discussion into limitations that are inherent to our method, and limitations of our present study ; the latter can be
+overcome by extensions of our work. In the ﬁrst
+category, we begin by highlighting the fact that
+our second-order method relies on approximations,
+which are inherent in order to scale such methods
+to BERT scale. Prior studies, e.g. (Singh and Alistarh, 2020) have performed careful examinations
+of the validity of these approximations in the context of CNN models. The strength of our empirical
+results can be seen as indirect evidence that these
+approximations apply to BERT models as well. A
+second, technical, limitation is the fact that our
+method requires non-trivial additional storage cost;
+while we have shown that our experiments can be
+executed on a single commodity GPU (NVIDIA
+RTX 3090), this limits the range of devices on
+which the technique may be applied. However, we
+provide an efﬁcient and easy way to scale our approach with more GPUs, which is automatically
+utilized in a multi-GPU environment.
+Another limitation which we aim to remove in
+future work is the focus on relatively ﬁne-grained
+sparsity types, such as unstructured and semistructured pruning.
+References
+Tianlong Chen, Jonathan Frankle, Shiyu Chang, Sijia
+Liu, Yang Zhang, Zhangyang Wang, and Michael
+Carbin. 2020. The lottery ticket hypothesis for pretrained bert networks. Advances in neural information processing systems, 33:15834–15846.
+Matthieu Courbariaux, Itay Hubara, Daniel Soudry,
+Ran El-Yaniv, and Yoshua Bengio. 2016. Binarized neural networks: Training deep neural networks with weights and activations constrained to+
+1 or-1. arXiv preprint arXiv:1602.02830.
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+Kristina Toutanova. 2019. BERT: Pre-training of
+deep bidirectional transformers for language understanding. In Proceedings of the 2019 Conference
+of the North American Chapter of the Association
+for Computational Linguistics: Human Language
+Technologies, Volume 1 (Long and Short Papers) ,
+pages 4171–4186, Minneapolis, Minnesota. Association for Computational Linguistics.
+Angela Fan, Edouard Grave, and Armand Joulin. 2019.
+Reducing transformer depth on demand with structured dropout. In International Conference on
+Learning Representations.
+Wikimedia Foundation. Wikimedia downloads.
+Jonathan Frankle and Michael Carbin. 2018. The lottery ticket hypothesis: Finding sparse, trainable neural networks. In International Conference on Learning Representations.
+Elias Frantar, Eldar Kurtic, and Dan Alistarh. 2021. Mfac: Efﬁcient matrix-free approximations of secondorder information. Advances in Neural Information
+Processing Systems, 34.
+Trevor Gale, Erich Elsen, and Sara Hooker. 2019. The
+state of sparsity in deep neural networks. arXiv
+preprint arXiv:1902.09574.
+Song Han, Huizi Mao, and William J Dally. 2015. A
+deep neural network compression pipeline: Pruning, quantization, huffman encoding. arXiv preprint
+arXiv:1510.00149, 10.
+Babak Hassibi and David Stork. 1992. Second order
+derivatives for network pruning: Optimal brain surgeon. Advances in neural information processing
+systems, 5.
+Geoffrey Hinton, Oriol Vinyals, Jeff Dean, et al. 2015.
+Distilling the knowledge in a neural network. arXiv
+preprint arXiv:1503.02531, 2(7).
+Benoit Jacob, Skirmantas Kligys, Bo Chen, Menglong Zhu, Matthew Tang, Andrew Howard, Hartwig
+Adam, and Dmitry Kalenichenko. 2018. Quantization and training of neural networks for efﬁcient
+integer-arithmetic-only inference. In Proceedings
+of the IEEE conference on computer vision and pattern recognition, pages 2704–2713.
+
+[TABLE page=10 index=1]
+Columns: Our work is part of the general trend of produc- | works with weights and activations constrained to+
+Row 1: Our work is part of the general trend of produc-: ing inference efficient models which approximate | works with weights and activations constrained to+: 1 or-1. arXiv preprint arXiv:1602.02830.
+Row 2: Our work is part of the general trend of produc-: performance of their larger bases. By and large, | works with weights and activations constrained to+:
+Row 3: Our work is part of the general trend of produc-: this work should help increase model efficiency, | works with weights and activations constrained to+: Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+Row 4: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: Kristina Toutanova. 2019. BERT: Pre-training of
+Row 5: Our work is part of the general trend of produc-: thereby reducing computational and ultimately | works with weights and activations constrained to+:
+Row 6: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: deep bidirectional transformers for language underRow 7: Our work is part of the general trend of produc-: monetary cost of executing such models. More- | works with weights and activations constrained to+: standing. In Proceedings of the 2019 Conference
+Row 8: Our work is part of the general trend of produc-: over, it could allow models to be used by those | works with weights and activations constrained to+: of the North American Chapter of the Association
+Row 9: Our work is part of the general trend of produc-: who do not have access to expensive specialized | works with weights and activations constrained to+: for Computational Linguistics: Human Language
+Row 10: Our work is part of the general trend of produc-: computing clusters: for instance, our main speedup | works with weights and activations constrained to+: Technologies, Volume 1 (Long and Short Papers),
+Row 11: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: pages 4171–4186, Minneapolis, Minnesota. AssociRow 12: Our work is part of the general trend of produc-: results are aimed at widely-available CPUs. | works with weights and activations constrained to+:
+Row 13: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: ation for Computational Linguistics.
+Row 14: Our work is part of the general trend of produc-: 7 Limitations | works with weights and activations constrained to+: Angela Fan, Edouard Grave, and Armand Joulin. 2019.
+Row 15: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: Reducing transformer depth on demand with strucRow 16: Our work is part of the general trend of produc-: As any academic study, our work is not without | works with weights and activations constrained to+: tured dropout. In International Conference on
+Row 17: Our work is part of the general trend of produc-: its limitations. We split their discussion into lim- | works with weights and activations constrained to+: Learning Representations.
+Row 18: Our work is part of the general trend of produc-: itations that are inherent to our method, and lim- | works with weights and activations constrained to+:
+Row 19: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: Wikimedia Foundation. Wikimedia downloads.
+Row 20: Our work is part of the general trend of produc-: itations of our present study; the latter can be | works with weights and activations constrained to+:
+Row 21: Our work is part of the general trend of produc-: overcome by extensions of our work. In the first | works with weights and activations constrained to+: Jonathan Frankle and Michael Carbin. 2018. The lotRow 22: Our work is part of the general trend of produc-: category, we begin by highlighting the fact that | works with weights and activations constrained to+: tery ticket hypothesis: Finding sparse, trainable neuRow 23: Our work is part of the general trend of produc-: our second-order method relies on approximations, | works with weights and activations constrained to+: ral networks. In International Conference on LearnRow 24: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: ing Representations.
+Row 25: Our work is part of the general trend of produc-: which are inherent in order to scale such methods | works with weights and activations constrained to+:
+Row 26: Our work is part of the general trend of produc-: to BERT scale. Prior studies, e.g. (Singh and Alis- | works with weights and activations constrained to+: Elias Frantar, Eldar Kurtic, and Dan Alistarh. 2021. MRow 27: Our work is part of the general trend of produc-: tarh, 2020) have performed careful examinations | works with weights and activations constrained to+: fac: Efficient matrix-free approximations of secondRow 28: Our work is part of the general trend of produc-: of the validity of these approximations in the con- | works with weights and activations constrained to+: order information. Advances in Neural Information
+Row 29: Our work is part of the general trend of produc-: text of CNN models. The strength of our empirical | works with weights and activations constrained to+: Processing Systems, 34.
+Row 30: Our work is part of the general trend of produc-: results can be seen as indirect evidence that these | works with weights and activations constrained to+:
+Row 31: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: Trevor Gale, Erich Elsen, and Sara Hooker. 2019. The
+Row 32: Our work is part of the general trend of produc-: approximations apply to BERT models as well. A | works with weights and activations constrained to+: state of sparsity in deep neural networks. arXiv
+Row 33: Our work is part of the general trend of produc-: second, technical, limitation is the fact that our | works with weights and activations constrained to+: preprint arXiv:1902.09574.
+Row 34: Our work is part of the general trend of produc-: method requires non-trivial additional storage cost; | works with weights and activations constrained to+:
+Row 35: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: Song Han, Huizi Mao, and William J Dally. 2015. A
+Row 36: Our work is part of the general trend of produc-: while we have shown that our experiments can be | works with weights and activations constrained to+:
+Row 37: Our work is part of the general trend of produc-: | works with weights and activations constrained to+: deep neural network compression pipeline: PrunRow 38: Our work is part of the general trend of produc-: executed on a single commodity GPU (NVIDIA | works with weights and activations constrained to+: ing, quantization, huffman encoding. arXiv preprint
+Row 39: Our work is part of the general trend of produc-: RTX 3090), this limits the range of devices on | works with weights and activations constrained to+: arXiv:1510.00149, 10.
+[/TABLE]
+
+[PAGE 11]
+Xiaoqi Jiao, Yichun Yin, Lifeng Shang, Xin Jiang,
+Xiao Chen, Linlin Li, Fang Wang, and Qun Liu.
+2020. Tinybert: Distilling bert for natural language
+understanding. In Findings of the Association for
+Computational Linguistics: EMNLP 2020 , pages
+4163–4174.
+Sehoon Kim, Sheng Shen, David Thorsley, Amir Gholami, Woosuk Kwon, Joseph Hassoun, and Kurt
+Keutzer. 2022. Learned token pruning for transformers. In Proceedings of the 28th ACM SIGKDD
+Conference on Knowledge Discovery and Data Mining, KDD ’22, page 784–794. Association for Computing Machinery.
+Olga Kovaleva, Saurabh Kulshreshtha, Anna Rogers,
+and Anna Rumshisky. 2021. BERT busters: Outlier
+layernorm dimensions that disrupt BERT. CoRR,
+abs/2105.06990.
+Mark Kurtz, Justin Kopinsky, Rati Gelashvili, Alexander Matveev, John Carr, Michael Goin, William
+Leiserson, Sage Moore, Bill Nell, Nir Shavit, and
+Dan Alistarh. 2020. Inducing and exploiting activation sparsity for fast inference on deep neural networks. In Proceedings of the 37th International
+Conference on Machine Learning , volume 119 of
+Proceedings of Machine Learning Research , pages
+5533–5543, Virtual. PMLR.
+François Lagunas, Ella Charlaix, Victor Sanh, and
+Alexander Rush. 2021. Block pruning for faster
+transformers. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language
+Processing, pages 10619–10629, Online and Punta
+Cana, Dominican Republic. Association for Computational Linguistics.
+Yann LeCun, John Denker, and Sara Solla. 1989. Optimal brain damage. Advances in neural information
+processing systems, 2.
+Quentin Lhoest, Albert Villanova del Moral, Yacine
+Jernite, Abhishek Thakur, Patrick von Platen, Suraj
+Patil, Julien Chaumond, Mariama Drame, Julien
+Plu, Lewis Tunstall, Joe Davison, Mario Šaško,
+Gunjan Chhablani, Bhavitvya Malik, Simon Brandeis, Teven Le Scao, Victor Sanh, Canwen Xu,
+Nicolas Patry, Angelina McMillan-Major, Philipp
+Schmid, Sylvain Gugger, Clément Delangue, Théo
+Matussière, Lysandre Debut, Stas Bekman, Pierric Cistac, Thibault Goehringer, Victor Mustar,
+François Lagunas, Alexander Rush, and Thomas
+Wolf. 2021. Datasets: A community library for natural language processing. In Proceedings of the
+2021 Conference on Empirical Methods in Natural Language Processing: System Demonstrations ,
+pages 175–184. Association for Computational Linguistics.
+Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike Lewis,
+Luke Zettlemoyer, and Veselin Stoyanov. 2019.
+Roberta: A robustly optimized bert pretraining approach. arXiv preprint arXiv:1907.11692.
+Paul Michel, Omer Levy, and Graham Neubig. 2019.
+Are sixteen heads really better than one? Advances
+in neural information processing systems, 32.
+Asit Mishra, Jorge Albericio Latorre, Jeff Pool, Darko
+Stosic, Dusan Stosic, Ganesh Venkatesh, Chong
+Yu, and Paulius Micikevicius. 2021. Accelerating sparse deep neural networks. arXiv preprint
+arXiv:2104.08378.
+NeuralMagic. 2021. Deep sparse: A fast cpu inference
+engine.
+Alec Radford, Jeffrey Wu, Rewon Child, David Luan,
+Dario Amodei, Ilya Sutskever, et al. 2019. Language models are unsupervised multitask learners.
+OpenAI blog, 1(8):9.
+Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev,
+and Percy Liang. 2016. Squad: 100,000+ questions
+for machine comprehension of text. In EMNLP.
+Hassan Sajjad, Fahim Dalvi, Nadir Durrani, and
+Preslav Nakov. 2020. Poor man’s BERT:
+smaller and faster transformer models. CoRR,
+abs/2004.03844.
+Victor Sanh, Lysandre Debut, Julien Chaumond, and
+Thomas Wolf. 2019. Distilbert, a distilled version
+of bert: smaller, faster, cheaper and lighter. arXiv
+preprint arXiv:1910.01108.
+Victor Sanh, Thomas Wolf, and Alexander Rush.
+2020. Movement pruning: Adaptive sparsity by
+ﬁne-tuning. Advances in Neural Information Processing Systems, 33:20378–20389.
+Iyer Shankar, Dandekar Nikhil, and Csernai Kornel.
+2017. First quora dataset release: Question pairs.
+S. Shankar. 2017. Identifying quora question pairs having the same intent.
+Sheng Shen, Zhen Dong, Jiayu Ye, Linjian Ma, Zhewei
+Yao, Amir Gholami, Michael W Mahoney, and Kurt
+Keutzer. 2020. Q-bert: Hessian based ultra low
+precision quantization of bert. In Proceedings of
+the AAAI Conference on Artiﬁcial Intelligence , volume 34, pages 8815–8821.
+Sidak Pal Singh and Dan Alistarh. 2020. Woodﬁsher:
+Efﬁcient second-order approximation for neural network compression. Advances in Neural Information
+Processing Systems, 33.
+Shaden Smith, Mostofa Patwary, Brandon Norick,
+Patrick LeGresley, Samyam Rajbhandari, Jared
+Casper, Zhun Liu, Shrimai Prabhumoye, George
+Zerveas, Vijay Korthikanti, et al. 2022. Using
+
+[TABLE page=11 index=1]
+Columns: Computational Linguistics: | EMNLP | 2020, | pages | Unnamed: 0 | Paul Michel, Omer Levy, | and Graham Neubig. 2019.
+Row 1: Computational Linguistics:: 4163–4174. | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: Are sixteen heads really better than one? | and Graham Neubig. 2019.: Advances
+Row 2: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: in neural information processing systems, 32. | and Graham Neubig. 2019.:
+Row 3: Computational Linguistics:: hoon Kim, Sheng Shen, David Thorsley, Amir Gho- | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 4: Computational Linguistics:: lami, Woosuk Kwon, Joseph | EMNLP: Hassoun, | 2020,: and | pages: Kurt | Unnamed: 0: | Paul Michel, Omer Levy,: Asit Mishra, Jorge Albericio Latorre, Jeff Pool, Darko | and Graham Neubig. 2019.:
+Row 5: Computational Linguistics:: Keutzer. 2022. Learned token | EMNLP: pruning | 2020,: for | pages: trans- | Unnamed: 0: | Paul Michel, Omer Levy,: Stosic, Dusan Stosic, | and Graham Neubig. 2019.: Ganesh Venkatesh, Chong
+Row 6: Computational Linguistics:: formers. In Proceedings of the 28th ACM SIGKDD | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: Yu, and Paulius Micikevicius. | and Graham Neubig. 2019.: 2021. AcceleratRow 7: Computational Linguistics:: Conference on Knowledge Discovery and Data Min- | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: ing sparse deep neural | and Graham Neubig. 2019.: networks. arXiv preprint
+Row 8: Computational Linguistics:: ing, KDD ’22, page 784–794. Association for Com- | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: arXiv:2104.08378. | and Graham Neubig. 2019.:
+Row 9: Computational Linguistics:: puting Machinery. | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 10: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: NeuralMagic. 2021. Deep sparse: A fast cpu inference | and Graham Neubig. 2019.:
+Row 11: Computational Linguistics:: ga Kovaleva, Saurabh Kulshreshtha, | EMNLP: Anna | 2020,: Rogers, | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: engine. | and Graham Neubig. 2019.:
+Row 12: Computational Linguistics:: and Anna Rumshisky. 2021. | EMNLP: BERT busters: Outlier | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 13: Computational Linguistics:: layernorm dimensions that | EMNLP: disrupt BERT. | 2020,: | pages: CoRR, | Unnamed: 0: | Paul Michel, Omer Levy,: Alec Radford, Jeffrey Wu, Rewon Child, David Luan, | and Graham Neubig. 2019.:
+Row 14: Computational Linguistics:: abs/2105.06990. | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: Dario Amodei, Ilya Sutskever, | and Graham Neubig. 2019.: et al. 2019. LanRow 15: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: guage models are unsupervised | and Graham Neubig. 2019.: multitask learners.
+Row 16: Computational Linguistics:: rk Kurtz, Justin Kopinsky, Rati Gelashvili, Alexan- | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: OpenAI blog, 1(8):9. | and Graham Neubig. 2019.:
+Row 17: Computational Linguistics:: der Matveev, John Carr, Michael | EMNLP: Goin, | 2020,: William | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 18: Computational Linguistics:: Leiserson, Sage Moore, Bill Nell, | EMNLP: Nir Shavit, | 2020,: | pages: and | Unnamed: 0: | Paul Michel, Omer Levy,: Pranav Rajpurkar, Jian Zhang, | and Graham Neubig. 2019.: Konstantin Lopyrev,
+Row 19: Computational Linguistics:: Dan Alistarh. 2020. Inducing and exploiting activa- | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: and Percy Liang. 2016. | and Graham Neubig. 2019.: Squad: 100,000+ questions
+Row 20: Computational Linguistics:: tion sparsity for fast inference on deep neural net- | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: for machine comprehension of text. | and Graham Neubig. 2019.: In EMNLP.
+Row 21: Computational Linguistics:: works. In Proceedings of | EMNLP: the 37th | 2020,: International | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 22: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: Hassan Sajjad, Fahim Dalvi, | and Graham Neubig. 2019.: Nadir Durrani, and
+Row 23: Computational Linguistics:: Conference on Machine Learning, | EMNLP: volume | 2020,: 119 | pages: of | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 24: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: Preslav Nakov. 2020. | and Graham Neubig. 2019.: Poor man’s BERT:
+Row 25: Computational Linguistics:: Proceedings of Machine Learning Research, pages | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 26: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: smaller and faster transformer | and Graham Neubig. 2019.: models. CoRR,
+Row 27: Computational Linguistics:: 5533–5543, Virtual. PMLR. | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 28: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: abs/2004.03844. | and Graham Neubig. 2019.:
+Row 29: Computational Linguistics:: nçois Lagunas, Ella Charlaix, | EMNLP: Victor | 2020,: Sanh, | pages: and | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 30: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: Victor Sanh, Lysandre Debut, | and Graham Neubig. 2019.: Julien Chaumond, and
+Row 31: Computational Linguistics:: Alexander Rush. 2021. Block | EMNLP: pruning | 2020,: for | pages: faster | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 32: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: Thomas Wolf. 2019. Distilbert, | and Graham Neubig. 2019.: a distilled version
+Row 33: Computational Linguistics:: transformers. In Proceedings | EMNLP: of the | 2020,: 2021 Confer- | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 34: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: of bert: smaller, faster, cheaper and lighter. | and Graham Neubig. 2019.: arXiv
+Row 35: Computational Linguistics:: ence on Empirical Methods | EMNLP: in Natural | 2020,: Language | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 36: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: preprint arXiv:1910.01108. | and Graham Neubig. 2019.:
+Row 37: Computational Linguistics:: Processing, pages 10619–10629, Online and Punta | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 38: Computational Linguistics:: Cana, Dominican Republic. Association for Compu- | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: Victor Sanh, Thomas Wolf, | and Graham Neubig. 2019.: and Alexander Rush.
+Row 39: Computational Linguistics:: tational Linguistics. | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: 2020. Movement pruning: | and Graham Neubig. 2019.: Adaptive sparsity by
+Row 40: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: fine-tuning. Advances | and Graham Neubig. 2019.: in Neural Information ProRow 41: Computational Linguistics:: nn LeCun, John Denker, and Sara Solla. 1989. Opti- | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 42: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: cessing Systems, 33:20378–20389. | and Graham Neubig. 2019.:
+Row 43: Computational Linguistics:: mal brain damage. Advances in neural information | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 44: Computational Linguistics:: processing systems, 2. | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: Iyer Shankar, Dandekar Nikhil, | and Graham Neubig. 2019.: and Csernai Kornel.
+Row 45: Computational Linguistics:: | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: 2017. First quora dataset release: Question pairs. | and Graham Neubig. 2019.:
+Row 46: Computational Linguistics:: entin Lhoest, Albert Villanova | EMNLP: del Moral, | 2020,: Yacine | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: | and Graham Neubig. 2019.:
+Row 47: Computational Linguistics:: Jernite, Abhishek Thakur, Patrick von Platen, Suraj | EMNLP: | 2020,: | pages: | Unnamed: 0: | Paul Michel, Omer Levy,: S. Shankar. 2017. Identifying quora question pairs hav- | and Graham Neubig. 2019.:
+[/TABLE]
+
+[PAGE 12]
+deepspeed and megatron to train megatron-turing
+nlg 530b, a large-scale generative language model.
+arXiv preprint arXiv:2201.11990.
+Sharath Nittur Sridhar and Anthony Sarah. 2020. Undivided attention: Are intermediate layers necessary
+for bert? arXiv preprint arXiv:2012.11881.
+Zhiqing Sun, Hongkun Yu, Xiaodan Song, Renjie Liu,
+Yiming Yang, and Denny Zhou. 2020a. Mobilebert:
+a compact task-agnostic bert for resource-limited devices. In ACL.
+Zhiqing Sun, Hongkun Yu, Xiaodan Song, Renjie Liu,
+Yiming Yang, and Denny Zhou. 2020b. Mobilebert:
+a compact task-agnostic bert for resource-limited devices. In Proceedings of the 58th Annual Meeting
+of the Association for Computational Linguistics ,
+pages 2158–2170.
+Iulia Turc, Ming-Wei Chang, Kenton Lee, and Kristina
+Toutanova. 2019. Well-read students learn better:
+The impact of student initialization on knowledge
+distillation. ArXiv, abs/1908.08962.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz
+Kaiser, and Illia Polosukhin. 2017. Attention is all
+you need. Advances in neural information processing systems, 30.
+Elena V oita, David Talbot, F. Moiseev, Rico Sennrich,
+and Ivan Titov. 2019. Analyzing multi-head selfattention: Specialized heads do the heavy lifting, the
+rest can be pruned. In ACL.
+Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan
+Yang, and Ming Zhou. 2020. Minilm: Deep selfattention distillation for task-agnostic compression
+of pre-trained transformers. Advances in Neural Information Processing Systems, 33:5776–5788.
+Liu Weijie, Zhou Peng, Zhao Zhe, Wang Zhiruo, Deng
+Haotang, and Ju Qi. 2020. Fastbert: a self-distilling
+bert with adaptive inference time. In Proceedings of
+ACL 2020.
+Adina Williams, Nikita Nangia, and Samuel Bowman.
+2018. A broad-coverage challenge corpus for sentence understanding through inference. In Proceedings of the 2018 Conference of the North American
+Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume
+1 (Long Papers), pages 1112–1122. Association for
+Computational Linguistics.
+Thomas Wolf, Lysandre Debut, Victor Sanh, Julien
+Chaumond, Clement Delangue, Anthony Moi, Pierric Cistac, Tim Rault, Rémi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer, Patrick von Platen,
+Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu,
+Teven Le Scao, Sylvain Gugger, Mariama Drame,
+Quentin Lhoest, and Alexander M. Rush. 2020.
+Transformers: State-of-the-art natural language processing. In Proceedings of the 2020 Conference on
+Empirical Methods in Natural Language Processing: System Demonstrations , pages 38–45, Online.
+Association for Computational Linguistics.
+Ji Xin, Raphael Tang, Jaejun Lee, Yaoliang Yu, and
+Jimmy J. Lin. 2020. Deebert: Dynamic early exiting for accelerating bert inference. In ACL.
+Dongkuan Xu, Ian En-Hsu Yen, Jinxi Zhao, and Zhibin
+Xiao. 2021. Rethinking network pruning – under
+the pre-train and ﬁne-tune paradigm. In NAACL.
+Shixing Yu, Zhewei Yao, Amir Gholami, Zhen Dong,
+Sehoon Kim, Michael W Mahoney, and Kurt
+Keutzer. 2022. Hessian-aware pruning and optimal
+neural implant. In Proceedings of the IEEE/CVF
+Winter Conference on Applications of Computer Vision, pages 3880–3891.
+Oﬁr Zafrir, Guy Boudoukh, Peter Izsak, and Moshe
+Wasserblat. 2019. Q8bert: Quantized 8bit bert.
+2019 Fifth Workshop on Energy Efﬁcient Machine
+Learning and Cognitive Computing - NeurIPS Edition (EMC2-NIPS), pages 36–39.
+Oﬁr Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,
+and Moshe Wasserblat. 2021. Prune once for all:
+Sparse pre-trained language models. arXiv preprint
+arXiv:2111.05754.
+Qingru Zhang, Simiao Zuo, Chen Liang, Alexander
+Bukharin, Pengcheng He, Weizhu Chen, and Tuo
+Zhao. 2022. Platon: Pruning large transformer
+models with upper conﬁdence bound of weight importance. In International Conference on Machine
+Learning, pages 26809–26823. PMLR.
+Wei Zhang, Lu Hou, Yichun Yin, Lifeng Shang, Xiao
+Chen, Xin Jiang, and Qun Liu. 2020. Ternarybert:
+Distillation-aware ultra-low bit bert. arXiv preprint
+arXiv:2009.12812.
+M. Zhu and Suyog Gupta. 2018. To prune, or not to
+prune: exploring the efﬁcacy of pruning for model
+compression. ArXiv, abs/1710.01878.
+Yukun Zhu, Ryan Kiros, Richard S. Zemel, Ruslan
+Salakhutdinov, Raquel Urtasun, Antonio Torralba,
+and Sanja Fidler. 2015. Aligning books and movies:
+Towards story-like visual explanations by watching movies and reading books. 2015 IEEE International Conference on Computer Vision (ICCV) ,
+pages 19–27.
+A Appendix
+A.1 MLPerf Inference benchmark
+Following the MLPerf benchmark guidelines on
+producing compressed and fast models while
+maintaining >99% of the BERTLARGE F1 score on
+
+[TABLE page=12 index=2]
+Columns: Kaiser, and Illia Polosukhin. 2017. Attention is all | Unnamed: 0 | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,
+Row 1: Kaiser, and Illia Polosukhin. 2017. Attention is all: you need. Advances in neural information process- | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: and Moshe Wasserblat. 2021. Prune once for all:
+Row 2: Kaiser, and Illia Polosukhin. 2017. Attention is all: ing systems, 30. | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Sparse pre-trained language models. arXiv preprint
+Row 3: Kaiser, and Illia Polosukhin. 2017. Attention is all: | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: arXiv:2111.05754.
+Row 4: Kaiser, and Illia Polosukhin. 2017. Attention is all: na Voita, David Talbot, F. Moiseev, Rico Sennrich, | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,:
+Row 5: Kaiser, and Illia Polosukhin. 2017. Attention is all: and Ivan Titov. 2019. Analyzing multi-head self- | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Qingru Zhang, Simiao Zuo, Chen Liang, Alexander
+Row 6: Kaiser, and Illia Polosukhin. 2017. Attention is all: attention: Specialized heads do the heavy lifting, the | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Bukharin, Pengcheng He, Weizhu Chen, and Tuo
+Row 7: Kaiser, and Illia Polosukhin. 2017. Attention is all: rest can be pruned. In ACL. | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Zhao. 2022. Platon: Pruning large transformer
+Row 8: Kaiser, and Illia Polosukhin. 2017. Attention is all: | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: models with upper confidence bound of weight imRow 9: Kaiser, and Illia Polosukhin. 2017. Attention is all: nhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: portance. In International Conference on Machine
+Row 10: Kaiser, and Illia Polosukhin. 2017. Attention is all: Yang, and Ming Zhou. 2020. Minilm: Deep self- | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Learning, pages 26809–26823. PMLR.
+Row 11: Kaiser, and Illia Polosukhin. 2017. Attention is all: attention distillation for task-agnostic compression | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,:
+Row 12: Kaiser, and Illia Polosukhin. 2017. Attention is all: of pre-trained transformers. Advances in Neural In- | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Wei Zhang, Lu Hou, Yichun Yin, Lifeng Shang, Xiao
+Row 13: Kaiser, and Illia Polosukhin. 2017. Attention is all: formation Processing Systems, 33:5776–5788. | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Chen, Xin Jiang, and Qun Liu. 2020. Ternarybert:
+Row 14: Kaiser, and Illia Polosukhin. 2017. Attention is all: | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Distillation-aware ultra-low bit bert. arXiv preprint
+Row 15: Kaiser, and Illia Polosukhin. 2017. Attention is all: Weijie, Zhou Peng, Zhao Zhe, Wang Zhiruo, Deng | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: arXiv:2009.12812.
+Row 16: Kaiser, and Illia Polosukhin. 2017. Attention is all: Haotang, and Ju Qi. 2020. Fastbert: a self-distilling | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,:
+Row 17: Kaiser, and Illia Polosukhin. 2017. Attention is all: bert with adaptive inference time. In Proceedings of | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: M. Zhu and Suyog Gupta. 2018. To prune, or not to
+Row 18: Kaiser, and Illia Polosukhin. 2017. Attention is all: ACL 2020. | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: prune: exploring the efficacy of pruning for model
+Row 19: Kaiser, and Illia Polosukhin. 2017. Attention is all: | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: compression. ArXiv, abs/1710.01878.
+Row 20: Kaiser, and Illia Polosukhin. 2017. Attention is all: ina Williams, Nikita Nangia, and Samuel Bowman. | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,:
+Row 21: Kaiser, and Illia Polosukhin. 2017. Attention is all: 2018. A broad-coverage challenge corpus for sen- | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Yukun Zhu, Ryan Kiros, Richard S. Zemel, Ruslan
+Row 22: Kaiser, and Illia Polosukhin. 2017. Attention is all: tence understanding through inference. In Proceed- | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Salakhutdinov, Raquel Urtasun, Antonio Torralba,
+Row 23: Kaiser, and Illia Polosukhin. 2017. Attention is all: ings of the 2018 Conference of the North American | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: and Sanja Fidler. 2015. Aligning books and movies:
+Row 24: Kaiser, and Illia Polosukhin. 2017. Attention is all: Chapter of the Association for Computational Lin- | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: Towards story-like visual explanations by watchRow 25: Kaiser, and Illia Polosukhin. 2017. Attention is all: guistics: Human Language Technologies, Volume | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: ing movies and reading books. 2015 IEEE InterRow 26: Kaiser, and Illia Polosukhin. 2017. Attention is all: 1 (Long Papers), pages 1112–1122. Association for | Unnamed: 0: | Ofir Zafrir, Ariel Larey, Guy Boudoukh, Haihao Shen,: national Conference on Computer Vision (ICCV),
+[/TABLE]
+
+[TABLE page=12 index=3]
+Columns: The impact | of | student | initialization | Unnamed: 0 | on knowledge | Unnamed: 1 | Wasserblat. 2019. | Q8bert: | Quantized | 8bit | bert.
+Row 1: The impact: distillation. ArXiv, abs/1908.08962. | of: | student: | initialization: | Unnamed: 0: | on knowledge: | Unnamed: 1: | Wasserblat. 2019.: 2019 Fifth Workshop on Energy Efficient Machine | Q8bert:: | Quantized: | 8bit: | bert.:
+Row 2: The impact: | of: | student: | initialization: | Unnamed: 0: | on knowledge: | Unnamed: 1: | Wasserblat. 2019.: Learning and Cognitive Computing - NeurIPS Edi- | Q8bert:: | Quantized: | 8bit: | bert.:
+Row 3: The impact: Ashish Vaswani, | of: | student: Noam Shazeer, | initialization: Niki | Unnamed: 0: | on knowledge: Parmar, | Unnamed: 1: Jakob | Wasserblat. 2019.: tion (EMC2-NIPS), pages 36–39. | Q8bert:: | Quantized: | 8bit: | bert.:
+[/TABLE]
+
+[PAGE 13]
+the SQuADv1.1 task, we explore two directions. In
+the ﬁrst one, dubbed oBERT-Large, we compound
+compress the BERTLARGE model without any
+changes to its architecture. Therefore, we apply
+4-block downstream pruning to 95% sparsity
+followed by the quantization aware training (QAT).
+In the second direction we focus on recovering
+the BERTLARGE accuracy by compressing an
+already compact MobileBERT model, dubbed
+oBERT-MobileBERT. More speciﬁcally, we
+apply direct layer dropping, leaving only 14
+transformer layers out of the original 24, followed
+by the 4-block pruning to 50% sparsity and
+quantization aware training. We present results in
+Table 8, where models were evaluated with the
+DeepSparse inference engine, using a server with
+two Intel(R) Xeon(R) Platinum 8380 (IceLake)
+CPUs with 40 cores each, batch-size 128 and
+sequence length 384. For more details please see
+our ofﬁcial submission athttps://github.com/
+neuralmagic/mlperf_inference_results_v2.
+1/tree/master/open/NeuralMagic.
+A.2 Additional comparisons
+Here we reﬂect upon some other methods focused
+on efﬁcient inference for LLMs, which are orthogonal to weight pruning. For example, Learned Token Pruning (Kim et al., 2022) tries to adaptively
+remove unimportant tokens in input sequences and
+provides 2x higher throughput at < 1% accuracy
+drop; at the same accuracy drop, our compressed
+model is able to achieve 8.4x higher throughput.
+DeeBERT (Xin et al., 2020) and FastBERT (Weijie et al., 2020) apply an early-exit technique for
+inference speedup. The latter achieves 2-3x faster
+inference without performance degradation. However, the method only applies to batch size one.
+Nevertheless, in terms of direct comparison, our
+compressed models are able to achieve 4x faster
+inference on CPUs without accuracy degradation.
+Overall, we emphasize the fact that these methods
+are complementary to our compression techniques,
+so it would be interesting to investigate computational gains by combining such methods.
+A.3 Computational costs
+In practice, for the 12-layer BERTBASE model with
+d = 85M encoder weights and block sizeB = 50,
+theO(Bd) memory requirement translates to approximately 17GB, which can be easily kept on
+the 24GB RTX 3090 card. While this amount of
+memory is available on high-performance GPUs,
+it is also straightforward to split theNB×B×B
+tensor along the batch-dimensionNB and utilize
+additional GPUs or even memory swapping with
+CPU. Our implementation updates the inverse Hessian approximation in negligible time, and can run
+asynchronously while the next gradient is being
+fetched. Computing saliency scores and optimal
+weight updates takes only a few seconds.
+A.4 Optimal BERT Surgeon (oBERT)
+hyper-parameters
+Hyper-parameters. The oBERT pruning method
+has three tunable hyper-parameters: number of
+gradients (m), block size (B), and dampening (λ).
+These are supposed to be tuned with respect to
+the model and available computational resources.
+In all of our runs, across all models and datasets,
+we use the same set of hyper-parameters which we
+found to work best for theBERTBASE model on the
+SQuAD v1.1 dataset. We conjecture that further
+tuning for smaller models (3 and 6-layer models)
+could improve their results, but for simplicity and
+fairness to other methods, we apply the same ones
+found for the BERTBASE .
+Ablation studies. The procedure to ﬁnd the optimal set of hyper-parameters for a model consists
+of a grid search over the possible hyper-parameter
+combinations and one-shot pruning runs to various
+high sparsity targets to evaluate the quality of the
+pruning approximation for each combination. We
+found thatm = 1024,B = 50, andλ = 10−7 produce state-of-the-art results for a negligible computational overhead with the BERTBASE model. Frantar et al. (2021) shows that larger block sizes
+require more gradients for better approximation.
+Given the massive size of the BERTBASE model,
+we picked this setup as it was the best performing
+one that could still ﬁt on a single 24GB RTX 3090
+GPU card. In Figures 3, 4, and 5 we visualize a
+fraction of the one-shot pruning ablations with respect to all three hyper-parameters that motivated
+us to pick these speciﬁc values.
+A.5 Downstream pruning
+Teacher preparation. For all downstream pruning runs we make use of the KD from the ﬁnetuned BERTBASE teacher outputs. The teacher
+is ﬁne-tuned on the corresponding downstream
+
+[TABLE page=13 index=1]
+Columns: transformer layers out of the original 24, followed | A.4 Optimal BERT Surgeon (oBERT) | Unnamed: 0
+Row 1: transformer layers out of the original 24, followed: by the 4-block pruning to 50% sparsity and | A.4 Optimal BERT Surgeon (oBERT): hyper-parameters | Unnamed: 0:
+Row 2: transformer layers out of the original 24, followed: quantization aware training. We present results in | A.4 Optimal BERT Surgeon (oBERT): Hyper-parameters. The oBERT pruning method | Unnamed: 0:
+Row 3: transformer layers out of the original 24, followed: Table 8, where models were evaluated with the | A.4 Optimal BERT Surgeon (oBERT): has three tunable hyper-parameters: number | Unnamed: 0: of
+Row 4: transformer layers out of the original 24, followed: DeepSparse inference engine, using a server with | A.4 Optimal BERT Surgeon (oBERT): gradients (m), block size (B), and dampening (λ). | Unnamed: 0:
+Row 5: transformer layers out of the original 24, followed: two Intel(R) Xeon(R) Platinum 8380 (IceLake) | A.4 Optimal BERT Surgeon (oBERT): These are supposed to be tuned with respect | Unnamed: 0: to
+Row 6: transformer layers out of the original 24, followed: CPUs with 40 cores each, batch-size 128 and | A.4 Optimal BERT Surgeon (oBERT): the model and available computational resources. | Unnamed: 0:
+Row 7: transformer layers out of the original 24, followed: sequence length 384. For more details please see | A.4 Optimal BERT Surgeon (oBERT): In all of our runs, across all models and datasets, | Unnamed: 0:
+Row 8: transformer layers out of the original 24, followed: our official submission at https://github.com/ | A.4 Optimal BERT Surgeon (oBERT): we use the same set of hyper-parameters which we | Unnamed: 0:
+Row 9: transformer layers out of the original 24, followed: neuralmagic/mlperf_inference_results_v2. | A.4 Optimal BERT Surgeon (oBERT): found to work best for the BERTBASE model on the | Unnamed: 0:
+Row 10: transformer layers out of the original 24, followed: 1/tree/master/open/NeuralMagic. | A.4 Optimal BERT Surgeon (oBERT): SQuAD v1.1 dataset. We conjecture that further | Unnamed: 0:
+Row 11: transformer layers out of the original 24, followed: | A.4 Optimal BERT Surgeon (oBERT): tuning for smaller models (3 and 6-layer models) | Unnamed: 0:
+Row 12: transformer layers out of the original 24, followed: A.2 Additional comparisons | A.4 Optimal BERT Surgeon (oBERT): | Unnamed: 0:
+Row 13: transformer layers out of the original 24, followed: | A.4 Optimal BERT Surgeon (oBERT): could improve their results, but for simplicity and | Unnamed: 0:
+Row 14: transformer layers out of the original 24, followed: Here we reflect upon some other methods focused | A.4 Optimal BERT Surgeon (oBERT): fairness to other methods, we apply the same ones | Unnamed: 0:
+Row 15: transformer layers out of the original 24, followed: on efficient inference for LLMs, which are orthog- | A.4 Optimal BERT Surgeon (oBERT): found for the BERTBASE . | Unnamed: 0:
+Row 16: transformer layers out of the original 24, followed: onal to weight pruning. For example, Learned To- | A.4 Optimal BERT Surgeon (oBERT): Ablation studies. The procedure to find the opti- | Unnamed: 0:
+Row 17: transformer layers out of the original 24, followed: ken Pruning (Kim et al., 2022) tries to adaptively | A.4 Optimal BERT Surgeon (oBERT): mal set of hyper-parameters for a model consists | Unnamed: 0:
+Row 18: transformer layers out of the original 24, followed: remove unimportant tokens in input sequences and | A.4 Optimal BERT Surgeon (oBERT): of a grid search over the possible hyper-parameter | Unnamed: 0:
+Row 19: transformer layers out of the original 24, followed: provides 2x higher throughput at < 1% accuracy | A.4 Optimal BERT Surgeon (oBERT): combinations and one-shot pruning runs to various | Unnamed: 0:
+Row 20: transformer layers out of the original 24, followed: drop; at the same accuracy drop, our compressed | A.4 Optimal BERT Surgeon (oBERT): high sparsity targets to evaluate the quality of the | Unnamed: 0:
+Row 21: transformer layers out of the original 24, followed: model is able to achieve 8.4x higher throughput. | A.4 Optimal BERT Surgeon (oBERT): pruning approximation for each combination. We | Unnamed: 0:
+Row 22: transformer layers out of the original 24, followed: DeeBERT (Xin et al., 2020) and FastBERT (Wei- | A.4 Optimal BERT Surgeon (oBERT): found that m = 1024, B = 50, and λ = 10−7 pro- | Unnamed: 0:
+Row 23: transformer layers out of the original 24, followed: jie et al., 2020) apply an early-exit technique for | A.4 Optimal BERT Surgeon (oBERT): duce state-of-the-art results for a negligible compu- | Unnamed: 0:
+Row 24: transformer layers out of the original 24, followed: inference speedup. The latter achieves 2-3x faster | A.4 Optimal BERT Surgeon (oBERT): tational overhead with the BERTBASE model. Fran- | Unnamed: 0:
+Row 25: transformer layers out of the original 24, followed: inference without performance degradation. How- | A.4 Optimal BERT Surgeon (oBERT): tar et al. (2021) shows that larger block | Unnamed: 0: sizes
+Row 26: transformer layers out of the original 24, followed: ever, the method only applies to batch size one. | A.4 Optimal BERT Surgeon (oBERT): require more gradients for better approximation. | Unnamed: 0:
+Row 27: transformer layers out of the original 24, followed: Nevertheless, in terms of direct comparison, our | A.4 Optimal BERT Surgeon (oBERT): Given the massive size of the BERTBASE model, | Unnamed: 0:
+Row 28: transformer layers out of the original 24, followed: compressed models are able to achieve 4x faster | A.4 Optimal BERT Surgeon (oBERT): we picked this setup as it was the best performing | Unnamed: 0:
+Row 29: transformer layers out of the original 24, followed: inference on CPUs without accuracy degradation. | A.4 Optimal BERT Surgeon (oBERT): one that could still fit on a single 24GB RTX 3090 | Unnamed: 0:
+Row 30: transformer layers out of the original 24, followed: Overall, we emphasize the fact that these methods | A.4 Optimal BERT Surgeon (oBERT): GPU card. In Figures 3, 4, and 5 we visualize a | Unnamed: 0:
+Row 31: transformer layers out of the original 24, followed: are complementary to our compression techniques, | A.4 Optimal BERT Surgeon (oBERT): fraction of the one-shot pruning ablations with re- | Unnamed: 0:
+Row 32: transformer layers out of the original 24, followed: so it would be interesting to investigate computa- | A.4 Optimal BERT Surgeon (oBERT): spect to all three hyper-parameters that motivated | Unnamed: 0:
+Row 33: transformer layers out of the original 24, followed: tional gains by combining such methods. | A.4 Optimal BERT Surgeon (oBERT): us to pick these specific values. | Unnamed: 0:
+Row 34: transformer layers out of the original 24, followed: A.3 Computational costs | A.4 Optimal BERT Surgeon (oBERT): A.5 Downstream pruning | Unnamed: 0:
+[/TABLE]
+
+[PAGE 14]
+Table 8: MLPerf inference results for oBERT compressed BERTLARGE and MobileBERT models.
+Model Precision F1 Score
+(R=X% recovery) File Size Compression
+Ratio
+Throughput
+(samples/sec) Speedup
+BERT-Large
+dense baseline FP32 90.87 (R=100%) 1.30 GB 1x 15.49 1x
+oBERT-Large INT8 90.21 (R=99.27%) 38.20 MB 34x 230.74 15x
+oBERT-MobileBERT INT8 90.32 (R=99.39%) 9.56 MB 136x 928.58 60x
+50 60 70
+Sparsity (%)
+90F1 score
+BERTBASE
+B = 50
+B = 5k
+B = 500k
+M-FAC
+Figure 3: One-shot pruning ablation study with respect
+to the block size (B), with m = 1024 andλ = 10 −7,
+on the BERT BASE model and the question-answering
+SQuAD v1.1 dataset. M-FAC stands for the full inverse Hessian approximation (Frantar et al., 2021).
+50 60 70
+Sparsity (%)
+88F1 score
+BERTBASE
+m = 128
+m = 512
+m = 1024
+Figure 4: One-shot pruning ablation study with respect
+to the number of gradients ( m), with B = 50 and
+λ = 10 −7, on the BERT BASE model and the questionanswering SQuAD v1.1 dataset.
+50 60 70
+Sparsity (%)
+88F1 score
+BERTBASE
+= 10 6
+= 10 8
+= 10 7
+Figure 5: One-shot pruning ablation study with respect
+to the dampening (λ), with m = 1024 and B = 50 ,
+on the BERT BASE model and the question-answering
+SQuAD v1.1 dataset.
+task following the default hyper-parameters for
+SQuAD2 and GLUE (QQP and MNLI)3.
+Pruning setup. In Table 9 we describe in detail all
+hyper-parameters for downstream pruning results
+presented in Tables 1 and 3. For easier comprehension, we also visualize learning rate schedules in
+Figures 6 and 8, and sparsity schedules in Figures
+7 and 9.
+3-, 6-layer models. We prepare our 3 and 6 layer
+models for downstream runs in two stages: layer
+dropping and retraining phase. We drop layers
+from our upstream teacher model (more details on
+it in Appendix A.6). After dropping, we retrain the
+remaining layers, following insights from (Turc
+et al., 2019), in the same setup used to prepare the
+upstream teacher with addition of the KD from it.
+A.6 Upstream pruning
+Teacher preparation. We prepare a teacher for
+upstream pruning by following some insights from
+(Liu et al., 2019). More concretely we start with the
+2https://github.com/huggingface/transformers/tree/main/
+examples/pytorch/question-answering
+3https://github.com/huggingface/transformers/tree/main/
+examples/pytorch/text-classiﬁcation
+
+[TABLE page=14 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | F1 Score | Unnamed: 2 | Compression | Throughput | Unnamed: 3
+Row 1: Unnamed: 0: Model | Unnamed: 1: Precision | F1 Score: | Unnamed: 2: File Size | Compression: | Throughput: | Unnamed: 3: Speedup
+Row 2: Unnamed: 0: | Unnamed: 1: | F1 Score: (R=X% recovery) | Unnamed: 2: | Compression: Ratio | Throughput: (samples/sec) | Unnamed: 3:
+Row 3: Unnamed: 0: BERT-Large | Unnamed: 1: | F1 Score: | Unnamed: 2: | Compression: | Throughput: | Unnamed: 3:
+Row 4: Unnamed: 0: | Unnamed: 1: FP32 | F1 Score: 90.87 (R=100%) | Unnamed: 2: 1.30 GB | Compression: 1x | Throughput: 15.49 | Unnamed: 3: 1x
+[/TABLE]
+
+[PAGE 15]
+10 Epochs 30 Epochs
+Batch size 16 for SQuAD,
+32 for GLUE
+Learning rate (initial, ﬁnal) (8e-5, 3e-5) for SQuAD,
+(8e-5, 2e-5) for GLUE
+(8e-5, 8e-6) for SQuAD,
+(5e-5, 5e-6) for GLUE
+Learning rate schedule linear decay with rewinds
+Learning rate rewinds one at epoch=8 periodic every 4 epochs,
+start at epoch=2
+Knowledge Distillation (hardness, temp.) (1.0, 2.0)
+Student model
+12-layer: bert-base-uncased
+6-layer: layer drop + pre-train with KD
+3-layer: layer drop + pre-train with KD
+Teacher model BERTBASE
+Prune start epoch=2
+Prune end epoch=8 epoch=26
+Pruning frequency 2x per epoch once every 4 epochs
+Initial sparsity step
+12-layer: 70%
+6-layer: 30%
+3-layer: 30%
+Sparsity distribution global over all layers
+oBERT parameters
+Number of gradientsm = 1024
+Block sizeB = 50
+Dampeningλ = 10−7
+Table 9: Downstream pruning hyper-parameters used to obtain results presented in Tables 1 and 3.
+0 2 4 6 8 10
+Epoch
+8Learning rate
+1e 5
+SQuAD
+GLUE
+Figure 6: Visualized learning rate schedule for 10epoch downstream runs.
+bert-base-uncased4 model, adopt pre-training on
+two datasets (BookCorpus5 & English Wikipedia6)
+with focus on the masked language modeling task
+(MLM) for 10-epochs with batch size 256 and
+learning rate linearly decaying to zero from the
+initial value of 1e-4.
+4https://huggingface.co/bert-base-uncased
+5https://huggingface.co/datasets/bookcorpus
+6https://huggingface.co/datasets/wikipedia
+0 2 4 6 8 10
+Epoch
+90Sparsity (%)
+Figure 7: Visualized sparsity schedule for 10-epoch
+downstream runs with initial sparsity of 70% and target
+sparsity of 90%, following the cubic interpolation (Zhu
+and Gupta, 2018).
+Pruning setup. In Table 10 we describe in detail our upstream pruning recipe. As can be
+noticed, our upstream pruning recipe is just a
+downscaled version of our 30-epoch downstreampruning recipe to 3-epochs.
+
+[TABLE page=15 index=1]
+Columns: 8 | Unnamed: 0 | 90
+Row 1: 8: | Unnamed: 0: | 90: 80.0
+Row 2: 8: 7.0 | Unnamed: 0: | 90: 70.0
+Row 3: 8: 6.0 | Unnamed: 0: | 90:
+Row 4: 8: 5.0 | Unnamed: 0: | 90:
+Row 5: 8: 4.0 | Unnamed: 0: | 90:
+Row 6: 8: 3.0 | Unnamed: 0: SQuAD | 90:
+Row 7: 8: | Unnamed: 0: GLUE | 90:
+Row 8: 8: 2.0 | Unnamed: 0: | 90: 0.0
+[/TABLE]
+
+[PAGE 16]
+3 Epochs
+Datasets BookCorpus & English Wikipedia
+Batch size 256
+Initial learning rate 5e-4
+Learning rate schedule linear decay with rewinds
+Learning rate rewinds periodic every 0.5 epochs
+Max sequence length 512
+Weight decay 0.01
+Knowledge Distillation
+(hardness, temperature) (1.0, 5.5)
+Student model prepared upstream teacher
+Teacher model prepared upstream teacher
+Pruning frequency 4x per epoch
+Table 10: Upstream pruning hyper-parameters.
+8 Epochs
+Initial learning rate 1.5e-4
+Learning rate schedule linear decay to 1.5e-6
+Batch size 16 for SQuAD,
+32 for GLUE
+Knowledge Distillation
+(hardness, temperature) (1.0, 5.5)
+Teacher model BERTBASE
+Table 11: Sparse-transfer learning hyper-parameters
+used to ﬁne-tune upstream-pruned models at downstream tasks. These hyper-parameters are used to obtain results presented in Table 2.
+0 5 10 15 20 25 30
+Epoch
+8Learning rate
+1e 5
+SQuAD
+GLUE
+Figure 8: Visualized learning rate schedule for 30epoch downstream runs.
+0 5 10 15 20 25 30
+Epoch
+90Sparsity (%)
+Figure 9: Visualized sparsity schedule for 30-epoch
+downstream runs with initial sparsity of 70% and target
+sparsity of 90%, following the cubic interpolation (Zhu
+and Gupta, 2018).
+A.7 Downstream quantization
+We perform QAT on top of dense and 4-block
+pruned models on SQuAD v1.1 as shown in Table
+3. We quantize to 8 bits the embedding matrices,
+linear modules of all encoder units which includes
+matrices in their attention and feed forward layers,
+and the linear module of the output layer. Weights
+that were pruned are kept constant (zero) during
+quantization (sparsity mask preserved). Non-linear
+operations within the Softmax, LayerNorm and
+GeLU are not quantized. For each dense and 4block pruned model in Table 3, we perform a total
+of ten epochs training where the quantization observers are active for the ﬁrst ﬁve and the remaining
+is ﬁne-tuning. We do hyper-parameter search over
+the learning rates of 1e-4, 8e-5, 5e-5, 3e-5 and the
+distillation hardness of 0.9 and 1.0. We then pick
+the model with the best F1 score.
+
+[PAGE 17]
+A.8 Additional performance metrics
+Due to the space constraints, in the paper we report
+F1 score for SQuAD v1.1, matched accuracy for
+MNLI, and accuracy for QQP dataset. As all of our
+hyper-parameters for MNLI and QQP are exactly
+the same, we refer to these two datasets as GLUE.
+In Table 12 we report the additional metrics too:
+exact match (EM) for SQuAD v1.1, mismatched
+accuracy for MNLI, and F1 score for QQP dataset.
+Tables 15 and 16 present standard deviations of the
+corresponding results in Tables 1, 2 and 12. Finally,
+Table 14 presents the exact-match metric for the
+corresponding results in Table 3.
+Task BERT
+BASE Sparsity Soft
+MvP
+oBERT
+(ours)
+oBERT
+(ours)
+Epochs 10 Epochs 30 Epochs
+SQuAD
+EM 81.22
+80%
+90%
+97%
+76.60
+72.70
+80.76
+76.14
+82.08
+81.12
+78.11
+MNLI
+mm-acc 85.06
+80%
+90%
+97%
+81.80
+80.10
+83.58
+80.67
+84.91
+84.35
+82.01
+QQP
+F1 88.00
+80%
+90%
+97%
+86.80
+85.50
+87.69
+87.05
+88.63
+88.30
+87.66
+Table 12: Additional evaluation metrics for results presented in Table 1.
+Task BERT
+BASE Sparsity Prune
+OFA
+oBERT
+(ours)
+SQuAD
+EM 81.42 90%
+97%
+79.83
+81.43
+76.90
+MNLI
+mm-acc 85.06 90%
+97%
+82.43
+83.78
+81.13
+QQP
+F1 88.00 90%
+97%
+87.72
+87.81
+86.97
+Table 13: Additional evaluation metrics for results presented in Table 2.
+A.9 Inference speedups and compression
+ratios of compressed models
+Details on the results shown in Figure 2 are drawn
+from Table 17. As shown in the results, not all
+compound compressed models yield improvements
+in inference or compression relative to retained
+model performance but those that do allow for
+massive improvements.
+Layers Sparsity Unstructured 4-block +QAT
+0%
+80%
+90%
+82.71
+82.08
+81.12
+82.71
+81.46
+80.14
+81.99
+80.57
+78.84
+0%
+80%
+90%
+81.17
+81.15
+79.16
+81.17
+79.55
+77.65
+80.85
+78.27
+76.56
+0%
+80%
+90%
+76.62
+75.62
+73.61
+76.62
+74.07
+71.36
+76.06
+72.70
+70.00
+Table 14: Additional evaluation metric (exact-match)
+for results presented in Table 3.
+Task Sparsity oBERT
+(ours)
+Epochs 30 Epochs
+SQuAD
+F1, EM
+80%
+90%
+97%
+0.11, 0.03
+0.13, 0.13
+0.11, 0.17
+MNLI
+m, mm
+80%
+90%
+97%
+0.14, 0.13
+0.05, 0.04
+0.35, 0.22
+QQP
+acc, F1
+80%
+90%
+97%
+0.08, 0.08
+0.04, 0.06
+0.05, 0.08
+Table 15: Standard deviations for results presented in
+Tables 1 and 12.
+Task Sparsity oBERT
+(ours)
+SQuAD
+F1, EM
+90%
+97%
+0.13, 0.13
+0.03, 0.14
+MNLI
+m, mm
+90%
+97%
+0.08, 0.24
+0.17, 0.35
+QQP
+acc, F1
+90%
+97%
+0.06, 0.07
+0.09, 0.18
+Table 16: Standard deviations for results presented in
+Table 2 and 13.
+A.10 Responsible NLP Research Reproducibility Checklist
+In addition to many items from the “Reproducibility Checklist” which are already carefully addressed throughout the paper and Appendix sections, here we provide the remaining details to
+facilitate reproducibility of our results.
+A.10.1 Scientiﬁc Artifacts
+Datasets. Our experiments use existing and well
+established benchmarks for pre-training and ﬁne17
+
+[TABLE page=17 index=1]
+Columns: Unnamed: 0 | BERT | Unnamed: 1 | Soft oBERT | oBERT | Unnamed: 2 | Unnamed: 3 | Unnamed: 4
+Row 1: Unnamed: 0: Task | BERT: | Unnamed: 1: Sparsity | Soft oBERT: | oBERT: | Unnamed: 2: | Unnamed: 3: Epochs | Unnamed: 4: 30 Epochs
+Row 2: Unnamed: 0: | BERT: BASE | Unnamed: 1: | Soft oBERT: MvP (ours) | oBERT: (ours) | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 3: Unnamed: 0: | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: | Unnamed: 3: 80% | Unnamed: 4: 0.11, 0.03
+Row 4: Unnamed: 0: | BERT: Epochs | Unnamed: 1: | Soft oBERT: 10 Epochs | oBERT: 30 Epochs | Unnamed: 2: SQuAD | Unnamed: 3: 90% | Unnamed: 4: 0.13, 0.13
+Row 5: Unnamed: 0: | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: F1, EM | Unnamed: 3: | Unnamed: 4:
+Row 6: Unnamed: 0: | BERT: | Unnamed: 1: 0.11, 0.1780% | Soft oBERT: - - | oBERT: 82.08 | Unnamed: 2: | Unnamed: 3: 97% | Unnamed: 4:
+Row 7: Unnamed: 0: SQuAD | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 8: Unnamed: 0: | BERT: 81.22 | Unnamed: 1: 90% | Soft oBERT: 76.60 80.76 | oBERT: 81.12 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 9: Unnamed: 0: EM | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: | Unnamed: 3: 80% | Unnamed: 4: 0.14, 0.13
+Row 10: Unnamed: 0: | BERT: | Unnamed: 1: 97% | Soft oBERT: 72.70 76.14 | oBERT: 78.11 | Unnamed: 2: MNLI | Unnamed: 3: 90% | Unnamed: 4: 0.05, 0.04
+Row 11: Unnamed: 0: | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: m, mm | Unnamed: 3: | Unnamed: 4:
+Row 12: Unnamed: 0: | BERT: | Unnamed: 1: 0.35, 0.2280% | Soft oBERT: - - | oBERT: 84.91 | Unnamed: 2: | Unnamed: 3: 97% | Unnamed: 4:
+Row 13: Unnamed: 0: MNLI | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 14: Unnamed: 0: | BERT: 85.06 | Unnamed: 1: 90% | Soft oBERT: 81.80 83.58 | oBERT: 84.35 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 15: Unnamed: 0: mm-acc | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: | Unnamed: 3: 80% | Unnamed: 4: 0.08, 0.08
+Row 16: Unnamed: 0: | BERT: | Unnamed: 1: 97% | Soft oBERT: 80.10 80.67 | oBERT: 82.01 | Unnamed: 2: QQP | Unnamed: 3: 90% | Unnamed: 4: 0.04, 0.06
+Row 17: Unnamed: 0: | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: acc, F1 | Unnamed: 3: | Unnamed: 4:
+Row 18: Unnamed: 0: | BERT: | Unnamed: 1: 0.05, 0.0880% | Soft oBERT: - - | oBERT: 88.63 | Unnamed: 2: | Unnamed: 3: 97% | Unnamed: 4:
+Row 19: Unnamed: 0: QQP | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 20: Unnamed: 0: | BERT: 88.00 | Unnamed: 1: 90% | Soft oBERT: 86.80 87.69 | oBERT: 88.30 | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 21: Unnamed: 0: F1 | BERT: | Unnamed: 1: | Soft oBERT: | oBERT: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4:
+Row 22: Unnamed: 0: | BERT: | Unnamed: 1: 97% | Soft oBERT: 85.50 87.05 | oBERT: 87.66 | Unnamed: 2: Table 15: Standard deviations for results presented in | Unnamed: 3: | Unnamed: 4:
+[/TABLE]
+
+[TABLE page=17 index=2]
+Columns: A.8 Additional performance metrics | Unnamed: 0 | Layers | Sparsity | Unstructured | 4-block | +QAT
+Row 1: A.8 Additional performance metrics: Due to the space constraints, in the paper we report | Unnamed: 0: | Layers: | Sparsity: 0% | Unstructured: 82.71 | 4-block: 82.71 | +QAT: 81.99
+Row 2: A.8 Additional performance metrics: | Unnamed: 0: | Layers: 12.0 | Sparsity: 80% | Unstructured: 82.08 | 4-block: 81.46 | +QAT: 80.57
+Row 3: A.8 Additional performance metrics: F1 score for SQuAD v1.1, matched accuracy for | Unnamed: 0: | Layers: | Sparsity: 90% | Unstructured: 81.12 | 4-block: 80.14 | +QAT: 78.84
+Row 4: A.8 Additional performance metrics: MNLI, and accuracy for QQP dataset. As all of our | Unnamed: 0: | Layers: | Sparsity: | Unstructured: | 4-block: | +QAT:
+Row 5: A.8 Additional performance metrics: | Unnamed: 0: | Layers: | Sparsity: 0% | Unstructured: 81.17 | 4-block: 81.17 | +QAT: 80.85
+Row 6: A.8 Additional performance metrics: hyper-parameters for MNLI and QQP are exactly | Unnamed: 0: | Layers: 6.0 | Sparsity: 80% | Unstructured: 81.15 | 4-block: 79.55 | +QAT: 78.27
+Row 7: A.8 Additional performance metrics: the same, we refer to these two datasets as GLUE. | Unnamed: 0: | Layers: | Sparsity: 90% | Unstructured: 79.16 | 4-block: 77.65 | +QAT: 76.56
+Row 8: A.8 Additional performance metrics: In Table 12 we report the additional metrics too: | Unnamed: 0: | Layers: | Sparsity: 0% | Unstructured: 76.62 | 4-block: 76.62 | +QAT: 76.06
+Row 9: A.8 Additional performance metrics: exact match (EM) for SQuAD v1.1, mismatched | Unnamed: 0: | Layers: 3.0 | Sparsity: 80% | Unstructured: 75.62 | 4-block: 74.07 | +QAT: 72.7
+Row 10: A.8 Additional performance metrics: | Unnamed: 0: | Layers: | Sparsity: 90% | Unstructured: 73.61 | 4-block: 71.36 | +QAT: 70.0
+Row 11: A.8 Additional performance metrics: accuracy for MNLI, and F1 score for QQP dataset. | Unnamed: 0: | Layers: | Sparsity: | Unstructured: | 4-block: | +QAT:
+[/TABLE]
+
+[PAGE 18]
+Layers Sparsity
+(%)
+Compression
+Method
+F1 score F1 recall
+(%)
+Throughput
+(items per sec.)
+Speedup
+DeepSparse
+Model size
+(gzip MB)
+Compression
+Ratio (w.r.t. gzip)
+12 0 none 88.54 100.00 65.81 1.00 384.7 1.00
+12 80 unstructured 89.04 100.56 222.66 3.38 173.1 2.22
+12 90 unstructured 88.31 99.74 292.40 4.44 140.1 2.75
+12 80 4-block+QAT 87.89 99.26 552.22 8.39 37.8 10.18
+6 80 unstructured 88.20 99.62 419.68 6.38 128.3 3.00
+6 90 unstructured 86.78 98.01 663.02 10.07 111.8 3.44
+6 80 4-block+QAT 86.10 97.24 989.54 15.04 26.2 14.70
+3 80 unstructured 84.08 94.96 737.62 11.21 105.9 3.63
+3 90 unstructured 82.50 93.18 974.00 14.80 97.7 3.94
+3 80 4-block+QAT 82.04 92.66 1892.27 28.75 20.3 18.92
+Table 17: Compression effects on model size and inference speed, evaluated at batch size 32 with sequence length
+128 on SQuAD v1.1 dataset. Evaluated at the c5.12xlarge AWS instance.
+tuning of LLMs. Each dataset was used without
+any additional forms of modiﬁcations. Given that
+we did not modify any of the datasets, we did not
+inspect for personal, sensitive, or offensive content, nor did we perform any kind of anonymization. For pre-training, we make use of the Toronto
+Book Corpus (TBC) (Zhu et al., 2015) 7 and the
+wikipedia.20200501.en (Foundation) 8. For ﬁnetuning we make use of SQuAD v1.1 (Rajpurkar
+et al., 2016) 9, Quora Duplicate Question Dataset
+(QQP) (Shankar, 2017) 10, and Multi-Genre Natural Language Inference (MNLI) (Williams et al.,
+2018) 11 datasets. All these datasets are publicly available via HuggingFace datasets repository (Lhoest et al., 2021). The terms of usage and
+further details on each dataset can be found in their
+respective repositories.
+Models. The model used as a starting point for all
+of our experiments is BERTBASE , publicly available via HuggingFace Hub 12. All other models
+presented in this paper will be released in openlyavailable repositories along with their compression
+recipes, training metrics and hyper-parameters.
+A.10.2 Dataset Statistics
+Dataset statistics are detailed in Table 18.
+A.10.3 Computational Experiments
+Upstream. All upstream runs are in general computationally expensive due to the large batch sizes
+7https://huggingface.co/datasets/bookcorpus
+8https://huggingface.co/datasets/wikipedia
+9https://huggingface.co/datasets/squad
+10https://huggingface.co/datasets/glue
+11https://huggingface.co/datasets/glue
+12https://huggingface.co/bert-base-uncased
+Dataset Train Eval
+SQuAD (examples) 87599 10570
+MNLI (examples) 392702 19628
+QQP (examples) 363,846 40,430
+Wikipedia (words) 6078422 TBC (words) 74004228 Table 18: Statistics for training and evaluation datasets
+and huge datasets. In our experiments we make
+use of 4x A100 40GB NVIDIA GPUs. In this
+conﬁguration, a single training epoch takes approximately 6 hours. Since the cost of such a large compute instance is high, these experiments were only
+run with a single seed and without major hyperparameter exploration.
+Downstream. Our downstream experiments make
+use of various different GPU cards that were at
+out disposal: 16GB V100, 11GB RTX 2080 Ti,
+and 24GB RTX 3090. Each training epoch takes
+approximately 30 minutes, and as a result the 30
+epoch runs take approximately 15 hours. For these
+experiments, we report mean results of three runs
+with different random seeds.
+DeepSparse inference. We pair our compressed
+models with DeepSparse (NeuralMagic, 2021) a
+publicly-available sparsity-aware CPU inference
+engine. This CPU runtime can leverage both
+structured and unstructured sparsity, and quantization to deliver high performance on commodity
+CPUs. We ran DeepSparse on a 24-core Intel AWS
+c5.12xlarge server with 24 cores, 96 vCPUs, 192
+GB of RAM and an A VX-512 compatible instruction set. All models are exported using the standard
+
+[TABLE page=18 index=1]
+Columns: tuning of LLMs. Each dataset was used without | Dataset | Train | Eval
+Row 1: tuning of LLMs. Each dataset was used without: any additional forms of modifications. Given that | Dataset: SQuAD (examples) | Train: 87599 | Eval: 10570
+Row 2: tuning of LLMs. Each dataset was used without: we did not modify any of the datasets, we did not | Dataset: | Train: | Eval:
+Row 3: tuning of LLMs. Each dataset was used without: | Dataset: MNLI (examples) | Train: 392702 | Eval: 19628
+Row 4: tuning of LLMs. Each dataset was used without: inspect for personal, sensitive, or offensive con- | Dataset: | Train: | Eval:
+Row 5: tuning of LLMs. Each dataset was used without: | Dataset: QQP (examples) | Train: 363,846 | Eval: 40,430
+Row 6: tuning of LLMs. Each dataset was used without: tent, nor did we perform any kind of anonymiza- | Dataset: | Train: | Eval:
+Row 7: tuning of LLMs. Each dataset was used without: -tion. For pre-training, we make use of the Toronto | Dataset: Wikipedia (words) | Train: 6078422 | Eval:
+Row 8: tuning of LLMs. Each dataset was used without: Book Corpus (TBC) (Zhu et al., 2015) 7 and the | Dataset: TBC (words) | Train: 74004228 | Eval: -
+[/TABLE]
+
+[TABLE page=18 index=2]
+Columns: Layers | Sparsity | Compression | F1 score | F1 recall | Throughput | Speedup | Model size | Compression.1
+Row 1: Layers: | Sparsity: (%) | Compression: Method | F1 score: | F1 recall: (%) | Throughput: (items per sec.) | Speedup: DeepSparse | Model size: (gzip MB) | Compression.1: Ratio (w.r.t. gzip)
+Row 2: Layers: 12.0 | Sparsity: 0 | Compression: none | F1 score: 88.54 | F1 recall: 100.00 | Throughput: 65.81 | Speedup: 1.00 | Model size: 384.7 | Compression.1: 1.00
+Row 3: Layers: 12.0 | Sparsity: 80 | Compression: unstructured | F1 score: 89.04 | F1 recall: 100.56 | Throughput: 222.66 | Speedup: 3.38 | Model size: 173.1 | Compression.1: 2.22
+Row 4: Layers: 12.0 | Sparsity: 90 | Compression: unstructured | F1 score: 88.31 | F1 recall: 99.74 | Throughput: 292.40 | Speedup: 4.44 | Model size: 140.1 | Compression.1: 2.75
+Row 5: Layers: 12.0 | Sparsity: 80 | Compression: 4-block+QAT | F1 score: 87.89 | F1 recall: 99.26 | Throughput: 552.22 | Speedup: 8.39 | Model size: 37.8 | Compression.1: 10.18
+Row 6: Layers: 6.0 | Sparsity: 80 | Compression: unstructured | F1 score: 88.2 | F1 recall: 99.62 | Throughput: 419.68 | Speedup: 6.38 | Model size: 128.3 | Compression.1: 3.00
+Row 7: Layers: 6.0 | Sparsity: 90 | Compression: unstructured | F1 score: 86.78 | F1 recall: 98.01 | Throughput: 663.02 | Speedup: 10.07 | Model size: 111.8 | Compression.1: 3.44
+Row 8: Layers: 6.0 | Sparsity: 80 | Compression: 4-block+QAT | F1 score: 86.1 | F1 recall: 97.24 | Throughput: 989.54 | Speedup: 15.04 | Model size: 26.2 | Compression.1: 14.70
+Row 9: Layers: 3.0 | Sparsity: 80 | Compression: unstructured | F1 score: 84.08 | F1 recall: 94.96 | Throughput: 737.62 | Speedup: 11.21 | Model size: 105.9 | Compression.1: 3.63
+Row 10: Layers: 3.0 | Sparsity: 90 | Compression: unstructured | F1 score: 82.5 | F1 recall: 93.18 | Throughput: 974.00 | Speedup: 14.80 | Model size: 97.7 | Compression.1: 3.94
+Row 11: Layers: 3.0 | Sparsity: 80 | Compression: 4-block+QAT | F1 score: 82.04 | F1 recall: 92.66 | Throughput: 1892.27 | Speedup: 28.75 | Model size: 20.3 | Compression.1: 18.92
+[/TABLE]
+
+[PAGE 19]
+ONNX13 format.
+A.10.4 Computational Packages
+Our experiments build on publicly available libraries to ensure ease of reproduction and extensibility. All of our implementations, training and
+evaluation code are built on top of HuggingFace’s
+Transformers 14 and Datasets 15 libraries, NeuralMagic’s SparseML 16 library for model compression, and their DeepSparse 17 engine for efﬁcient
+inference on commodity CPUs.
+13https://onnx.ai/
+14https://github.com/huggingface/transformers
+15https://github.com/huggingface/datasets
+16https://github.com/neuralmagic/sparseml
+17https://github.com/neuralmagic/deepsparse

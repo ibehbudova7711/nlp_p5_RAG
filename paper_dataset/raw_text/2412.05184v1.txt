@@ -1,0 +1,582 @@
+[PAGE 1]
+QueEn: A Large Language Model for Quechua-English
+Translation
+Junhao Chen ∗1, Peng Shu *1, Yiwei Li 1, Huaqin Zhao 1, Hanqi Jiang 1, Yi Pan 1, Yifan
+Zhou1, Zhengliang Liu 1, Lewis C Howe 2, and Tianming Liu †1
+1School of Computing, The University of Georgia, Athens 30602, USA
+2Department of Linguistics, The University of Georgia, Athens 30602, USA
+Abstract
+Recent studies show that large language models (LLMs) are powerful tools for working
+with natural language, bringing advances in many areas of computational linguistics. However,
+these models face challenges when applied to low-resource languages due to limited training
+data and difficulty in understanding cultural nuances. In this paper, we propose QueEn, a
+novel approach for Quechua-English translation that combines Retrieval-Augmented Generation
+(RAG) with parameter-efficient fine-tuning techniques. Our method leverages external linguistic
+resources through RAG and uses Low-Rank Adaptation (LoRA) for efficient model adaptation.
+Experimental results show that our approach substantially exceeds baseline models, with a
+BLEU score of 17.6 compared to 1.5 for standard GPT models. The integration of RAG with
+fine-tuning allows our system to address the challenges of low-resource language translation while
+maintaining computational efficiency. This work contributes to the broader goal of preserving
+endangered languages through advanced language technologies.
+1 Introduction
+Large Language Models (LLMs) have achieved remarkable success across a wide range of tasks [1–
+6], revolutionizing natural language understanding, generation, and reasoning. These models, powered by advanced architectures and massive datasets, have become the backbone of applications in
+fields such as content creation, code generation, and conversational AI[7–9]. In parallel, multimodal
+LLMs, which integrate vision and language, are rapidly advancing, enabling capabilities such as
+image captioning, visual question answering, and multimodal reasoning[10–12]. Despite these significant achievements, the application of LLMs in low-resource regions, particularly for low-resource
+languages, remains underexplored and underdeveloped. One of the key challenges facing LLMs in
+low-resource language translation is the lack of sufficient fine-tuning data[13]. Many low-resource
+∗Co-first author
+†Corresponding author
+arXiv:2412.05184v1 [cs.CL] 6 Dec 2024
+
+[PAGE 2]
+languages suffer from limited publicly available corpora, making it difficult to train or fine-tune
+models effectively. Furthermore, LLMs often demonstrate poor performance in zero-shot settings
+for these languages[3], as their training predominantly relies on high-resource languages, leading to
+a significant disparity in linguistic representation. This results in inadequate translations, reduced
+contextual understanding, and a lack of cultural nuance in the generated outputs. Recognizing these
+limitations, there is a growing emphasis on improving the performance and application of LLMs in
+low-resource languages[14, 15]. Researchers are increasingly focusing on developing novel methods
+to address the scarcity of data, such as leveraging synthetic data generation, cross-lingual transfer
+learning, and community-driven data collection efforts. By overcoming these challenges, the goal
+is to enable LLMs to bridge the gap in linguistic equity and expand their utility to underserved
+regions, fostering greater inclusivity in AI advancements.
+An endangered language is one that is at risk of falling out of use, typically because its speakers are
+shifting to using another language. Although the death of some language is inevitable, the number of
+endangered languages has actually rapidly increased. Ethnologue reported 7,099 languages in 2017,
+compared to the estimated 6,000 in 1992 by Krauss, who warned that 90% of these languages could
+disappear by 2100 if current trends persist [16]. Quechua, one of the most widely spoken indigenous
+language families in the Americas, is nonetheless classified as vulnerable by UNESCO. Despite
+its historical significance as the language of the Inca Empire, its current condition varies widely
+across regions. In countries like Peru, Bolivia, and Ecuador, Quechua retains a considerable number
+of speakers, but the language faces significant challenges, including intergenerational transmission
+gaps and diminishing domains of use. In urban areas, younger generations are increasingly adopting
+Spanish due to its perceived socio-economic advantages, leading to a decline in the number of fluent
+speakers. While national and regional governments in South America have taken steps to recognize
+and promote Quechua, such as integrating it into educational curricula and granting it official status,
+these efforts have been inconsistent and often underfunded. As a result, the long-term viability of
+Quechua remains uncertain without more robust and sustained revitalization measures.
+Translating Quechua presents significant challenges due to its status as a low-resource language.
+The scarcity of digital resources, such as comprehensive corpora and linguistic tools, hampers the
+development of effective machine translation systems. The complex morphology of Quechua, characterized by agglutination and polysynthetic structures, further complicates translation efforts. Words
+often consist of multiple morphemes, each carrying distinct meanings, leading to a high degree of
+inflection and variability. This complexity poses difficulties for neural machine translation models,
+which struggle to accurately process and generate Quechua text. Additionally, the limited availability of parallel Quechua-Spanish corpora restricts the training of robust translation models, resulting
+in lower performance compared to high-resource language pairs. Efforts to address these challenges
+include morphological segmentation techniques and the development of specialized translation engines, but significant obstacles remain to achieve high-quality Quechua translation.
+In this paper, we propose a Retrieval-Augmented Generation (RAG)-based fine-tuning method
+to address the translation challenges of Quechua. Our approach leverages the strengths of retrievalaugmented techniques to enhance the fine-tuning dataset by incorporating relevant, high-quality
+data retrieved from external resources. This enriched training process significantly improves the
+
+[PAGE 3]
+translation performance compared to zero-shot methods. Our experimental results demonstrate that
+the proposed method outperforms baseline models such as GPT-4o and LLaMA 405B, establishing
+its effectiveness in low-resource language translation. These findings highlight the potential of RAGbased fine-tuning to bridge the performance gap for underrepresented languages like Quechua.
+2 Related Works
+Research on low-resource languages (LRLs) has gained increasing attention in recent years, particularly due to the challenges these languages present in natural language processing (NLP) tasks.
+Unlike high-resource languages such as English or Mandarin, which benefit from large datasets and
+extensive linguistic resources, LRLs often suffer from a lack of annotated corpora, lexicons, and
+linguistic tools. To overcome these challenges, the field of machine translation (MT) has evolved
+significantly over the decades, progressing through several distinct paradigms before the advent of
+LLMs. These paradigms include rule-based, statistical, and neural machine translation, each contributing foundational methods and insights that shaped the current state of translation technology.
+2.1 Rule-Based Machine Translation
+Rule-Based Machine Translation (RBMT) systems[17] were the earliest attempts at automated translation, emerging in the 1950s and 1960s during the formative years of computational linguistics.
+These systems relied heavily on linguistic theories and human-crafted rules to model the grammar
+and syntax of the source and target languages. The central idea was to use bilingual dictionaries for word-level mappings and predefined rules to handle grammatical transformations. Early
+RBMT systems, such as the Georgetown-IBM experiment (1954)[18], demonstrated the feasibility
+of MT by translating a set of Russian sentences into English, albeit under highly constrained conditions. RBMT methods followed one of three primary strategies: direct[17], transfer-based[19], or
+interlingua-based translation[20]. Direct translation systems performed word-by-word substitution
+and were typically limited to specific language pairs with similar syntactic structures. Transferbased systems introduced an intermediary step, where the source language was first converted into
+an abstract syntactic representation before being mapped to the target language. Interlingua-based
+systems took this step further, converting the source language into a universal, language-agnostic
+representation, enabling translation to multiple target languages from the same source structure.
+2.2 Statistical Machine Translation
+The emergence of Statistical Machine Translation (SMT)[21] in the late 1980s and early 1990s marked
+a paradigm shift in MT research. Unlike RBMT, SMT systems relied on data-driven approaches,
+using large bilingual corpora to learn translation patterns automatically. The foundation of SMT
+was laid by researchers at IBM with the introduction of probabilistic models[22], such as the IBM
+Models 1-5[23], which focused on word alignment and translation probability estimation. These
+models demonstrated that translation could be framed as a statistical optimization problem, where
+the goal was to maximize the probability of a target sentence given a source sentence. Phrase-based
+
+[PAGE 4]
+SMT[24], an extension of word-based models, became the dominant approach in the early 2000s. By
+treating phrases (sequences of words) as the basic units of translation, phrase-based SMT systems
+captured more contextual information and achieved greater fluency compared to word-level models.
+Additionally, SMT systems integrated several components, including language models, translation
+models, and reordering models, to optimize the overall quality of translations. The strengths of SMT
+lie in its adaptability and ability to learn directly from data, reducing the reliance on handcrafted
+rules. However, its performance was heavily dependent on the availability of large, high-quality parallel corpora. For low-resource languages, this posed a significant challenge, as the lack of sufficient
+training data often led to poor translations. SMT systems also struggled with long-distance dependencies and syntactic ambiguities, as their models were primarily designed for local phrase-level
+predictions. To mitigate some of these limitations, techniques such as domain adaptation, unsupervised alignment, and hierarchical phrase-based models[25] were developed. While these methods
+improved SMT’s robustness, they still fell short of delivering human-level translation quality, particularly for morphologically complex and underrepresented languages. While RBMT systems offered
+early successes, they were highly labor-intensive to develop, requiring detailed linguistic knowledge
+for each new language pair. Their reliance on rigid, deterministic rules often produced translations
+that lacked fluency and naturalness, particularly for idiomatic expressions or complex sentence structures. Moreover, these systems struggled with scalability as the number of languages and linguistic
+variations increased, leading to a decline in their popularity as statistical approaches gained traction.
+2.3 Neural Machine Translation
+The advent of deep learning in the 2010s revolutionized MT with the introduction of Neural Machine
+Translation (NMT)[26]. Unlike SMT, which relied on multiple components for different aspects of
+translation, NMT adopted an end-to-end approach, enabling models to learn the entire translation
+process from input to output. Early NMT systems were based on the encoder-decoder architecture
+using recurrent neural networks (RNNs)[27]. The encoder transformed the input sentence into a
+fixed-length vector representation, which the decoder then used to generate the target sentence.
+This method demonstrated significant improvements in translation fluency and contextual understanding. The introduction of the attention mechanism by Bahdanau[28] addressed one of the key
+limitations of traditional encoder-decoder models: their inability to handle long sentences effectively.
+Attention mechanisms allowed the decoder to focus on relevant parts of the input sequence at each
+step of the translation, resulting in more accurate and coherent outputs. This innovation laid the
+groundwork for further advancements in NMT. The development of the Transformer architecture by
+Vaswani[29] marked another breakthrough in NMT. By replacing RNNs with self-attention mechanisms, Transformers enabled parallel processing of input sequences, significantly improving both
+translation quality and computational efficiency. Transformer-based models, such as OpenNMT[30],
+Marian[31], and the NMT systems used in Google Translate[32], became the new standard for MT,
+achieving near-human-level performance for many high-resource language pairs. Despite their success, NMT systems faced challenges similar to SMT in low-resource settings. The effectiveness of
+NMT depended heavily on large-scale parallel corpora, and its performance degraded significantly for
+
+[PAGE 5]
+languages with limited training data. To address these challenges, researchers explored techniques
+such as transfer learning, multilingual NMT, and back-translation. Transfer learning leveraged pretrained models on high-resource languages to improve performance on low-resource languages, while
+multilingual NMT trained models to handle multiple languages simultaneously, enabling knowledge transfer across language pairs. Back-translation involved generating synthetic parallel data
+by translating target language text into the source language, effectively augmenting the training
+dataset. While these methods partially alleviated the challenges of low-resource MT, they were
+not sufficient to close the performance gap, particularly for underrepresented languages with unique
+linguistic characteristics and limited digital resources. This persistent issue underscored the need for
+more innovative approaches, setting the stage for the application of LLMs and retrieval-augmented
+techniques in low-resource language translation.
+2.4 Quechua
+Quechua, often referred to as Runa Simi (the ”language of the people”), is one of the most significant
+indigenous languages of the Americas[33, 34]. Once the lingua franca of the mighty Inca Empire,
+Quechua has endured centuries of colonial disruption and marginalization, yet it remains a vital
+thread in the cultural and linguistic fabric of South America. Today, millions of speakers across
+several Andean nations continue to use Quechua in daily life, preserving its rich heritage and ensuring
+its survival into the 21st century.
+The linguistic structure of Quechua provides a fascinating glimpse into its complexity and adaptability. Its phonological, morphological, syntactic, semantic, and pragmatic features[35, 36] reveal
+the language’s uniqueness and its rich potential for nuanced expression. Quechua’s phonological
+system is relatively simple, featuring three vowel sounds (*/a/, */i/, /u/) and a modest consonant
+inventory. In some dialects, vowels may shift to harmonize with neighboring sounds, a phenomenon
+known as vowel harmony. Quechua’s consonant inventory includes stops, fricatives, nasals, and
+laterals. A key feature of the language is the use of aspirated and glottalized stops, especially in
+Southern Quechua dialects, distinguishing it from other Andean languages. The phonemic inventory
+includes:
+• Stops: /p/, /t/, /k/, and their aspirated and glottalized counterparts.
+• Fricatives: /s/, /h/.
+• Nasals: /m/, /n/, / N/ (palatal nasal).
+• Laterals: /l/.
+Quechua syllables generally follow a CV (consonant-vowel) pattern, making the language syllabletimed and rhythmic in its spoken form. Clusters of consonants are rare, which simplifies pronunciation. Quechua is an agglutinative language, meaning it constructs words by stringing together
+morphemes, each carrying a specific grammatical or semantic function. This highly systematic morphology is one of the defining characteristics of the language.Most Quechua words consist of a root
+followed by one or more suffixes.Suffixes can convey a wide array of meanings, including:
+
+[PAGE 6]
+• Pluralization: -kuna (plural)
+• Tense: -rqa (past), -sha (progressive)
+• Possession: -yki (your), -n (his/her/its)
+Quechua follows a Subject-Object-Verb (SOV) word order, although this can vary slightly for emphasis or poetic expression. Semantics in Quechua is deeply tied to its cultural and environmental
+context. The language offers sophisticated ways of expressing relationships, time, and evidentiality.
+Quechua holds a paradoxical position in modern society. While it is recognized as an official
+language in countries like Peru, Bolivia, and Ecuador, its speakers often face social and economic
+marginalization. Urbanization and the dominance of Spanish have led to language shift, with younger
+generations increasingly favoring Spanish over Quechua.
+2.5 Large Language Models
+The advent of large language models (LLMs), such as GPT-3[37], GPT-4[38], and LLaMA[39],
+has revolutionized natural language processing (NLP) by enabling context-aware and coherent text
+generation across diverse tasks. These models, trained on massive corpora encompassing multiple
+languages, have shown remarkable potential in addressing the challenges of low-resource language
+translation. Unlike traditional machine translation approaches that rely heavily on parallel corpora,
+LLMs can leverage in-context learning, zero-shot, and few-shot capabilities to produce translations
+with minimal training data. This makes them particularly well-suited for languages with limited
+resources, such as Quechua, where large-scale parallel corpora are often unavailable.
+Building on these advances, innovative methods like retrieval-augmented generation (RAG)[40]
+and prompt engineering[41] have emerged as powerful tools to enhance LLM performance for lowresource language translation. By integrating linguistic resources directly into the translation
+pipeline, these methods enable LLMs to effectively utilize dictionaries, grammar guides, and other
+linguistic tools to produce accurate and contextually appropriate translations. In the context of
+Quechua-English translation, such techniques are poised to address longstanding challenges by combining the generative power of LLMs with retrieval-based mechanisms and linguistic insights.
+In fine-tuning low-resource language translation systems for the Quechua language, similar data
+augmentation techniques as those employed for the Manchu-Korean translation in the Mergen model
+can be applied[42]. In the context of Quechua-English translation, the QueEn project developed
+a Quechua-English parallel dataset to aid machine translation research between these two languages[43]. However, given the extremely low-resource nature of Quechua, with only 14,000 sentence
+pairs available, leveraging data augmentation through synonym generation and back-translation, as
+done in the Manchu-Korean project, could significantly enhance performance. By employing methods such as training multiple versions of GloVe embeddings[44] or integrating multilingual pre-trained
+models like BERT[45], researchers can expand the dataset size and improve translation quality. Data
+augmentation, combined with transfer learning and semi-supervised methods, could similarly boost
+the performance of Quechua-English translation systems, as shown by the use of back-translation
+and monolingual data to improve machine translation models in the QueEn project. Incorporating
+
+[PAGE 7]
+data augmentation techniques into low-resource language processing has shown significant promise
+in enhancing machine translation performance, especially for endangered languages. A notable example is the Manchu-Korean machine translation system, Mergen, which faced a scarcity of parallel
+data. To overcome this challenge, the researchers employed a data augmentation strategy using
+GloVe embeddings to expand the parallel dataset. By generating synonym replacements through
+word embeddings, they were able to augment their training data significantly. This method resulted
+in a remarkable improvement in translation quality, with a significant BLEU score increase.Data
+augmentation, especially through synonym generation and word replacement techniques, can thus
+address the inherent data scarcity in low-resource language contexts, improving translation and NLP
+outcomes by increasing the size and variability of the training corpus. This strategy is particularly
+useful when working with languages that have limited digitized text or parallel corpora. In contrast
+to traditional fine-tuning approaches for low-resource language translation, prompt engineering offers an innovative and training-free alternative, as demonstrated in the LINGOLLM[46] approach.
+This method involves using large language models (LLMs) like GPT-4 by incorporating in-context
+linguistic descriptions, such as dictionaries and grammar books, directly into the prompt. For instance, LINGOLLM uses morphological analyzers to preprocess the input by breaking it down into
+morphemes, which are then glossed using a dictionary. The model is further guided by grammar
+rules to perform accurate translations without requiring extensive training data. In a low-resource
+language context, such as translating Quechua, this method could be particularly advantageous,
+especially when rich linguistic resources like grammar books and dictionaries are available but large
+parallel corpora are not. This prompt-based approach achieves significant improvements in translation tasks across several endangered languages, elevating GPT-4’s BLEU score from near-zero to
+over 10.5 on average. The ability to harness linguistic resources efficiently using prompt engineering
+presents a flexible and scalable solution for low-resource language translation.
+3 Methods
+In this work, we introduce a robust framework, shown in Figure 1, for translating Quechua into
+English using a large language model (LLM) enhanced with fine-tuning, retrieval-augmented generation (RAG), and data augmentation techniques. Fine-tuning is used to adapt the pre-trained
+LLM to the specific characteristics of Quechua, a low-resource language, while minimizing resource
+constraints through parameter-efficient strategies. Retrieval-augmented generation further bolsters
+translation quality by incorporating external linguistic resources into the generation process. Additionally, data augmentation is applied to expand the dataset and address data scarcity challenges,
+thereby improving model robustness and generalization. Each of these components is elaborated
+upon in the subsequent subsections.
+3.1 Fine-tuning
+Fine-tuning is a key method for adapting pre-trained LLMs to specific tasks or domains. After
+an LLM has been pre-trained on massive, general-purpose datasets, fine-tuning allows the model
+
+[PAGE 8]
+Figure 1: Illustrating a retrieval-augmented generation (RAG) architecture: Documents are indexed
+using both keyword and embedding vector methods, stored in separate databases. A retrieval agent
+accesses these indexes to provide relevant information, which is then processed by a GPT-4 model
+to deliver responses to users.
+to refine its knowledge using a smaller, more focused dataset. This process customizes the model
+to excel in specific applications, such as translation, sentiment analysis, or domain-specific text
+generation. Fine-tuning typically involves continuing the training process of the pre-trained model
+using task-specific data. The objective is to adjust the model’s weights in a way that optimizes
+performance for the target task while preserving its general knowledge. Fine-tuning methods can
+be broadly classified into full fine-tuning[47] and parameter-efficient fine-tuning[48]:
+• Full Fine-Tuning: All the parameters of the model are updated during fine-tuning. While effective, this approach is computationally expensive and requires significant resources, particularly
+for large-scale models.
+• Parameter-Efficient Fine-Tuning: Only a subset of the model’s parameters is updated, reducing
+computational costs. Techniques such as Low-Rank Adaptation (LoRA)[49] and adapter layers
+are examples of this category.
+Among these methods, parameter-efficient fine-tuning has gained prominence for its ability to
+adapt LLMs with minimal resource usage. In this context, Low-Rank Adaptation (LoRA)[49] has
+emerged as a highly effective approach. LoRA is a parameter-efficient fine-tuning technique designed
+to minimize the computational and memory overhead of adapting LLMs. Instead of updating all
+model parameters, LoRA introduces a small number of trainable parameters that are added to the
+existing model structure. LoRA assumes that the weight updates required for fine-tuning can be
+approximated by a low-rank decomposition. Let W ∈ Rd×k represent a weight matrix in the pretrained model. During fine-tuning, instead of directly updating W , LoRA approximates the weight
+update
+
+[PAGE 9]
+∆W = A · B (1)
+where A ∈ Rd×r and B ∈ Rr×k are low-rank matrices, with r ≪ min(d, k). The rank r is a hyperparameter that controls the trade-off between computational efficiency and fine-tuning capacity.
+The updated weight matrix becomes:
+W ′ = W + ∆W = W + A · B (2)
+This decomposition significantly reduces the number of trainable parameters, as the number of
+parameters in A and B is much smaller than the number of parameters in w. By only training the
+low-rank matrices A and B, LoRA dramatically reduces the memory and computational requirements
+of fine-tuning. The learned A and B matrices can be stored and reused for different tasks, making
+LoRA particularly useful in multi-task or multi-domain scenarios. Since the base weights W remain
+fixed, LoRA ensures that the general knowledge of the pre-trained model is retained. In this paper
+LoRA is applied to specific weight matrices within the Transformer architecture, such as the query
+and value projection matrices in the self-attention mechanism. For a given weight matrix Wq in the
+query projection, the updated projection becomes:
+W ′
+q = Wq + Aq · Bq (3)
+Here, Aq and Bq are low-rank matrices specific to the query projection. Similar updates can be
+applied to other matrices, such as wv for the value projection.
+3.2 Retrieval-augmented Generation(RAG)
+We leverage Retrieval-Augmented Generation (RAG) to enhance the translation of Quechua into
+English. Figure 1 demonstrates the complete framework. The workflow begins by converting key
+resource documents, such as a Quechua-to-English dictionary and Quechua grammar guide, into
+structured databases. These databases are optimized for efficient information retrieval through dual
+mechanisms: keyword-based indexing and embedding-based vector indexing. During translation,
+the system retrieves relevant linguistic and grammatical information from these databases to augment the LLM with contextually relevant data, enabling the generation of accurate translations.
+Specifically, for a user query q, the system retrieves supporting information Dq, which is then used
+to construct a prompt P for the LLM. The model generates a response R, synthesizing the retrieved
+context to improve translation quality. The process can be represented as:
+q
+Retrieval
+− − − − − − →Dq
+Prompt Construction
+− − − − − − − − − − − − − →P
+LLM
+− − − →R
+Here, q represents the input query, Dq is the set of retrieved documents or entries, P is the
+constructed prompt incorporating Dq, and R is the final translation output.
+Our approach integrates a dual retrieval mechanism to optimize the translation process. First, a
+keyword-based index allows efficient lookups by identifying exact matches between query terms
+
+[PAGE 10]
+and dictionary entries. Let KeywordIndex( D) represent the keyword-to-document mapping, where
+D is the set of all documents. For a query q, the keyword retrieval process can be expressed as:
+Dkeyword
+q = {d ∈ D | q ∩ Keywords(d) ̸= ∅}
+Second, when exact keyword matches are unavailable, an embedding-based retrieval mechanism is employed. Each document d and query q is encoded into a semantic vector representation
+using a function fembed(·), such that:
+vd = fembed(d), v q = fembed(q)
+The top K most similar entries are retrieved based on cosine similarity:
+Similarity(vq, vd) = vq · vd
+∥vq∥ ∥vd∥
+The retrieved documents using vector-based retrieval are:
+Dvector
+q = {d ∈ D | Similarity(vq, vd) is among the top K}
+The final retrieved set Dq is a combination of both methods:
+Dq = Dkeyword
+q ∪ Dvector
+q
+Finally, the retrieved set Dq is integrated into the LLM prompt P , and the response R is generated:
+P = ConstructPrompt(q, Dq), R = LLM(P )
+This hybrid retrieval mechanism ensures that both precise matches and semantically relevant
+content are considered, improving translation accuracy. By combining these retrieval techniques
+with the LLM’s generative capabilities, we address challenges specific to low-resource languages like
+Quechua, enabling accurate and contextually enriched translations.
+4 Experiments
+4.1 Data
+To test the performance of our translation model, this work utilizes a subset of the Siminchik corpus[50], provided as part of the IWSLT2023 Low-resource Speech Translation Track[43]. The dataset,
+referred to as que spa clean, comprises 1 hour and 40 minutes of clean speech in Quechua paired
+with Spanish translations. It includes raw transcriptions for Quechua and Spanish and true-cased
+Spanish translations, processed using a sacremoses Truecaser model trained on the WMT13 EN-ES
+dataset. The dataset is divided into validation and test sets, ensuring robust model evaluation.
+
+[PAGE 11]
+Since the dataset provides translations from Spanish to Quechua, an additional translation step
+from Spanish to English is required. e applied ChatGPT-4 for Spanish-to-English translation, leveraging its advanced natural language processing capabilities. ChatGPT-4 has demonstrated high
+accuracy and contextual understanding in various linguistic tasks, making it a reliable tool for this
+intermediary translation step. To enhance the data and improve evaluation reliability, we generated
+multiple English translations for each Spanish sentence. These additional references help account for
+linguistic variability and ensure a more comprehensive evaluation of the English-to-Quechua translation performance. This approach enables us to evaluate English-to-Quechua translation scenarios
+effectively while maintaining high fidelity in the intermediate Spanish-English translation, ensuring
+the robustness and validity of our experiments.
+4.2 Evaluation Metrics
+To assess the performance and capabilities of our model in low-resource machine translation, we
+conducted experiments comparing it with GPT-4o and LLaMA 3.1 405B models. The objective
+was to evaluate the translation quality of these models, particularly for Quechua translations from
+English source sentences, using a robust evaluation framework. The experiment involved randomly
+selecting text from test datasets, where sentences were input sequentially into each model to generate
+translations in the target low-resource language. A combination of automated and human evaluation
+metrics was employed to ensure a comprehensive analysis of translation quality in terms of both
+lexical accuracy and semantic fidelity.
+We used ROUGE [51] (Recall-Oriented Understudy for Gisting Evaluation) and BLEU [52]
+(Bilingual Evaluation Understudy) as core evaluation metrics. ROUGE measures the similarity between machine-generated translations and reference translations by analyzing overlapping n-grams,
+word sequences, and word pairs. Although commonly used in summarization tasks, ROUGE also
+provides valuable insights into translation fluency and accuracy. BLEU calculates n-gram precision
+between the generated and reference translations, offering a quantitative measure of how faithfully
+the output matches the reference. These metrics are particularly effective for surface-level evaluation,
+such as determining the overlap of words and phrases.
+To capture deeper semantic similarities, we incorporated BER TScore [53], which leverages
+contextual embeddings from pretrained models to evaluate the semantic alignment between generated and reference translations. Unlike ROUGE and BLEU, which focus on exact lexical matches,
+BERTScore assesses meaning and context, making it especially suitable for low-resource languages
+where direct lexical matches may be limited.
+4.3 Experiment Results
+Both LLaMA and GPT exhibit low performance in traditional machine translation metrics such as
+BLEU and ROUGE, as shown in Table 1. LLaMA achieves the lowest BLEU score and ROUGE,
+while plain GPT performs slightly better. These results indicate a significant lack of overlap between the generated translations and reference texts in terms of both n-gram precision (BLEU)
+and sentence-level structure (ROUGE). The scores reflect the inherent challenges of translating low11
+
+[PAGE 12]
+resource languages like Quechua, where limited training data and the linguistic complexity of the
+language hinder the models’ ability to produce accurate surface-level translations.
+The integration of Retrieval-Augmented Generation leads to substantial improvements in translation quality for both models. LLaMA + RAG achieves a BLEU score of 0.154 and a ROUGE score
+of 0.167, while GPT + RAG outperforms all other models with BLEU and ROUGE scores of 0.235
+and 0.278, respectively. These results demonstrate that the retrieval component enhances the models’ ability to align their outputs with the reference texts, addressing issues of lexical and structural
+alignment. The retrieval mechanism allows the models to access additional contextual information,
+improving their word and phrase-level accuracy while also capturing syntactic nuances more effectively. Despite their relatively low BLEU and ROUGE scores, all models maintain high BERT scores,
+reflecting their strength in preserving semantic meaning. Both RAG-enhanced models achieve the
+highest BERT scores (0.963), demonstrating their ability to retain the core semantic essence of the
+input text. This suggests that while traditional metrics highlight challenges in surface-level accuracy,
+BERT scores reveal the models’ capacity to produce translations that align meaningfully with the
+reference texts. Among all models, GPT + RAG stands out as the most effective, benefiting from
+the retrieval mechanism to achieve superior performance in both lexical and semantic evaluations.
+Model Rouge Score BLEU Score BERT Score
+LLama 0.052 0.038 0.931
+GPT 0.110 0.096 0.938
+LLama + finetune 0.094 0.064 0.940
+LLama + RAG (ours) 0.167 0.154 0.963
+GPT + RAG (ours) 0.278 0.235 0.963
+Table 1: Results of Low-Resource Translation Experiments
+5 Discussion
+Our work on QueEn demonstrates the potential of combining RAG with parameter-efficient finetuning for low-resource language translation. While our results show significant improvements over
+baseline models, several promising directions remain for future research and development.
+First, the current implementation could be enhanced through the incorporation of more diverse
+linguistic resources. Future work should explore the integration of audio data and speech recognition
+capabilities, as Quechua has a strong oral tradition. This multimodal approach could help capture
+nuances of pronunciation and intonation that are crucial for proper understanding and translation.
+Additionally, the development of specialized embedding models for Quechua could improve the
+accuracy of our retrieval system.
+Second, future work could focus on enhancing the model’s contextual understanding and handling
+of complex grammatical structures. Given Quechua’s agglutinative nature and rich morphological
+system [35], developing specialized attention mechanisms or embedding layers that can better capture
+these linguistic features would be valuable. This could involve creating morpheme-aware tokenization
+strategies or incorporating explicit grammatical rule embeddings into the model architecture. Such
+
+[TABLE page=12 index=1]
+Columns: Model | Rouge Score | BLEU Score | BERT Score
+Row 1: Model: LLama | Rouge Score: 0.052 | BLEU Score: 0.038 | BERT Score: 0.931
+Row 2: Model: GPT | Rouge Score: 0.11 | BLEU Score: 0.096 | BERT Score: 0.938
+Row 3: Model: LLama + finetune | Rouge Score: 0.094 | BLEU Score: 0.064 | BERT Score: 0.94
+Row 4: Model: LLama + RAG (ours) | Rouge Score: 0.167 | BLEU Score: 0.154 | BERT Score: 0.963
+Row 5: Model: GPT + RAG (ours) | Rouge Score: 0.278 | BLEU Score: 0.235 | BERT Score: 0.963
+[/TABLE]
+
+[PAGE 13]
+improvements would help the model better handle Quechua’s unique linguistic characteristics and
+produce more accurate translations
+Third, community involvement and feedback mechanisms could be integrated into the system’s
+development cycle. Future iterations could incorporate a human-in-the-loop approach, where native
+Quechua speakers can provide direct feedback on translation quality and help refine the model’s
+understanding of cultural context. This collaborative approach would not only improve translation
+accuracy but also ensure that the technology serves the needs of the Quechua-speaking community. Such community-driven development is essential for cultural preservation, as it ensures that
+technological solutions respect and incorporate indigenous knowledge systems and cultural practices.
+Finally, the techniques developed for QueEn could be adapted for other low-resource languages,
+particularly those facing similar challenges of cultural and linguistic preservation. The combination of RAG and parameter-efficient fine-tuning provides a promising framework for addressing the
+challenges of limited data and computational resources that are common across many endangered
+languages. Our approach could be particularly valuable for languages with strong oral traditions or
+complex morphological systems similar to Quechua. Creating a generalized version of our methodology could accelerate the development of translation systems for other indigenous languages, while
+respecting their unique cultural contexts and linguistic features. This generalization could play a
+crucial role in global efforts to preserve not just languages themselves, but the cultural heritage and
+traditional knowledge systems they embody.
+6 Conclusion
+In this paper, we introduced QueEn, a novel approach for Quechua-English translation that combines retrieval-augmented generation with parameter-efficient fine-tuning. Our experimental results
+demonstrate that this combination substantially improves translation quality compared to baseline
+models.
+The implications of this work extend far beyond technical achievements. Effective translation
+tools for indigenous languages like Quechua can help bridge significant socioeconomic gaps in multilingual societies. By enabling better communication between Quechua-speaking communities and
+the wider world, such technologies can improve access to education, healthcare, and economic opportunities. This is particularly crucial in regions where language barriers have historically contributed
+to social and economic marginalization. Furthermore, our work contributes to the preservation of
+indigenous knowledge systems and cultural heritage, which are invaluable not only for the communities themselves but for humanity’s collective understanding of diverse ways of knowing and being. As
+machine learning continues to advance, approaches like QueEn demonstrate how modern language
+technologies can promote linguistic diversity while fostering more inclusive and equitable societies.
+
+[PAGE 14]
+References
+1. Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of
+Oracle Bone Scripts through Cross-Modal Knowledge Fusion. arXiv preprint arXiv:2411.17837
+2024.
+2. Xu S, Zhou Y, Liu Z, et al. Towards Next-Generation Medical Agent: How o1 is Reshaping
+Decision-Making in Medical Scenarios. arXiv preprint arXiv:2411.14461 2024.
+3. Shu P, Chen J, Liu Z, et al. Transcending Language Boundaries: Harnessing LLMs for LowResource Language Translation. arXiv preprint arXiv:2411.11295 2024.
+4. Wang J, Zhao H, Yang Z, et al. Legal Evalutions and Challenges of Large Language Models.
+arXiv preprint arXiv:2411.10137 2024.
+5. Kim S, Jin P, Song S, et al. EchoFM: Foundation Model for Generalizable Echocardiogram
+Analysis. arXiv preprint arXiv:2410.23413 2024.
+6. Wu Z, Shu P, Li Y, Li Q, Liu T, and Li X. Robot Control via Natural Instructions Empowered
+by Large Language Model. In: Discovering the Frontiers of Human-Robot Interaction: Insights
+and Innovations in Collaboration, Communication, and Control . Springer, 2024:437–57.
+7. Chen H, Zhao W, Li Y, et al. 3D-CT-GPT: Generating 3D Radiology Reports through Integration of Large Vision-Language Models. arXiv preprint arXiv:2409.19330 2024.
+8. Shu P, Zhao H, Jiang H, et al. LLMs for Coding and Robotics Education. arXiv preprint
+arXiv:2402.06116 2024.
+9. Dam SK, Hong CS, Qiao Y, and Zhang C. A complete survey on llm-based ai chatbots. arXiv
+preprint arXiv:2406.16937 2024.
+10. Bianco S, Celona L, Donzella M, and Napoletano P. Improving image captioning descriptiveness
+by ranking and llm-based fusion. arXiv preprint arXiv:2306.11593 2023.
+11. Guo J, Li J, Li D, et al. From images to textual prompts: Zero-shot visual question answering
+with frozen large language models. In: Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition . 2023:10867–77.
+12. Pan Y, Jiang H, Chen J, et al. Eg-spikeformer: Eye-gaze guided transformer on spiking neural
+networks for medical image analysis. arXiv preprint arXiv:2410.09674 2024.
+13. Hasan MA, Tarannum P, Dey K, Razzak I, and Naseem U. Do large language models speak all
+languages equally? a comparative study in low-resource settings. arXiv preprint arXiv:2408.02237
+2024.
+14. Lankford S, Afli H, and Way A. adaptmllm: Fine-tuning multilingual language models on
+low-resource languages with integrated llm playgrounds. Information 2023;14:638.
+15. Cahyawijaya S, Lovenia H, and Fung P. LLMs Are Few-Shot In-Context Low-Resource Language Learners. arXiv preprint arXiv:2403.16512 2024.
+16. Sallabank J and Austin PK. Endangered Languages. The Routledge Handbook of Applied
+Linguistics 2022:362–73.
+
+[TABLE page=14 index=1]
+Columns: 1. | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of
+Row 1: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Oracle Bone Scripts through Cross-Modal Knowledge Fusion. arXiv preprint arXiv:2411.17837
+Row 2: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: 2024.
+Row 3: 1.: 2.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Xu S, Zhou Y, Liu Z, et al. Towards Next-Generation Medical Agent: How o1 is Reshaping
+Row 4: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Decision-Making in Medical Scenarios. arXiv preprint arXiv:2411.14461 2024.
+Row 5: 1.: 3.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Shu P, Chen J, Liu Z, et al. Transcending Language Boundaries: Harnessing LLMs for LowRow 6: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Resource Language Translation. arXiv preprint arXiv:2411.11295 2024.
+Row 7: 1.: 4.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Wang J, Zhao H, Yang Z, et al. Legal Evalutions and Challenges of Large Language Models.
+Row 8: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: arXiv preprint arXiv:2411.10137 2024.
+Row 9: 1.: 5.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Kim S, Jin P, Song S, et al. EchoFM: Foundation Model for Generalizable Echocardiogram
+Row 10: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Analysis. arXiv preprint arXiv:2410.23413 2024.
+Row 11: 1.: 6.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Wu Z, Shu P, Li Y, Li Q, Liu T, and Li X. Robot Control via Natural Instructions Empowered
+Row 12: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: by Large Language Model. In: Discovering the Frontiers of Human-Robot Interaction: Insights
+Row 13: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: and Innovations in Collaboration, Communication, and Control. Springer, 2024:437–57.
+Row 14: 1.: 7.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Chen H, Zhao W, Li Y, et al. 3D-CT-GPT: Generating 3D Radiology Reports through InteRow 15: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: gration of Large Vision-Language Models. arXiv preprint arXiv:2409.19330 2024.
+Row 16: 1.: 8.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Shu P, Zhao H, Jiang H, et al. LLMs for Coding and Robotics Education. arXiv preprint
+Row 17: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: arXiv:2402.06116 2024.
+Row 18: 1.: 9.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Dam SK, Hong CS, Qiao Y, and Zhang C. A complete survey on llm-based ai chatbots. arXiv
+Row 19: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: preprint arXiv:2406.16937 2024.
+Row 20: 1.: 10.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Bianco S, Celona L, Donzella M, and Napoletano P. Improving image captioning descriptiveness
+Row 21: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: by ranking and llm-based fusion. arXiv preprint arXiv:2306.11593 2023.
+Row 22: 1.: 11.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Guo J, Li J, Li D, et al. From images to textual prompts: Zero-shot visual question answering
+Row 23: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: with frozen large language models. In: Proceedings of the IEEE/CVF conference on computer
+Row 24: 1.: | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: vision and pattern recognition. 2023:10867–77.
+Row 25: 1.: 12.0 | Jiang H, Pan Y, Chen J, et al. OracleSage: Towards Unified Visual-Linguistic Understanding of: Pan Y, Jiang H, Chen J, et al. Eg-spikeformer: Eye-gaze guided transformer on spiking neural
+[/TABLE]
+
+[PAGE 15]
+17. Shiwen Y and Xiaojing B. Rule-based machine translation. In: Routledge encyclopedia of translation technology. Routledge, 2014:186–200.
+18. Hutchins WJ. The Georgetown-IBM experiment demonstrated in January 1954. In: Conference
+of the Association for Machine Translation in the Americas . Springer. 2004:102–14.
+19. Llitj´ os AF, Carbonell JG, and Lavie A. A framework for interactive and automatic refinement
+of transfer-based machine translation. In: Proceedings of the 10th EAMT Conference: Practical
+applications of machine translation . 2005.
+20. Richens RH. Interlingual machine translation. The Computer Journal 1958;1:144–7.
+21. Lopez A. Statistical machine translation. ACM Computing Surveys (CSUR) 2008;40:1–49.
+22. Brown PF, Della Pietra SA, Della Pietra VJ, and Mercer RL. The mathematics of statistical
+machine translation: Parameter estimation. Computational linguistics 1993;19:263–311.
+23. Collins M. Statistical machine translation: IBM models 1 and 2. Columbia Columbia Univ
+2011.
+24. Okuma H, Yamamoto H, and Sumita E. Introducing a translation dictionary into phrase-based
+SMT. IEICE transactions on information and systems 2008;91:2051–7.
+25. Chiang D. A hierarchical phrase-based model for statistical machine translation. In: Proceedings
+of the 43rd annual meeting of the association for computational linguistics (acl’05) . 2005:263–
+70.
+26. Stahlberg F. Neural machine translation: A review. Journal of Artificial Intelligence Research
+2020;69:343–418.
+27. Zhang B, Xiong D, Su J, and Duan H. A context-aware recurrent encoder for neural machine
+translation. IEEE/ACM Transactions on Audio, Speech, and Language Processing 2017;25:2424–
+32.
+28. Bahdanau D. Neural machine translation by jointly learning to align and translate. arXiv
+preprint arXiv:1409.0473 2014.
+29. Vaswani A, Shazeer N, Parmar N, et al. Attention is all you need. In: Advances in neural
+information processing systems . Vol. 30. 2017:5998–6008.
+30. Klein G, Kim Y, Deng Y, Senellart J, and Rush AM. Opennmt: Open-source toolkit for neural
+machine translation. arXiv preprint arXiv:1701.02810 2017.
+31. Junczys-Dowmunt M, Grundkiewicz R, Dwojak T, et al. Marian: Fast neural machine translation in C++. arXiv preprint arXiv:1804.00344 2018.
+32. Wu Y, Schuster M, Chen Z, et al. Google’s neural machine translation system: Bridging the
+gap between human and machine translation. arXiv preprint arXiv:1609.08144 2016.
+33. Hornberger NH and Coronel-Molina SM. Quechua language shift, maintenance, and revitalization in the Andes: The case for language planning. 2004.
+34. Hornberger NH and King KA. Reversing quechua language shift in South America. Multilingual
+Matters 2001:166–94.
+
+[PAGE 16]
+35. Adelaar WF. Morphology in Quechuan languages. In: Oxford Research Encyclopedia of Linguistics. 2020.
+36. Faller MT. Semantics and pragmatics of evidentials in Cuzco Quechua. stanford university,
+2002.
+37. Brown TB. Language models are few-shot learners. arXiv preprint arXiv:2005.14165 2020.
+38. Achiam J, Adler S, Agarwal S, et al. Gpt-4 technical report. arXiv preprint arXiv:2303.08774
+2023.
+39. Touvron H, Lavril T, Izacard G, et al. Llama: Open and efficient foundation language models.
+arXiv preprint arXiv:2302.13971 2023.
+40. Lewis P, Perez E, Piktus A, et al. Retrieval-augmented generation for knowledge-intensive nlp
+tasks. Advances in Neural Information Processing Systems 2020;33:9459–74.
+41. Wang J, Liu Z, Zhao L, et al. Review of large vision models and visual prompt engineering.
+Meta-Radiology 2023:100047.
+42. Seo J, Byun S, Kang M, and Lee S. Mergen: The First Manchu-Korean Machine Translation
+Model Trained on Augmented Data. arXiv preprint arXiv:2311.17492 2023.
+43. Ortega JE, Castro Mamani R, and Cho K. Neural machine translation with a polysynthetic
+low resource language. Machine Translation 2020;34:325–46.
+44. Tifrea A, B´ ecigneul G, and Ganea OE. Poincar \’e glove: Hyperbolic word embeddings. arXiv
+preprint arXiv:1810.06546 2018.
+45. Kenton JDMWC and Toutanova LK. Bert: Pre-training of deep bidirectional transformers for
+language understanding. In: Proceedings of naacL-HLT. Vol. 1. Minneapolis, Minnesota. 2019:2.
+46. Zhang K, Choi Y, Song Z, He T, Wang WY, and Li L. Hire a linguist!: Learning endangered
+languages in LLMs with in-context linguistic descriptions. In: Findings of the Association for
+Computational Linguistics ACL 2024 . 2024:15654–69.
+47. Lv K, Yang Y, Liu T, Gao Q, Guo Q, and Qiu X. Full parameter fine-tuning for large language
+models with limited resources. arXiv preprint arXiv:2306.09782 2023.
+48. Ding N, Qin Y, Yang G, et al. Parameter-efficient fine-tuning of large-scale pre-trained language
+models. Nature Machine Intelligence 2023;5:220–35.
+49. Hu EJ, Shen Y, Wallis P, et al. Lora: Low-rank adaptation of large language models. arXiv
+preprint arXiv:2106.09685 2021.
+50. Cardenas R et al. Siminchik: A Speech Corpus for the Quechua Language. In: Proceedings of the
+1st Workshop on Collaboration and Computing for Under-Resourced Languages . 2018:28–35.
+url: http://lrec-conf.org/workshops/lrec2018/W14/pdf/book_of_proceedings.pdf#
+page=28.
+51. Lin C. Recall-oriented understudy for gisting evaluation (rouge). Retrieved August 2005;20:2005.
+
+[PAGE 17]
+52. Papineni K, Roukos S, Ward T, and Zhu WJ. Bleu: a method for automatic evaluation of
+machine translation. In: Proceedings of the 40th annual meeting of the Association for Computational Linguistics . 2002:311–8.
+53. Zhang T, Kishore V, Wu F, Weinberger KQ, and Artzi Y. Bertscore: Evaluating text generation
+with bert. arXiv preprint arXiv:1904.09675 2019.

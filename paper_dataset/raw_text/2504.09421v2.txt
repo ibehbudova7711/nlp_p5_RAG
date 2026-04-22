@@ -1,0 +1,444 @@
+[PAGE 1]
+ClinicalGPT-R1: Pushing reasoning capability of
+generalist disease diagnosis with large language model
+Wuyang Lan#1, Wenzheng Wang#1, Changwei Ji1, Guoxing Yang1, Yongbo Zhang2, Xiaohong Liu2,
+Song Wu2, and Guangyu Wang*1
+1State Key Laboratory of Networking and Switching Technology
+Beijing University of Posts and Telecommunications
+2South China Hospital, Medical School, Shenzhen University
+Abstract
+Recent advances in reasoning with large language models (LLMs)has shown remarkable reasoning capabilities in domains such as mathematics and coding, yet
+their application to clinical diagnosis remains underexplored. Here, we introduce ClinicalGPT-R1, a reasoning-enhanced generalist large language model for
+disease diagnosis. Trained on a dataset of 20,000 real-world clinical records,
+ClinicalGPT-R1 leverages diverse training strategies to enhance diagnostic reasoning. To benchmark performance, we curated MedBench-Hard, a challenging dataset spanning seven major medical specialties and representative diseases.
+Experimental results demonstrate that ClinicalGPT-R1 outperforms GPT-4o in
+Chinese diagnostic tasks and achieves comparable performance to GPT-4o in
+English settings. This comparative study effectively validates the superior performance of ClinicalGPT-R1 in disease diagnosis tasks. Resources are available at
+https://github.com/medfound/medfound.
+1 Introduction
+Recent advances in large language models (LLMs), such as OpenAI-o1[1] and DeepSeek-R1[2], have
+demonstrated strong reasoning abilities across domains including mathematics and programming.
+[3][4]. These developments highlight the value of scaling techniques like extended Chain-of-Thought
+(CoT) prompting and reinforcement learning to enhance model reasoning[5][6]. Motivated by these
+general-purpose breakthroughs, there has been a growing interest to explore LLMs in domain-specific
+settings, especially in healthcare[7][8]. In clinical contexts, robust long-form reasoning is essential
+for accurate diagnosis and treatment.[9]. Therefore, advancing and evaluating reasoning-augmented
+LLMs for medical applications is of critical importance.
+A key challenge in medical reasoning with LLMs lies in validating their reasoning processes[10]. In
+domains like mathematics or programming, intermediate steps can be quantitatively assessed and
+leveraged for supervised training or reinforcement learning[11, 12]. For instance, code compilation
+or step-wise annotation provides clear feedback signals. In contrast, clinical reasoning—especially
+in real-world diagnostic scenarios—often lacks such structured, verifiable steps[13]. While models like HuatuoGPT-O1 have utilized multiple-choice datasets (e.g., MedQA) to simulate clinical
+reasoning[10], these fall short of capturing the complexity of authentic diagnostic workflows. This
+highlights the need for datasets specifically tailored to real-world clinical reasoning.
+The effectiveness of medical reasoning with LLMs is shaped by multiple factors, including training
+strategies, the quality of synthetic data, and languages. In the general domain, Deepseek-R1[2]
+#These authors contributed equally to this work.
+* Corresponding Author: guangyu.wang24@gmail.com
+arXiv:2504.09421v2 [cs.CL] 15 Apr 2025
+
+[PAGE 2]
+significantly enhances the reasoning capabilities of large models through a purely reinforcement
+learning approach. In medical reasoning tasks, Marco-O1 [14] uses Monte Carlo Tree Search (MCTS)
+to construct process-supervised datasets, optimizing model training by using confidence scores as
+the value for each reasoning step. Zhou et al. [15] improve the mathematical reasoning ability
+of small models by synthesizing mathematical reasoning data using GPT-4, which is then used to
+train a smaller LLM to efficiently generate high-quality In healthcare, efforts have been made to
+synthesize dialogue datasets from real-world electronic health records[16], and recent work has
+explored generating long-chain reasoning text tailored to clinical scenarios[10, 17]. Yet, a systematic
+investigation into how these factors influence diagnostic reasoning in real-world medical contexts
+remains lacking.
+In this study, we introduce ClinicalGPT-R1, a large language model specifically designed for clinical
+reasoning tasks in Chinese and English medical settings. Firstly, leveraging two state-of-the-art
+LLMs as data synthesizers, we construct a clinical diagnostic dataset grounded in real clinical records,
+encompassing clinical reasoning tasks. Through a two-stage training approach combining supervised
+fine-tuning (SFT) and reinforcement learning (RL), the model’s reasoning capacity is improved
+to better handle clinical tasks in real-world scenarios. To benchmark performance, we introduce
+MedBench-Hard, a diverse and challenging dataset spanning seven major medical departments.
+Experimental results show that ClinicalGPT-R1 significantly outperforms GPT-4o in Chinese tasks,
+while achieving a comparable performance to GPT-4o in English tasks. This demonstrates the
+effectiveness of our approach and its strong practical capabilities in generalist disease diagnosis.
+2 Methods
+2.1 Medical Data
+2.1.1 Data source
+To enhance the medical capabilities of our model, we dedicate significant efforts to collecting
+large-scale, high-quality, and diverse medical data for training. We employ a sophisticated data
+classification and filtering process to improve data quality and ensure comprehensive coverage of
+medical domains. Furthermore, synthetic data has been shown to be effective for model training[18],
+and thus we generate extensive synthetic data to complement medical data. Specifically, we utilize
+various advanced data synthesis techniques and design tailored synthesis strategies for different
+data sources, resulting in data of substantial scale, diverse formats, high educational value, and full
+coverage of medical scenarios.
+Our training corpus is derived from two primary sources. The first dataset originates from MedDXFT[19], which includes extensive medical records from multiple departments and the corresponding
+diagnostic reasoning cases to generate complex reasoning data. The second source comprises
+real-world medical data, including anonymized electronic health records (EHRs).
+2.1.2 Synthetic Data
+The use of synthetic data has become a cornerstone in training LLMs, particularly for domains with
+limited annotated resources[14]. To improve the quality of synthetic medical data, we developed a
+generation pipeline with various strategies grounded in real-world medical records and diagnostic
+outcomes1. In the design of data construction processes, we emphasize the importance of the
+reasoning process and long-chain thinking capabilities. Specifically, we first leverage state-of-theart LLMs combined with a long-chain reasoning prompt strategy to generate both steps and final
+results[20]. If the reasoning process leads to a correct outcome, it will be used directly. If the correct
+result cannot be generated, we apply four distinct strategies [21]: Exploring New Paths, Backtracking,
+Verification, and Corrections. When the maximum iteration count is reached, the search process is
+restarted. Each data point is attempted up 3 times; if all attempts fail, we will make one final attempt.
+In this case, we directly provide the reference answer in the prompt and outline the CoT reasoning
+path, guiding the model to generate the final inference process.
+In order to enhance the reasoning process, we employ a dynamic approach that reformats the
+reasoning trajectory into a coherent, natural language-based process, referred to as long CoT. This
+reformatting avoids rigid structures, incorporating smooth transition words (e.g., "hmm," "also,"
+"wait") to streamline reasoning and reduce token usage. Subsequently, the model generates a formal
+
+[PAGE 3]
+response, referred to as the long response, based on the conclusion derived from the long CoT to
+address the given question.
+CoT
+Exploring
+Backtracking
+Verification
+Corrections
+Sample strategy Trajectories
+Thinking
+Response
+Thinking
+Response
+…
+Sampling
+Verifer
+Diagnostic
+MatchingWrong
+Clinical records
+Clinical Diagnosis
+Long CoT
+Response
+AggregationAdd diagnostic if max
+retries reached
+Figure 1: The pipeline of synthesized data
+2.1.3 Evaluation benchmark: MedBench-Hard
+To comprehensively assess disease diagnostic capabilities, we have constructed a disease diagnosis
+benchmark, MedBench-Hard. Specifically, we collected clinical diagnostic data from seven different
+departments, with 500 cases per department, totaling 3,500 test samples. The departments included
+Respiratory, Gastroenterology, Urology, Cardiology, Immunology, Neurology, and Endocrinology.
+To ensure a diverse representation of diseases across each department and avoid complete duplication
+of conditions within a single department, we employ a stratified sampling approach. Specifically,
+we performed stratified sampling based on International Classification of Diseases(ICD)-10 disease
+codes, selecting diseases from various levels to maximize coverage of the different types of disease
+within each department, including rare diseases.
+2.2 Post-train
+2.2.1 Supervised Fine-Tuning
+We meticulously curated a medical instruction fine-tuning dataset through the pipeline in 2.1.2. The
+supervised fine-tuning (SFT) data are made up mainly of three key components: the question, the
+thinking, and the final response. The "question" section includes the patient’s medical history and
+anonymized clinical records; the "thinking" refers to the reasoning sequence, which represents the
+model’s explicit cognitive steps; and the "final response" is the outcome of this reasoning, offering a
+comprehensive symptom analysis and diagnostic conclusion.
+2.2.2 Reinforcement Learning
+In this stage, we further enhance the long-term reasoning capabilities of the model through RL.
+Although the LLM has already learned successful reasoning trajectories during the SFT phase, which
+were derived through search, these trajectories may not be optimal. The On-policy learning in the RL
+phase aims to optimize the model for better performance in long CoT reasoning.
+Rewards play a vital role in steering the target of RL training. We employ a result-based reward
+design method. This approach rewards data points that exhibit a clear reasoning process and provide
+correct responses, while penalizing those that directly present diagnostic results without a reasoning
+process, even if the results are correct. Following [[10], [22], [23]], the reward is assigned as
+
+[PAGE 4]
+r′(x, ˆy, y∗) =
+
+
+
+1 if verifier(ˆy, y∗) = True
+0.1 if verifier(ˆy, y∗) = False
+0 if ˆy = null
+(1)
+Correct answers are awarded a reward of 1, incorrect answers receive 0.1, and responses that
+demonstrate a lack of "think-before-answering" behavior are assigned a reward of 0. We transform
+medical inquiries into verifiable questions, obtaining quantifiable feedback through a large-scale
+model verifier.
+We transform medical inquiries into verifiable questions, obtaining quantifiable feedback through a
+large-scale model verifier. The Rule-Based Reward Model (RM) can indeed cover a broad range of
+domains and applications. Here, we use the Proximal Policy Optimization (PPO) algorithm [24] as
+an RL technique to further optimize the decision-making process within the model.
+3 Evaluations
+3.1 Overview
+Our evaluation is conducted in real-world clinical settings, evaluating the performance of seven
+departments to generate accurate results, in order to comprehensively assess the impact of various
+factors on the reasoning and comprehension capabilities of the model. We conducted a series of
+comparative experiments in ClinicalGPT-R1 to explore the effects of different training strategies,
+languages, and the quality of synthetic data. Furthermore, we benchmark the ClinicalGPT-R1 model
+against Qwen2.5-7B-Instruct[25] and GPT-4o to assess its competitiveness in medical diagnostic
+tasks.
+3.2 Implemented details
+We use Qwen-2.5-7B-instruct as the base model and fine-tune it for 3 epochs, employing a cosine
+decay learning rate schedule that starts at 5 × 10−6 and gradually decreases to 5 × 10−6 in the SFT
+stage. During training, each individual sequence is formed by packing multiple samples. In addition,
+we implement a sample masking strategy to ensure that these examples remain isolated and invisible
+to each other. In the RL stage, the learning rate of 5 × 10−7, the batch size of 16, and a β value set
+to 0.03. The PPO parameters are configured as follows: 3 epochs, a discount factor of 1.0, a value
+coefficient of 1.0, and a clip range of 0.2.
+3.3 Experiment results
+To validate the effectiveness of the two-stage training method, we compared the performance of
+the model trained solely with SFT with that of the model trained with an additional RL-based
+reinforcement for enhanced reasoning, following the SFT phase. Firstly, SFT enhances the model’s
+reasoning ability on the basis of the base model, aiming to enable the model to learn thinking before
+solving medical problems. Then, the model’s decision-making process is further optimized through
+reinforcement learning. The model is trained in a simulated medical decision-making environment
+to improve its reasoning and decision-making capabilities. This stage of training aims to enable the
+model to engage in deep reasoning before making more informed and rational decisions in real-world
+medical scenarios. As shown in Fig. 2, the model trained using a combination of SFT and RL
+demonstrates superior performance in reasoning and diagnostic tasks compared to the model trained
+solely with SFT.
+The quality of synthetic data is crucial for the learning performance of LLMs. In this experiment, we
+selected two powerful models: GPT-4o-mini and Deepseek-v3-0324, as data generators. We then
+used the complex reasoning data synthesized by these models as input for the SFT and RL training of
+the LLM. We conducted comparative experiments on different data sources (Fig. 3). As shown in
+the data in the figure, the model trained with the data generated by GPT-4o-mini performed better in
+the medical diagnosis test than the model trained with the data generated by Deepseek-v3-0324.
+We also compared the training performance of the Qwen2.5-7B-Instruct model using Chinese and
+English datasets. For this comparison, we constructed Chinese and English training datasets based on
+
+[PAGE 5]
+/uni00000035/uni00000048/uni00000056/uni00000053/uni0000004c/uni00000055/uni00000044/uni00000057/uni00000052/uni00000055/uni0000005c
+/uni0000002a/uni00000044/uni00000056/uni00000057/uni00000055/uni00000052/uni00000048/uni00000051/uni00000057/uni00000048/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000038/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000026/uni00000044/uni00000055/uni00000047/uni0000004c/uni00000052/uni00000059/uni00000044/uni00000056/uni00000046/uni00000058/uni0000004f/uni00000044/uni00000055/uni0000002c/uni00000050/uni00000050/uni00000058/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000031/uni00000048/uni00000058/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000028/uni00000051/uni00000047/uni00000052/uni00000046/uni00000055/uni0000004c/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000024/uni00000059/uni0000004a
+/uni00000014/uni00000013
+/uni00000014/uni00000018
+/uni00000015/uni00000013
+/uni00000015/uni00000018
+/uni00000016/uni00000013/uni00000024/uni00000046/uni00000046/uni00000058/uni00000055/uni00000044/uni00000046/uni0000005c
+/uni00000014/uni00000018/uni00000011/uni00000017
+/uni00000014/uni00000016/uni00000011/uni00000017
+/uni00000015/uni00000016/uni00000011/uni00000013
+/uni00000014/uni00000019/uni00000011/uni00000014
+/uni00000015/uni0000001a/uni00000011/uni00000013
+/uni00000014/uni00000017/uni00000011/uni00000013
+/uni00000015/uni0000001a/uni00000011/uni00000015
+/uni00000014/uni0000001c/uni00000011/uni00000013
+/uni00000014/uni00000018/uni00000011/uni0000001b/uni00000014/uni00000018/uni00000011/uni00000017
+/uni00000015/uni00000016/uni00000011/uni00000017
+/uni00000014/uni00000019/uni00000011/uni00000017
+/uni00000015/uni0000001a/uni00000011/uni00000015
+/uni00000015/uni00000013/uni00000011/uni00000015
+/uni00000015/uni0000001b/uni00000011/uni00000015
+/uni00000015/uni00000013/uni00000011/uni00000017
+/uni00000036/uni00000029/uni00000037
+/uni00000036/uni00000029/uni00000037/uni0000000e/uni00000035/uni0000002f
+Figure 2: Comparison of ClinicalGPT-R1 with different training methods
+/uni00000035/uni00000048/uni00000056/uni00000053/uni0000004c/uni00000055/uni00000044/uni00000057/uni00000052/uni00000055/uni0000005c
+/uni0000002a/uni00000044/uni00000056/uni00000057/uni00000055/uni00000052/uni00000048/uni00000051/uni00000057/uni00000048/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000038/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000026/uni00000044/uni00000055/uni00000047/uni0000004c/uni00000052/uni00000059/uni00000044/uni00000056/uni00000046/uni00000058/uni0000004f/uni00000044/uni00000055/uni0000002c/uni00000050/uni00000050/uni00000058/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000031/uni00000048/uni00000058/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000028/uni00000051/uni00000047/uni00000052/uni00000046/uni00000055/uni0000004c/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000024/uni00000059/uni0000004a
+/uni00000014/uni00000013
+/uni00000014/uni00000018
+/uni00000015/uni00000013
+/uni00000015/uni00000018
+/uni00000016/uni00000013
+/uni00000016/uni00000018/uni00000024/uni00000046/uni00000046/uni00000058/uni00000055/uni00000044/uni00000046/uni0000005c
+/uni00000014/uni00000018/uni00000011/uni0000001b/uni00000014/uni00000018/uni00000011/uni00000017
+/uni00000015/uni00000016/uni00000011/uni00000017
+/uni00000014/uni00000019/uni00000011/uni00000017
+/uni00000015/uni0000001a/uni00000011/uni00000015
+/uni00000015/uni00000013/uni00000011/uni00000015
+/uni00000015/uni0000001b/uni00000011/uni00000015
+/uni00000015/uni00000013/uni00000011/uni00000017
+/uni00000014/uni0000001a/uni00000011/uni00000015
+/uni00000014/uni0000001b/uni00000011/uni00000017
+/uni00000015/uni00000017/uni00000011/uni00000013
+/uni00000014/uni0000001c/uni00000011/uni00000015
+/uni00000016/uni00000014/uni00000011/uni00000013
+/uni00000014/uni0000001a/uni00000011/uni00000013
+/uni00000016/uni00000016/uni00000011/uni00000013
+/uni00000015/uni00000015/uni00000011/uni00000017
+/uni00000027/uni00000048/uni00000048/uni00000053/uni00000056/uni00000048/uni00000048/uni0000004e/uni00000010/uni00000059/uni00000016
+/uni0000002a/uni00000033/uni00000037/uni00000010/uni00000017/uni00000052/uni00000010/uni00000050/uni0000004c/uni00000051/uni0000004c
+Figure 3: Comparison of ClinicalGPT-R1 with different training data sources
+
+[PAGE 6]
+the long reasoning data generated by GPT-4o-mini, and employed a two-stage reasoning approach
+for training. In addition, corresponding Chinese and English test sets were created. The experimental
+results indicate that the model trained on Chinese data outperforms the model trained on English data
+when evaluated on the Qwen2.5-7B-Instruct model Fig. 4.
+/uni00000035/uni00000048/uni00000056/uni00000053/uni0000004c/uni00000055/uni00000044/uni00000057/uni00000052/uni00000055/uni0000005c
+/uni0000002a/uni00000044/uni00000056/uni00000057/uni00000055/uni00000052/uni00000048/uni00000051/uni00000057/uni00000048/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000038/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000026/uni00000044/uni00000055/uni00000047/uni0000004c/uni00000052/uni00000059/uni00000044/uni00000056/uni00000046/uni00000058/uni0000004f/uni00000044/uni00000055/uni0000002c/uni00000050/uni00000050/uni00000058/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000031/uni00000048/uni00000058/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000028/uni00000051/uni00000047/uni00000052/uni00000046/uni00000055/uni0000004c/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000024/uni00000059/uni0000004a
+/uni00000014/uni00000013
+/uni00000014/uni00000018
+/uni00000015/uni00000013
+/uni00000015/uni00000018
+/uni00000016/uni00000013
+/uni00000016/uni00000018/uni00000024/uni00000046/uni00000046/uni00000058/uni00000055/uni00000044/uni00000046/uni0000005c
+/uni00000014/uni0000001a/uni00000011/uni00000015
+/uni00000014/uni0000001b/uni00000011/uni00000017
+/uni00000015/uni00000017/uni00000011/uni00000013
+/uni00000014/uni0000001c/uni00000011/uni00000015
+/uni00000016/uni00000014/uni00000011/uni00000013
+/uni00000014/uni0000001a/uni00000011/uni00000013
+/uni00000016/uni00000016/uni00000011/uni00000013
+/uni00000015/uni00000015/uni00000011/uni00000017/uni00000015/uni00000015/uni00000011/uni00000019
+/uni00000014/uni00000019/uni00000011/uni00000017
+/uni00000016/uni00000013/uni00000011/uni00000017
+/uni00000015/uni00000016/uni00000011/uni00000017
+/uni00000015/uni0000001b/uni00000011/uni00000015
+/uni00000014/uni0000001c/uni00000011/uni00000017
+/uni00000016/uni00000018/uni00000011/uni00000017
+/uni00000015/uni00000017/uni00000011/uni0000001c
+/uni00000028/uni00000031
+/uni00000026/uni00000031
+Figure 4: Comparison of the Chinese and English versions of ClinicalGPT-R1
+We also compared the diagnostic performance of ClinicalGPT-R1 with the base models Qwen2.5-7BInstruct and GPT-4o in a multilingual environment. For the base models, reasoning was performed
+using the CoT prompting approach. In the Chinese version of the test, ClinicalGPT-R1 demonstrated
+significantly better diagnostic performance than GPT-4o and the Qwen2.5-7B-Instruct base model
+(as shown in Fig. 5). In the English version of the test, ClinicalGPT-R1 performed comparable
+to GPT-4o and significantly outperformed the base model Qwen2.5-7B-Instruct (Fig. 6), further
+validating the strong capabilities of the model in diagnostic reasoning.
+/uni00000035/uni00000048/uni00000056/uni00000053/uni0000004c/uni00000055/uni00000044/uni00000057/uni00000052/uni00000055/uni0000005c
+/uni0000002a/uni00000044/uni00000056/uni00000057/uni00000055/uni00000052/uni00000048/uni00000051/uni00000057/uni00000048/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000038/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000026/uni00000044/uni00000055/uni00000047/uni0000004c/uni00000052/uni00000059/uni00000044/uni00000056/uni00000046/uni00000058/uni0000004f/uni00000044/uni00000055/uni0000002c/uni00000050/uni00000050/uni00000058/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000031/uni00000048/uni00000058/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000028/uni00000051/uni00000047/uni00000052/uni00000046/uni00000055/uni0000004c/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000024/uni00000059/uni0000004a
+/uni00000013
+/uni00000014/uni00000013
+/uni00000015/uni00000013
+/uni00000016/uni00000013/uni00000024/uni00000046/uni00000046/uni00000058/uni00000055/uni00000044/uni00000046/uni0000005c
+/uni00000015/uni00000015/uni00000011/uni00000019
+/uni00000014/uni00000019/uni00000011/uni00000017
+/uni00000016/uni00000013/uni00000011/uni00000017
+/uni00000015/uni00000016/uni00000011/uni00000017
+/uni00000015/uni0000001b/uni00000011/uni00000015
+/uni00000014/uni0000001c/uni00000011/uni00000017
+/uni00000016/uni00000018/uni00000011/uni00000017
+/uni00000015/uni00000017/uni00000011/uni0000001c
+/uni00000014/uni00000017/uni00000011/uni0000001b
+/uni0000001b/uni00000011/uni0000001b
+/uni00000014/uni0000001a/uni00000011/uni0000001b
+/uni00000014/uni00000014/uni00000011/uni00000018
+/uni00000015/uni00000014/uni00000011/uni00000019
+/uni00000014/uni00000015/uni00000011/uni00000019
+/uni00000014/uni0000001c/uni00000011/uni00000013
+/uni00000014/uni00000017/uni00000011/uni0000001a
+/uni00000019/uni00000011/uni00000019
+/uni00000017/uni00000011/uni0000001b
+/uni00000019/uni00000011/uni00000019/uni00000019/uni00000011/uni00000016
+/uni00000014/uni00000018/uni00000011/uni00000015
+/uni00000018/uni00000011/uni00000013
+/uni00000014/uni00000016/uni00000011/uni00000015
+/uni0000001b/uni00000011/uni00000013
+/uni00000034/uni0000005a/uni00000048/uni00000051/uni00000015/uni00000011/uni00000018/uni00000010/uni0000001a/uni00000025/uni00000010/uni0000004c/uni00000051/uni00000056/uni00000057/uni00000055/uni00000058/uni00000046/uni00000057
+/uni0000002a/uni00000033/uni00000037/uni00000010/uni00000017/uni00000052
+/uni00000026/uni0000004f/uni0000004c/uni00000051/uni0000004c/uni00000046/uni00000044/uni0000004f/uni0000002a/uni00000033/uni00000037/uni00000010/uni00000035/uni00000014
+Figure 5: Comparison of ClinicalGPT-R1 and baselines in Chinese
+Meanwhile, to test whether catastrophic forgetting occurred during the training process of
+ClinicalGPT-R1, we conducted tests on the MedQA. The results show that after ClinicalGPT-R1
+developed strong medical reasoning capabilities, no catastrophic forgetting occurred.
+
+[PAGE 7]
+/uni00000035/uni00000048/uni00000056/uni00000053/uni0000004c/uni00000055/uni00000044/uni00000057/uni00000052/uni00000055/uni0000005c
+/uni0000002a/uni00000044/uni00000056/uni00000057/uni00000055/uni00000052/uni00000048/uni00000051/uni00000057/uni00000048/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000038/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000026/uni00000044/uni00000055/uni00000047/uni0000004c/uni00000052/uni00000059/uni00000044/uni00000056/uni00000046/uni00000058/uni0000004f/uni00000044/uni00000055/uni0000002c/uni00000050/uni00000050/uni00000058/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000031/uni00000048/uni00000058/uni00000055/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c/uni00000028/uni00000051/uni00000047/uni00000052/uni00000046/uni00000055/uni0000004c/uni00000051/uni00000052/uni0000004f/uni00000052/uni0000004a/uni0000005c
+/uni00000024/uni00000059/uni0000004a
+/uni00000013
+/uni00000014/uni00000013
+/uni00000015/uni00000013
+/uni00000016/uni00000013/uni00000024/uni00000046/uni00000046/uni00000058/uni00000055/uni00000044/uni00000046/uni0000005c
+/uni00000014/uni0000001a/uni00000011/uni00000015
+/uni00000014/uni0000001b/uni00000011/uni00000017
+/uni00000015/uni00000017/uni00000011/uni00000013
+/uni00000014/uni0000001c/uni00000011/uni00000015
+/uni00000016/uni00000014/uni00000011/uni00000013
+/uni00000014/uni0000001a/uni00000011/uni00000013
+/uni00000016/uni00000016/uni00000011/uni00000013
+/uni00000015/uni00000015/uni00000011/uni00000017
+/uni00000015/uni00000013/uni00000011/uni00000013
+/uni00000014/uni00000018/uni00000011/uni00000013
+/uni00000015/uni00000019/uni00000011/uni00000015
+/uni00000014/uni0000001c/uni00000011/uni00000013
+/uni00000015/uni0000001a/uni00000011/uni0000001b
+/uni00000014/uni0000001c/uni00000011/uni00000019
+/uni00000016/uni00000015/uni00000011/uni00000019
+/uni00000015/uni00000015/uni00000011/uni00000017
+/uni0000001a/uni00000011/uni0000001b
+/uni00000019/uni00000011/uni00000017
+/uni00000014/uni00000017/uni00000011/uni00000013
+/uni0000001b/uni00000011/uni00000018
+/uni00000014/uni0000001b/uni00000011/uni00000013
+/uni00000018/uni00000011/uni0000001b
+/uni00000014/uni00000015/uni00000011/uni00000013
+/uni00000014/uni00000013/uni00000011/uni00000014
+/uni00000034/uni0000005a/uni00000048/uni00000051/uni00000015/uni00000011/uni00000018/uni00000010/uni0000001a/uni00000025/uni00000010/uni0000004c/uni00000051/uni00000056/uni00000057/uni00000055/uni00000058/uni00000046/uni00000057
+/uni0000002a/uni00000033/uni00000037/uni00000010/uni00000017/uni00000052
+/uni00000026/uni0000004f/uni0000004c/uni00000051/uni0000004c/uni00000046/uni00000044/uni0000004f/uni0000002a/uni00000033/uni00000037/uni00000010/uni00000035/uni00000014
+Figure 6: Comparison between ClinicalGPT-R1 and baseline models in English
+4 Conclusion
+In this study, we introduced ClinicalGPT-R1, a reasoning-enhanced LLM designed for clinical
+disease diagnosis. Recognizing that extended reasoning processes are critical in complex medical
+diagnostic scenarios, we systematically investigated various experimental setups to enhance the
+reasoning capabilities of LLMs. To address the complexity of medical reasoning, we constructed
+long-reasoning datasets via multiple synthesizers and explored diverse training strategies across
+languages. We also introduced MedBench-Hard, a challenging benchmark with stratified disease
+categories spanning seven medical specialties. Experimental results demonstrate that ClinicalGPT-R1
+exhibits exceptional performance in disease diagnosis.
+Acknowledgments
+This study was funded by the National Natural Science Foundation of China (grants 62272055,
+62425112), New Cornerstone Science Foundation through the XPLORER PRIZE, and Young Elite
+Scientists Sponsorship Program by CAST (2021QNRC001).
+
+[PAGE 8]
+References
+[1] Melody Y Guan et al. “Deliberative alignment: Reasoning enables safer language models”. In:
+arXiv preprint arXiv:2412.16339 (2024).
+[2] DeepSeek-AI. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement
+Learning. 2025. arXiv: 2501.12948 [cs.CL] . URL: https://arxiv.org/abs/2501.
+12948.
+[3] Tianyang Zhong et al. “Evaluation of openai o1: Opportunities and challenges of agi”. In:
+arXiv preprint arXiv:2409.18486 (2024).
+[4] Daya Guo et al. “Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement
+learning”. In: arXiv preprint arXiv:2501.12948 (2025).
+[5] Jason Wei et al. “Chain-of-thought prompting elicits reasoning in large language models”. In:
+Advances in neural information processing systems 35 (2022), pp. 24824–24837.
+[6] Aviral Kumar et al. “Training language models to self-correct via reinforcement learning”. In:
+arXiv preprint arXiv:2409.12917 (2024).
+[7] Kaiyan Zhang et al. “Ultramedical: Building specialized generalists in biomedicine”. In:
+Advances in Neural Information Processing Systems 37 (2024), pp. 26045–26081.
+[8] Maxime Griot et al. “Large language models lack essential metacognition for reliable medical
+reasoning”. In: Nature communications 16.1 (2025), p. 642.
+[9] Mohamed Hesham Sayed et al. “Undergraduate medical students’ perceptions and perspectives
+on their clinical reasoning learning experiences”. In: Scientific Reports 15.1 (2025), p. 6229.
+[10] Valentin Liévin et al. “Can large language models reason about medical questions?” In:
+Patterns 5.3 (2024).
+[11] Peiyi Wang et al. “Math-shepherd: Verify and reinforce llms step-by-step without human
+annotations”. In: arXiv preprint arXiv:2312.08935 (2023).
+[12] Hyeonbin Hwang et al. “Self-Explore: Enhancing Mathematical Reasoning in Language
+Models with Fine-grained Rewards”. In: arXiv preprint arXiv:2404.10346 (2024).
+[13] Hunter Lightman et al. “Let’s verify step by step”. In:The Twelfth International Conference
+on Learning Representations. 2023.
+[14] Yu Zhao et al. “Marco-o1: Towards open reasoning models for open-ended solutions, 2024a”.
+In: URL https://arxiv. org/abs/2411.14405 ().
+[15] Kun Zhou et al. “Jiuzhang3. 0: Efficiently improving mathematical reasoning by training small
+data synthesis models”. In: Advances in Neural Information Processing Systems 37 (2024),
+pp. 1854–1889.
+[16] Zhihao Fan et al. “Ai hospital: Benchmarking large language models in a multi-agent medical
+interaction simulator”. In: arXiv preprint arXiv:2402.09742 (2024).
+[17] Zhongzhen Huang et al. “O1 Replication Journey–Part 3: Inference-time Scaling for Medical
+Reasoning”. In: arXiv preprint arXiv:2501.06458 (2025).
+[18] Kaiyan Zhang et al. “Ultramedical: Building specialized generalists in biomedicine”. In:
+Advances in Neural Information Processing Systems 37 (2024), pp. 26045–26081.
+[19] Xiaohong Liu et al. “A generalist medical language model for disease diagnosis assistance”.
+In: Nature Medicine (2025), pp. 1–11.
+[20] Thomas Savage et al. “Diagnostic reasoning prompts reveal the potential for large language
+model interpretability in medicine. NPJ Digital Medicine, 7 (1), 20”. In: URL https://www.
+nature. com/articles/s41746-024-01010-1 (2024).
+[21] Junying Chen et al. HuatuoGPT-o1, Towards Medical Complex Reasoning with LLMs. 2024.
+arXiv: 2412.18925 [cs.CL]. URL: https://arxiv.org/abs/2412.18925.
+[22] Martin Riedmiller et al. “Learning by playing solving sparse reward tasks from scratch”. In:
+International conference on machine learning. PMLR. 2018, pp. 4344–4353.
+[23] Alexander Richard Trott and Stephan Tao Zheng. Solving sparse reward tasks using selfbalancing shaped rewards. US Patent 11,620,572. Apr. 2023.
+[24] John Schulman et al. “Proximal policy optimization algorithms”. In: arXiv preprint
+arXiv:1707.06347 (2017).
+[25] Qwen Team. Qwen2.5: A Party of Foundation Models. Sept. 2024. URL: https://qwenlm.
+github.io/blog/qwen2.5/.

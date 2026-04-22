@@ -1,0 +1,1174 @@
+[PAGE 1]
+SNIFFER : Multimodal Large Language Model
+for Explainable Out-of-Context Misinformation Detection
+Peng Qi, Zehong Yan, Wynne Hsu, Mong Li Lee
+National University of Singapore
+peng.qi@nus.edu.sg, e0787894@u.nus.edu, {whsu,leeml}@comp.nus.edu.sg
+https://pengqi.site/Sniffer
+No!
+No,the image is wrongly used in a different news context. On the one hand, the person in the caption, Jeffrey E Thompson, does not match the person in the image, Harry Thomas Jr. On the other hand, the image-retrieved webpages contain a series of news articles about Harry ThomasJr,whicharenotrelevanttothegivencaption.Therefore, the image is more likely to be wrongly used in the caption.
+Exis%ngdetectors Sniﬀer(Ourdetector)
+No, the image is wrongly used in a different news context. The given news caption and image are inconsistent in person. The person in caption is Jeffrey E Thompson, and the person in image is Vincent C Gray.
+InstructBLIP
+No, the image is wrongly used in a different news context. The given news caption and image are inconsistent in person. The person in the caption is Jeffrey E Thompson, and the person in the image is Vincent C Gray. To elaborate, the news caption is about Jeffrey E Thompson pleading guilty to funding a shadow campaign, but the person depicted in the image is Vincent C Gray, who is mentioned in the caption as the beneficiary of the campaign.
+GPT-4V
+Does this caption match its image?Caption:Jeffrey E Thompson on Monday pleaded guilty in federal court to funding a shadow campaign to help Vincent C Gray win the 2010 mayoral election.
+Figure 1. Comparison between the proposed S NIFFER and other detectors 1. In this out-of-context misinformation, the individual in
+the image is Harry Thomas Jr , which contradicts the caption. Existing detectors often give a judgment without explanation. While
+InstructBLIP and GPT-4V correctly identify the inconsistent news element ( i.e. person) in the image-text pair, they mistakenly associate
+the person in the image with a different individual mentioned in the caption. In contrast, S NIFFER analyzes both the consistency of the
+image-text content and the claim-evidence relevance, and accurately identify the person in the image asHarry Thomas Jr, thereby providing
+a precise and persuasive explanation.
+Abstract
+Misinformation is a prevalent societal issue due to its
+potential high risks. Out-Of-Context (OOC) misinformation, where authentic images are repurposed with false text,
+is one of the easiest and most effective ways to mislead
+audiences. Current methods focus on assessing imagetext consistency but lack convincing explanations for their
+judgments, which is essential for debunking misinformation. While Multimodal Large Language Models (MLLMs)
+have rich knowledge and innate capability for visual reasoning and explanation generation, they still lack sophistication in understanding and discovering the subtle crossmodal differences. In this paper, we introduce SNIFFER , a
+novel multimodal large language model specifically engineered for OOC misinformation detection and explanation.
+1Due to space constraints, we have made minor edits to the models’
+responses for brevity without altering their original meaning.
+SNIFFER employs two-stage instruction tuning on InstructBLIP . The first stage refines the model’s concept alignment
+of generic objects with news-domain entities and the second stage leverages language-only GPT-4 generated OOCspecific instruction data to fine-tune the model’s discriminatory powers. Enhanced by external tools and retrieval,
+SNIFFER not only detects inconsistencies between text and
+image but also utilizes external knowledge for contextual
+verification. Our experiments show thatSNIFFER surpasses
+the original MLLM by over 40% and outperforms state-ofthe-art methods in detection accuracy. SNIFFER also provides accurate and persuasive explanations as validated by
+quantitative and human evaluations.
+1. Introduction
+In recent years, Deepfake and other media manipulation
+technologies [42, 44, 46, 53] have garnered considerable attention from both the computer vision community and the
+arXiv:2403.03170v1 [cs.MM] 5 Mar 2024
+
+[PAGE 2]
+general public, due to their lifelike qualities and their significant influence in accelerating the spread of fake news.
+Nevertheless, one of the easiest and most prevalent ways
+to mislead audiences is to use unaltered images in a new
+but false or misleading context, known as out-of-context
+(OOC) misinformation [12]. For example, during the recent
+Israel-Hamas war, numerous instances of OOC misinformation were observed on social media. These often involved
+repurposing old images from unrelated armed conflicts or
+even military footage from video games [2]. Detecting such
+OOC misinformation poses a unique challenge since the
+visual content remains authentic, and the deception stems
+solely from the context created by combining these images
+with misleading or incorrect text.
+Faced with this challenge, current studies [3, 16, 17, 29,
+31, 36, 41] focus on learning a unified latent representation
+space to assess the consistency of image-text pairs or compare them with external references. While these approaches
+have made some progress, the development of convincing
+explanations for these judgments, critical for establishing
+public trust and more effectively debunking misinformation
+[7, 26], still remains unexplored. Although some works
+[3, 29] visualize salient objects and words based on the
+model’s attention weights, it is still unclear why these highlighted regions signify misinformation. Therefore, it is important to develop technologies capable of not only detecting but also explaining out-of-context misinformation.
+Multimodal large language models (MLLMs) have made
+great advancements in a variety of multimodal tasks [19,
+49]. With their extensive world knowledge and robust visual reasoning and generation capabilities, MLLMs have
+the potential to detect factual inconsistency in image-text
+pairs and to generate coherent, natural language-based explanations. However, applying existing MLLMs to the task
+of OOC misinformation detection is non-trivial. On the one
+hand, initial experiments on some open-sourced MLLMs
+(such as InstructBLIP [9]) revealed common shortcomings,
+including failure to follow instructions, misunderstanding
+of user’s intent, and hallucination (detailed in Supplementary). These shortcomings may stem from the fundamental differences between the training corpus for MLLMs
+and the requirements of the specific task. In OOC detection, the model must discern when text and images describe
+disparate news events, which are typically not present in
+MLLMs’ training data. On the other hand , the news event
+from which the image originates may not be discernible
+from the image itself. For example, news images accompanying reports of public figures speaking at various events
+are generally similar close-up shots of the individuals, making it almost impossible to distinguish from the image content alone which news scene or event the image is from.
+MLLMs have inherent limitations as they lack the ability
+to access real-time information or utilize external tools for
+identifying and contextualizing events.
+To address these challenges, we introduce S NIFFER , an
+MLLM specifically engineered for detecting OOC misinformation. We utilize language-only GPT-4 [34] to generate the instruction data that includes both judgments and
+explanation, and employ two-stage instruction tuning on InstructBLIP. We first refine the model’s concept alignment of
+generic objects with news-domain entities by image captioning data, and then leverage the OOC-specific data to
+fine-tune the model’s discriminatory powers. Through taskspecific tuning, the inherent knowledge within the model
+can be activated and reorganized to align with the specific
+logic required by our task. This is the first attempt to extend multimodal instruction tuning to the news domain for
+end-to-end training of an OOC misinformation detector.
+Moreover, SNIFFER is augmented with external knowledge through retrieval and tool usage. It conducts internal
+checking to spot inconsistencies between text and image,
+and external checking to reason between the given text and
+retrieved image context. The judgments and explanations
+derived from these two perspectives are then integrated into
+the LLM module for a more comprehensive and unified output. Empowered by multimodal instruction tuning and enhanced with external knowledge, S NIFFER demonstrates a
+significant performance improvement, exceeding the original MLLM by over 40% and surpassing current state-ofthe-art methods. Beyond accurate judgments, SNIFFER also
+excels in providing precise and persuasive explanations, as
+evidenced by quantitative analysis and human evaluations.
+Our contribution can be summarized as follows:
+• We design a novel data reformation pipeline assisted by
+language-only GPT-4 to convert the given OOC imagetext pairs into the appropriate instruction-following format with judgments and explanations simultaneously.
+• We propose a practical approach to adapt existing
+general-purpose MLLMs for out-of-context misinformation detection through two-stage instruction tuning. Our
+task-specific MLLM, S NIFFER , enhanced with external
+tools and retrieval, effectively models both the internal
+image-text clues and the external claim-evidence clues for
+simultaneous OOC detection and explanation.
+• Extensive experiments show that S NIFFER significantly
+surpasses the original MLLM and SOTA methods in detection performance, achieves comparable results with
+just 10% of the training data, and provides precise and
+persuasive explanations validated by both quantitative
+and human assessments.
+2. Related Work
+Out-of-Context Misinformation Detection. Existing multimodal misinformation detection methods extract and fuse
+features from different perspectives, such as linguistic patterns [37], image tampered patterns [38, 42], multimodal
+
+[PAGE 3]
+inconsistency [39, 54], user response [43], and propagation
+structure [30], to classify the given news as real or fake.
+Out-of-context misinformation, also known as image repurposing and cheapfake, is a specific form of misinformation
+that is easy to create and highly misleading. It reuses authentic images within a similar yet incorrect context, rendering many traditional detection methods ineffective [52].
+To detect OOC misinformation, some methods utilize knowledge-rich pre-trained models to conduct internal checking for the given image-text pair. For example,
+[29, 36] use the multimodal pre-trained models CLIP [40]
+and VisualBERT [23] to classify. Other methods employ
+external resources to do external checking. For example,
+[16, 17, 41] use a reference dataset that contains unmanipulated related claims to mimic world knowledge, and then
+detect the OOC use by comparing the given claim with
+the retrieved one. [3] uses the text and image to retrieve
+related Web evidence separately, and compute the claimevidence consistency under both textual and visual modalities. Similarly, [31] proposes an unsupervised cross-modal
+entity consistency verification method, which retrieves images using entities extracted from the given text, and then
+calculates the similarity between the entities in the given
+image and retrieved images. Different from judging the veracity of the given image-caption claim, [5] re-formulates
+this task as: If two captions refer to the same objects in
+the same image but are semantically different, then it indicates an out-of-context use of this image. They introduce a
+self-supervised training strategy to train the model’s visual
+grounding ability and evaluate the model on OOC samples.
+Although existing works have made some progress, they
+often fail to explain their judgment. This lack of transparency hinders the effectiveness of these methods in debunking misinformation. [52] proposes an interpretable decontextualization detector, which uses MLLM to verify the
+sub-questions decomposed from the given text and selects
+supported question-answer pairs as the explanation. However, the effectiveness of this method is heavily limited by
+the ability of existing general-domain MLLM. In contrast,
+we use a two-stage instruction tuning to adapt the generaldomain MLLM for the OOC detection task, enabling it to
+concurrently generate both judgment and explanation.
+Instruction Tuning for MLLMs. Multimodal large language models typically use a lightweight visual prompt generator that produces soft prompts for the input images to
+connect to an existing LLM. Early models [4, 22, 55] focus
+on large-scale pre-training, while recent works [9, 18, 27]
+employ instruction tuning for pre-trained MLLMs. Instruction tuning is a crucial technique to enhance the capabilities and controllability of large language models, which involves further training pre-trained models on a collection of
+instruction-formatted datasets to enhance models’ generalization to unseen tasks. One challenge of instruction tuning
+is how to construct high-quality instructions that properly
+cover the desired target behaviors. In addition to adapting
+existing benchmarks [9], some works [18, 27] collect samples through self-instruction [48], which bootstraps LLMs
+to generate textual instruction-following data using a few
+hand-annotated samples. The success of LLMs in the general domain has inspired interest in applications such as
+biomedical [20], law [15] and education [51]. In this work,
+we extend the ability of general-domain MLLM for OOC
+misinformation detection via instruction tuning.
+3. Method
+Our goal is to develop an explainable multimodal out-ofcontext misinformation detection model that can jointly output the prediction and explanation. Figure 2 illustrates the
+overall architecture of the proposed S NIFFER . Specifically,
+for a given image-text pair, we feed it into the multimodal
+large language model for checking the internal cross-modal
+inconsistencies. The image-retrieved textual evidence will
+be fed into the embedded LLM module with the input text
+to find the external claim-evidence inconsistencies. Similar
+to ensemble learning, the LLM module will output the final
+judgment and explanation, drawing on the results from both
+internal and external checks. We first introduce the base
+MLLM and the two-stage instruction tuning procedures, before describing the reasoning process which includes internal/external checking, and composed reasoning.
+3.1. Base MLLM
+We employ InstructBLIP [9], a general-purpose visionlanguage model as the base MLLM for further tuning. InstructBLIP consists of an image encoder, an LLM, and a
+Query Transformer (Q-Former). As shown in Figure 2, QFormer extracts instruction-aware visual features based on
+the output of the frozen image encoder, and feeds the visual
+features as soft prompt input to the frozen LLM. The learnable query vectors interact with the instruction text through
+self-attention layers, and interact with the frozen image embeddings through cross-attention layers. Similar to BLIP-2
+[22], Q-Former is pre-trained for vision-language representation learning and vision-to-language generative learning
+and then is tuned for multi-task vision-language instruction
+learning in [9].
+3.2. Instruction Tuning
+We use a two-stage training procedure to adapt the generaldomain InstructBLIP to the news domain and OOC detection task sequentially (see Figure 3).
+Stage 1: News Domain Alignment. We observe that InstructBLIP tends to respond with coarse-grained nouns (e.g.
+“person”, “woman”, and “man”) rather than fine-grained,
+specific names such as “Donald Trump”. OOC samples
+
+[PAGE 4]
+ImageEncoder
+Q-Former
+LLM
+QueriesInstruc+onJudge whether the given image is wrongly used in thegiventext.Newscap(on:…Possiblevisualen((es:…Answer:
+Instruc+on
+…
+Harry Thomas JrVisualEn++es
+🔥
+❄
+❄
+•Harry Thomas sentenced to three years.•Harry Thomas leKer to judge:I am truly sorry for what I did.
+EvidenceInputImage
+InternalCheckingInstruc+onCombinetheinternalandexternalcheckingresultstogivethefinalanswer.Internal:…External:…FinalAnswer:FinalAnswer
+Judge whether the given newscap=onissupportedbytheretrievedevidences.Newscap(on:…Evidence:…Answer:
+ExternalChecking
+InternalCheckingExternalCheckingComposedReasoning
+Jeﬀrey E Thompson on Monday pleaded guilty in federal court to funding a shadow campaign to help Vincent C Gray win the 2010 mayoral elecOon.InputText
+InputText
+Tool
+Retrieval
+Figure 2. Architecture of the proposed framework S NIFFER . For a given image-text pair, S NIFFER conducts a two-pronged analysis:
+(1) it checks the consistency of the image and text content ( internal checking), and (2) it examines the relevance between the context of
+the retrieved image and the provided text ( external checking). The outcomes of both these verification processes are then considered by
+SNIFFER to arrive at a final judgment and explanation.
+Cap$on1Caption2InstructBLIPImage2Image2’sdescription
+Infer thecap1-img2inconsistencies based on the cap1-cap2differences
+Yes, the image is wrongly used in a diﬀerent news context. The given news cap?on and image are inconsistent in {type}. The {type} in cap?on is {en?ty_cap}, and the {Cype} in image is {en?ty_img}.
+Instruc(onDataConstruc(onExtractnewselementsasanswersandthengeneratecorrespondingques<onsCaption:Selena Gomez in chola style at the MTV awardsNERModelTypesEVENT, FAC, GPE, LOC, NORP , ORG, PERSON, PRODUCT,WORK_OF_ART
+Answer:Selena Gomez
+Fine-tunedT5Ques2on:Who wore chola style at the mtv awards?
+Stage1NewsDomainAlignment3HoursonImageCap*oning1epochon370KsamplesStage2Task-SpeciﬁcTuning13HoursonOOCDetec*on10epochon71Ksamples
+InstructBLIP
+Sniffer
+Figure 3. S NIFFER was initialized with the general-domain InstructBLIP and then continuously trained to adapt it to the news
+domain and OOC misinformation detection task sequentially.
+are typically created by replacing original entities with ones
+that are similar but not identical, and these subtle distinctions appear to be difficult for InstructBLIP to capture.
+Given the cross-domain differences in the lexical preference, we construct the news-domain instruction dataset to
+adapt the general-domain InstructBLIP to the news domain.
+This instruction dataset is curated from the NewsCLIPpings
+dataset2 [29] which consists of 36,8013 unique news imagecaption pairs covering a diverse and representative set of
+news-domain concepts. Inspired by LLaV A [27], we leverage ChatGPT-4 [33] to construct the instruction-following
+data from these image-caption pairs. Specifically, to keep
+the diversity of instruction data, we prompt ChatGPT-4 to
+generate 11 questions (see Supplementary) with the intent
+to instruct the model to describe the image content. Given
+that these captions have less than 30 words, we stipulate that
+2We exclude the validation and testing set to prevent data leakage.
+the generated questions should explicitly specify a “brief”
+description of the images. For an image I and its associated
+caption Tc, we randomly sample one question Tq to form
+the corresponding instruction as
+Human: ITq⟨STOP⟩; Model:Tc⟨STOP⟩. (1)
+During training, we keep both the image encoder and
+LLM frozen, and only update the Q-former. In this way,
+the image features of vast news-domain visual concepts can
+be aligned to the textual embeddings of their corresponding
+fine-grained entity names in the pre-trained LLM.
+Stage 2: Task-Specific Tuning. In out-of-context misinformation, an image is repurposed with a false text,
+which is different from the typical visual-language tasks
+that general-purpose MLLMs focus on. These tasks, such as
+image captioning and visual question answering, typically
+involve text and images that correspond to the same event.
+To address this, we construct the instruction data to progressively adapt the news-domain MLLM (developed in Stage
+1) to the task of OOC misinformation detection. Similar to
+Stage 1, we only update the parameters in Q-former.
+One of the primary challenges in creating an explainable OOC misinformation detector is the lack of supervised
+data that includes both judgments and explanations. The
+NewsCLIPpings dataset generates fake pairs by replacing
+the img1 in a real pair (cap1, img1) with another img2 from
+a similar but different pair (cap2, img2), resulting in a fabricated pair (cap1, img2). While labels indicating their au4
+
+[PAGE 5]
+𝑐𝑎𝑝!𝑐𝑎𝑝"InstructBLIP𝑖𝑚𝑔" 𝑖𝑚𝑔"’sdescrip)on
+No, the image is wrongly used in a diﬀerent news context. The given news cap;on and image are inconsistent in element. The element in cap;on is ent_t,and the element in image is ent_v.
+Does 𝑐𝑎𝑝!match 𝑖𝑚𝑔"?
+Figure 4. Process of OOC instruction generation.
+thenticity are provided for these pairs, the specific inconsistencies between cap1 and img2—the crux of the misinformation—are not explicitly identified. As such, we innovatively extract the inconsistencies between cap1 and cap2
+by prompting language-only GPT-4 as an alternative. As
+shown in Figure 4, given cap1, cap2, and the InstructBLIPgenerated img2’s basic description, we prompts GPT-4 to
+generate the inconsistencies between cap1 and img2 as if
+it could see the image (even though it only has access to
+the text). We curate few-shot examples in the prompt and
+also restrict the output format, requiring it to spot the news
+elements that are inconsistent between cap1 and img2, as
+well as the specific entities. The complete prompt is shown
+in Supplementary. Although there may be multiple inconsistent elements between cap1 and img2, we require GPT4 to generate only the most likely one for clarity. In total, we obtain 35,536 GPT-assisted instructions for out-ofcontext samples and supplement the real samples with an
+equal number of instructions (i.e., “No, the image is rightly
+used in the given news context. ”)
+3.3. Reasoning Process
+To effectively tackle the challenge of OOC misinformation detection, the reasoning process in S NIFFER employs
+a comprehensive strategy that integrates both internal and
+external verification methods.
+Internal Checking. The two-stage instruction tuning process equips S NIFFER with the ability to identify image-text
+inconsistency for internal checking. However, the model
+does not have access to current information as it is limited
+by the training corpus. Therefore, we employ Google Entity Detection API [1] to recognize visual entities in images
+which are incorporated into the instruction as supplementary information. This allows S NIFFER to maintain relevancy and accuracy in its analysis. Additionally, there is
+potential to further enhance S NIFFER ’s detection capabilities by integrating it with other plug-in tools, expanding its
+functionality in detecting inconsistencies.
+External Checking. In addition to image-text internal
+checking, leveraging retrieved web evidence for external
+verification is a crucial step, as highlighted in [3, 56]. The
+context of an image, particularly the news text in which it
+has previously appeared, serves as a vital supplement to the
+content of the image itself. Reverse image searches can
+often reveal the original event where the image was first
+reported, to help verify if the accompanying text matches
+the true context of the image. Given the strong analytical
+reasoning ability of LLM, we input both the news caption
+and the text from webpages retrieved via image search [1]
+into the LLM module in SNIFFER . The LLM is then tasked
+with determining whether the provided news caption is supported by the retrieved evidence.
+Composed Reasoning. The internal and external verification steps analyze the input image-text pairs from different
+perspectives and may yield different conclusions. Therefore, we employ the LLM once again for an interpretable
+model ensemble, tasking it to deliver its final decision based
+on both outcomes and the initial caption, and to clearly explain its decision-making process.
+4. Performance Study
+In this section, we conducted experiments to evaluate the
+effectiveness of S NIFFER . Specifically, we aim to answer
+the following evaluation questions:
+Q1: Can S NIFFER improve the performance of out-ofcontext misinformation detection?
+Q2: How effective are the different modules of SNIFFER in
+detection?
+Q3: Can SNIFFER generate accurate and convincing explanations for their judgment?
+Q4: How does S NIFFER perform in early detection, when
+the number of training samples is limited?
+Q5: How does SNIFFER perform on other datasets?
+Q6: How does SNIFFER perform compared to GPT-4V?
+4.1. Experimental Setup
+Dataset. We use the largest out-of-context misinformation
+detection benchmark NewsCLIPpings [29]. This dataset is
+built based on VisualNews [25], a large-scale corpus that
+contains image-caption pairs from four news agencies (The
+Guardian, BBC, USA Today, and The Washington Post).
+The out-of-context samples are automatically generated by
+replacing the images in the original image-caption pairs
+with retrieved images that are semantically related but belong to different news events. [3] extends the NewsCLIPpings dataset by supplementing the retrieved textual and visual evidence. Here, we use part of the textual evidence and
+detected visual entities provided in this datatset.
+Following previous works [3, 36, 52], we report the results on the Merged/Balance subset, which has a balanced
+proportion of different retrieval strategies and positive/negative samples. The number of samples in the training, validation, and testing sets are 71072, 7024, and 7264, respectively. As in [29], we use the accuracy over all samples (All)
+
+[PAGE 6]
+and separately for the Fake (Out-of-Context) and Real (Not
+Out-of-Context) samples as evaluation metrics.
+Implementation Details. We select InstructBLIP [9] as the
+base MLLM, of which the image encoder is ViT-G/14 [11]
+and the LLM is Vicuna-13B [8]. During training, we initialize the model from the pre-trained InstructBLIP and only
+finetune the parameters of Q-Former while keeping both the
+image encoder and the LLM frozen. To reduce the memory cost, we use FlashAttention-2 [10] to replace the standard Attention layer in LLM. Our implementation uses the
+LA VIS library [21]. The batch size is set as 8 and 4 in the
+stages of news domain alignment and task-specific tuning,
+respectively. The max input sequence length is 550 and the
+output length is 256. We use the AdamW [28] optimizer
+and apply a linear warmup of the learning rate, increasing
+from 10−8 to 10−5, followed by a cosine decay. The models
+are trained utilizing 4 Nvidia A100 (40G) GPUs.
+Baselines. We compared SNIFFER with two representative
+multimodal misinformation detectors trained from scratch:
+1) SAFE [54] which translates the input image into a sentence, and computes the multimodal relevance based on the
+sentence similarity as the auxiliary loss; 2) EANN [47]
+which uses adversarial training to guide the model to learn
+event-invariant multimodal features for detection.
+We also compared SNIFFER with pre-trained multimodal
+baselines: 1) VisualBERT [23], one of the earliest works
+on multimodal pre-training, concatenates the bounding box
+features and textual tokens. The combined features are fed
+into a unified encoder, consisting of a series of transformer
+layers, to align them into one embedding space. The pretraining of VisualBERT involves masked language modeling and image-text matching objectives; 2) CLIP [40]
+passes image and text through separate encoders and uses
+contrastive loss to guide the multimodal encoders to generate similar representations for related concepts; 3) DTTransformer [36] uses CLIP as the multimodal encoder
+and adds auxiliary Transformer layers to enhance the multimodal features interaction. It combines different types of
+generated data as the training corpus; 4) CCN [3] proposes
+a consistency-checking network assisted by CLIP, that considers the consistency of the claim-evidence (image-image
+and text-text), in addition to the image-text pairing. This is
+the only baseline that utilizes retrieved external evidence; 5)
+Neu-Sym detector [52] proposes a neural-symbolic model
+which symbolically disassembles the text into a set of fact
+queries, and forwards the query-image pairs into a pretrained MLLM. The output answers are further selected and
+combined to obtain the final judgment.
+4.2. Performance Comparison (Q1)
+Table 1 shows the performance of S NIFFER and the various baselines. We observe that S NIFFER outperforms all
+the baselines, which validates that it can effectively capTable 1. Performance (%) comparison between SNIFFER and baselines. The best results are in boldface.
+Method All Fake Real
+SAFE 52.8 54.8 52.0
+EANN 58.1 61.8 56.2
+VisualBERT 58.6 38.9 78.4
+CLIP 66.0 64.3 67.7
+DT-Transformer 77.1 78.6 75.6
+CCN 84.7 84.8 84.5
+Neu-Sym detector 68.2 - SNIFFER (Ours) 88.4 86.9 91.8
+Table 2. Ablation studies on each component in SNIFFER .
+InstructBLIP PT OOC Tuning VisEnt Evidence All Fake Real
+✓ ✗ ✗ ✗ ✗ 47.4 4.6 90.3
+✓ ✓ ✗ ✗ ✗ 49.3 9.4 89.2
+✓ ✗ ✓ ✗ ✗ 82.5 75.3 89.7
+✓ ✗ ✓ ✓ ✗ 87.6 83.9 91.3
+✓ ✓ ✓ ✗ ✗ 83.1 76.5 89.6
+✓ ✓ ✓ ✓ ✗ 88.2 84.9 94.0
+✓ ✗ ✗ ✗ ✓ 84.5 92.9 76.0
+✓ ✓ ✓ ✓ ✓ 88.4 86.9 91.8
+ture the subtle inconsistency in the OOC samples. Even
+though SNIFFER only considers part of the textual evidence,
+it still surpasses CCN by over 3.7%. Baselines trained
+from scratch ( i.e. EANN and SAFE) are worse than pretrained multimodal baselines, verifying the importance of
+world knowledge in the pre-trained models in distinguishing the OOC samples. The inferior performance of the
+Neu-Sym detector compared to other approaches ( e.g. DTTransformer) suggests that general-purpose MLLM may
+not be well-suited for the OOC detection task.
+4.3. Ablation Studies (Q2)
+We conducted ablation experiments to analyze the importance of each component of S NIFFER in detecting OOC
+misinformation. Specifically, we first tested the original
+InstructBLIP, and then incrementally integrated various
+components: pre-training ( PT) with news-domain data in
+Stage 1, task-specific tuning based on OOC data in Stage 2
+(OOC tuning), visual entities ( VisEnt), and retrieved external evidence (Evidence). From Table 2, we can see that:
+• The original InstructBLIP exhibits a classification accuracy of only 47.4%, which is even lower than random
+guessing. Furthermore, the recall for fake samples was
+a mere 4.6%. These results indicate that the generalpurpose InstructBLIP tends to misclassify OOC misinformation as real, likely due to the similarity in the text and
+image composition of such challenging misinformation.
+• All components in S NIFFER are important for achieving
+its best performance, especially the OOC tuning. Specifically, it improves the performance of InstructBLIP by
+over 35 percentage points, suggesting that task-specific
+
+[TABLE page=6 index=1]
+Columns: stages of news domain alignment and task-specific tuning, | Unnamed: 0
+Row 1: stages of news domain alignment and task-specific tuning,: respectively. The max input sequence length is 550 and the | Unnamed: 0: Table 2. Ablation studies on each component in SNIFFER.
+Row 2: stages of news domain alignment and task-specific tuning,: output length is 256. We use the AdamW [28] optimizer | Unnamed: 0:
+Row 3: stages of news domain alignment and task-specific tuning,: | Unnamed: 0: InstructBLIP PT OOC Tuning VisEnt Evidence All Fake Real
+Row 4: stages of news domain alignment and task-specific tuning,: and apply a linear warmup of the learning rate, increasing | Unnamed: 0:
+Row 5: stages of news domain alignment and task-specific tuning,: from 10−8 to 10−5, followed by a cosine decay. The models | Unnamed: 0: ✓ ✓ ✓ ✗ ✗ ✗ ✗ ✗ ✗ ✗ 47.4 49.3 4.6 9.4 90.389.2
+Row 6: stages of news domain alignment and task-specific tuning,: are trained utilizing 4 Nvidia A100 (40G) GPUs. | Unnamed: 0: ✓ ✗ ✓ ✗ ✗ 82.5 75.3 89.7
+Row 7: stages of news domain alignment and task-specific tuning,: | Unnamed: 0: ✓ ✗ ✓ ✓ ✗ 87.6 83.9 91.3
+Row 8: stages of news domain alignment and task-specific tuning,: Baselines. We compared SNIFFER with two representative | Unnamed: 0:
+Row 9: stages of news domain alignment and task-specific tuning,: | Unnamed: 0: ✓ ✓ ✓ ✗ ✗ 83.1 76.5 89.6
+Row 10: stages of news domain alignment and task-specific tuning,: multimodal misinformation detectors trained from scratch: | Unnamed: 0: ✓ ✓ ✓ ✓ ✗ 88.2 84.9 94.0
+Row 11: stages of news domain alignment and task-specific tuning,: 1) SAFE [54] which translates the input image into a sen- | Unnamed: 0: ✓ ✗ ✗ ✗ ✓ 84.5 92.9 76.0
+Row 12: stages of news domain alignment and task-specific tuning,: tence, and computes the multimodal relevance based on the | Unnamed: 0: ✓ ✓ ✓ ✓ ✓ 88.4 86.9 91.8
+[/TABLE]
+
+[TABLE page=6 index=2]
+Columns: and separately for the Fake (Out-of-Context) and Real (Not | Table 1. Performance (%) comparison between SNIFFER and baseRow 1: and separately for the Fake (Out-of-Context) and Real (Not: Out-of-Context) samples as evaluation metrics. | Table 1. Performance (%) comparison between SNIFFER and base-: lines. The best results are in boldface.
+Row 2: and separately for the Fake (Out-of-Context) and Real (Not: Implementation Details. We select InstructBLIP [9] as the | Table 1. Performance (%) comparison between SNIFFER and base-: Method All Fake Real
+Row 3: and separately for the Fake (Out-of-Context) and Real (Not: base MLLM, of which the image encoder is ViT-G/14 [11] | Table 1. Performance (%) comparison between SNIFFER and base-: SAFE 52.8 54.8 52.0
+Row 4: and separately for the Fake (Out-of-Context) and Real (Not: and the LLM is Vicuna-13B [8]. During training, we ini- | Table 1. Performance (%) comparison between SNIFFER and base-: EANN 58.1 61.8 56.2
+Row 5: and separately for the Fake (Out-of-Context) and Real (Not: tialize the model from the pre-trained InstructBLIP and only | Table 1. Performance (%) comparison between SNIFFER and base-: VisualBERT 58.6 38.9 78.4
+Row 6: and separately for the Fake (Out-of-Context) and Real (Not: finetune the parameters of Q-Former while keeping both the | Table 1. Performance (%) comparison between SNIFFER and base-: CLIP 66.0 64.3 67.7
+Row 7: and separately for the Fake (Out-of-Context) and Real (Not: image encoder and the LLM frozen. To reduce the mem- | Table 1. Performance (%) comparison between SNIFFER and base-: DT-Transformer 77.1 78.6 75.6
+Row 8: and separately for the Fake (Out-of-Context) and Real (Not: ory cost, we use FlashAttention-2 [10] to replace the stan- | Table 1. Performance (%) comparison between SNIFFER and base-: CCN 84.7 84.8 84.5
+Row 9: and separately for the Fake (Out-of-Context) and Real (Not: dard Attention layer in LLM. Our implementation uses the | Table 1. Performance (%) comparison between SNIFFER and base-: Neu-Sym detector 68.2 - Row 10: and separately for the Fake (Out-of-Context) and Real (Not: LAVIS library [21]. The batch size is set as 8 and 4 in the | Table 1. Performance (%) comparison between SNIFFER and base-: SNIFFER (Ours) 88.4 86.9 91.8
+[/TABLE]
+
+[PAGE 7]
+InstructBLIP +PT +OOC T uning +VisEnt
+0.90
+0.92
+0.94
+0.96
+0.98
+1.00
+element
+ent_t
+ent_v
+Figure 5. Response ratio.
+tuning can aid the model in learning the logic necessary
+to accurately judge OOC samples.
+• The incorporation of visual entities contributed to a 5point increase in accuracy. This indicates that the integration of external tools can significantly enhance the
+model’s ability to identify visual elements.
+• Relying solely on assessing the relevance between text
+and image-retrieved textual evidence can yield relatively
+good detection results. However, while this approach
+achieves high recall for fake samples, that of real samples is notably lower than other methods. This discrepancy is largely attributable to the noise in the retrieved
+evidence. Even for real news, relevant evidence may not
+always be retrievable, leading to misclassification of real
+samples. Additionally, since only less than 60% of the
+samples have associated evidence, the overall improvement in the model’s accuracy is somewhat limited.
+4.4. Explainability Analysis (Q3)
+We evaluated the quality of the explanations generated by
+SNIFFER in terms of accuracy and persuasiveness.
+Quantitative Analysis. We compared SNIFFER ’s generated
+explanation with the ground truth obtained in Section 3.2
+on the test set. We focus on three critical information points
+within OOC samples, i.e. inconsistent newselement, the entity of that element in the text (ent t) and image (ent v). We
+design two types of evaluation metrics: 1) Response ratio of
+these three points; 2) Accuracy of these three points. We use
+hard match and compute the hit ratio for element, and use
+similarity of the CLIP embedding for ent t and ent v. We
+also use ROUGE [24] to measure the accuracy of the generated explanations from an overall perspective. We compared the performance of various variants of S NIFFER on
+these metrics to demonstrate the role of different components in enhancing the model’s explainability.
+1) Response Ratio: Figure 5 shows the response ratio
+of element, ent t, and ent v for different training steps. We
+see that the model’s response ratio is close to 1 initially but
+significantly decreases forent t and ent v after OOC tuning.
+This indicates that the model has become more conservative
+in its outputs. Further, the response ratio improves slightly
+InstructBLIP +PT +OOC T uning +VisEnt
+0.20
+0.30
+0.40
+0.50
+0.60
+0.70
+0.80
+element-hit
+ent_t-sim
+ent_v-sim
+ROUGE
+Figure 6. Explanation accuracy.
+after incorporating visual entities, indicating that these entities have enhanced the model’s ability to recognize entities.
+2) Explanation Accuracy: Although there is a decline
+in the response ratio of the model, the accuracy of its responses across all three points shows an increase. Figure 6
+shows that all components contribute to the improvement
+of explanation accuracy in terms of the hit ratio forelement,
+average similarity for ent t and ent v, and ROUGE value
+for the whole response. Specifically, the hit ratio ofelement
+increases by 4% and 44% by pre-training and OOC tuning
+with visual entities, respectively, demonstrating the model’s
+increasing ability to capture inconsistencies between text
+and images. The accuracy of ent t consistently outperforms
+ent v by 17%. This disparity can be attributed to the relative
+simplicity of directly extracting ent t from text, as opposed
+to ent v, which is derived from images and thus heavily dependent on the model’s visual recognition capabilities.
+Overall, after training, the model has become more conservative yet more accurate in spotting the key detection
+points. This indicates that the model has truly captured
+clues of inconsistencies between text and images, rather
+than merely fitting to real or fake labels.
+Human Evaluation. To assess the effectiveness of S NIF FER in debunking misinformation through its generated explanations, we conducted a human evaluation. We randomly selected 20 OOC misinformation samples from the
+test set. Ten participants were asked to judge the veracity
+of each news item ( i.e. fake or real) and their confidence
+level (i.e. no, somewhat, high) both before and after reading S NIFFER ’s explanations. Figure 7 shows that: (a) 69%
+of the items were correctly identified as fake by the users 3,
+a finding that aligns with the statistics in [29], indicating
+a certain level of user discernment in detecting OOC misinformation; (b) for the OOC samples initially misidentified as real by the users, 87% of their judgments changed
+to fake after reading SNIFFER ’s judgment and explanations,
+demonstrating the strong persuasive power of SNIFFER ; (c)
+for the OOC samples that were initially identified as fake by
+3When engaged in data annotation, users tended to label news items as
+fake more frequently compared to their usual behavior when reading news
+on social media.
+
+[PAGE 8]
+Ini$al:FakeConﬁdence-Confidence↑Ini$al:Real->Fake->Real
+58%
+42%
+87%13%
+69%
+31%
+Figure 7. Results of human evaluation. The outer ring displays the
+initial distribution of test samples judged as real and fake, while
+the inner circle illustrates the changes in users’ judgments and confidence levels after reading SNIFFER ’s explanations.
+10% 25% 50% 100%
+Proportion of data used in the training set
+83Accuracy (%)
+Figure 8. Performance in early detection.
+the users, S NIFFER ’s explanations also increased the users’
+confidence in their judgments for 42% of these samples.
+4.5. Practical Setting
+Early Detection (Q4). Detecting misinformation in its
+early stage is important for timely mitigating its negative
+influences [14]. We conducted experiments using different
+proportions of the training set to evaluate the model’s performance. Specifically, we randomly selected 10%, 25%,
+50% and 100% training samples and conducted experiments
+on S NIFFER -, a reduced version of S NIFFER that only employs OOC Tuning on InstructBLIP, for a fair comparison.
+Figure 8 shows that, with merely 10% of the training data,
+SNIFFER - achieves comparable detection performance as
+baseline models that do not utilize external evidence. When
+trained with 25% of the data, it can surpass their performance, underscoring the superiority of MLLM in terms of
+training efficiency and detection accuracy.
+Generalization Analysis (Q5) . To validate the generalizability of S NIFFER , we tested the model that was trained
+on the NewsCLIPpings dataset, on the other two datasets,
+i.e. News400 and TamperedNews datasets [32]. img1 is replaced by images of similar appearance ( img2) based on
+top-k similarity to img1, creating different subsets according to the value ofk. A smaller k indicates higher similarity
+between img1 and img2, and hence, a greater challenge in
+detection. We compared S NIFFER with Cross-Modal Contop-5% top-10% top-25% random
+100Accuracy (%)
+News400
+CMCS
+Sniffer
+(a)
+top-5%top-10%top-25%random
+100Accuracy (%)
+T amperedNews
+CMCS
+Sniffer (b)
+Figure 9. Cross-dataset detection performance of S NIFFER .
+text Similarity (CMCS), a competitive baseline proposed in
+[32]. CMCS quantifies the similarity between the textual
+context and visual scene labels within the textual feature
+space. Figure 9 shows that SNIFFER outperforms CMCS by
+a large margin at different difficulty levels in both datasets,
+confirming the cross-dataset generalizability of SNIFFER .
+4.6. Comparison with GPT-4V (Q6)
+As the most popular MLLM, GPT-4 with vision (GPT-4V)
+[35] has demonstrated unparalleled performance across a
+variety of multimodal tasks, which inspired us to test it on
+the OOC detection task. We randomly sampled 400 samples from the test set (200 fake and 200 real examples)
+and queried GPT-4V using the same prompts as those used
+for S NIFFER . Table 3 shows that S NIFFER outperforms
+GPT-4V by 11% in terms of classification accuracy. This
+demonstrates that task-specific (relatively) smaller models
+are fully capable of outperforming general-purpose larger
+models in specific tasks4. To further understand the behavioral differences between S NIFFER and GPT-4V , we compare their generated explanations in Supplementary.
+Table 3. Comparison of classification accuracy (%) between SNIF FER and GPT-4V on randomly sampled test set.
+Method All Fake Real
+GPT-4V 75.5 77.0 74.0
+SNIFFER (Ours) 86.8 79.0 94.5
+5. Conclusion
+In this paper, we proposed S NIFFER , a multimodal large
+language model for out-of-context misinformation detection, providing both judgment and explanation. To develop S NIFFER , we constructed multi-perspective instruction data assisted by GPT-4, and employed instruction tuning to continuously adapt the general-purpose InstructBLIP
+for the news domain and OOC detection task. We further
+augmented the model by integrating external tools and retrieval methods. Experiments prove that S NIFFER not only
+achieves SOTA performance in detection, but also generates
+precise and persuasive explanations.
+4Currently, there is no literature explicitly stating the size of GPT-4V ,
+but it is anticipated to exceed the 175 billion parameter scale of GPT-3 [6].
+
+[TABLE page=8 index=1]
+Columns: 87% | 58% | Confidence ↑ | 75 | 70
+Row 1: 87%: | 58%: | Confidence ↑: | 75: 70 | 70:
+Row 2: 87%: | 58%: | Confidence ↑: | 75: 65 | 70: 60.0
+[/TABLE]
+
+[TABLE page=8 index=2]
+Columns: Figure 7. Results of human evaluation. The outer ring displays the | text Similarity (CMCS), a competitive baseline proposed in | Unnamed: 0
+Row 1: Figure 7. Results of human evaluation. The outer ring displays the: initial distribution of test samples judged as real and fake, while | text Similarity (CMCS), a competitive baseline proposed in: [32]. CMCS quantifies the similarity between the textual | Unnamed: 0:
+Row 2: Figure 7. Results of human evaluation. The outer ring displays the: the inner circle illustrates the changes in users’ judgments and con- | text Similarity (CMCS), a competitive baseline proposed in: context and visual scene labels within the textual feature | Unnamed: 0:
+Row 3: Figure 7. Results of human evaluation. The outer ring displays the: fidence levels after reading SNIFFER’s explanations. | text Similarity (CMCS), a competitive baseline proposed in: space. Figure 9 shows that SNIFFER outperforms CMCS by | Unnamed: 0:
+Row 4: Figure 7. Results of human evaluation. The outer ring displays the: | text Similarity (CMCS), a competitive baseline proposed in: a large margin at different difficulty levels in both datasets, | Unnamed: 0:
+Row 5: Figure 7. Results of human evaluation. The outer ring displays the: 83 | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 6: Figure 7. Results of human evaluation. The outer ring displays the: | text Similarity (CMCS), a competitive baseline proposed in: confirming the cross-dataset generalizability of SNIFFER. | Unnamed: 0:
+Row 7: Figure 7. Results of human evaluation. The outer ring displays the: 82 | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 8: Figure 7. Results of human evaluation. The outer ring displays the: 81 | text Similarity (CMCS), a competitive baseline proposed in: 4.6. Comparison with GPT-4V (Q6) | Unnamed: 0:
+Row 9: Figure 7. Results of human evaluation. The outer ring displays the: 80 | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 10: Figure 7. Results of human evaluation. The outer ring displays the: 79 | text Similarity (CMCS), a competitive baseline proposed in: As the most popular MLLM, GPT-4 with vision (GPT-4V) | Unnamed: 0:
+Row 11: Figure 7. Results of human evaluation. The outer ring displays the: 78 | text Similarity (CMCS), a competitive baseline proposed in: [35] has demonstrated unparalleled performance across a | Unnamed: 0:
+Row 12: Figure 7. Results of human evaluation. The outer ring displays the: 77 | text Similarity (CMCS), a competitive baseline proposed in: variety of multimodal tasks, which inspired us to test it on | Unnamed: 0: Accuracy (%)
+Row 13: Figure 7. Results of human evaluation. The outer ring displays the: 76 | text Similarity (CMCS), a competitive baseline proposed in: the OOC detection task. We randomly sampled 400 sam- | Unnamed: 0:
+Row 14: Figure 7. Results of human evaluation. The outer ring displays the: 75 | text Similarity (CMCS), a competitive baseline proposed in: ples from the test set (200 fake and 200 real examples) | Unnamed: 0:
+Row 15: Figure 7. Results of human evaluation. The outer ring displays the: 10% 25% 50% 100% | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 16: Figure 7. Results of human evaluation. The outer ring displays the: | text Similarity (CMCS), a competitive baseline proposed in: and queried GPT-4V using the same prompts as those used | Unnamed: 0:
+Row 17: Figure 7. Results of human evaluation. The outer ring displays the: Proportion of data used in the training set | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 18: Figure 7. Results of human evaluation. The outer ring displays the: | text Similarity (CMCS), a competitive baseline proposed in: for SNIFFER. Table 3 shows that SNIFFER outperforms | Unnamed: 0:
+Row 19: Figure 7. Results of human evaluation. The outer ring displays the: Figure 8. Performance in early detection. | text Similarity (CMCS), a competitive baseline proposed in: GPT-4V by 11% in terms of classification accuracy. This | Unnamed: 0:
+Row 20: Figure 7. Results of human evaluation. The outer ring displays the: | text Similarity (CMCS), a competitive baseline proposed in: demonstrates that task-specific (relatively) smaller models | Unnamed: 0:
+Row 21: Figure 7. Results of human evaluation. The outer ring displays the: the users, SNIFFER’s explanations also increased the users’ | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 22: Figure 7. Results of human evaluation. The outer ring displays the: | text Similarity (CMCS), a competitive baseline proposed in: are fully capable of outperforming general-purpose larger | Unnamed: 0:
+Row 23: Figure 7. Results of human evaluation. The outer ring displays the: confidence in their judgments for 42% of these samples. | text Similarity (CMCS), a competitive baseline proposed in: models in specific tasks4. To further understand the behav- | Unnamed: 0:
+Row 24: Figure 7. Results of human evaluation. The outer ring displays the: 4.5. Practical Setting | text Similarity (CMCS), a competitive baseline proposed in: ioral differences between SNIFFER and GPT-4V, we com- | Unnamed: 0:
+Row 25: Figure 7. Results of human evaluation. The outer ring displays the: | text Similarity (CMCS), a competitive baseline proposed in: pare their generated explanations in Supplementary. | Unnamed: 0: Accuracy (
+Row 26: Figure 7. Results of human evaluation. The outer ring displays the: Early Detection (Q4). Detecting misinformation in its | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 27: Figure 7. Results of human evaluation. The outer ring displays the: early stage is important for timely mitigating its negative | text Similarity (CMCS), a competitive baseline proposed in: Table 3. Comparison of classification accuracy (%) between SNIF- | Unnamed: 0:
+Row 28: Figure 7. Results of human evaluation. The outer ring displays the: influences [14]. We conducted experiments using different | text Similarity (CMCS), a competitive baseline proposed in: FER and GPT-4V on randomly sampled test set. | Unnamed: 0:
+Row 29: Figure 7. Results of human evaluation. The outer ring displays the: proportions of the training set to evaluate the model’s per- | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 30: Figure 7. Results of human evaluation. The outer ring displays the: formance. Specifically, we randomly selected 10%, 25%, | text Similarity (CMCS), a competitive baseline proposed in: Method All Fake Real | Unnamed: 0:
+Row 31: Figure 7. Results of human evaluation. The outer ring displays the: 50% and 100% training samples and conducted experiments | text Similarity (CMCS), a competitive baseline proposed in: GPT-4V 75.5 77.0 74.0 | Unnamed: 0:
+Row 32: Figure 7. Results of human evaluation. The outer ring displays the: on SNIFFER-, a reduced version of SNIFFER that only em- | text Similarity (CMCS), a competitive baseline proposed in: SNIFFER (Ours) 86.8 79.0 94.5 | Unnamed: 0:
+Row 33: Figure 7. Results of human evaluation. The outer ring displays the: ploys OOC Tuning on InstructBLIP, for a fair comparison. | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 34: Figure 7. Results of human evaluation. The outer ring displays the: Figure 8 shows that, with merely 10% of the training data, | text Similarity (CMCS), a competitive baseline proposed in: 5. Conclusion | Unnamed: 0:
+Row 35: Figure 7. Results of human evaluation. The outer ring displays the: SNIFFER- achieves comparable detection performance as | text Similarity (CMCS), a competitive baseline proposed in: | Unnamed: 0:
+Row 36: Figure 7. Results of human evaluation. The outer ring displays the: baseline models that do not utilize external evidence. When | text Similarity (CMCS), a competitive baseline proposed in: In this paper, we proposed SNIFFER, a multimodal large | Unnamed: 0:
+Row 37: Figure 7. Results of human evaluation. The outer ring displays the: trained with 25% of the data, it can surpass their perfor- | text Similarity (CMCS), a competitive baseline proposed in: language model for out-of-context misinformation detec- | Unnamed: 0:
+Row 38: Figure 7. Results of human evaluation. The outer ring displays the: mance, underscoring the superiority of MLLM in terms of | text Similarity (CMCS), a competitive baseline proposed in: tion, providing both judgment and explanation. To de- | Unnamed: 0:
+Row 39: Figure 7. Results of human evaluation. The outer ring displays the: training efficiency and detection accuracy. | text Similarity (CMCS), a competitive baseline proposed in: velop SNIFFER, we constructed multi-perspective instruc- | Unnamed: 0:
+Row 40: Figure 7. Results of human evaluation. The outer ring displays the: Generalization Analysis (Q5). To validate the generaliz- | text Similarity (CMCS), a competitive baseline proposed in: tion data assisted by GPT-4, and employed instruction tun- | Unnamed: 0:
+Row 41: Figure 7. Results of human evaluation. The outer ring displays the: ability of SNIFFER, we tested the model that was trained | text Similarity (CMCS), a competitive baseline proposed in: ing to continuously adapt the general-purpose InstructBLIP | Unnamed: 0:
+Row 42: Figure 7. Results of human evaluation. The outer ring displays the: on the NewsCLIPpings dataset, on the other two datasets, | text Similarity (CMCS), a competitive baseline proposed in: for the news domain and OOC detection task. We further | Unnamed: 0:
+Row 43: Figure 7. Results of human evaluation. The outer ring displays the: i.e. News400 and TamperedNews datasets [32]. img 1is re- | text Similarity (CMCS), a competitive baseline proposed in: augmented the model by integrating external tools and re- | Unnamed: 0:
+Row 44: Figure 7. Results of human evaluation. The outer ring displays the: placed by images of similar appearance (img 2) based on | text Similarity (CMCS), a competitive baseline proposed in: trieval methods. Experiments prove that SNIFFER not only | Unnamed: 0:
+Row 45: Figure 7. Results of human evaluation. The outer ring displays the: top-k similarity to img1, creating different subsets accord- | text Similarity (CMCS), a competitive baseline proposed in: achieves SOTA performance in detection, but also generates | Unnamed: 0:
+Row 46: Figure 7. Results of human evaluation. The outer ring displays the: ing to the value of k. A smaller k indicates higher similarity | text Similarity (CMCS), a competitive baseline proposed in: precise and persuasive explanations. | Unnamed: 0:
+Row 47: Figure 7. Results of human evaluation. The outer ring displays the: between img1 and img2, and hence, a greater challenge in | text Similarity (CMCS), a competitive baseline proposed in: 4Currently, there is no literature explicitly stating the size of GPT-4V, | Unnamed: 0:
+Row 48: Figure 7. Results of human evaluation. The outer ring displays the: detection. We compared SNIFFER with Cross-Modal Con- | text Similarity (CMCS), a competitive baseline proposed in: but it is anticipated to exceed the 175 billion parameter scale of GPT-3 [6]. | Unnamed: 0:
+[/TABLE]
+
+[PAGE 9]
+Table 4. Behaviors of existing open-sourced general-purpose MLLMs in detecting OOC misinformation.
+User
+Some rumormongers use images from other events as illustrations of the current news event to make up multimodal misinformation. Given a news caption and a news image, judge whether the given image is rightly
+used in the given news context. Let’s analyze their inconsistency from perspectives of main news elements,
+including time, place, person, event, artwork, etc. You should answer in the following forms: “Yes, the image
+is rightly used.” or “No, the image is wrongly used in a different news context. The given news caption and
+image are inconsistent in <element>. The <element>in the caption is <ent t>, and the <element>in the
+image is <ent v>.” News caption: Saturn V booster was used in Nasa space missions between 1967 and 1972.
+The answer is
+InstructBLIP 1967-1972, which is the time period when the Saturn V booster was used in Nasa space missions.
+LLaV AAdapter-V2
+No, the image is wrongly used in a different news context. The image is of a Saturn V rocket, which was used
+in NASA space missions between 1967 and 1972. However, the given news caption refers to a different event,
+the Apollo 11 mission, which took place in 1969. The image and caption are inconsistent in time, as the Saturn
+V rocket was not used in the Apollo 11 mission.
+Woodpecker
+No, the image is wrongly used in a different news context. The given news caption and image are inconsistent
+in time. The caption states that the Saturn V booster was used in Nasa space missions between 1967 and 1972,
+while the image depicts a rocket launching in the 1980s. The image is not related to the Saturn V booster, which
+was used in the 1960s and 1970s.
+Table 5. The list of instructions for brief news image description.
+• “Analyze the news image and provide a brief summary of the event it depicts.”
+• “Give a short description of the scene shown in the news photograph.”
+• “Offer a concise report based on the news-related image provided.”
+• “Summarize the news story as represented by the image.”
+• “Interpret the journalistic image and detail the key elements in a succinct manner.”
+• “Provide a brief journalistic overview of the news picture.”
+• “Construct a short narrative to convey the news event shown in the image.”
+• “Deliver a compact exposition of the incident captured in the news photo.”
+• “Express the main news points illustrated by the given photograph.”
+• “Condense the news context of the image into a clear, brief description.”
+• “What news event does this image describe?”
+A. Behaviors of open-sourced general-purpose
+MLLMs
+We evaluated three representative open-sourced generalpurpose MLLMs, including InstructBLIP [9], LLaV AAdapter-V2 [13] and Woodpecker [50], for their performance in detecting out-of-context misinformation. As
+demonstrated in Table 4, despite explicit instructions regarding the desired output format, these MLLMs exhibit
+a failure to follow instructions accurately . InstructBLIP,
+in particular, does not provide a clear judgment, instead
+merely paraphrasing the given caption, which indicates a
+misunderstanding of the user’s intent.
+Furthermore, both LLaV A-Adapter-V2 and Woodpecker
+display hallucination phenomena: LLaV A-Adapter-V2 erroneously attributes the content of the caption to the image
+
+[PAGE 10]
+# system message
+You are an expert in fact-checking. Some news captions and accompanying images are
+inconsistent in terms of key news elements (5W1H) because rumormongers have taken images from
+other news and used them as illustrations for current news to make up multimodal
+misinformation. Given the original news caption (i.e. caption_ori) for the image (i.e.
+image_ori), the new news caption (i.e. caption_new), and a basic description of image_ori’s
+content, I need you to analyze the inconsistencies between caption_ori and caption_new in key
+news elements, and select from them the one most likely inconsistency between image_ori and
+caption_new based on the description of image_ori. You should answer in the following forms:
+"They are inconsistent in <element>. The <element> in caption_new is <ent_t>, and the <
+element> in image_ori is <ent_v>.\n Element: <element> \n Entity_caption: <ent_t> \n
+Entity_image: <ent_v>\". Please answer only one inconsistent element.
+# in-context examples
+Caption_ori: John Constable’s Brightwell Church and Village was part of the 2013 exhibition
+Caption_new: From J Charles Eichhorn’s American Skat or The Game of Skat Defined
+Basic description of image_ori: This image describes a rural landscape with a farmhouse, a
+barn, and a field. The farmhouse is situated in the middle of the field, surrounded by the
+barn and the open land. The painting captures the essence of a peaceful, pastoral setting,
+with the farmhouse serving as the central focus of the scene.
+The answer is: They are inconsistent in artwork. The artwork in caption_new is American Skat
+or The Game of Skat Defined, and the artwork in image_ori is Brightwell Church and Village. \
+n Element: artwork \n Entity_caption: American Skat or The Game of Skat Defined \n
+Entity_image: Brightwell Church and Village
+Caption_ori: Chris Huhne is among the ministers expected to address delegates at next week’s
+Lib Dem conference
+Caption_new: Urs Rohner CEO of Credit Suisse participates in a panel session in Bern
+Switzerland on Tuesday
+Basic description of image_ori: The image depicts a man wearing a suit and tie, standing at a
+podium with a microphone in front of him. He appears to be giving a speech or addressing an
+audience. In the background, there is a black screen or backdrop.
+The answer is: They are inconsistent in person. The person in caption_new is Urs Rohner, and
+the person in image_ori is Chris Huhne. \n Element: person \n Entity_caption: Urs Rohner \n
+Entity_image: Chris Huhne
+# query
+Caption_ori: < C A P T I O N O R I>
+Caption_new: < C A P T I O N N E W>
+Basic description of image_ori: < B A S I C D E S C R I P T I O NO F I M A G E O R I>
+The answer is:
+Figure 10. Prompt used to ask GPT-4 to generate the OOC instruction data.
+and assigns a new, erroneous meaning ( i.e. “the Apollo 11
+mission, which took place in 1969”) to the caption; Woodpecker attributes an incorrect new context to the image (i.e.
+“a rocket launching in the 1980s”). This hallucination effect
+may be attributed to the training data, where text and image
+are generally aligned to depict the same event.
+We also analyzed InstructBLIP’s lexical preferences
+based on the descriptions it generated for images within the
+NewsCLIPpings dataset. Our statistics reveal that in samples containing person nouns, only 27% of the responses
+utilize fine-grained proper nouns (i.e. specific names of individuals), while the remaining 73% employ coarse-grained
+common nouns (such as “person”, “woman” and “man”).
+This suggests that InstructBLIP tends to favor more general
+nouns over specific proper nouns in its responses.
+B. Instruction Data Construction
+Instructions for brief image description. Table 5 shows
+the ChatGPT-generated questions to construct the diverse
+instruction data for news domain alignment. They present
+the same meaning with natural language variance.
+Prompt to generate the OOC instruction. Figure 10 illustrates the prompt utilized for asking GPT-4 to identify inconsistencies between cap1 and cap2. From the responses,
+we extract element, ent t, and ent v to formulate the OOC
+instruction data, as depicted in Figure 4 in the main paper.
+C. Case Studies
+We show three representative cases in Table 6 to reveal the
+behavioral differences between GPT-4V and SNIFFER .
+
+[TABLE page=10 index=1]
+Columns: We also | analyzed | InstructBLIP’s | lexical | preferences | Unnamed: 0 | lustrates the prompt utilized for asking GPT-4 to identify inRow 1: We also: based on the descriptions it generated for images within the | analyzed: | InstructBLIP’s: | lexical: | preferences: | Unnamed: 0: | lustrates the prompt utilized for asking GPT-4 to identify in-:
+Row 2: We also: | analyzed: | InstructBLIP’s: | lexical: | preferences: | Unnamed: 0: | lustrates the prompt utilized for asking GPT-4 to identify in-: consistencies between cap1 and cap2. From the responses,
+Row 3: We also: NewsCLIPpings dataset. | analyzed: | InstructBLIP’s: Our statistics reveal that in sam- | lexical: | preferences: | Unnamed: 0: | lustrates the prompt utilized for asking GPT-4 to identify in-: we extract element, ent t, and ent v to formulate the OOC
+Row 4: We also: ples containing person nouns, | analyzed: | InstructBLIP’s: only 27% of the | lexical: | preferences: responses | Unnamed: 0: | lustrates the prompt utilized for asking GPT-4 to identify in-:
+Row 5: We also: | analyzed: | InstructBLIP’s: | lexical: | preferences: | Unnamed: 0: | lustrates the prompt utilized for asking GPT-4 to identify in-: instruction data, as depicted in Figure 4 in the main paper.
+Row 6: We also: utilize fine-grained proper nouns (i.e. specific names of in- | analyzed: | InstructBLIP’s: | lexical: | preferences: | Unnamed: 0: | lustrates the prompt utilized for asking GPT-4 to identify in-:
+Row 7: We also: dividuals), while the remaining 73% employ coarse-grained | analyzed: | InstructBLIP’s: | lexical: | preferences: | Unnamed: 0: | lustrates the prompt utilized for asking GPT-4 to identify in-: C. Case Studies
+Row 8: We also: common nouns (such as “person”, | analyzed: | InstructBLIP’s: “woman” and “man”). | lexical: | preferences: | Unnamed: 0: | lustrates the prompt utilized for asking GPT-4 to identify in-:
+Row 9: We also: This suggests that InstructBLIP tends to favor more general | analyzed: | InstructBLIP’s: | lexical: | preferences: | Unnamed: 0: | lustrates the prompt utilized for asking GPT-4 to identify in-: We show three representative cases in Table 6 to reveal the
+[/TABLE]
+
+[PAGE 11]
+Table 6. Comparison between GPT-4V and SNIFFER . For each case, we annotate the ground truth (GT) and the correctness of the model’s
+judgment, indicated by either ✓(correct) or ✗ (wrong).
+Caption: Nick Clegg (left) in Oldham with Liberal Democrat candidate Elwyn Watkins (centre)
+and Lib Dem deputy leader Simon Hughes. [GT: FAKE]
+GPT-4V: Yes, the image is rightly used. ✗ SNIFFER : No, the image is wrongly used in
+a different news context. On the one hand,
+the person in the caption, Nick Clegg, Simon
+Hughes and Elwyn Watkins, do not match the
+person in the image, Tim Henman. On the other
+hand, the caption refers to Nick Clegg, Simon
+Hughes, and Elwyn Watkins attending an event,
+while the image-retrieved webpages are about
+the funeral of a tennis player named Elena Baltacha. The two entities are not connected, and
+there are no common elements or context that
+link them. Therefore, the image is more likely
+to be wrongly used in the caption. ✓
+Caption: People cheer and take pictures as the pope arrives to meet with representatives of the
+World of Work organization in Ciudad Juarez. [GT: FAKE]
+GPT-4V: No, the image is wrongly used in a
+different news context. The given news caption
+and image are inconsistent in person. The person in the caption is the pope, and the person
+in the image is a man who does not appear to
+be the pope. The man seen in the image is not
+dressed in papal attire, which is distinctive and
+would typically include white robes and sometimes a zucchetto (skullcap) for the pope. Additionally, the context of the picture does not seem
+to match the typical scenarios where the pope is
+present, which often feature heightened security
+and more ceremonial settings, depending on the
+occasion. ✓
+SNIFFER : Yes, the image is rightly used. ✗
+Caption: Passengers are stranded outside the Guangzhou railway station in China’s Guangdong
+province on Tuesday. [GT: REAL]
+GPT-4V: No, the image is wrongly used in a
+different news context. The event in the caption
+is passengers stranded outside the Guangzhou
+railway station, and the event in the image is a
+large gathering of people at an event that is not
+related to a transportation disruption. This can
+be inferred from the fact that the people appear
+to be standing very close to one another in an
+organized manner, rather than having the disorganized, possibly frustrated behavior one might
+expect from stranded passengers. Additionally,
+there are no clear signs of a railway station, such
+as platforms, tracks, or trains, visible in the image. The setting does not match the context described in the news caption. ✗
+SNIFFER : Yes, the image is rightly used. On
+the one hand, the image depicts a group of people, which is consistent with the caption. On the
+other hand, the image-retrieved webpages mention the Guangzhou railway station in China,
+the Chinese New Year and a situation where
+passengers were stranded outside the railway
+station due to snow, which are relevant to the
+caption. Therefore, the image is likely to be correctly used in the caption. ✓
+In the first example, SNIFFER identifies the claim as fake
+based on both the image-text inconsistency and the claimevidence irrelevance. In contrast, GPT-4V fails to detect any
+inconsistencies. This highlights S NIFFER ’s superiority in
+
+[PAGE 12]
+recognizing news entities and utilizing external knowledge.
+In the second example , the image depicts a scene that
+aligns with the caption’s description of “people cheer and
+take pictures” and no relevant webpages were retrieved for
+this image, leading S NIFFER to incorrectly classify this
+claim as real. However, GPT-4V , drawing on the Pope’s
+attire and the security conditions at the event, deduces that
+the image does not depict a scene of the Pope participating in an event, and thus correctly classifies the claim as
+fake. This example demonstrates GPT-4V’s superior world
+knowledge and reasoning capabilities, far surpassing those
+of smaller models.
+The third example presents a real news story about passengers stranded outside the Guangzhou railway station,
+accompanied by an image of people queuing. S NIFFER ,
+evaluating both the image-text consistency and the claimevidence relevance, correctly identifies this news as real. In
+contrast, GPT-4V erroneously classifies this news as fake,
+reasoning that the orderly crowd in the image does not resemble the expected chaos of stranded passengers and noting the absence of any railway station signage. This instance illustrates GPT-4V’s overly cautious and sensitive
+judgment, predicated on the expectation that key elements
+of a real news story should be visibly represented in the accompanying image. In fact, existing research [45] has found
+that more than half of social media news stories do not have
+their content words represented in the images. This tendency also accounts for GPT-4V’s lower recall rate for real
+news samples, as outlined in Table 3 in the main paper.
+In summary, S NIFFER integrates clues from both textimage inconsistency and claim-evidence relevance, leading
+to more comprehensive judgments. Benefiting from taskspecific tuning, it demonstrates a deeper understanding of
+the complex logic inherent in the OOC detection task. On
+the other hand, GPT-4V , with its vast repository of world
+knowledge, is adept at detecting subtle anomalies, yet this
+same attribute can lead to the misclassification of real news
+as fake.
+References
+[1] Google Vision API. https://cloud.google.com/
+vision/docs/detecting-web. 5
+[2] Reading about the Israel-Hamas war on X? Beware fake
+news. https : / / wired . me / technology / x misinformation/, 2023. 2
+[3] Sahar Abdelnabi, Rakibul Hasan, and Mario Fritz. Opendomain, content-based, multi-modal fact-checking of out-ofcontext images via online resources. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR
+2022, New Orleans, LA, USA, June 18-24, 2022 , pages
+14920–14929. IEEE, 2022. 2, 3, 5, 6
+[4] Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine
+Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katherine Millican, Malcolm Reynolds, Roman Ring,
+Eliza Rutherford, Serkan Cabi, Tengda Han, Zhitao Gong,
+Sina Samangooei, Marianne Monteiro, Jacob L. Menick,
+Sebastian Borgeaud, Andy Brock, Aida Nematzadeh, Sahand Sharifzadeh, Mikolaj Binkowski, Ricardo Barreira,
+Oriol Vinyals, Andrew Zisserman, and Kar ´en Simonyan.
+Flamingo: a visual language model for few-shot learning.
+In NeurIPS, 2022. 3
+[5] Shivangi Aneja, Chris Bregler, and Matthias Nießner. COSMOS: catching out-of-context image misuse using selfsupervised learning. In Thirty-Seventh AAAI Conference on
+Artificial Intelligence, AAAI 2023, Thirty-Fifth Conference
+on Innovative Applications of Artificial Intelligence, IAAI
+2023, Thirteenth Symposium on Educational Advances in
+Artificial Intelligence, EAAI 2023, Washington, DC, USA,
+February 7-14, 2023 , pages 14084–14092. AAAI Press,
+2023. 3
+[6] Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-V oss, Gretchen Krueger, Tom
+Henighan, Rewon Child, Aditya Ramesh, Daniel M. Ziegler,
+Jeffrey Wu, Clemens Winter, Christopher Hesse, Mark Chen,
+Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess,
+Jack Clark, Christopher Berner, Sam McCandlish, Alec Radford, Ilya Sutskever, and Dario Amodei. Language models
+are few-shot learners. In Advances in Neural Information
+Processing Systems 33: Annual Conference on Neural Information Processing Systems 2020, NeurIPS 2020, December
+6-12, 2020, virtual, 2020. 8
+[7] Lu Cheng, Kush R. Varshney, and Huan Liu. Socially responsible AI algorithms: Issues, purposes, and challenges.
+J. Artif. Intell. Res., 71:1137–1181, 2021. 2
+[8] Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan Zhuang, Yonghao Zhuang, Joseph E. Gonzalez, Ion Stoica, and Eric P.
+Xing. Vicuna: An open-source chatbot impressing gpt-4
+with 90%* chatgpt quality, 2023. 6
+[9] Wenliang Dai, Junnan Li, Dongxu Li, Anthony Meng Huat
+Tiong, Junqi Zhao, Weisheng Wang, Boyang Li, Pascale
+Fung, and Steven C. H. Hoi. InstructBLIP: Towards generalpurpose vision-language models with instruction tuning.
+CoRR, abs/2305.06500, 2023. 2, 3, 6, 9
+[10] Tri Dao. Flashattention-2: Faster attention with better parallelism and work partitioning. CoRR, abs/2307.08691, 2023.
+[11] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov,
+Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner,
+Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image
+is worth 16x16 words: Transformers for image recognition
+at scale. In 9th International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7,
+2021. OpenReview.net, 2021. 6
+[12] Lisa Fazio. Out-of-context photos are a powerful low-tech form of misinformation. https :
+/ / theconversation . com / out - of - context photos-are-a-powerful-low-tech-form-ofmisinformation-129959, 2020. 2
+
+[PAGE 13]
+[13] Peng Gao, Jiaming Han, Renrui Zhang, Ziyi Lin, Shijie
+Geng, Aojun Zhou, Wei Zhang, Pan Lu, Conghui He, Xiangyu Yue, Hongsheng Li, and Yu Qiao. LLaMA-Adapter
+V2: parameter-efficient visual instruction model. CoRR,
+abs/2304.15010, 2023. 9
+[14] Bin Guo, Yasan Ding, Lina Yao, Yunji Liang, and Zhiwen
+Yu. The future of false information detection on social media: New perspectives and trends. ACM Comput. Surv., 53
+(4):68:1–68:36, 2021. 8
+[15] Quzhe Huang, Mingxu Tao, Zhenwei An, Chen Zhang, Cong
+Jiang, Zhibin Chen, Zirui Wu, and Yansong Feng. Lawyer
+LLaMA technical report. ArXiv, abs/2305.15062, 2023. 3
+[16] Ayush Jaiswal, Ekraam Sabir, Wael Abd-Almageed, and
+Premkumar Natarajan. Multimedia semantic integrity assessment using joint embedding of images and text. In Proceedings of the 25th ACM International Conference on Multimedia, MM 2017, Mountain View, CA, USA, October 2327, 2017, pages 1465–1471. ACM, 2017. 2, 3
+[17] Ayush Jaiswal, Yue Wu, Wael AbdAlmageed, Iacopo Masi,
+and Premkumar Natarajan. AIRD: adversarial learning
+framework for image repurposing detection. In IEEE Conference on Computer Vision and Pattern Recognition, CVPR
+2019, Long Beach, CA, USA, June 16-20, 2019 , pages
+11330–11339. Computer Vision Foundation / IEEE, 2019.
+2, 3
+[18] Bo Li, Yuanhan Zhang, Liangyu Chen, Jinghao Wang,
+Jingkang Yang, and Ziwei Liu. Otter: A multi-modal
+model with in-context instruction tuning. arXiv preprint
+arXiv:2305.03726, 2023. 3
+[19] Chunyuan Li, Zhe Gan, Zhengyuan Yang, Jianwei Yang,
+Linjie Li, Lijuan Wang, and Jianfeng Gao. Multimodal foundation models: From specialists to general-purpose assistants. CoRR, abs/2309.10020, 2023. 2
+[20] Chunyuan Li, Cliff Wong, Sheng Zhang, Naoto Usuyama,
+Haotian Liu, Jianwei Yang, Tristan Naumann, Hoifung Poon,
+and Jianfeng Gao. LLaV A-Med: Training a large languageand-vision assistant for biomedicine in one day. CoRR,
+abs/2306.00890, 2023. 3
+[21] Dongxu Li, Junnan Li, Hung Le, Guangsen Wang, Silvio
+Savarese, and Steven C. H. Hoi. LA VIS: A one-stop library for language-vision intelligence. In Proceedings of the
+61st Annual Meeting of the Association for Computational
+Linguistics: System Demonstrations, ACL 2023, Toronto,
+Canada, July 10-12, 2023 , pages 31–41. Association for
+Computational Linguistics, 2023. 6
+[22] Junnan Li, Dongxu Li, Silvio Savarese, and Steven C. H.
+Hoi. BLIP-2: bootstrapping language-image pre-training
+with frozen image encoders and large language models. In
+International Conference on Machine Learning, ICML 2023,
+23-29 July 2023, Honolulu, Hawaii, USA , pages 19730–
+19742. PMLR, 2023. 3
+[23] Liunian Harold Li, Mark Yatskar, Da Yin, Cho-Jui Hsieh,
+and Kai-Wei Chang. VisualBERT: A simple and performant
+baseline for vision and language. CoRR, abs/1908.03557,
+2019. 3, 6
+[24] C Lin. Recall-oriented understudy for gisting evaluation
+(rouge). Retrieved August, 20:2005, 2005. 7
+[25] Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Ordonez. Visual news: Benchmark and challenges in news
+image captioning. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing, EMNLP 2021, Virtual Event / Punta Cana, Dominican
+Republic, 7-11 November, 2021, pages 6761–6771. Association for Computational Linguistics, 2021. 5
+[26] Haoyang Liu, Maheep Chaudhary, and Haohan Wang.
+Towards trustworthy and aligned machine learning: A
+data-centric survey with causality perspectives. CoRR,
+abs/2307.16851, 2023. 2
+[27] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee.
+Visual instruction tuning. In NeurIPS, 2023. 3, 4
+[28] Ilya Loshchilov and Frank Hutter. Fixing weight decay regularization in adam. CoRR, abs/1711.05101, 2017. 6
+[29] Grace Luo, Trevor Darrell, and Anna Rohrbach. NewsCLIPpings: Automatic generation of out-of-context multimodal
+media. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing, EMNLP
+2021, Virtual Event / Punta Cana, Dominican Republic, 7-11
+November, 2021, pages 6801–6817. Association for Computational Linguistics, 2021. 2, 3, 4, 5, 7
+[30] Jing Ma, Wei Gao, and Kam-Fai Wong. Detect rumors in microblog posts using propagation structure via kernel learning.
+In Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics, ACL 2017, Vancouver,
+Canada, July 30 - August 4, Volume 1: Long Papers , pages
+708–717. Association for Computational Linguistics, 2017.
+[31] Eric M ¨uller-Budack, Jonas Theiner, Sebastian Diering, Maximilian Idahl, and Ralph Ewerth. Multimodal analytics for
+real-world news using measures of cross-modal entity consistency. In Proceedings of the 2020 on International Conference on Multimedia Retrieval, ICMR 2020, Dublin, Ireland, June 8-11, 2020, pages 16–25. ACM, 2020. 2, 3
+[32] Eric M ¨uller-Budack, Jonas Theiner, Sebastian Diering, Maximilian Idahl, Sherzod Hakimov, and Ralph Ewerth. Multimodal news analytics using measures of cross-modal entity
+and context consistency. Int. J. Multim. Inf. Retr., 10(2):111–
+125, 2021. 8
+[33] OpenAI. ChatGPT. https://openai.com/blog/
+chatgpt/. 4
+[34] OpenAI. GPT-4 technical report, 2023. 2
+[35] OpenAI. GPT-4v(ision) system card. https://cdn.
+openai.com/papers/GPTV_System_Card.pdf ,
+2023. 8
+[36] Stefanos-Iordanis Papadopoulos, Christos Koutlis, Symeon
+Papadopoulos, and Panagiotis Petrantonakis. Synthetic
+misinformers: Generating and combating multimodal misinformation. In Proceedings of the 2nd ACM International Workshop on Multimedia AI against Disinformation,
+MAD@ICMR 2023, Thessaloniki, Greece, June 12-15, 2023,
+pages 36–44. ACM, 2023. 2, 3, 5, 6
+[37] Piotr Przybyla. Capturing the style of fake news. In The
+Thirty-Fourth AAAI Conference on Artificial Intelligence,
+AAAI 2020, The Thirty-Second Innovative Applications of
+Artificial Intelligence Conference, IAAI 2020, The Tenth
+
+[TABLE page=13 index=1]
+Columns: [13] | Peng Gao, Jiaming | Unnamed: 0 | Han, Renrui | Zhang, | Unnamed: 1 | Ziyi Lin, | Shijie | Unnamed: 2 | Unnamed: 3 | [25] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente OrRow 1: [13]: | Peng Gao, Jiaming: Geng, Aojun Zhou, | Unnamed: 0: | Han, Renrui: Wei Zhang, | Zhang,: Pan Lu, | Unnamed: 1: | Ziyi Lin,: Conghui He, | Shijie: Xi- | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: donez. Visual news: Benchmark and challenges in news
+Row 2: [13]: | Peng Gao, Jiaming: angyu Yue, Hongsheng Li, and Yu Qiao. | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: LLaMA-Adapter | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: image captioning. In Proceedings of the 2021 ConferRow 3: [13]: | Peng Gao, Jiaming: V2: parameter-efficient | Unnamed: 0: | Han, Renrui: visual instruction | Zhang,: | Unnamed: 1: | Ziyi Lin,: model. | Shijie: CoRR, | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: ence on Empirical Methods in Natural Language ProcessRow 4: [13]: | Peng Gao, Jiaming: abs/2304.15010, 2023. 9 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: ing, EMNLP 2021, Virtual Event / Punta Cana, Dominican
+Row 5: [13]: [14] | Peng Gao, Jiaming: Bin Guo, Yasan Ding, Lina Yao, Yunji Liang, and Zhiwen | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Republic, 7-11 November, 2021, pages 6761–6771. AssociaRow 6: [13]: | Peng Gao, Jiaming: Yu. The future of false information detection on social me- | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: tion for Computational Linguistics, 2021. 5
+Row 7: [13]: | Peng Gao, Jiaming: dia: New perspectives and trends. | Unnamed: 0: | Han, Renrui: | Zhang,: ACM Comput. Surv., 53 | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: [26] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Haoyang Liu, Maheep Chaudhary, and Haohan Wang.
+Row 8: [13]: | Peng Gao, Jiaming: (4):68:1–68:36, 2021. 8 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Towards trustworthy and aligned machine learning: A
+Row 9: [13]: [15] | Peng Gao, Jiaming: Quzhe Huang, Mingxu Tao, Zhenwei An, Chen Zhang, Cong | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: data-centric survey with causality perspectives. CoRR,
+Row 10: [13]: | Peng Gao, Jiaming: Jiang, Zhibin Chen, Zirui Wu, and Yansong Feng. | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: Lawyer | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: abs/2307.16851, 2023. 2
+Row 11: [13]: | Peng Gao, Jiaming: LLaMA technical report. ArXiv, abs/2305.15062, 2023. 3 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: [27] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee.
+Row 12: [13]: [16] | Peng Gao, Jiaming: Ayush Jaiswal, Ekraam | Unnamed: 0: | Han, Renrui: Sabir, Wael | Zhang,: Abd-Almageed, | Unnamed: 1: | Ziyi Lin,: | Shijie: and | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Visual instruction tuning. In NeurIPS, 2023. 3, 4
+Row 13: [13]: | Peng Gao, Jiaming: Premkumar Natarajan. | Unnamed: 0: | Han, Renrui: Multimedia | Zhang,: semantic | Unnamed: 1: | Ziyi Lin,: integrity | Shijie: as- | Unnamed: 2: | Unnamed: 3: | [25]: [28] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Ilya Loshchilov and Frank Hutter. Fixing weight decay regRow 14: [13]: | Peng Gao, Jiaming: sessment using joint embedding of images and text. | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: In Pro- | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: ularization in adam. CoRR, abs/1711.05101, 2017. 6
+Row 15: [13]: | Peng Gao, Jiaming: ceedings of the 25th ACM International Conference on Mul- | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: [29] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Grace Luo, Trevor Darrell, and Anna Rohrbach. NewsCLIPRow 16: [13]: | Peng Gao, Jiaming: timedia, MM 2017, Mountain View, CA, USA, October 23- | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: pings: Automatic generation of out-of-context multimodal
+Row 17: [13]: | Peng Gao, Jiaming: 27, 2017, pages 1465–1471. ACM, 2017. 2, 3 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: media. In Proceedings of the 2021 Conference on EmRow 18: [13]: [17] | Peng Gao, Jiaming: Ayush Jaiswal, Yue Wu, Wael AbdAlmageed, Iacopo Masi, | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: pirical Methods in Natural Language Processing, EMNLP
+Row 19: [13]: | Peng Gao, Jiaming: and Premkumar Natarajan. | Unnamed: 0: | Han, Renrui: AIRD: | Zhang,: adversarial | Unnamed: 1: | Ziyi Lin,: learning | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: 2021, Virtual Event / Punta Cana, Dominican Republic, 7-11
+Row 20: [13]: | Peng Gao, Jiaming: framework for image repurposing detection. | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: In IEEE Con- | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: November, 2021, pages 6801–6817. Association for CompuRow 21: [13]: | Peng Gao, Jiaming: ference on Computer Vision and Pattern Recognition, CVPR | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: tational Linguistics, 2021. 2, 3, 4, 5, 7
+Row 22: [13]: | Peng Gao, Jiaming: 2019, Long Beach, | Unnamed: 0: | Han, Renrui: CA, USA, | Zhang,: June 16-20, | Unnamed: 1: | Ziyi Lin,: 2019, | Shijie: pages | Unnamed: 2: | Unnamed: 3: | [25]: [30] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Jing Ma, Wei Gao, and Kam-Fai Wong. Detect rumors in miRow 23: [13]: | Peng Gao, Jiaming: 11330–11339. Computer | Unnamed: 0: | Han, Renrui: Vision | Zhang,: Foundation | Unnamed: 1: | Ziyi Lin,: / IEEE, | Shijie: 2019. | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: croblog posts using propagation structure via kernel learning.
+Row 24: [13]: | Peng Gao, Jiaming: 2, 3 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: In Proceedings of the 55th Annual Meeting of the AssociaRow 25: [13]: [18] | Peng Gao, Jiaming: Bo Li, Yuanhan Zhang, | Unnamed: 0: | Han, Renrui: Liangyu | Zhang,: Chen, | Unnamed: 1: | Ziyi Lin,: Jinghao | Shijie: Wang, | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: tion for Computational Linguistics, ACL 2017, Vancouver,
+Row 26: [13]: | Peng Gao, Jiaming: Jingkang Yang, and | Unnamed: 0: | Han, Renrui: Ziwei Liu. | Zhang,: Otter: | Unnamed: 1: | Ziyi Lin,: A multi-modal | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Canada, July 30 - August 4, Volume 1: Long Papers, pages
+Row 27: [13]: | Peng Gao, Jiaming: model with in-context | Unnamed: 0: | Han, Renrui: instruction | Zhang,: tuning. | Unnamed: 1: | Ziyi Lin,: arXiv preprint | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: 708–717. Association for Computational Linguistics, 2017.
+Row 28: [13]: | Peng Gao, Jiaming: arXiv:2305.03726, 2023. 3 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: 3
+Row 29: [13]: [19] | Peng Gao, Jiaming: Chunyuan Li, Zhe | Unnamed: 0: Gan, | Han, Renrui: Zhengyuan | Zhang,: Yang, | Unnamed: 1: | Ziyi Lin,: Jianwei | Shijie: Yang, | Unnamed: 2: | Unnamed: 3: | [25]: [31] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Eric Müller-Budack, Jonas Theiner, Sebastian Diering, MaxRow 30: [13]: | Peng Gao, Jiaming: Linjie Li, Lijuan Wang, and Jianfeng Gao. Multimodal foun- | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: imilian Idahl, and Ralph Ewerth. Multimodal analytics for
+Row 31: [13]: | Peng Gao, Jiaming: dation models: From | Unnamed: 0: | Han, Renrui: specialists | Zhang,: to general-purpose | Unnamed: 1: | Ziyi Lin,: | Shijie: assis- | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: real-world news using measures of cross-modal entity conRow 32: [13]: | Peng Gao, Jiaming: tants. CoRR, abs/2309.10020, 2023. 2 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: sistency. In Proceedings of the 2020 on International ConRow 33: [13]: [20] | Peng Gao, Jiaming: Chunyuan Li, Cliff Wong, | Unnamed: 0: | Han, Renrui: Sheng Zhang, | Zhang,: | Unnamed: 1: | Ziyi Lin,: Naoto Usuyama, | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: ference on Multimedia Retrieval, ICMR 2020, Dublin, IreRow 34: [13]: | Peng Gao, Jiaming: Haotian Liu, Jianwei Yang, Tristan Naumann, Hoifung Poon, | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: land, June 8-11, 2020, pages 16–25. ACM, 2020. 2, 3
+Row 35: [13]: | Peng Gao, Jiaming: and Jianfeng Gao. LLaVA-Med: Training a large language- | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: [32] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Eric Müller-Budack, Jonas Theiner, Sebastian Diering, MaxRow 36: [13]: | Peng Gao, Jiaming: and-vision assistant | Unnamed: 0: | Han, Renrui: for biomedicine | Zhang,: in one | Unnamed: 1: | Ziyi Lin,: day. | Shijie: CoRR, | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: imilian Idahl, Sherzod Hakimov, and Ralph Ewerth. MultiRow 37: [13]: | Peng Gao, Jiaming: abs/2306.00890, 2023. 3 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: modal news analytics using measures of cross-modal entity
+Row 38: [13]: [21] | Peng Gao, Jiaming: Dongxu Li, Junnan | Unnamed: 0: | Han, Renrui: Li, Hung Le, | Zhang,: Guangsen | Unnamed: 1: | Ziyi Lin,: Wang, | Shijie: Silvio | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: and context consistency. Int. J. Multim. Inf. Retr., 10(2):111–
+Row 39: [13]: | Peng Gao, Jiaming: Savarese, and Steven | Unnamed: 0: | Han, Renrui: C. H. Hoi. | Zhang,: LAVIS: | Unnamed: 1: | Ziyi Lin,: A one-stop | Shijie: li- | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: 125, 2021. 8
+Row 40: [13]: | Peng Gao, Jiaming: brary for language-vision intelligence. In Proceedings of the | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: [33] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: OpenAI. ChatGPT. https://openai.com/blog/
+Row 41: [13]: | Peng Gao, Jiaming: 61st Annual Meeting of the Association for Computational | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: chatgpt/. 4
+Row 42: [13]: | Peng Gao, Jiaming: Linguistics: System | Unnamed: 0: | Han, Renrui: Demonstrations, | Zhang,: ACL | Unnamed: 1: | Ziyi Lin,: 2023, Toronto, | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: [34] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: OpenAI. GPT-4 technical report, 2023. 2
+Row 43: [13]: | Peng Gao, Jiaming: Canada, July 10-12, | Unnamed: 0: | Han, Renrui: 2023, pages | Zhang,: 31–41. | Unnamed: 1: | Ziyi Lin,: Association | Shijie: for | Unnamed: 2: | Unnamed: 3: | [25]: [35] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: OpenAI. GPT-4v(ision) system card. https://cdn.
+Row 44: [13]: | Peng Gao, Jiaming: Computational Linguistics, 2023. 6 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: openai.com/papers/GPTV_System_Card.pdf,
+Row 45: [13]: [22] | Peng Gao, Jiaming: Junnan Li, Dongxu | Unnamed: 0: | Han, Renrui: Li, Silvio Savarese, | Zhang,: | Unnamed: 1: and | Ziyi Lin,: Steven | Shijie: C. H. | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: 2023. 8
+Row 46: [13]: | Peng Gao, Jiaming: Hoi. BLIP-2: bootstrapping | Unnamed: 0: | Han, Renrui: language-image | Zhang,: | Unnamed: 1: | Ziyi Lin,: pre-training | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: [36] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Stefanos-Iordanis Papadopoulos, Christos Koutlis, Symeon
+Row 47: [13]: | Peng Gao, Jiaming: with frozen image encoders and large language models. | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: In | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Papadopoulos, and Panagiotis Petrantonakis. Synthetic
+Row 48: [13]: | Peng Gao, Jiaming: International Conference on Machine Learning, ICML 2023, | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: misinformers: Generating and combating multimodal misRow 49: [13]: | Peng Gao, Jiaming: 23-29 July 2023, Honolulu, | Unnamed: 0: | Han, Renrui: Hawaii, | Zhang,: USA, | Unnamed: 1: | Ziyi Lin,: pages 19730– | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: information. In Proceedings of the 2nd ACM InternaRow 50: [13]: | Peng Gao, Jiaming: 19742. PMLR, 2023. 3 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: tional Workshop on Multimedia AI against Disinformation,
+Row 51: [13]: [23] | Peng Gao, Jiaming: Liunian Harold Li, | Unnamed: 0: Mark | Han, Renrui: Yatskar, | Zhang,: Da Yin, | Unnamed: 1: | Ziyi Lin,: Cho-Jui | Shijie: Hsieh, | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: MAD@ICMR 2023, Thessaloniki, Greece, June 12-15, 2023,
+Row 52: [13]: | Peng Gao, Jiaming: and Kai-Wei Chang. VisualBERT: A simple and performant | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: pages 36–44. ACM, 2023. 2, 3, 5, 6
+Row 53: [13]: | Peng Gao, Jiaming: baseline for vision and | Unnamed: 0: | Han, Renrui: language. | Zhang,: CoRR, | Unnamed: 1: | Ziyi Lin,: abs/1908.03557, | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: [37] | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Piotr Przybyla. Capturing the style of fake news. In The
+Row 54: [13]: | Peng Gao, Jiaming: 2019. 3, 6 | Unnamed: 0: | Han, Renrui: | Zhang,: | Unnamed: 1: | Ziyi Lin,: | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: Thirty-Fourth AAAI Conference on Artificial Intelligence,
+Row 55: [13]: [24] | Peng Gao, Jiaming: C Lin. Recall-oriented | Unnamed: 0: | Han, Renrui: understudy | Zhang,: for gisting | Unnamed: 1: | Ziyi Lin,: evaluation | Shijie: | Unnamed: 2: | Unnamed: 3: | [25]: | Fuxiao Liu, Yinghan Wang, Tianlu Wang, and Vicente Or-: AAAI 2020, The Thirty-Second Innovative Applications of
+[/TABLE]
+
+[PAGE 14]
+AAAI Symposium on Educational Advances in Artificial Intelligence, EAAI 2020, New York, NY, USA, February 7-12,
+2020, pages 490–497. AAAI Press, 2020. 2
+[38] Peng Qi, Juan Cao, Tianyun Yang, Junbo Guo, and Jintao Li.
+Exploiting multi-domain visual information for fake news
+detection. In 2019 IEEE International Conference on Data
+Mining, ICDM 2019, Beijing, China, November 8-11, 2019 ,
+pages 518–527. IEEE, 2019. 2
+[39] Peng Qi, Juan Cao, Xirong Li, Huan Liu, Qiang Sheng,
+Xiaoyue Mi, Qin He, Yongbiao Lv, Chenyang Guo, and
+Yingchao Yu. Improving fake news detection by using an
+entity-enhanced framework to fuse diverse multimodal clues.
+In Proceedings of the 29th ACM International Conference on
+Multimedia , MM ’21, Virtual Event, China, October 20 - 24,
+2021, pages 1212–1220. ACM, 2021. 3
+[40] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry,
+Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen
+Krueger, and Ilya Sutskever. Learning transferable visual
+models from natural language supervision. In Proceedings
+of the 38th International Conference on Machine Learning,
+ICML 2021, 18-24 July 2021, Virtual Event , pages 8748–
+8763. PMLR, 2021. 3, 6
+[41] Ekraam Sabir, Wael AbdAlmageed, Yue Wu, and Prem
+Natarajan. Deep multimodal image-repurposing detection.
+In Proceedings of the 26th ACM International Conference
+on Multimedia, MM 2018, Seoul, Republic of Korea, October 22-26, 2018, pages 1337–1345. ACM, 2018. 2, 3
+[42] Rui Shao, Tianxing Wu, and Ziwei Liu. Detecting and
+grounding multi-modal media manipulation. In IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+CVPR 2023, Vancouver, BC, Canada, June 17-24, 2023 ,
+pages 6904–6913. IEEE, 2023. 1, 2
+[43] Kai Shu, Limeng Cui, Suhang Wang, Dongwon Lee, and
+Huan Liu. dEFEND: Explainable fake news detection. In
+Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining, KDD
+2019, Anchorage, AK, USA, August 4-8, 2019 , pages 395–
+405. ACM, 2019. 3
+[44] Ruben Tolosana, Rub ´en Vera-Rodr ´ıguez, Julian Fi ´errez,
+Aythami Morales, and Javier Ortega-Garcia. Deepfakes and
+beyond: A survey of face manipulation and fake detection.
+Inf. Fusion, 64:131–148, 2020. 1
+[45] Alakananda Vempala and Daniel Preotiuc-Pietro. Categorizing and inferring the relationship between the text and image
+of Twitter posts. In Proceedings of the 57th Conference of
+the Association for Computational Linguistics, ACL 2019,
+Florence, Italy, July 28- August 2, 2019, Volume 1: Long Papers, pages 2830–2840. Association for Computational Linguistics, 2019. 12
+[46] Xueyu Wang, Jiajun Huang, Siqi Ma, Surya Nepal, and
+Chang Xu. DeepFake disrupter: The detector of DeepFake
+is my friend. In IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2022, New Orleans, LA,
+USA, June 18-24, 2022, pages 14900–14909. IEEE, 2022. 1
+[47] Yaqing Wang, Fenglong Ma, Zhiwei Jin, Ye Yuan, Guangxu
+Xun, Kishlay Jha, Lu Su, and Jing Gao. EANN: event adversarial neural networks for multi-modal fake news detection. In Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining,
+KDD 2018, London, UK, August 19-23, 2018 , pages 849–
+857. ACM, 2018. 6
+[48] Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu,
+Noah A. Smith, Daniel Khashabi, and Hannaneh Hajishirzi.
+Self-Instruct: Aligning language models with self-generated
+instructions. In Proceedings of the 61st Annual Meeting
+of the Association for Computational Linguistics (Volume
+1: Long Papers), ACL 2023, Toronto, Canada, July 9-14,
+2023, pages 13484–13508. Association for Computational
+Linguistics, 2023. 3
+[49] Shukang Yin, Chaoyou Fu, Sirui Zhao, Ke Li, Xing Sun,
+Tong Xu, and Enhong Chen. A survey on multimodal large
+language models. CoRR, abs/2306.13549, 2023. 2
+[50] Shukang Yin, Chaoyou Fu, Sirui Zhao, Tong Xu, Hao Wang,
+Dianbo Sui, Yunhang Shen, Ke Li, Xing Sun, and Enhong
+Chen. Woodpecker: Hallucination correction for multimodal
+large language models. CoRR, abs/2310.16045, 2023. 9
+[51] Jingsi Yu, Junhui Zhu, Yujie Wang, Yang Liu, Hongxiang
+Chang, Jinran Nie, Cunliang Kong, Ruining Cong, XinLiu, Jiyuan An, Luming Lu, Mingwei Fang, and Lin Zhu.
+Taoli LLaMA. https://github.com/blcuicall/
+taoli, 2023. 3
+[52] Yizhou Zhang, Loc Trinh, Defu Cao, Zijun Cui, and
+Yan Liu. Detecting out-of-context multimodal misinformation with interpretable neural-symbolic model. CoRR,
+abs/2304.07633, 2023. 3, 5, 6
+[53] Hanqing Zhao, Wenbo Zhou, Dongdong Chen, Tianyi Wei,
+Weiming Zhang, and Nenghai Yu. Multi-attentional Deepfake detection. In IEEE Conference on Computer Vision
+and Pattern Recognition, CVPR 2021, virtual, June 1925, 2021, pages 2185–2194. Computer Vision Foundation /
+IEEE, 2021. 1
+[54] Xinyi Zhou, Jindi Wu, and Reza Zafarani. SAFE: similarityaware multi-modal fake news detection. In Advances in
+Knowledge Discovery and Data Mining - 24th Pacific-Asia
+Conference, PAKDD 2020, Singapore, May 11-14, 2020,
+Proceedings, Part II, pages 354–367. Springer, 2020. 3, 6
+[55] Deyao Zhu, Jun Chen, Xiaoqian Shen, Xiang Li, and Mohamed Elhoseiny. MiniGPT-4: Enhancing vision-language
+understanding with advanced large language models. arXiv
+preprint arXiv:2304.10592, 2023. 3
+[56] Dimitrina Zlatkova, Preslav Nakov, and Ivan Koychev. Factchecking meets fauxtography: Verifying claims about images. In Proceedings of the 2019 Conference on Empirical
+Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing,
+EMNLP-IJCNLP 2019, Hong Kong, China, November 3-7,
+2019, pages 2099–2108. Association for Computational Linguistics, 2019. 5
+
+[TABLE page=14 index=1]
+Columns: Unnamed: 0 | AAAI Symposium on Educational Advances in Artificial In- | versarial neural networks for multi-modal fake news detecRow 1: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: telligence, EAAI 2020, New York, NY, USA, February 7-12, | versarial neural networks for multi-modal fake news detec-: tion. In Proceedings of the 24th ACM SIGKDD InternaRow 2: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: 2020, pages 490–497. AAAI Press, 2020. 2 | versarial neural networks for multi-modal fake news detec-: tional Conference on Knowledge Discovery & Data Mining,
+Row 3: Unnamed: 0: [38] | AAAI Symposium on Educational Advances in Artificial In-: Peng Qi, Juan Cao, Tianyun Yang, Junbo Guo, and Jintao Li. | versarial neural networks for multi-modal fake news detec-: KDD 2018, London, UK, August 19-23, 2018, pages 849–
+Row 4: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Exploiting multi-domain visual information for fake news | versarial neural networks for multi-modal fake news detec-: 857. ACM, 2018. 6
+Row 5: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: detection. In 2019 IEEE International Conference on Data [48] | versarial neural networks for multi-modal fake news detec-: Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu,
+Row 6: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Mining, ICDM 2019, Beijing, China, November 8-11, 2019, | versarial neural networks for multi-modal fake news detec-: Noah A. Smith, Daniel Khashabi, and Hannaneh Hajishirzi.
+Row 7: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: pages 518–527. IEEE, 2019. 2 | versarial neural networks for multi-modal fake news detec-: Self-Instruct: Aligning language models with self-generated
+Row 8: Unnamed: 0: [39] | AAAI Symposium on Educational Advances in Artificial In-: Peng Qi, Juan Cao, Xirong Li, Huan Liu, Qiang Sheng, | versarial neural networks for multi-modal fake news detec-: instructions. In Proceedings of the 61st Annual Meeting
+Row 9: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Xiaoyue Mi, Qin He, Yongbiao Lv, Chenyang Guo, and | versarial neural networks for multi-modal fake news detec-: of the Association for Computational Linguistics (Volume
+Row 10: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Yingchao Yu. Improving fake news detection by using an | versarial neural networks for multi-modal fake news detec-: 1: Long Papers), ACL 2023, Toronto, Canada, July 9-14,
+Row 11: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: entity-enhanced framework to fuse diverse multimodal clues. | versarial neural networks for multi-modal fake news detec-: 2023, pages 13484–13508. Association for Computational
+Row 12: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: In Proceedings of the 29th ACM International Conference on | versarial neural networks for multi-modal fake news detec-: Linguistics, 2023. 3
+Row 13: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Multimedia , MM ’21, Virtual Event, China, October 20 - 24, [49] | versarial neural networks for multi-modal fake news detec-: Shukang Yin, Chaoyou Fu, Sirui Zhao, Ke Li, Xing Sun,
+Row 14: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: 2021, pages 1212–1220. ACM, 2021. 3 | versarial neural networks for multi-modal fake news detec-: Tong Xu, and Enhong Chen. A survey on multimodal large
+Row 15: Unnamed: 0: [40] | AAAI Symposium on Educational Advances in Artificial In-: Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya | versarial neural networks for multi-modal fake news detec-: language models. CoRR, abs/2306.13549, 2023. 2
+Row 16: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, [50] | versarial neural networks for multi-modal fake news detec-: Shukang Yin, Chaoyou Fu, Sirui Zhao, Tong Xu, Hao Wang,
+Row 17: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen | versarial neural networks for multi-modal fake news detec-: Dianbo Sui, Yunhang Shen, Ke Li, Xing Sun, and Enhong
+Row 18: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Krueger, and Ilya Sutskever. Learning transferable visual | versarial neural networks for multi-modal fake news detec-: Chen. Woodpecker: Hallucination correction for multimodal
+Row 19: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: models from natural language supervision. In Proceedings | versarial neural networks for multi-modal fake news detec-: large language models. CoRR, abs/2310.16045, 2023. 9
+Row 20: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: of the 38th International Conference on Machine Learning, [51] | versarial neural networks for multi-modal fake news detec-: Jingsi Yu, Junhui Zhu, Yujie Wang, Yang Liu, Hongxiang
+Row 21: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: ICML 2021, 18-24 July 2021, Virtual Event, pages 8748– | versarial neural networks for multi-modal fake news detec-: Chang, Jinran Nie, Cunliang Kong, Ruining Cong, XinRow 22: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: 8763. PMLR, 2021. 3, 6 | versarial neural networks for multi-modal fake news detec-: Liu, Jiyuan An, Luming Lu, Mingwei Fang, and Lin Zhu.
+Row 23: Unnamed: 0: [41] | AAAI Symposium on Educational Advances in Artificial In-: Ekraam Sabir, Wael AbdAlmageed, Yue Wu, and Prem | versarial neural networks for multi-modal fake news detec-: Taoli LLaMA. https://github.com/blcuicall/
+Row 24: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Natarajan. Deep multimodal image-repurposing detection. | versarial neural networks for multi-modal fake news detec-: taoli, 2023. 3
+Row 25: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: In Proceedings of the 26th ACM International Conference [52] | versarial neural networks for multi-modal fake news detec-: Yizhou Zhang, Loc Trinh, Defu Cao, Zijun Cui, and
+Row 26: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: on Multimedia, MM 2018, Seoul, Republic of Korea, Octo- | versarial neural networks for multi-modal fake news detec-: Yan Liu. Detecting out-of-context multimodal misinforRow 27: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: ber 22-26, 2018, pages 1337–1345. ACM, 2018. 2, 3 | versarial neural networks for multi-modal fake news detec-: mation with interpretable neural-symbolic model. CoRR,
+Row 28: Unnamed: 0: [42] | AAAI Symposium on Educational Advances in Artificial In-: Rui Shao, Tianxing Wu, and Ziwei Liu. Detecting and | versarial neural networks for multi-modal fake news detec-: abs/2304.07633, 2023. 3, 5, 6
+Row 29: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: grounding multi-modal media manipulation. In IEEE/CVF [53] | versarial neural networks for multi-modal fake news detec-: Hanqing Zhao, Wenbo Zhou, Dongdong Chen, Tianyi Wei,
+Row 30: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Conference on Computer Vision and Pattern Recognition, | versarial neural networks for multi-modal fake news detec-: Weiming Zhang, and Nenghai Yu. Multi-attentional DeepRow 31: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: CVPR 2023, Vancouver, BC, Canada, June 17-24, 2023, | versarial neural networks for multi-modal fake news detec-: fake detection. In IEEE Conference on Computer Vision
+Row 32: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: pages 6904–6913. IEEE, 2023. 1, 2 | versarial neural networks for multi-modal fake news detec-: and Pattern Recognition, CVPR 2021, virtual, June 19Row 33: Unnamed: 0: [43] | AAAI Symposium on Educational Advances in Artificial In-: Kai Shu, Limeng Cui, Suhang Wang, Dongwon Lee, and | versarial neural networks for multi-modal fake news detec-: 25, 2021, pages 2185–2194. Computer Vision Foundation /
+Row 34: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Huan Liu. dEFEND: Explainable fake news detection. In | versarial neural networks for multi-modal fake news detec-: IEEE, 2021. 1
+Row 35: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Proceedings of the 25th ACM SIGKDD International Con- [54] | versarial neural networks for multi-modal fake news detec-: Xinyi Zhou, Jindi Wu, and Reza Zafarani. SAFE: similarityRow 36: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: ference on Knowledge Discovery & Data Mining, KDD | versarial neural networks for multi-modal fake news detec-: aware multi-modal fake news detection. In Advances in
+Row 37: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: 2019, Anchorage, AK, USA, August 4-8, 2019, pages 395– | versarial neural networks for multi-modal fake news detec-: Knowledge Discovery and Data Mining - 24th Pacific-Asia
+Row 38: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: 405. ACM, 2019. 3 | versarial neural networks for multi-modal fake news detec-: Conference, PAKDD 2020, Singapore, May 11-14, 2020,
+Row 39: Unnamed: 0: Proceedings, Part II, pages 354–367. Springer, 2020. 3, 6[44] | AAAI Symposium on Educational Advances in Artificial In-: Ruben Tolosana, Rubén Vera-Rodrı́guez, Julian Fiérrez, | versarial neural networks for multi-modal fake news detec-:
+Row 40: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Aythami Morales, and Javier Ortega-Garcia. Deepfakes and [55] | versarial neural networks for multi-modal fake news detec-: Deyao Zhu, Jun Chen, Xiaoqian Shen, Xiang Li, and MoRow 41: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: beyond: A survey of face manipulation and fake detection. | versarial neural networks for multi-modal fake news detec-: hamed Elhoseiny. MiniGPT-4: Enhancing vision-language
+Row 42: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Inf. Fusion, 64:131–148, 2020. 1 | versarial neural networks for multi-modal fake news detec-: understanding with advanced large language models. arXiv
+Row 43: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: | versarial neural networks for multi-modal fake news detec-: preprint arXiv:2304.10592, 2023. 3
+Row 44: Unnamed: 0: [45] | AAAI Symposium on Educational Advances in Artificial In-: Alakananda Vempala and Daniel Preotiuc-Pietro. Categoriz- | versarial neural networks for multi-modal fake news detec-:
+Row 45: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: ing and inferring the relationship between the text and image [56] | versarial neural networks for multi-modal fake news detec-: Dimitrina Zlatkova, Preslav Nakov, and Ivan Koychev. FactRow 46: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: of Twitter posts. In Proceedings of the 57th Conference of | versarial neural networks for multi-modal fake news detec-: checking meets fauxtography: Verifying claims about imRow 47: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: the Association for Computational Linguistics, ACL 2019, | versarial neural networks for multi-modal fake news detec-: ages. In Proceedings of the 2019 Conference on Empirical
+Row 48: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: Florence, Italy, July 28- August 2, 2019, Volume 1: Long Pa- | versarial neural networks for multi-modal fake news detec-: Methods in Natural Language Processing and the 9th InterRow 49: Unnamed: 0: | AAAI Symposium on Educational Advances in Artificial In-: pers, pages 2830–2840. Association for Computational Lin- | versarial neural networks for multi-modal fake news detec-: national Joint Conference on Natural Language Processing,
+[/TABLE]

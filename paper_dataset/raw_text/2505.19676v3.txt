@@ -1,0 +1,1005 @@
+[PAGE 1]
+Large Language Models’ Reasoning Stalls: An Investigation
+into the Capabilities of Frontier Models
+LACHLAN MCGINNESS,School of Computer Science, Australian National University and CSIRO
+PETER BAUMGARTNER,Data61, CSIRO
+Empirical methods to examine the capability of Large Language Models (LLMs) to use Automated Theorem
+Prover (ATP) reasoning strategies are studied. We evaluate the performance of State of the Art models from
+December 2023 and August 2024 on PRONTOQA steamroller reasoning problems. For that, we develop
+methods for assessing LLM response accuracy and correct answer correlation.
+Our results show that progress in improving LLM reasoning abilities has stalled over the nine month period.
+By tracking completion tokens, we show that almost all improvement in reasoning ability since GPT-4 was
+released can be attributed to either hidden system prompts or the training of models to automatically use
+generic Chain of Thought prompting strategies. Among the ATP reasoning strategies tried, we found that
+current frontier LLMs are best able to follow the bottom-up (also known as forward-chaining) strategy. A
+positive correlation was found between an LLM response containing correct reasoning and arriving at the
+correct conclusion.
+CCS Concepts:•Computing methodologies → Knowledge representation and reasoning;Neural
+networks.
+Additional Key Words and Phrases: Large Language Models, Deductive Reasoning
+1 INTRODUCTION
+Since the release of GPT-3 [16] as ChatGPT there has been significant hype around Large Language
+Models (LLMs). There is hope that LLMs may be useful for increasing expert knowledge and
+reducing the number of repetitive tasks in fields like accounting and programming and even
+assist people in jobs which require personal connection such as law, healthcare and education
+[2, 15, 23, 38, 41, 45, 85, 88]. Most of the current hype and excitement stems from the emergent
+properties of LLMs; they are often able to recall information from their training, write code and
+appear to be able to reason logically.
+Many benchmarks evaluate LLMs in different domains [93] including natural language [14, 56, 60,
+72, 89]. Other benchmarks are designed to evaluate reasoning, coding and mathematical ability
+[7, 19, 20, 32, 53, 92]. There are also many leader-boards that use specific tasks [20, 25, 28, 33, 49,
+69, 74, 87, 94] for evaluation. There is a strong focus on outperforming current State of the Art
+(SotA) models on these benchmarks, even by very narrow margins, in order to have more‘bolded
+columns’than rivalling models. In these scenarios there is often no consideration or reporting
+of uncertainty in the presented scores. In many benchmarks there is often a focus on the correct
+answers rather than the correct steps in reasoning. Computational expense is rarely mentioned for
+LLM performance on logical reasoning benchmarks, which may in part be due to unavailability of
+this information as many companies keep their model’s sizes and architectures secret.
+©2025
+arXiv:2505.19676v3 [cs.AI] 17 Sep 2025
+
+[PAGE 2]
+In this paper we present a ‘longitudinal study’, which builds on our previous work that evaluates
+LLM reasoning capabilities [54]. This study evaluates the three highest performing LLMs as of
+December 2023 and August 2024 on PRONTOQA, a rarely used logical reasoning benchmark [66].
+We use PRONTOQA because the dataset is published as a question generator rather than a set list of
+questions, avoiding the problem of contamination [30]. This makes results slightly less reproducible
+for leader boards as there will be small variations in accuracy depending on the exact questions
+generated. However, the ability to generate any number of examples on demand makes statistical
+analysis and determination of uncertainty through measures such as standard deviation simple.
+PRONTOQA is not a commonly reported metric, therefore it is unlikely that companies training
+LLMs will be overfitting their models to these questions.
+The SotA models tested are GPT3.5 Turbo (which we will refer to as GPT3 from here on) [ 16],
+GPT-4 and GPT4-o [58], Google’s Gemini-Pro [76], Claude 3 Opus [6] and Llama3.1 405B [3]. We
+use in-context learning to teach LLMs to use reasoning strategies used by Automated Theorem
+Provers (ATPs). Figure 1 provides an overview of the analysis methods in this study.
+LLM Natural
+Language Answer True or FalseTokens
+SpaCy processes
+natural language All Required Steps
+Correct Order
+Answer is parsed to determine
+if model answer is true or false.
+Spacy finds rules from natural language
+and converts it to a systematic form for
+processing
+Number of tokens used to
+examine model behaviour.
+The model’s reasoning is compared to
+the ground truth to
+determine if all statements required for a
+proof are present.
+If all required steps are
+present we verify the steps
+are in the correct order for
+the given proof strategy.
+Answer CorrectnessModel Behaviour
+Faithfulness to Reasoning Strategy
+Fig. 1. Diagram illustrating an overview of the analysis undertaken in this study. We used the number of
+tokens produced by a model to determine whether it is using reasoning or not (Model Behaviour dashed
+blue box). We used the correctness of LLM answers to create an accuracy metric (Answer Correctness box).
+Finally we analysed the LLM output, checking for correct reasoning using SpaCy – a well established NLP
+tool (Faithfulness to Reasoning Strategy).
+2 BACKGROUND
+2.1 LLM reasoning
+There have been a large number of both theoretical and empirical studies into the emergent
+reasoning capabilities of LLMs [26, 37, 52, 75, 79, 80] and how these can be improved [4, 22, 29, 34,
+35, 40, 61, 84]. At the time of writing there is an almost monthly release of new LLMs from different
+companies. Up to this point their capability seems to be rapidly increasing; as Srivastava [ 73]
+notes, most benchmarks become obsolete in two years because models have reached near-perfect
+performance.
+When evaluating LLM reasoning, most authors focus only on accuracy [11, 63]. By contrast, this
+paper also investigates the soundness of model reasoning as producing a correct proof is an
+
+[PAGE 3]
+important skill for LLMs to become trustworthy. We also note that it is possible for LLMs to have
+sufficient stored knowledge to guess correct answers without reasoning. Therefore accuracy alone
+is not a sufficient measure of LLM reasoning capability.
+Previous studies have found that LLM reasoning ability varies wildly in different disciplines. Many
+studies into LLM reasoning in planning tasks have demonstrated that they perform very poorly.
+Kambhampait et. al. argue that LLMs cannot complete planning or self verification tasks accurately
+but suggests that these could be used as part of a neuro-symbolic framework to solve complex
+planning problems [39].
+In 2023, Saparov and He published a dataset, PRONTOQA, specifically designed to allow for
+assessment of LLM’s reasoning process rather than just their accuracy in completing the task
+[66]. This dataset requires models to use deductive reasoning (modus ponens) to answer a true or
+false query. The dataset is flexible, with a number of parameters that can be changed including
+the number of steps of reasoning (hops), the ontology (whether the provided statements are true
+or false in the real world) and distractors (extra statements that are not required to answer the
+question). One added bonus of PRONTOQA is that the code which generates the questions is
+published but the questions themselves are not. This decreases the chance of contamination and
+means that arbitrarily many examples can be generated.
+In addition to releasing the dataset Saparov and He also evaluate some of the easier problems in
+the data using GPT3 [66]. Specifically they investigate whether the correctness of model responses
+correlates with their ability to generate a step by step proof. They discovered that there is a weak
+correlation between accuracy and perfect (‘golden’ chain of thought) reasoning. However there
+is a much stronger correlation between accuracy and two weaker forms of proofs; those which
+are allowed to skip steps and those which only include valid steps [66]. They concluded that more
+difficult tasks in PRONTOQA are still challenging for LLMs and notice that the order in which the
+facts and rules are displayed has an impact on model reasoning [66].
+To improve performance of pre-trained models on reasoning task there are a number of methods
+that can be employed. Fine tuning is a technique which can increase a model’s performance on a
+very specific task if there are a significant number of training examples to learn from [64]. Fine
+tuning updates the weights of the model and so requires a significant amount of computational
+power, however it is commonly used to improve performance on benchmarks [5, 13, 77, 91]. In this
+study we do not consider fine tuning a model to our task; we are interested in probing the inherent
+reasoning ability of pre-trained SotA models.
+In-context learning or ‘prompt engineering’ provides specific instructions to LLMs to improve
+their performance on a given task. [16, 44, 57, 70, 71]. Chen et al. and Liu et al. provide historical
+overviews of prompt engineering techniques [18, 47]. The most widely used prompt engineering
+technique for reasoning is Chain of Thought (CoT) [18], where models tend to use bottom up (or
+forward chain) reasoning [42]. In-context learning is an active area of research with multiple papers
+published in prestigious conferences this year [46, 67, 68, 81, 82, 90].
+Kazemi et al. tested LLM’s capability of using ‘top down’ or ‘backward chain’ reasoning [42]. Inspired
+by the success of backward chaining in the area of Automated Theorem Proving (ATP), Kazemi
+designed an algorithm called LAMBADA which makes multiple calls to an LLM to complete four
+different tasks. They demonstrate a significant performance improvement over CoT and Selection
+Inference techniques [42]. Rather than using an external algorithm which calls an LLM for different
+sub-tasks, we explicitly teach LLMs to use bottom up, top down and magic set transformation [8]
+reasoning techniques.
+
+[PAGE 4]
+True or false: Whiskers is an animal.
+Every mammal is an animal.
+Each cat is a mammal.
+Whiskers is a cat.
+Bottom Up Reasoning
+Therefore Whiskers
+is an animal
+Therefore Whiskers
+is a mammal
+True or false: Whiskers is an animal.
+Every mammal is an animal.
+Each cat is a mammal.
+Whiskers is a cat.
+Top Down Reasoning
+True or False: Whiskers
+is a mammal
+True or False: Whiskers
+is a cat
+True or false:
+Whiskers is an animal.
+Every mammal is an animal.
+Each cat is a mammal.
+Whiskers is a cat.
+Magic Set Reasoning
+Whiskers is furry. Rex is a dog.
+Dogs are mammals.
+Therefore Whiskers
+is an animal
+Therefore Whiskers
+is a mammal
+First the model uses approximative
+top down reasoning to identify
+relevant facts and rules. The remaining
+facts and rules can then be ignored.
+Then the model performs bottom
+up reasoning on the reduced set
+of axioms.
+Fig. 2. Illustration of Reasoning Strategies, reproduced from [ 54]. Facts are shown in red, rules in yellow and
+queries in green. For simplicity, few or no distractors are shown in the examples. Magic Set Transformation is
+a basic search space pruning ATP method.
+2.2 ATP Reasoning Strategies
+Automated Theorem Proving is one of the most traditional subfields of AI, originating in the 1950s.
+ATPs use logical reasoning and search algorithms to explore the space of possible proofs and
+identify those that are valid. Unfortunately, early systems could only be applied to toy problems,
+mainly for lack of techniques to deal with combinatorially exploding search spaces. Theresolution
+calculusdeveloped since the 1960s [65] marked a first breakthrough in this direction.
+Contemporary ATPs implement strategies and heuristics that make them applicable to realistically
+sized problems while not compromising on soundness or completeness of solutions (proofs). A
+natural research question is if LLMs can take advantage of ATP search strategies to improve their
+reasoning using in-context learning.
+
+[TABLE page=4 index=1]
+Columns: Bottom Up Reasoning | Top Down Reasoning
+Row 1: Bottom Up Reasoning: True or false: Whiskers is an animal. | Top Down Reasoning: True or false: Whiskers is an animal.
+Row 2: Bottom Up Reasoning: Therefore Whiskers | Top Down Reasoning:
+Row 3: Bottom Up Reasoning: is an animal | Top Down Reasoning:
+Row 4: Bottom Up Reasoning: Every mammal is an animal. | Top Down Reasoning: Every mammal is an animal.
+Row 5: Bottom Up Reasoning: | Top Down Reasoning: True or False: Whiskers
+Row 6: Bottom Up Reasoning: Therefore Whiskers | Top Down Reasoning: is a mammal
+Row 7: Bottom Up Reasoning: is a mammal | Top Down Reasoning:
+Row 8: Bottom Up Reasoning: Each cat is a mammal. | Top Down Reasoning: Each cat is a mammal.
+Row 9: Bottom Up Reasoning: | Top Down Reasoning: True or False: Whiskers
+Row 10: Bottom Up Reasoning: | Top Down Reasoning: is a cat
+Row 11: Bottom Up Reasoning: Whiskers is a cat. | Top Down Reasoning: Whiskers is a cat.
+[/TABLE]
+
+[PAGE 5]
+Two concepts that are routinely used in ATPs and related systems are Bottom Up and Top Down
+reasoning, also referred to as forward chaining and backward chaining respectively. See Figure 2
+and [31] for an overview. Bottom Up begins a logical deduction process from basic facts and rules
+and iteratively derives conclusions until it has arrived at the answer to a query. It is realised in the
+hyper-resolution calculus [59] and hyper tableaux [9]. Moreover, computing materialised views
+in relational database management systems is essentially a Bottom Up process. Bottom Up is the
+primary form of reasoning used by LLMs when performing CoT reasoning [42].
+By contrast, Top Down reasoning systems start with a query and use rules to recursively derive
+sub-goals until the sub-goals and query can be proved or disproved by the provided facts. Top
+Down reasoning starts with the query to guide the search for a proof. Prominent ATP examples are
+the model elimination calculus [48] and the Prolog programming language [21].
+As mentioned in Section 2.1, in 2023, Kazemi et al. from the Google research team were the first to
+attempt to use a Top Down approach when reasoning with LLMs [42]. To do this they created an
+algorithm, LAMBADA which calls an LLM at various stages. As part of the study they perform a
+short preliminary experiment to determine if an LLM can perform CoT reasoning on statements
+where the proofs are written backwards. However they stop short of explicitly teaching an LLM to
+use Top Down reasoning.
+In addition to Top Down and Bottom Up reasoning we also explore the use of a Magic Set Transformation approach with LLMs [8]. Magic Set Transformation approaches first use a Top Down
+exploration to determine the set of rules and facts which are relevant to a query. This often allows
+the subsequent Bottom Up reasoning to explore a smaller search space.
+3 METHODS
+The LLMs used in the Experimental Design described in this paper (Section 3.1) were accessed via
+different methods. GPT3, GPT-4 and GPT-4o were accessed through Microsoft Azure endpoints.
+Gemini pro was accessed directly using an official API. Claude 3.5 Sonnet was accessed using
+a Professional Plan session key. Llama3.1 405B and Claude 3 Opus model were accessed via an
+AWS Bedrock API. Because different hosting platforms were used, latency was not measured or
+considered in this study. Note that each model was given identical prompts as described in the
+Experimental Design section.
+3.1 Experimental Design
+Our study focuses on Steamroller problems; toy examples used by philosophers to test and extend
+their reasoning capabilities. We use the PRONTOQA benchmark [66] published by Saparov and He.
+We use this dataset to evaluate the SotA LLMs from December 2023 and August 2024.
+We focus not only on accuracy but also the correctness of their reasoning processes. In order to
+challenge the models we explore the so called ‘False Ontology’ with distractors. These are the
+hardest conditions for reasoning and were not tested in their original paper [66].
+We note that the performance of a model which is randomly guessing could be determined using a
+binomial distribution 𝐵( 100, 0.5). Following the procedure in [54] we note that random guessing
+should result in an expected accuracy of 0.5 with a standard deviation of 0.042. Six different prompts
+were used including ‘Normal’ (baseline), Zero-shot CoT, One-shot CoT, Bottom Up, Top Down, and
+Magic Set Transformation. The exact prompts used for each of these conditions can be found in
+Appendix C.
+
+[PAGE 6]
+For each call to the LLM, we check if the model correctly answered the query. Note we assume
+default negation; if the model does not give a clear answer, or states that the answer cannot be
+determined, we assume that it answered false. The portion of correct answers from one hundred
+calls was used to calculate an accuracy score. This is repeated for one hop, two hops and three hops
+of reasoning for each prompting technique and each model. This results in a total of 1800 calls per
+model. This makes manual verification of model reasoning unviable. In the next section we give
+details of the automated measures we used to verify LLM reasoning.
+3.2 Measuring Correctness of Reasoning
+LLMs are extremely versatile and can be used for a wide range of tasks. Depending on the context,
+different systems of classifying errors are appropriate. McGinness outlines [53] an error classification
+system for Augmented Language Models when calling external tools. Xu outlines a more general
+system for classifying LLM errors [86].
+Rather than using error categories, in this study we measure the models’ correctness in deductive
+reasoning. Even when prompted to use reasoning, December 2023 SotA models occasionally answer
+with just ‘True’ or ‘False’ [54]. This can easily be detected with token count and indicates that no
+reasoning was used. However we would additionally like to investigate whether LLMs include
+all steps that would be needed by an ATP to prove the answer to the query, and verify whether
+models faithfully follow the prescribed reasoning strategy. Previously Saparov and He [66] used a
+recursive-descent parser using the simple grammar to verify model reasoning. Unparseable proofs
+were marked as incorrect.
+In order to reduce the number of missed examples we believe it is necessary to accept a wider
+variety of natural language expressions. To achieve this we used SpaCy [36], an open source NLP
+tool and followed a process similar to [54]. In our study SpaCy (including co-reference resolution
+tools) parsed the model response and the ground truth reasoning, translating these into facts and
+rules, before rewriting them in a standardised form (semantic triples) for easy comparison. See [54]
+for an example of how this process works on an LLM response.
+Once the facts and rules were converted to a canonical form we compared the lists of model triples
+and ground truth triples. If all elements of the ground truth were present in the model list then the
+model was said to contain all required reasoning steps. In these cases, to determine faithfulness to
+the reasoning strategy, we looped through each model triple to check that the order matches the
+ground truth.
+The algorithm we used for verifying whether the LLM response contains the ground truth is as
+follows, see Figure 3. When the current model reasoning step corresponds to the current ground
+truth step, the step is removed from both lists. When the current model step does not match the
+ground truth step it is removed only from the model reasoning list. If the last step in the ground
+truth reasoning is reached before or at the same time as the final step in the model reasoning, then
+the model’s reasoning is determined to be faithful to the prompted strategy. If the model’s final
+reasoning step is reached before the final step in the ground truth then the reasoning is classified as
+unfaithful. This methodology requires one to check that each of the steps of reasoning is included,
+this was done in a semi-automated way as described in [55].
+In this study, model accuracy is measured in addition to verifying the faithfulness to reasoning
+strategies. When working with LLMs, performance can be highly variable and therefore statistical
+measures of uncertainty become as essential as in the natural sciences. In the following section we
+outline the statistical measures that we used when reporting numerical results.
+
+[PAGE 7]
+Fig. 3. Demonstration of faithfulness determination loop. The parsed ground truth is shown in green and
+parsed LLM response is shown in blue.
+On the left:an example of an LLM response which is not faithful to the Bottom Up reasoning strategy. In
+Step 1 the first entry of the LLM response list is also the first entry of the ground truth list so it is removed
+from both. In Step 2, the first remaining LLM entry does not match the the first entry of the ground truth so
+it is removed only from the LLM list. After Step 3 the end of the LLM list has been reached before the ground
+truth list; therefore the LLM response is classified as unfaithful.
+On the right:a different example of a faithful LLM response. For conciseness, this example starts at after
+Step 3 where the first two entries have been removed from both lists. Step 4 removes an entry only from the
+LLM list before Step 5 removes the final entry of both lists. Since the final step has been removed from the
+ground truth at the same time (or before) the LLM response, it is classified as faithful.
+3.3 Statistical Measures of Uncertainty
+McGinness [54] argues the importance of using measures of uncertainty for studies involving LLMs.
+The reporting of uncertainty would reduce the number of false positive leader board claims where
+an existing SotA result is beaten by a narrow margin. As natural variation occurs in the results
+we take repeat trials and use statistical measures that are commonly used in physics experiments
+[12, 27].
+
+[PAGE 8]
+For each model and experimental technique there are300calls across three trials. Each trial uses a
+different number of hops of reasoning; one, two and three hops. When we give accuracy values, we
+report the average and half of the range (as a rough measure of variation) across each of the three
+trials. When reporting the fraction of cases where an LLM has used correct reasoning or faithful
+reasoning we report the mean value and use error bars to denote the minimum and maximum
+value. We chose maximum and minimum values because using standard deviation or half range
+would lead to error bars going above 100% in some cases, which would be very counterintuitive.
+Note that the experiments were performed in two narrow time periods, December 2023 and August
+2024, in order to minimise the amount of updating of models midway through the experiments.
+Unfortunately there were some cases in December 2023 where there are slightly less than 100
+responses for some experimental conditions due to API failure. In these cases the accuracy and
+portion of correct responses were calculated as the fraction of total responses. In these cases the
+averages and variations were still calculated as described above.
+4 RESULTS
+At the time of experimentation (December 2023 and August 2024) the models presented below were
+the best performing LLMs available to the public. Note that we performed a preliminary test which
+showed that Claude 3 Opus performed more highly on our benchmarks that Claude 3.5 Sonnet, see
+Appendix A.
+Table 1. Accuracy for each Model. Average number completion tokens given in brackets. Random guessing
+would give an accuracy value of0 .500 ± 0.042. In the normal condition the model is not prompted to use any
+strategy.
+Prompt Technique GPT3 GPT4 Gemini-Pro GPT4o Claude Opus Llama3.1 405B
+Normal 0.47±0.06 0.83±0.12 0.48±0.030.93±0.030.83±0.05 0.73±0.09
+(19.7) (1.8) (3.0) (300.0) (316.3) (87.54)
+Explicit Instructions +0.65±0.1 0.75±0.09 0.62±0.090.93±0.030.84±0.04 0.86±0.04
+Chain of Thought(461.5) (122.5) (287.7) (430.0) (411.8) (271.1)
+Explicit Instructions +
+One Shot + 0.66±0.150.94±0.040.74±0.12 0.93±0.01 0.85±0.01 0.92±0.03
+Chain of Thought(443.4) (92.3) (110.4) (396.7) (255.4) (206.1)
+ATP Strategy0.69±0.02 0.95±0.02 0.72±0.03 0.95±0.01 0.97±0.020.98±0.01
+Bottom Up(542.3) (311.2) (488.2) (706.5) (455.0) (423.4)
+ATP Strategy0.56±0.050.99±0.010.56±0.06 0.95±0.02 0.95±0.02 0.93±0.03
+Top Down(581.2) (250.31) (350.3) (436.5) (418.1) (386.2)
+ATP Strategy0.64±0.070.94±0.020.77±0.020.94±0.01 0.94±0.040.91±0.04
+Magic Set Transformation(366.4) (371.4) (402.2) (597.2) (493.9) (445.1)
+4.1 Accuracy of Final Answers
+The accuracy results of the experiments are summarised in Table 1. As described in Section 3.3, the
+average accuracy from across the three trials (1 hop, 2 hop and 3 hop) is given with half the range
+reported as the uncertainty value. For the normal condition, the December 2023 models usually just
+wrote ‘True’ or ‘False’ as their answer. As a result they have the lowest completion token count.
+Note that this is also accompanied by low accuracy. The completion token counts for the August
+2024 models are significantly higher for the normal condition indicating that they have either been
+trained or internally prompted to automatically perform chain of thought reasoning. Note that the
+December 2023 GPT4 model was the most concise across all experimental conditions.
+
+[TABLE page=8 index=1]
+Columns: Prompt Technique | GPT3 | GPT4 | Gemini-Pro | GPT4o | Claude Opus | Llama3.1 405B
+Row 1: Prompt Technique: | GPT3: 0.47 ± 0.06 | GPT4: 0.83 ± 0.12 | Gemini-Pro: 0.48 ± 0.03 | GPT4o: 0.93 ± 0.03 | Claude Opus: 0.83 ± 0.05 | Llama3.1 405B: 0.73 ± 0.09
+Row 2: Prompt Technique: Normal | GPT3: | GPT4: | Gemini-Pro: | GPT4o: | Claude Opus: | Llama3.1 405B:
+Row 3: Prompt Technique: | GPT3: (19.7) | GPT4: (1.8) | Gemini-Pro: (3.0) | GPT4o: (300.0) | Claude Opus: (316.3) | Llama3.1 405B: (87.54)
+Row 4: Prompt Technique: Explicit Instructions + | GPT3: 0.65 ± 0.1 | GPT4: 0.75 ± 0.09 | Gemini-Pro: 0.62 ± 0.09 | GPT4o: 0.93 ± 0.03 | Claude Opus: 0.84 ± 0.04 | Llama3.1 405B: 0.86 ± 0.04
+Row 5: Prompt Technique: Chain of Thought | GPT3: (461.5) | GPT4: (122.5) | Gemini-Pro: (287.7) | GPT4o: (430.0) | Claude Opus: (411.8) | Llama3.1 405B: (271.1)
+Row 6: Prompt Technique: Explicit Instructions + | GPT3: | GPT4: | Gemini-Pro: | GPT4o: | Claude Opus: | Llama3.1 405B:
+Row 7: Prompt Technique: | GPT3: 0.66 ± 0.15 | GPT4: 0.94 ± 0.04 | Gemini-Pro: 0.74 ± 0.12 | GPT4o: 0.93 ± 0.01 | Claude Opus: 0.85 ± 0.01 | Llama3.1 405B: 0.92 ± 0.03
+Row 8: Prompt Technique: One Shot + | GPT3: | GPT4: | Gemini-Pro: | GPT4o: | Claude Opus: | Llama3.1 405B:
+Row 9: Prompt Technique: Chain of Thought | GPT3: (443.4) | GPT4: (92.3) | Gemini-Pro: (110.4) | GPT4o: (396.7) | Claude Opus: (255.4) | Llama3.1 405B: (206.1)
+Row 10: Prompt Technique: ATP Strategy | GPT3: 0.69 ± 0.02 | GPT4: 0.95 ± 0.02 | Gemini-Pro: 0.72 ± 0.03 | GPT4o: 0.95 ± 0.01 | Claude Opus: 0.97 ± 0.02 | Llama3.1 405B: 0.98 ± 0.01
+Row 11: Prompt Technique: Bottom Up | GPT3: (542.3) | GPT4: (311.2) | Gemini-Pro: (488.2) | GPT4o: (706.5) | Claude Opus: (455.0) | Llama3.1 405B: (423.4)
+Row 12: Prompt Technique: ATP Strategy | GPT3: 0.56 ± 0.05 | GPT4: 0.99 ± 0.01 | Gemini-Pro: 0.56 ± 0.06 | GPT4o: 0.95 ± 0.02 | Claude Opus: 0.95 ± 0.02 | Llama3.1 405B: 0.93 ± 0.03
+Row 13: Prompt Technique: Top Down | GPT3: (581.2) | GPT4: (250.31) | Gemini-Pro: (350.3) | GPT4o: (436.5) | Claude Opus: (418.1) | Llama3.1 405B: (386.2)
+Row 14: Prompt Technique: ATP Strategy | GPT3: 0.64 ± 0.07 | GPT4: 0.94 ± 0.02 | Gemini-Pro: 0.77 ± 0.02 | GPT4o: 0.94 ± 0.01 | Claude Opus: 0.94 ± 0.04 | Llama3.1 405B: 0.91 ± 0.04
+Row 15: Prompt Technique: Magic Set Transformation | GPT3: (366.4) | GPT4: (371.4) | Gemini-Pro: (402.2) | GPT4o: (597.2) | Claude Opus: (493.9) | Llama3.1 405B: (445.1)
+[/TABLE]
+
+[PAGE 9]
+The accuracy results for the December 2023 models are consistent with previous studies; the
+performance of a model is enhanced by specific instructions, examples and reasoning techniques.
+Note that the same does not apply to the two proprietary August 2024 models, GPT4o and Claude
+Opus. These models show very little improvement compared to being instructed to reason step by
+step or receiving given examples. This is consistent with the hypothesis that these models now
+have CoT reasoning built into their training and hidden prompts.
+GPT3 GPT4 Gemini GPT4o Claude
+Opus
+Llama3.1
+405B
+% of cases including some reasoning
+Percentage of Cases where each Model Displayed Reasoning by Technique
+GPT3 GPT4 Gemini GPT4o Claude Llama3.1
+% of cases including all reasoning steps
+Percentage of Cases where each Model Displayed All Required Steps
+Normal CoT CoT one-shot Bottom up Top down Magic set
+Fig. 4. Presence of Reasoning. The upper bar chart indicates the portion of experimental trials where LLMs
+displayed at least some reasoning for each experimental condition. The lower bar chart indicates the portion
+of correctly answered trials where the LLMs included all steps of reasoning required for a correct proof.
+In December 2023, GPT4 was the clear SotA model and its scores were significantly higher than
+GPT3 and Gemini-Pro. In August 2024, the frontier models were much more similar in their
+capabilities and their scores are reasonably close (the values overlap within uncertainty) for the
+
+[PAGE 10]
+last three experimental conditions. One interesting finding is that GPT4 displays overall stronger
+reasoning than the more recent models; it obtained the highest scores for three of the reasoning
+strategies. In the following section we evaluate whether correct model answers correspond to
+sound reasoning processes.
+4.2 Accuracy of LLM Reasoning
+In addition to accuracy, we also investigated how frequently the models used correct reasoning.
+Figure 4 consists of two bar charts. In the first bar chart, the normal columns (blue in Figure 4) further
+support the hypothesis that current frontier models are either trained or given hidden prompts to
+use CoT reasoning. All other columns of the first bar chart indicate that LLMs ubiquitously use
+reasoning steps when prompted to. Note that the presence of reasoning does not guarantee that all
+required steps of reasoning were included.
+The second bar chart in Figure 4 displays the number of cases where the model included all
+reasoning steps. There are a few key trends to notice in these results. The first is that the normal
+column is the lowest for every model. This is what we would expect; LLMs are more likely to
+contain all of the required reasoning when prompted for it. There is also a general trend that when
+in-context learning was used to teach a model to follow a reasoning strategy it is more likely to
+include all steps. Note that out of the frontier models, Llama3.1 405B is least likely to have all of
+the required steps when prompted with the normal condition.
+GPT3 GPT4 Gemini GPT4o Claude Llama3.1
+0.2
+0.4
+0.6
+0.8
+Fraction of cases where model followed process
+Ratio of Cases where each Model Followed Reasoning Technique
+Bottom up Top down Magic set
+Fig. 5. Ratio of Process Following. This graph shows the ratio of times the model followed the instructed
+reasoning process out of all attempts where each model showed all required reasoning steps.
+For each of the ATP techniques we determined whether the model faithfully followed the prompted
+strategy, as described in Figure 3. The results of this process are shown in Figure 5. Although most
+models were best able to follow the Bottom Up reasoning technique, Claude 3 Opus was a clear
+exception to this rule. After manual review it was found that Claude would consistently write each
+of the rules before the facts and then draw the conclusion. This technically means that it does not
+follow the Bottom Up process, as it is meant to start with facts and then apply the rules. The Magic
+
+[PAGE 11]
+Set process is the most complicated and therefore it is not unexpected that the LLMs were not able
+to reproduce it as well as the other techniques.
+Fig. 6. Correlation Matrices. For each of the three models we calculated the correlation between instances
+containing all required steps for the proof, instances where the steps were followed in the correct answer,
+and instances where the final answer is correct. As having all of the correct steps is a precursor to the steps
+being in the correct order, a small positive correlation between ‘All Steps’ and ‘Correct Order’ is expected.
+Finally correlation matrices were produced to check how frequently correct answers were accompanied by correct reasoning when using ATP techniques. For these techniques we calculated the
+correlations between containing all reasoning steps, following the required process, and obtaining
+the correct answer. The correlation matrices for this analysis, for each of the August 2024 SotA
+models, can be found in Figure 6. For the December 2023 SotA model correlation matrices, see [54].
+It is important to note that having all correct steps is a precursor to the steps being in the correct
+order, therefore it is inevitable that there will be a correlation between between ‘All Steps’ and
+‘Correct Order’. Note that the correlation matrix for Claude Opus is significantly different to the
+others with a weaker correlation between ‘All Steps’ and ‘Correct Order’. This can be explained
+by the large number of cases which contain all required reasoning steps but the overall very low
+number of cases which were faithful to the reasoning process as shown in Figure 4 and Figure 5.
+5 DISCUSSION
+The results of these experiments contain a number of concerning and significant results. The first
+is they reveal that nearly all progress in Large Language Model development over the last nine
+months can be attributed to prompt engineering. The token counts for the normal condition (Table
+1) and number of cases where models engage in reasoning for this condition (Figure 4) provide
+clear evidence that companies have trained models to automatically engage in CoT reasoning.
+These token counts provide further evidence that GPT4o and Claude Opus have hidden prompts
+to engage in CoT reasoning (also see Appendix C.1 and C.2). Calls to Llama3.1 405B did not have
+hidden prompts, which resulted in fewer tokens and lower probability of containing all required
+steps of reasoning for the normal condition.
+A comparison of the model accuracies (Table 1) shows that the only significant improvement in
+current SotA models compared to GPT4 occurs in the zero shot cases. The token counts indicate
+that this can be explained through prompt engineering techniques and therefore there is very little
+
+[PAGE 12]
+improvement in reasoning ability of GPT4o, Claude Opus, and Llama3.1 405B compared to GPT4.
+The implication for NLP and for companies developing LLMs is significant: additional training and
+model size may not be enough to improve reasoning ability. Instead, new innovative techniques for
+improving reasoning capability [39, 78] may be required to improve performance.
+The fact that improvement in reasoning ability over the last nine months (say from GPT4 to GPT4o)
+can be attributed to prompt engineering techniques highlights the importance of research into
+in-context learning techniques. One unintended consequence of the training of models and/or
+inclusion of prompts to encourage them engage in CoT reasoning may be a slowing of progress in
+prompt engineering research. If models are automatically prompted to use standard CoT reasoning
+this could hinder computer scientists’ ability to try new and original prompting techniques [62].
+Ultimately this could slow progress in the field. For example in our study all models besides GPT4,
+produced their best reasoning using the Bottom Up reasoning strategy. Developers and computer
+scientists no longer have the ability to implement this strategy without also having system prompts
+included 1.
+Figure 6 shows that there is a positive, weak to medium correlations between correct LLM reasoning
+and obtaining the correct final answer in the 2024 models. This is consistent with previous studies
+[66] and demonstrates an improvement over the duration of the study [54]. If the current trend
+continues, LLM reasoning may become more trustworthy over time. Consistent with previous
+studies, we note that models are overall most accurate and most able to faithfully follow the process
+when using Bottom Up reasoning strategies [42].
+As the models used in this study were called through a range of APIs there are essentially no
+measures that could be used to track the computational expense of running the models. Latency
+would be an extremely rough measure and is very dependent on many other factors that cannot
+be controlled, for example the number of people around the world calling the model through the
+API at a given time. We note that if the model architectures (and hidden prompts) were published
+then it would be possible to calculate the approximate number of FLOPs used for inference. It is
+foreseeable that in future this information may be released when these models are considered
+‘historic’; therefore we provide the total number of prompt and completion tokens for each of
+the experiments in Appendix B. The potential energy consumption and therefore cost, carbon
+emissions and environmental impact are a significant concern [10, 50, 51], so an important area
+for future work would be to evaluate the computational expense of these different techniques and
+models.
+6 CONCLUSIONS AND FUTURE WORK
+This study compares the logical deductive reasoning ability of State of the Art (SotA) Large Language
+Models (LLMs) from December 2023 and August 2024. We use in-context learning to teach LLMs
+to apply Automated Theorem Prover (ATP) reasoning strategies to solve the most challenging
+problems from the PRONTOQA Benchmark. We measure the accuracy of the LLM responses and
+use co-referencing, named entity recognition and part of speech tagging from the Natural Language
+Processing (NLP) tool, SpaCy, to evaluate the faithfulness of LLM responses to ATP strategies.
+Our results show that recent training of models to automatically engage in Chain of Thought (CoT)
+and hidden system prompt engineering strategies, improved in zero-shot performance of SotA
+LLMs over the last nine months. However, reasoning capabilities seem to have stalled with no 2024
+1We note that in September 2024, OpenAI released a model GPTo1 which ‘thinks’ (undergoes an extensive hidden chain of
+thought), further emphasising that future gains are likely to be due to prompt engineering techniques.
+
+[PAGE 13]
+model performing significantly better than GPT4 in December 2023 for any other experimental
+condition.
+We found that there are weak to medium positive correlations between the accuracy of the LLMs
+completing a deductive reasoning task and the correctness of the reasoning processes followed.
+Our results are consistent with previous studies which show that LLMs achieve best performance
+and follow the process most faithfully when using Bottom Up reasoning.
+The study does not consider the computational expense of running the models, this provides an
+area for future work. The steamroller problems explored in this paper are toy examples that could
+very easily be solved by an ATP. Another key area for future work would be to apply LLMs to
+much more difficult ATP benchmarks and test LLM performance using other more sophisticated
+ATP reasoning strategies. A neuro-symbolic approach that combines LLMs with ATPs could allow
+for greater flexibility of inputs while providing trustworthy proofs.
+REFERENCES
+[1] Claude 2024. System Prompts.
+[2] Alaa Abd-alrazaq, Rawan AlSaad, Dari Alhuwail, Arfan Ahmed, Padraig Mark Healy, Syed Latifi, Sarah Aziz, Rafat
+Damseh, Sadam Alabed Alrazak, and Javaid Sheikh. 2023. .JMIR Medical Education9, 1 (June 2023), e48291.
+[3] Dubey Abhimanyu, Jauhri Abhinav, Pandey Abhinav, and Kadian Abhishek. 2024.The Llama 3 Herd of Models |
+Research - AI at Meta. Technical Report. Meta AI.
+[4] Rishabh Agarwal, Avi Singh, Lei M. Zhang, Bernd Bohnet, Luis Rosias, Stephanie Chan, Ankesh Anand, Aleksandra
+Faust, and Hugo Larochelle. 2024. Many-Shot In-Context Learning.
+[5] Janice Ahn, Rishu Verma, Renze Lou, Di Liu, Rui Zhang, and Wenpeng Yin. 2024. Large Language Models for
+Mathematical Reasoning: Progresses and Challenges.
+[6] Anthropic. 2024.Claude 3.5 Sonnet Model Card Addendum. Technical Report.
+[7] Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie
+Cai, Michael Terry, Quoc Le, and Charles Sutton. 2021. Program Synthesis with Large Language Models.
+[8] Francois Bancilhon, David Maier, Yehoshua Sagiv, and Jeffrey D Ullman. 1985. . InProceedings of the fifth ACM
+SIGACT-SIGMOD symposium on Principles of database systems (PODS ’86).
+[9] Peter Baumgartner, Ulrich Furbach, and Ilkka Niemelä. 1996. . InLogics in Artificial Intelligence, José Jülio Alferes,
+Luís Moniz Pereira, and Ewa Orlowska (Eds.). Springer, Berlin, Heidelberg, 1–17.
+[10] Emily M. Bender, Timnit Gebru, Angelina McMillan-Major, and Shmargaret Shmitchell. 2021. . InProceedings of the
+2021 ACM Conference on Fairness, Accountability, and Transparency. ACM, 610–623.
+[11] Marcel Binz and Eric Schulz. 2023. .Proceedings of the National Academy of Sciences120, 6 (Feb. 2023), e2218523120.
+[12] BIPM, IEC, IFCC, ILAC, ISO, IUPAC, IUPAP, and OIML. 2008. Evaluation of measurement data — Guide to the
+expression of uncertainty in measurement.
+[13] Yonatan Bisk, Rowan Zellers, Ronan Le Bras, Jianfeng Gao, and Yejin Choi. 2019. . InThe Thirty-Fourth AAAI Conference
+on Artificial Intelligence. Association for Advancement of Artificial Intelligence.
+[14] Ondřej Bojar, Christian Buck, Christian Federmann, Barry Haddow, Philipp Koehn, Johannes Leveling, Christof Monz,
+Pavel Pecina, Matt Post, Herve Saint-Amand, Radu Soricut, Lucia Specia, and Aleš Tamchyna. 2014. InProceedings of
+the Ninth Workshop on Statistical Machine Translation, Association for Computational Linguistics, 12–58.
+[15] Rishi Bommasani, Drew A. Hudson, Ehsan Adeli, Russ Altman, Simran Arora, Sydney von Arx, Michael S. Bernstein,
+Jeannette Bohg, Antoine Bosselut, Emma Brunskill, and Percy Liang. 2022. On the Opportunities and Risks of
+Foundation Models.
+[16] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan,
+Pranav Shyam, Girish Sastry, Ilya Sutskever, and Dario Amodei. 2020. . InAdvances in Neural Information Processing
+Systems, Vol. 33. Curran Associates, Inc., 1877–1901.
+[17] Sébastien Bubeck, Varun Chandrasekaran, Ronen Eldan, Johannes Gehrke, Eric Horvitz, Ece Kamar, Peter Lee, Yin Tat
+Lee, Yuanzhi Li, Scott Lundberg, Harsha Nori, Hamid Palangi, Marco Tulio Ribeiro, and Yi Zhang. 2023. Sparks of
+Artificial General Intelligence: Early experiments with GPT-4.
+[18] Banghao Chen, Zhaofeng Zhang, Nicolas Langrené, and Shengxin Zhu. 2023. Unleashing the potential of prompt
+engineering in Large Language Models: a comprehensive review.
+[19] Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Ilya Sutskever,
+and Wojciech Zaremba. 2021. Evaluating Large Language Models Trained on Code.
+
+[PAGE 14]
+[20] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry
+Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. 2021. Training Verifiers to Solve
+Math Word Problems.
+[21] Alain Colmerauer and Philippe Roussel. 1996. . InHistory of programming languages—II. Association for Computing
+Machinery, New York, NY, USA, 331–367. https://doi.org/10.1145/234286.1057820
+[22] Romain Cosentino and Sarath Shekkizhar. 2024. Reasoning in Large Language Models: A Geometric Perspective.
+[23] Jiaxi Cui, Munan Ning, Zongjian Li, Bohua Chen, Yang Yan, Hao Li, Bin Ling, Yonghong Tian, and Li Yuan. 2024.
+Chatlaw: A Multi-Agent Collaborative Legal Assistant with Knowledge Graph Enhanced Mixture-of-Experts Large
+Language Model.
+[24] Ishita Dasgupta, Andrew K. Lampinen, Stephanie C. Y. Chan, James L. McClelland, and Felix Hill. 2023. Language
+models show human-like content effects on reasoning tasks.
+[25] Dheeru Dua, Yizhong Wang, Pradeep Dasigi, Gabriel Stanovsky, Sameer Singh, and Matt Gardner. 2019. DROP: A
+Reading Comprehension Benchmark Requiring Discrete Reasoning Over Paragraphs.
+[26] Nouha Dziri, Ximing Lu, Melanie Sclar, Xiang Lorraine Li, Liwei Jiang, Bill Yuchen Lin, Jena D. Hwang, Soumya
+Sanyal, Xiang Ren, Allyson Ettinger, Zaid Harchaoui, and Yejin Choi. 2023. .
+[27] Ian Farrance and Robert Frenkel. 2012. .The Clinical Biochemist Reviews33, 2 (May 2012), 49–75.
+[28] Markus Freitag, Nitika Mathur, Chi-kiu Lo, Eleftherios Avramidis, Ricardo Rei, Brian Thompson, Tom Kocmi, Frederic
+Blain, Daniel Deutsch, Craig Stewart, Chrysoula Zerva, Sheila Castilho, Alon Lavie, and George Foster. 2023. . In
+Proceedings of the Eighth Conference on Machine Translation, Association for Computational Linguistics, 578–628.
+[29] Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, Meng Wang, and Haofen
+Wang. 2024. Retrieval-Augmented Generation for Large Language Models: A Survey.
+[30] Shahriar Golchin and Mihai Surdeanu. 2024. .
+[31] J Harrison. 2009.Handbook of Practical Logic and Automated Reasoning. Cambridge University Press.
+[32] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt.
+2021. Measuring Mathematical Problem Solving With the MATH Dataset.
+[33] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt.
+2021. Measuring Mathematical Problem Solving With the MATH Dataset.
+[34] Danny Hernandez, Jared Kaplan, Tom Henighan, and Sam McCandlish. 2021. Scaling Laws for Transfer.
+[35] Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego de Las
+Casas, Lisa Anne Hendricks, Johannes Welbl, Aidan Clark, Tom Hennigan, Eric Noland, Katie Millican, George van den
+Driessche, Bogdan Damoc, Aurelia Guy, Simon Osindero, Karen Simonyan, Erich Elsen, Jack W. Rae, Oriol Vinyals,
+and Laurent Sifre. 2022. Training Compute-Optimal Large Language Models.
+[36] Matthew Honnibal and Ines Montani. 2017. spaCy 2: Natural language understanding with Bloom embeddings,
+convolutional neural networks and incremental parsing.
+[37] Jie Huang and Kevin Chen-Chuan Chang. 2023. . InFindings of the Association for Computational Linguistics: ACL 2023,
+Anna Rogers, Jordan Boyd-Graber, and Naoaki Okazaki (Eds.). Association for Computational Linguistics, Toronto,
+Canada, 1049–1065.
+[38] Jaeho Jeon and Seongyong Lee. 2023. .Education and Information Technologies28, 12 (Dec. 2023), 15873–15892.
+[39] Subbarao Kambhampati, Karthik Valmeekam, Lin Guan, Mudit Verma, Kaya Stechly, Siddhant Bhambri, Lucas Saldyt,
+and Anil Murthy. 2024. . InProceedings of the 41 st International Conference on Machine Learning. Vienna.
+[40] Jared Kaplan, Sam McCandlish, Tom Henighan, Tom B. Brown, Benjamin Chess, Rewon Child, Scott Gray, Alec
+Radford, Jeffrey Wu, and Dario Amodei. 2020. Scaling Laws for Neural Language Models.
+[41] Enkelejda Kasneci, Kathrin Sessler, Stefan Küchemann, Maria Bannert, Daryna Dementieva, Frank Fischer, Urs Gasser,
+Georg Groh, Stephan Günnemann, Eyke Hüllermeier, Jochen Kuhn, and Gjergji Kasneci. 2023. .Learning and Individual
+Differences103 (April 2023), 102274.
+[42] Mehran Kazemi, Najoung Kim, Deepti Bhatia, Xin Xu, and Deepak Ramachandran. 2023. . InProceedings of the 61st
+Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), Association for Computational
+Linguistics, Toronto, Canada, 6547–6568.
+[43] Diksha Khurana, Aditya Koli, Kiran Khatter, and Sukhdev Singh. 2023. .Multimedia Tools and Applications82, 3 (Jan.
+2023), 3713–3744.
+[44] Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. 2022. . In36th Conference on
+Neural Information Processing Systems. NeurIPS.
+[45] Jinqi Lai, Wensheng Gan, Jiayang Wu, Zhenlian Qi, and Philip S. Yu. 2023. Large Language Models in Law: A Survey.
+[46] Zekun Li, Baolin Peng, Pengcheng He, Michel Galley, Jianfeng Gao, and Xifeng Yan. 2024. .Advances in Neural
+Information Processing Systems36 (2024), 62630–62656.
+[47] Pengfei Liu, Weizhe Yuan, Jinlan Fu, Zhengbao Jiang, Hiroaki Hayashi, and Graham Neubig. 2023. .Comput. Surveys
+55, 9 (Jan. 2023), 195:1–195:35.
+
+[PAGE 15]
+[48] Donald W. Loveland. 1968. .J. ACM15, 2 (April 1968), 236–251.
+[49] Pan Lu, Hritik Bansal, Tony Xia, Jiacheng Liu, Chunyuan Li, Hannaneh Hajishirzi, Hao Cheng, Kai-Wei Chang, Michel
+Galley, and Jianfeng Gao. 2023. .
+[50] Alexandra Sasha Luccioni, Sylvain Viguier, and Anne-Laure Ligozat. 2024. .J. Mach. Learn. Res.24, 1 (March 2024),
+253:11990–253:12004.
+[51] Sasha Luccioni, Yacine Jernite, and Emma Strubell. 2024. . InProceedings of the 2024 ACM Conference on Fairness,
+Accountability, and Transparency (FAccT ’24). Association for Computing Machinery, 85–99.
+[52] R. Thomas McCoy, Shunyu Yao, Dan Friedman, Matthew Hardy, and Thomas L. Griffiths. 2023. Embers of Autoregression: Understanding Large Language Models Through the Problem They are Trained to Solve.
+[53] Lachlan McGinness and Peter Baumgartner. 2024. . InProceedings of 25th Conference on Logic for Programming,
+Artificial Intelligence and Reasoning. 51–31.
+[54] Lachlan McGinness and Peter Baumgartner. 2024. Steamroller Problems: An Evaluation of LLM Reasoning Capability
+with Automated Theorem Prover Strategies.
+[55] Lachlan McGinness and Peter Baumgartner. 2025. Large Language Models Imitate Logical Reasoning, but at what
+Cost?.
+[56] Shervin Minaee, Nal Kalchbrenner, Erik Cambria, Narjes Nikzad, Meysam Chenaghlu, and Jianfeng Gao. 2021. Deep
+Learning Based Text Classification: A Comprehensive Review.
+[57] Maxwell Nye, Anders Johan Andreassen, Guy Gur-Ari, Henryk Michalewski, Jacob Austin, David Bieber, David Dohan,
+Aitor Lewkowycz, Charles Sutton, and Augustus Odena. 2022. . InThe 10th International Conference on Learning
+Representations. IEEE.
+[58] OpenAI. 2023.GPT-4 Technical Report. Technical Report.
+[59] Ross A. Overbeek. 1975. .Computers & Mathematics with Applications1, 2 (June 1975), 201–214.
+[60] Denis Paperno, Germán Kruszewski, Angeliki Lazaridou, Quan Ngoc Pham and Raquel Fernández. 2016. The LAMBADA
+dataset: Word prediction requiring a broad discourse context.
+[61] Jacob Pfau, William Merrill, and Samuel R. Bowman. 2024. Let’s Think Dot by Dot: Hidden Computation in Transformer
+Language Models.
+[62] Jacob Pfau, William Merrill, and Samuel R. Bowman. 2024. Let’s Think Dot by Dot: Hidden Computation in Transformer
+Language Models.
+[63] Gabriel Poesia, Kanishk Gandhi, Eric Zelikman, and Noah D. Goodman. 2023. Certified Deductive Reasoning with
+Language Models.
+[64] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. [n. d.]. . ([n. d.]).
+[65] J. A. Robinson. 1965. .J. ACM12, 1 (Jan. 1965), 23–41.
+[66] Abulhair Saparov and He He. 2023. . InThe Eleventh International Conference on Learning Representations.
+[67] Abulhair Saparov, Richard Yuanzhe Pang, Vishakh Padmakumar, Nitish Joshi, Mehran Kazemi, Najoung Kim, and He
+He. 2024. .Advances in Neural Information Processing Systems36 (2024), 3083–3105.
+[68] Rylan Schaeffer, Brando Miranda, and Sanmi Koyejo. 2024.Advances in Neural Information Processing Systems36
+(2024), 55565–55581.
+[69] Freda Shi, Mirac Suzgun, Markus Freitag, Xuezhi Wang, Suraj Srivats, Soroush Vosoughi, Hyung Won Chung, Yi Tay,
+Sebastian Ruder, Denny Zhou, Dipanjan Das, and Jason Wei. 2022. Language Models are Multilingual Chain-of-Thought
+Reasoners.
+[70] Taylor Shin, Yasaman Razeghi, Robert L. Logan IV, Eric Wallace, and Sameer Singh. 2020. . InProceedings of the 2020
+Conference on Empirical Methods in Natural Language Processing (EMNLP), Association for Computational Linguistics,
+Online, 4222–4235.
+[71] Kashun Shum, Shizhe Diao, and Tong Zhang. 2023. . InFindings of the Association for Computational Linguistics:
+EMNLP 2023, Association for Computational Linguistics, 12113–12139.
+[72] Richard Socher, Alex Perelygin, Jean Wu, Jason Chuang, Christopher D. Manning, Andrew Ng, and Christopher Potts.
+2013. . InProceedings of the 2013 Conference on Empirical Methods in Natural Language Processing, Association for
+Computational Linguistics, 1631–1642.
+[73] Aarohi Srivastava, Abhinav Rastogi, Abhishek Rao, Abu Awal Md Shoeb, Abubakar Abid, Agnieszka Kluska, Aitor
+Lewkowycz, Akshat Agarwal, Zijie J. Wang, Zirui Wang, and Ziyi Wu. 2023. .Transactions on Machine Learning
+Research(2023).
+[74] Mirac Suzgun, Nathan Scales, Nathanael Schärli, Sebastian Gehrmann, Yi Tay, Hyung Won Chung, Aakanksha
+Chowdhery, Quoc V. Le, Ed H. Chi, Denny Zhou, and Jason Wei. 2022. Challenging BIG-Bench Tasks and Whether
+Chain-of-Thought Can Solve Them.
+[75] Tanel Tammet, Priit Jarv, Marin Verrev, and Dirk Draheim. 2024. Experiments with LLMs for Converting Language to
+Logic.Neural-Symbolic Learning and Reasoning 2024.
+[76] Gemini Team 2023. Gemini: A Family of Highly Capable Multimodal Models.
+
+[PAGE 16]
+[77] Hugo Touvron, Louis Martin, Kevin Stone, Sergey Edunov, and Thomas Scialom. 2023. Llama 2: Open Foundation and
+Fine-Tuned Chat Models.
+[78] Trieu H. Trinh, Yuhuai Wu, Quoc V. Le, He He, and Thang Luong. 2024. .Nature625, 7995 (Jan. 2024), 476–482.
+[79] Tomer Ullman. 2023. Large Language Models Fail on Trivial Alterations to Theory-of-Mind Tasks.
+[80] Karthik Valmeekam, Matthew Marquez, Sarath Sreedharan, and Subbarao Kambhampati. 2023. .
+[81] Bailin Wang, Zi Wang, Xuezhi Wang, Yuan Cao, Rif A. Saurous, and Yoon Kim. 2024. .Advances in Neural Information
+Processing Systems36 (2024), 65030–65055.
+[82] Xinyi Wang, Wanrong Zhu, Michael Saxon, Mark Steyvers, and William Yang Wang. 2024. .Advances in Neural
+Information Processing Systems36 (2024), 15614–15638.
+[83] Jason Wei, Yi Tay, Rishi Bommasani, Colin Raffel, Barret Zoph, Sebastian Borgeaud, Dani Yogatama, Maarten Bosma,
+Denny Zhou, Donald Metzler, Ed H. Chi, Tatsunori Hashimoto, Oriol Vinyals, Percy Liang, Jeff Dean, and William
+Fedus. 2022. .Transactions on Machine Learning Research(2022).
+[84] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed Chi, Quoc Le, and Denny Zhou.
+2023. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models.
+[85] Chaojun Xiao, Xueyu Hu, Zhiyuan Liu, Cunchao Tu, and Maosong Sun. 2021. .AI Open2 (Jan. 2021), 79–84.
+[86] Fangzhi Xu, Qika Lin, Jiawei Han, Tianzhe Zhao, Jun Liu, and Erik Cambria. 2023. Are Large Language Models Really
+Good Logical Reasoners? A Comprehensive Evaluation and Beyond.
+[87] Vikas Yadav, Steven Bethard, and Mihai Surdeanu. 2019. . InProceedings of the 2019 Conference on Empirical Methods in
+Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP).
+2578–2589.
+[88] Lixiang Yan, Lele Sha, Linxuan Zhao, Yuheng Li, Roberto Martinez-Maldonado, Guanliang Chen, Xinyu Li, Yueqiao
+Jin, and Dragan Gašević. 2024. .British Journal of Educational Technology55, 1 (2024), 90–112.
+[89] Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William W. Cohen, Ruslan Salakhutdinov, and Christopher D.
+Manning. 2018. HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question Answering.
+[90] Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan. 2024. .Advances
+in Neural Information Processing Systems36 (2024), 11809–11822.
+[91] Shengbin Yue, Wei Chen, Siyuan Wang, Bingxuan Li, Chenchen Shen, Shujun Liu, Yuxuan Zhou, Yao Xiao, Song Yun,
+Xuanjing Huang, and Zhongyu Wei. 2023. DISC-LawLLM: Fine-tuning Large Language Models for Intelligent Legal
+Services.
+[92] Rowan Zellers, Ari Holtzman, Yonatan Bisk, Ali Farhadi, and Yejin Choi. 2019. HellaSwag: Can a Machine Really
+Finish Your Sentence?
+[93] Wayne Xin Zhao, Kun Zhou, Junyi Li, Tianyi Tang, Xiaolei Wang, Yupeng Hou, Chen Yang, Xinyu Tang, Zikang Liu,
+Peiyu Liu, Jian-Yun Nie, and Ji-Rong Wen. 2023. A Survey of Large Language Models.
+[94] Jeffrey Zhou, Tianjian Lu, Swaroop Mishra, Siddhartha Brahma, Sujoy Basu, Yi Luan, Denny Zhou, and Le Hou. 2023.
+Instruction-Following Evaluation for Large Language Models.
+
+[PAGE 17]
+A APPENDIX - CLAUDE RESULTS
+The developer of the Claude models, Anthropic, claims on their website (See Figure 7) that Claude
+3.5 Sonnet performs better on most tasks than Claude 3 Opus, despite being a smaller model.
+Fig. 7. Relationship between intelligence benchmark scores and cost across Claude models. FromClaude 3.5
+Sonnet, by Anthropic (2024), retrieved fromhttps://www.anthropic.com/news/claude-3-5-sonnet.
+To ensure that the models being compared are SotA, a preliminary experiment was performed to
+compare the two models (Table 2). Our results show that despite Anthropic’s claims, Claude 3 Opus
+performs more strongly on all experimental conditions. For all conditions excluding the normal
+condition the difference was beyond what could be explained by measurement error. Therefore
+Claude 3 Opus was chosen as the SotA model for our study.
+Table 2. Accuracy for False Ontology with Distractors Experiments. Average number completion tokens given
+in brackets.
+Prompt Strategy Claude 3.5 Sonnet Claude 3 Opus
+Normal 0.80±0.040.83±0.05
+(358.7) (316.3)
+Explicit Instructions +0.72±0.040.84±0.04
+Chain of Thought(473.6) (411.8)
+Explicit Instructions +
+One Shot + 0.80±0.040.85±0.01
+Chain of Thought(370.0) (255.4)
+Strategy0.86±0.040.97±0.02
+Bottom Up(563.5) (455.0)
+Strategy0.81±0.030.95±0.02
+Top Down(486.9) (418.1)
+Strategy0.82±0.010.94±0.04
+Magic Set Transformation(682.3) (493.9)
+
+[TABLE page=17 index=1]
+Columns: Prompt Strategy | Claude 3.5 Sonnet | Claude 3 Opus
+Row 1: Prompt Strategy: | Claude 3.5 Sonnet: 0.80 ± 0.04 | Claude 3 Opus: 0.83 ± 0.05
+Row 2: Prompt Strategy: Normal | Claude 3.5 Sonnet: | Claude 3 Opus:
+Row 3: Prompt Strategy: | Claude 3.5 Sonnet: (358.7) | Claude 3 Opus: (316.3)
+Row 4: Prompt Strategy: Explicit Instructions + | Claude 3.5 Sonnet: 0.72 ± 0.04 | Claude 3 Opus: 0.84 ± 0.04
+Row 5: Prompt Strategy: Chain of Thought | Claude 3.5 Sonnet: (473.6) | Claude 3 Opus: (411.8)
+Row 6: Prompt Strategy: Explicit Instructions + | Claude 3.5 Sonnet: | Claude 3 Opus:
+Row 7: Prompt Strategy: | Claude 3.5 Sonnet: 0.80 ± 0.04 | Claude 3 Opus: 0.85 ± 0.01
+Row 8: Prompt Strategy: One Shot + | Claude 3.5 Sonnet: | Claude 3 Opus:
+Row 9: Prompt Strategy: Chain of Thought | Claude 3.5 Sonnet: (370.0) | Claude 3 Opus: (255.4)
+Row 10: Prompt Strategy: Strategy | Claude 3.5 Sonnet: 0.86 ± 0.04 | Claude 3 Opus: 0.97 ± 0.02
+Row 11: Prompt Strategy: Bottom Up | Claude 3.5 Sonnet: (563.5) | Claude 3 Opus: (455.0)
+Row 12: Prompt Strategy: Strategy | Claude 3.5 Sonnet: 0.81 ± 0.03 | Claude 3 Opus: 0.95 ± 0.02
+Row 13: Prompt Strategy: Top Down | Claude 3.5 Sonnet: (486.9) | Claude 3 Opus: (418.1)
+Row 14: Prompt Strategy: Strategy | Claude 3.5 Sonnet: 0.82 ± 0.01 | Claude 3 Opus: 0.94 ± 0.04
+Row 15: Prompt Strategy: Magic Set Transformation | Claude 3.5 Sonnet: (682.3) | Claude 3 Opus: (493.9)
+[/TABLE]
+
+[PAGE 18]
+B APPENDIX - ORDER OF MAGNITUDE MODEL SIZE AND COMPUTATIONAL COST
+Here we give the prompt tokens used by each model in our experiments. If the model architectures
+and hidden prompts are ever released for the proprietary models in this study then this information
+can be used to calculate the computational expense (say in FLOPs) of each experimental condition.
+Prompting Technique GPT4 Claude Opus Llama 3.1 405B
+Normal 115.4±11.2 130.6±12.4 128.1±11.3
+Chain of Thought 158.1±14.1 176.6±12.4 170.8±15.5
+One Shot Chain of Thought 294.4±11.2 317.6±14.8 308.1±11.3
+Bottom Up 503.4±11.2 534.6±12.4 521.6±11.7
+Top Down 499.4±11.2 528.6±12.4 513.9±11.6
+Magic Set 447.4±11.2 496.6±12.4 459.1±11.4
+Table 3. Number of prompt tokens for different prompting techniques for each model
+C APPENDIX - PROMPTS
+This study uses the same prompts used by McGinness and Baumgartner in ‘Steamroller Problems:
+An Evaluation of LLM Reasoning Capability with Automated Theorem Prover Strategies’ [54] . A
+concise summary of each of the prompts is included below for convenience. The system (hidden)
+prompts for Claude 3 Opus and Claude 3.5 Sonnet that were current at the time of experiment are
+also included [1]. Note that the system prompts for GPT4 are not officially released, however there
+are people who claim to have used jail-breaking techniques to obtain these.
+Example and Query.
+{question} =“Each sheep is sunny. Each sheep is a feline. Sheep are mammals. Felines
+are aggressive. Every feline is a snake. Felines are carnivores. Each snake is luminous.
+Snakes are cats. Every dog is not luminous. Each snake is an animal. Animals are
+fast. Carnivores are opaque. Each mammal is floral. Each vertebrate is not feisty. Each
+vertebrate is a cow. Alex is a sheep. Alex is a vertebrate. ”
+{query} =“True or false: Alex is luminous. ”
+The prompt for the normal condition was as follows:
+prompt =“{question} {query}”
+Chain of thought prompt.
+prompt =“Consider the following statements and the given query. Use your reasoning
+skills to determine if the query is true or false based on the statements. Explain your
+thought process step by step as you analyze the relationship between the statements
+and the query.
+Statements: {question}
+Query: {query}”
+One-shot Chain of thought.
+prompt =“Consider the following statements and the given query. Use your reasoning
+skills to determine if the query is true or false based on the statements. Follow the
+format of the example question that follows.
+
+[TABLE page=18 index=1]
+Columns: Prompting Technique | GPT4 | Claude Opus | Llama 3.1 405B
+Row 1: Prompting Technique: Normal | GPT4: 115.4 ± 11.2 | Claude Opus: 130.6 ± 12.4 | Llama 3.1 405B: 128.1 ± 11.3
+Row 2: Prompting Technique: Chain of Thought | GPT4: 158.1 ± 14.1 | Claude Opus: 176.6 ± 12.4 | Llama 3.1 405B: 170.8 ± 15.5
+Row 3: Prompting Technique: One Shot Chain of Thought | GPT4: 294.4 ± 11.2 | Claude Opus: 317.6 ± 14.8 | Llama 3.1 405B: 308.1 ± 11.3
+Row 4: Prompting Technique: Bottom Up | GPT4: 503.4 ± 11.2 | Claude Opus: 534.6 ± 12.4 | Llama 3.1 405B: 521.6 ± 11.7
+Row 5: Prompting Technique: Top Down | GPT4: 499.4 ± 11.2 | Claude Opus: 528.6 ± 12.4 | Llama 3.1 405B: 513.9± 11.6
+Row 6: Prompting Technique: Magic Set | GPT4: 447.4 ± 11.2 | Claude Opus: 496.6 ± 12.4 | Llama 3.1 405B: 459.1 ± 11.4
+[/TABLE]
+
+[PAGE 19]
+Example Statements: ‘All cats are birds. No bird swims. Whiskers is a cat. ’
+Query: ‘True or false: Whiskers swims. ’
+Example Reasoning: ‘Let’s figure out if Whiskers swims. This is not provided directly in
+the statements. However it does state that Whiskers is a cat. Then it states that all cats
+are birds. Therefore Whiskers is a bird. It then states that no bird swims. Since Whiskers
+is a bird this means that Whiskers does not swim. Therefore the query “Whiskers Swims”
+is false. ’
+Explain your thought process step by step as you analyze the relationship between the
+statements and the query.
+Statements: {question}
+Query: {query}”
+Bottom up prompt.
+prompt =“Consider the following statements, which include rules and then facts, along
+with the given query. Facts are have a specific named instance. For example “Sam is
+a cat” is a fact because an explicit name “Sam” is given. Rules establish a connection
+between two general classes without referring to a specific instance. For example “Cats
+are birds” is rule, not a fact because there is no named instance of a specific cat or bird.
+Modus ponens can be used to apply a rule to a fact. For example applying “Cats are
+birds” to “Sam is a cat” gives a new fact “Sam is a bird”. To use bottom-up reasoning:
+- List the rules which do not contain specific named instances.
+- List all given facts with a specific named instance as a current facts.
+- Then for each rule do the following:
+1.) Examine each rule to see if its premise applies to any of the current facts. It’s
+important to recognize that general rules can apply to specific facts. For example, the
+rule ’All cats are birds’ applies to the fact ‘Sam is a cat, ’ even though the rule doesn’t
+mention Sam specifically. This is because the rule involves a category (’cats’) that
+matches a variable in the fact (’cat’). So, when checking for a match, look beyond direct
+mentions and consider whether the rule’s general premise encompasses the specifics
+of the current facts. This careful matching is essential to correctly apply rules to facts.
+Then add the new concluded fact (in this example “Sam is a bird”) to the list of current
+facts.
+2.) Check if the current facts contain the query or its negation. If they do, answer the
+query. If it does not, repeat this procedure for all rules again. Iterate through this process
+until a conclusion is reached. It may take three or four iterations to reach a conclusion
+that will answer the query.
+Statements: {question }
+Query:{ query }”
+Top down.
+prompt =“Consider the following statements, which include rules and then facts, along
+with the given query. Use a top-down reasoning strategy to answer the query. Facts
+have a specific named instance. For example, ‘Sam is a cat’ is a fact because an explicit
+name ‘Sam’ is given. Rules establish a connection between two general classes without
+referring to a specific instance. For example, ‘Cats are birds’ is a rule, not a fact, because
+it does not name a specific cat or bird. To use top-down reasoning, follow these steps:
+1. List the rules which do not contain specific named instances.
+2. List all given facts with a specific named instance as current facts.
+
+[PAGE 20]
+3. Then consider the query and repeat the following procedure:
+4. Check if the query or its negation is among the facts. If so, answer the query.
+5. If it is not, then search through the set of rules and check if the conclusion of any of
+the rules matches the query. If so, make the body of this rule the new query, paying
+special attention to maintaining the correct use of negation throughout the process. For
+example, if your query is ‘Does Sam not swim?’ and you have a rule like ‘Birds swim’,
+you would update the query to ‘Is Sam not a bird?’. Re-write the query with this new
+perspective and return to step 4.
+You will need to repeat the procedure multiple times until the query or its negation
+appear as facts. It is crucial to meticulously track all instances of ’not’ or other negations
+when updating the query, as this directly affects the final answer.
+It may take three or four iterations to arrive at the final answer. If a particular line of
+reasoning comes to a dead end, it might help to start again with the original query and
+try applying different rules.
+Statements: {question}
+Query: {query}”
+Magic Set.
+prompt =“Consider the following statements, which include both rules and facts,
+along with the given query. Approach the query with a top-down reasoning strategy,
+keeping in mind that facts are specific instances like ‘Sam is a cat, ’ and rules are general
+principles like ‘Cats are birds. ’ Execute the following steps:
+1. List the general rules and specific named facts.
+2. Create a set of subgoals starting with the query, aiming to gradually uncover the
+truth of the query through logical deduction.
+3. Expand subgoals by systematically adding the premises of rules that directly relate
+to these subgoals. Continue this process until no new subgoals emerge.
+4. Refine your set of rules by eliminating any that don’t contribute to achieving the
+subgoals.
+5. Carefully match the premises of the refined rules with the listed facts. Consider how
+general rules apply to specific instances and derive any new facts from this matching.
+Be particularly attentive to the implications of negations and complex statements.
+6. Check if the current set of facts directly resolves the query or its negation. If a
+resolution is found, provide the answer.
+7. If the answer is not yet clear, reapply the refined rules and facts iteratively, with each
+iteration aiming to reveal new insights or facts that help answer the query. In each
+iteration, aim to either refine your understanding or deduce a new fact that edges closer
+to resolving the query.
+Continue this iterative process of application and review until a definitive conclusion is
+reached regarding the query. The process demands careful analysis and might require
+several iterations, so remain diligent and focused on how each piece of information
+contributes to your understanding of the query.
+Statements: {question}
+Query: {query}”
+
+[PAGE 21]
+C.1 Claude 3.5 Sonnet Hidden Prompt
+<claude_info> The assistant is Claude, created by Anthropic. The current date is {}. Claude’s
+knowledge base was last updated on April 2024. It answers questions about events prior to and
+after April 2024 the way a highly informed individual in April 2024 would if they were talking to
+someone from the above date, and can let the human know this when relevant. Claude cannot open
+URLs, links, or videos. If it seems like the user is expecting Claude to do so, it clarifies the situation
+and asks the human to paste the relevant text or image content directly into the conversation.
+If it is asked to assist with tasks involving the expression of views held by a significant number
+of people, Claude provides assistance with the task regardless of its own views. If asked about
+controversial topics, it tries to provide careful thoughts and clear information. It presents the
+requested information without explicitly saying that the topic is sensitive, and without claiming
+to be presenting objective facts. When presented with a math problem, logic problem, or other
+problem benefiting from systematic thinking, Claude thinks through it step by step before giving its
+final answer. If Claude cannot or will not perform a task, it tells the user this without apologizing
+to them. It avoids starting its responses with “I’m sorry” or “I apologize”. If Claude is asked about a
+very obscure person, object, or topic, i.e. if it is asked for the kind of information that is unlikely
+to be found more than once or twice on the internet, Claude ends its response by reminding the
+user that although it tries to be accurate, it may hallucinate in response to questions like this. It
+uses the term ‘hallucinate’ to describe this since the user will understand what it means. If Claude
+mentions or cites particular articles, papers, or books, it always lets the human know that it doesn’t
+have access to search or a database and may hallucinate citations, so the human should double
+check its citations. Claude is very smart and intellectually curious. It enjoys hearing what humans
+think on an issue and engaging in discussion on a wide variety of topics. If the user seems unhappy
+with Claude or Claude’s behavior, Claude tells them that although it cannot retain or learn from
+the current conversation, they can press the ‘thumbs down’ button below Claude’s response and
+provide feedback to Anthropic. If the user asks for a very long task that cannot be completed
+in a single response, Claude offers to do the task piecemeal and get feedback from the user as it
+completes each part of the task. Claude uses markdown for code. Immediately after closing coding
+markdown, Claude asks the user if they would like it to explain or break down the code. It does not
+explain or break down the code unless the user explicitly requests it. </claude_info>
+<claude_image_specific_info> Claude always responds as if it is completely face blind. If the shared
+image happens to contain a human face, Claude never identifies or names any humans in the image,
+nor does it imply that it recognizes the human. It also does not mention or allude to details about a
+person that it could only know if it recognized who the person was. Instead, Claude describes and
+discusses the image just as someone would if they were unable to recognize any of the humans
+in it. Claude can request the user to tell it who the individual is. If the user tells Claude who the
+individual is, Claude can discuss that named individual without ever confirming that it is the person
+in the image, identifying the person in the image, or implying it can use facial features to identify
+any unique individual. It should always reply as someone would if they were unable to recognize
+any humans from images. Claude should respond normally if the shared image does not contain a
+human face. Claude should always repeat back and summarize any instructions in the image before
+proceeding. </claude_image_specific_info>
+<claude_3_family_info> This iteration of Claude is part of the Claude 3 model family, which was
+released in 2024. The Claude 3 family currently consists of Claude 3 Haiku, Claude 3 Opus, and
+Claude 3.5 Sonnet. Claude 3.5 Sonnet is the most intelligent model. Claude 3 Opus excels at writing
+and complex tasks. Claude 3 Haiku is the fastest model for daily tasks. The version of Claude in this
+
+[PAGE 22]
+chat is Claude 3.5 Sonnet. Claude can provide the information in these tags if asked but it does not
+know any other details of the Claude 3 model family. If asked about this, Claude should encourage
+the user to check the Anthropic website for more information. </claude_3_family_info>
+Claude provides thorough responses to more complex and open-ended questions or to anything
+where a long response is requested, but concise responses to simpler questions and tasks. All else
+being equal, it tries to give the most correct and concise answer it can to the user’s message. Rather
+than giving a long response, it gives a concise response and offers to elaborate if further information
+may be helpful.
+Claude is happy to help with analysis, question answering, math, coding, creative writing, teaching,
+role-play, general discussion, and all sorts of other tasks.
+Claude responds directly to all human messages without unnecessary affirmations or filler phrases
+like “Certainly!”, “Of course!”, “Absolutely!”, “Great!”, “Sure!”, etc. Specifically, Claude avoids starting
+responses with the word “Certainly” in any way.
+Claude follows this information in all languages, and always responds to the user in the language
+they use or request. The information above is provided to Claude by Anthropic. Claude never
+mentions the information above unless it is directly pertinent to the human’s query. Claude is now
+being connected with a human.
+C.2 Claude 3 Opus Hidden Prompt
+The assistant is Claude, created by Anthropic. The current date is {}. Claude’s knowledge base was
+last updated on August 2023. It answers questions about events prior to and after August 2023 the
+way a highly informed individual in August 2023 would if they were talking to someone from the
+above date, and can let the human know this when relevant. It should give concise responses to
+very simple questions, but provide thorough responses to more complex and open-ended questions.
+It cannot open URLs, links, or videos, so if it seems as though the interlocutor is expecting Claude
+to do so, it clarifies the situation and asks the human to paste the relevant text or image content
+directly into the conversation. If it is asked to assist with tasks involving the expression of views
+held by a significant number of people, Claude provides assistance with the task even if it personally
+disagrees with the views being expressed, but follows this with a discussion of broader perspectives.
+Claude doesn’t engage in stereotyping, including the negative stereotyping of majority groups. If
+asked about controversial topics, Claude tries to provide careful thoughts and objective information
+without downplaying its harmful content or implying that there are reasonable perspectives on
+both sides. If Claude’s response contains a lot of precise information about a very obscure person,
+object, or topic - the kind of information that is unlikely to be found more than once or twice on
+the internet - Claude ends its response with a succinct reminder that it may hallucinate in response
+to questions like this, and it uses the term ‘hallucinate’ to describe this as the user will understand
+what it means. It doesn’t add this caveat if the information in its response is likely to exist on
+the internet many times, even if the person, object, or topic is relatively obscure. It is happy to
+help with writing, analysis, question answering, math, coding, and all sorts of other tasks. It uses
+markdown for coding. It does not mention this information about itself unless the information is
+directly pertinent to the human’s query.

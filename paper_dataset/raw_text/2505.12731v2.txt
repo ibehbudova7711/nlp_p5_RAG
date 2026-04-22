@@ -1,0 +1,1006 @@
+[PAGE 1]
+arXiv:2505.12731v2 [cs.AI] 25 May 2025
+Accelerating Adaptive Retrieval Augmented Generation via
+Instruction-Driven Representation Reduction of Retrieval Overlaps
+Jie Ou1, Jinyu Guo1,∗, Shuaihong Jiang1, Zhaokun Wang1,
+Libo Qin2, Shunyu Yao3 and Wenhong Tian 1
+1 School of Information and Software Engineering,
+University of Electronic Science and Technology of China
+2 Central South University
+3 Big data and artificial intelligent institute, China Telecom Research Institute
+* Corresponding Author: Jinyu Guo, Email: guojinyu@uestc.edu.cn
+Abstract
+Retrieval-augmented generation (RAG) has
+emerged as a pivotal method for expanding
+the knowledge of large language models. To
+handle complex queries more effectively, researchers developed Adaptive-RAG (A-RAG)
+to enhance the generated quality through multiple interactions with external knowledge bases.
+Despite its effectiveness, A-RAG exacerbates
+the pre-existing efficiency challenges inherent
+in RAG, which are attributable to its reliance
+on multiple iterations of generation. Existing
+A-RAG approaches process all retrieved contents from scratch. However, they ignore the
+situation where there is a significant overlap
+in the content of the retrieval results across
+rounds. The overlapping content is redundantly
+represented, which leads to a large proportion
+of repeated computations, thus affecting the
+overall efficiency. To address this issue, this
+paper introduces a model-agnostic approach
+that can be generally applied to A-RAG methods, which is dedicated to reducing the redundant representation process caused by the overlapping of retrieval results. Specifically, we
+use cache access and parallel generation to
+speed up the prefilling and decoding stages respectively. Additionally, we also propose an
+instruction-driven module to further guide the
+model to more effectively attend to each part of
+the content in a more suitable way for LLMs.
+Experiments show that our approach achieves
+2.79 and 2.33 times significant acceleration on
+average for prefilling and decoding respectively
+while maintaining equal generation quality.
+1 Introduction
+Work smarter, not harder.
+Allan F . Mogensen, 1930s
+Large Language Models (LLMs) (e.g., LLaMA2, PaLM, and GPT-4 (Touvron et al., 2023; Anil
+et al., 2023; Achiam et al., 2023)) have demonstrated remarkable capabilities across various natuFigure 1: (a) The pipeline of A-RAG. (b) Analysis
+of document overlap between first and later retrievals
+(rounds 2-3) using 1000 2WikiMultihopQA samples.
+ral language processing tasks. To address the growing demand for knowledge-intensive and factually
+grounded responses, Retrieval-Augmented Generation (RAG) has emerged as a promising paradigm
+to mitigate the inherent knowledge limitations of
+LLMs (Lewis et al., 2020; Borgeaud et al., 2022;
+Ram et al., 2023; Jiang et al., 2023; Asai et al.; Gao
+et al., 2023; Gupta et al., 2024). It enhances the performance by retrieving relevant information from
+external knowledge base to generate contextually
+appropriate and evidence-based responses.
+Conventional RAG interacts with the external
+knowledge bases once and combines the retrieved
+documents with the query as input to LLMs, this
+can also be called single-round RAG. Nevertheless,
+single-round RAG encounters challenges in handling complex user inquiries, as it is difficult to extract sufficient information by a single interaction.
+Consequently, an increasing number of researchers
+have begun to focus on and propose Adaptive-RAG
+(A-RAG) (Borgeaud et al., 2022; Ram et al., 2023;
+Mallen et al., 2023; Asai et al.; Trivedi et al., 2023;
+Jiang et al., 2023; Zhao et al., 2023; Yang et al.,
+
+[PAGE 2]
+2023b; Su et al., 2024; Zhang et al., 2024; Li et al.;
+Yao et al., 2024; Jeong et al., 2024; Wang et al.,
+2024a). Figure 1(a) illustrates the process of ARAG, which dynamically determines whether to
+continue retrieval and adjusts the retrieval content
+based on the quality of the generated responses.
+Through iterative interactions with external knowledge bases, A-RAG obtains more comprehensive
+and valuable information to generate accurate and
+comprehensive answers.
+Although A-RAG enhances the performance, it
+further exacerbates the inherent efficiency problems of the RAG due to external interactions and
+increased computation. Within its post-retrieval
+generation phase, existing methods process all retrieved contents from scratch. However, they overlooked a situation where, during a single A-RAG
+process, the high similarity among multiple rounds
+of queries results in significant overlap in the content of the retrieved results across these rounds,
+especially between adjacent rounds. Figure 1(b)
+shows the overlap ratio of documents between
+rounds with different settings for the number of
+retrieved documents. These overlapping contents
+are redundantly represented in each round, which
+leads to a large proportion of repeated computations, thereby affecting the overall efficiency.
+To tackle this issue, we propose InstructionDriven Representaion Reduction (IDR2), a modelagnostic approach widely applicable to the A-RAG
+methods. It aims to improve the efficiency of ARAG by eliminating repetitive representations of
+overlapping content and redundant autoregressive
+representation rounds. Concretely, we leverage representation reduction techniques in both the prefilling and decoding processes of the generation phase.
+During prefilling, we propose the Cross-Iteration
+Cache Sharing (CICS) module, which establishes
+a shared memory repository for document representations. It enables subsequent processing iterations to bypass repetitive computations through
+cached intermediate results, thereby reducing computational overhead for overlapping content. In
+addition, to further direct the model to more effectively attend to the various parts of the content
+after prefilling, we introduce the Instruction-driven
+Deduplication Guidance Reinforcement (IDGR)
+module. It leverages the instruction-following capabilities of LLMs to implement context-aware
+filtration, prioritizing semantically relevant cached
+information while suppressing redundant content
+through explicit linguistic guidance in a more suitable way for LLMs. In the decoding process, we
+propose a novel Information-Guided Parallel Generation (IGPG) module, which leverages the correlation between retrieved documents and the generated results. By integrating phrasal fragments as
+inputs at each autoregressive step, IGPG enables
+parallel generation. It reduces the autoregressive
+representation rounds to achieve acceleration.
+We extensively evaluate our proposed method
+on multiple datasets. The experimental results
+show that our IDR2 significantly reduces the representation process, which achieves 2.79 and 2.33
+times acceleration for prefilling and decoding, consequently accelerating the entire A-RAG workflow
+by 2.0 times on average across various A-RAG approaches while maintaining the performance of
+generation. In summary, our contributions are
+mainly three-fold:
+1. We propose IDR2, an acceleration approach
+for A-RAG based on representation reduction
+techniques. It eliminates repetitive representations during the prefilling process and reduces
+autoregressive representation redundancy in
+the decoding phase, thereby speeding up the
+entire A-RAG workflow almost without performance loss.
+2. We develop the Instruction-driven Deduplication Guidance Reinforcement module, which
+leverages the instruction-following capabilities of LLMs to further direct the model to
+more effectively attend to the various parts of
+the content after prefilling in a more suitable
+way for LLMs.
+3. Experimental results demonstrate that our approach significantly enhances the efficiency
+of various A-RAG methods while exhibiting
+robust adaptability across diverse scenarios
+and various LLM scales.
+2 Related Works
+2.1 Adaptive-RAG
+Generating satisfactory answers by single-round
+RAG remains challenging (Komeili, 2021; Zhu
+et al., 2021; Liu et al., 2024; Jiang et al., 2023; Yang
+et al., 2023b; Ni et al., 2024). A-RAG was developed to address this limitation by enabling iterative
+interactions with external knowledge bases, leading to more accurate and complete answers through
+multiple retrieval rounds (Jiang et al., 2023; Yang
+
+[TABLE page=2 index=1]
+Columns: especially between adjacent rounds. Figure 1(b) | Unnamed: 0 | for A-RAG based on representation reduction
+Row 1: especially between adjacent rounds. Figure 1(b): shows the overlap ratio of documents | Unnamed: 0: between | for A-RAG based on representation reduction: techniques. It eliminates repetitive representa-
+[/TABLE]
+
+[TABLE page=2 index=2]
+Columns: 2024a). Figure 1(a) illustrates the process of A- | Unnamed: 0 | eration (IGPG) module, which leverages the correRow 1: 2024a). Figure 1(a) illustrates the process of A-: RAG, which dynamically determines whether to | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: lation between retrieved documents and the generRow 2: 2024a). Figure 1(a) illustrates the process of A-: continue retrieval and adjusts the retrieval content | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: ated results. By integrating phrasal fragments as
+Row 3: 2024a). Figure 1(a) illustrates the process of A-: based on the quality of the generated responses. | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: inputs at each autoregressive step, IGPG enables
+Row 4: 2024a). Figure 1(a) illustrates the process of A-: Through iterative interactions with external knowl- | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: parallel generation. It reduces the autoregressive
+Row 5: 2024a). Figure 1(a) illustrates the process of A-: edge bases, A-RAG obtains more comprehensive | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: representation rounds to achieve acceleration.
+Row 6: 2024a). Figure 1(a) illustrates the process of A-: and valuable information to generate accurate and | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: We extensively evaluate our proposed method
+Row 7: 2024a). Figure 1(a) illustrates the process of A-: comprehensive answers. | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: on multiple datasets. The experimental results
+Row 8: 2024a). Figure 1(a) illustrates the process of A-: Although A-RAG enhances the performance, it | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: show that our IDR2 significantly reduces the repRow 9: 2024a). Figure 1(a) illustrates the process of A-: further exacerbates the inherent efficiency prob- | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: resentation process, which achieves 2.79 and 2.33
+Row 10: 2024a). Figure 1(a) illustrates the process of A-: lems of the RAG due to external interactions and | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: times acceleration for prefilling and decoding, conRow 11: 2024a). Figure 1(a) illustrates the process of A-: increased computation. Within its post-retrieval | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: sequently accelerating the entire A-RAG workflow
+Row 12: 2024a). Figure 1(a) illustrates the process of A-: generation phase, existing methods process all re- | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: by 2.0 times on average across various A-RAG apRow 13: 2024a). Figure 1(a) illustrates the process of A-: trieved contents from scratch. However, they over- | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: proaches while maintaining the performance of
+Row 14: 2024a). Figure 1(a) illustrates the process of A-: looked a situation where, during a single A-RAG | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: generation. In summary, our contributions are
+Row 15: 2024a). Figure 1(a) illustrates the process of A-: process, the high similarity among multiple rounds | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: mainly three-fold:
+Row 16: 2024a). Figure 1(a) illustrates the process of A-: of queries results in significant overlap in the con- | Unnamed: 0: | eration (IGPG) module, which leverages the corre-:
+Row 17: 2024a). Figure 1(a) illustrates the process of A-: tent of the retrieved results across these rounds, | Unnamed: 0: | eration (IGPG) module, which leverages the corre-: 1. We propose IDR2, an acceleration approach
+[/TABLE]
+
+[PAGE 3]
+et al., 2023b; Ni et al., 2024). Current A-RAG approaches can be classified into two categories: 1)
+Rule-based strategies, such as per-sentence iteration (Trivedi et al., 2023), sliding window tokens
+(Borgeaud et al., 2022; Ram et al., 2023), and contextual learning (Zhao et al., 2023; Zhang et al.,
+2024; Li et al.). 2) Self-perception strategies evaluate output confidence through internal states (Yao
+et al., 2024), LLM output layer (Jiang et al., 2023;
+Yang et al., 2023b; Su et al., 2024), or explicit
+language-level feedback (Asai et al.). In contrast to
+existing works that primarily focus on performance
+enhancement, to the best of our knowledge, we are
+the first to investigate the multi-turn document overlapping problem in A-RAG and improve efficiency
+through its resolution.
+2.2 Inference Acceleration
+Efficiency of LLM. Research on improving LLM
+efficiency can generally be classified into two categories: traditional optimization techniques (such as
+quantization, pruning, knowledge distillation, etc.)
+and LLM-specific optimizations which include: 1)
+Early Exiting (Teerapittayanon et al., 2016; Xin
+et al., 2020; Zhou et al., 2020; Kong et al., 2022;
+Yang et al.; Bae et al., 2023), uses prediction heads
+at different layers to enable early token exit when
+confidence thresholds are met. 2) Token Pruning
+(Goyal et al., 2020; Kim and Cho, 2021; Wang
+et al., 2021; Kim et al., 2022; Hou et al., 2022;
+Zhang et al., 2023b), retains only critical tokens
+based on importance ranking.3) Speculative Decoding (Chen et al., 2023; Leviathan et al., 2023;
+Spector and Re; Yang et al., 2023a; Zhang et al.,
+2023a; Kim et al., 2024; Miao et al., 2024), uses efficient smaller models to generate candidate tokens
+for batch verification by LLM.
+Efficiency of RAG.Speculative retrieval (Zhang
+et al.) reduces retrieval overhead through local
+retrieval and verification mechanisms. Parallel document processing (Merth et al.) mitigates attention
+complexity by processing multiple documents independently rather than concatenating them. Document preprocessing (Lu et al., 2024) improves
+prefilling efficiency by preprocessing and storing
+document representation for the whole knowledge
+base. Small expert LMs generate initial documentspecific drafts for LLM verification (Wang et al.,
+2024b). In contrast to prior work, our IDR 2 is a
+general framework. It enhances A-RAG efficiency
+by representation reduction with instruction-guided
+information extraction.
+3 Methods
+Figure 2 details the workflow of IDR2, and we divide the internal process of each iteration round
+in A-RAG into three phases: retrieval, prefilling,
+and decoding. When processing a query, cached
+document representations in the CICS module are
+first verified. These representations are loaded and
+combined with uncached documents for prefilling,
+where the IDGR module guides LLMs to prioritize relevant content while filtering noise. Before each autoregressive step, matching subsequent
+phrase fragments are queried in the IGPG module
+to enable parallel generation. Ultimately, these approaches enhance the overall efficiency of A-RAG.
+Details of each module are given respectively in
+the remainder of this section.
+3.1 Cross-Iterative Cache Sharing (CICS)
+A-RAG (Zhao et al., 2023; Jiang et al., 2023; Yang
+et al., 2023b; Su et al., 2024; Zhang et al., 2024)
+relies on multiple rounds of retrieval-generation interactions to generate answers. We observe substantial document overlap between adjacent retrieval
+rounds. In light of this, duplicate representation for
+overlapping documents introduces computational
+redundancy, hampering the efficiency of A-RAG.
+In order to avoid duplicate representation for
+overlapping documents, we propose the crossiterative cache sharing (CICS) module. CICS initializes a cache space C to store Key-Value pairs
+corresponding to the documents retrieved in each
+round for each query q. Because A-RAG may modify the query at the end of each iteration, we denote
+the initial user query as q0. At round t, the retrieval
+operation Dt = Retrieve(qt) returns a set of n
+documents Dt = {dt
+1, dt
+2, ..., dt
+n} from the external
+knowledge base. n denotes the maximum number
+of documents that can be retrieved in each round.
+At round t, the LLM generates a sequence of tokens
+At = {a1
+t , a2
+t , ..., am
+t } by:
+a1
+t , Kt, Vt = LLMP (qt, Dt, A<t) (1)
+ai
+t, ki
+t, vi
+t = LLMD(qt, Dt, A<t, a<i
+t , Kt, Vt)
+Kt = Concat(Kt, ki
+t)
+Vt = Concat(Vt, vi
+t)
+(2)
+where the inference process of LLM is divided into
+two stages: prefilling and decoding, represented
+with LLMP and LLMD respectively. The Kt and
+Vt represent the Key-Value pairs for Dt and At.
+
+[TABLE page=3 index=1]
+Columns: quantization, pruning, knowledge distillation, etc.) | relies on multiple rounds of retrieval-generation inRow 1: quantization, pruning, knowledge distillation, etc.): and LLM-specific optimizations which include: 1) | relies on multiple rounds of retrieval-generation in-: teractions to generate answers. We observe substanRow 2: quantization, pruning, knowledge distillation, etc.): Early Exiting (Teerapittayanon et al., 2016; Xin | relies on multiple rounds of retrieval-generation in-: tial document overlap between adjacent retrieval
+Row 3: quantization, pruning, knowledge distillation, etc.): et al., 2020; Zhou et al., 2020; Kong et al., 2022; | relies on multiple rounds of retrieval-generation in-: rounds. In light of this, duplicate representation for
+Row 4: quantization, pruning, knowledge distillation, etc.): Yang et al.; Bae et al., 2023), uses prediction heads | relies on multiple rounds of retrieval-generation in-: overlapping documents introduces computational
+Row 5: quantization, pruning, knowledge distillation, etc.): at different layers to enable early token exit when | relies on multiple rounds of retrieval-generation in-: redundancy, hampering the efficiency of A-RAG.
+Row 6: quantization, pruning, knowledge distillation, etc.): confidence thresholds are met. 2) Token Pruning | relies on multiple rounds of retrieval-generation in-: In order to avoid duplicate representation for
+Row 7: quantization, pruning, knowledge distillation, etc.): (Goyal et al., 2020; Kim and Cho, 2021; Wang | relies on multiple rounds of retrieval-generation in-: overlapping documents, we propose the cross-
+[/TABLE]
+
+[TABLE page=3 index=2]
+Columns: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens
+Row 1: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: retrieval, prefilling,(Borgeaud et al., 2022; Ram et al., 2023), and con-in A-RAG into three phases:
+Row 2: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: When processing a query, cachedtextual learning (Zhao et al., 2023; Zhang et al.,and decoding.
+Row 3: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: document representations in the CICS module are2024; Li et al.). 2) Self-perception strategies evaluRow 4: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: first verified. These representations are loaded andate output confidence through internal states (Yao
+Row 5: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: combined with uncached documents for prefilling,et al., 2024), LLM output layer (Jiang et al., 2023;
+Row 6: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: the IDGR module guides LLMs to prior-Yang et al., 2023b; Su et al., 2024), or explicitwhere
+Row 7: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: Be-language-level feedback (Asai et al.). In contrast toitize relevant content while filtering noise.
+Row 8: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: fore each autoregressive step, matching subsequentexisting works that primarily focus on performance
+Row 9: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: phrase fragments are queried in the IGPG moduleenhancement, to the best of our knowledge, we are
+Row 10: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: to enable parallel generation. Ultimately, these ap-the first to investigate the multi-turn document overRow 11: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: proaches enhance the overall efficiency of A-RAG.lapping problem in A-RAG and improve efficiency
+Row 12: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: Details of each module are given respectively inthrough its resolution.
+Row 13: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: the remainder of this section.
+Row 14: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: 2.2 Inference Acceleration
+Row 15: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: 3.1 Cross-Iterative Cache Sharing (CICS)
+Row 16: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: Efficiency of LLM. Research on improving LLM
+Row 17: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: efficiency can generally be classified into two cate- A-RAG (Zhao et al., 2023; Jiang et al., 2023; Yang
+Row 18: vide the internal process of each iteration roundtion (Trivedi et al., 2023), sliding window tokens: gories: traditional optimization techniques (such as et al., 2023b; Su et al., 2024; Zhang et al., 2024)
+[/TABLE]
+
+[PAGE 4]
+Figure 2: The pipeline of our IDR2. the same color indicates the same document and representation.
+The ai
+t denotes the ith generated token and m represents the number of generated tokens. The Eq.(2)
+denoted the autoregression process, which can only
+generate one token at each step. It needs to be executed through multiple steps to obtain the complete
+At. CICS stores the Kt, Vt from Eq.(1), which is
+the representation for Dt as shown in Figure 2.
+After receiving retrieved results Dt, CICS extracts existing representation from the cache to
+avoid duplicate representation. Specifically, as the
+example shown in Figure 2, CICS directly loads
+the representation of documents #5881721 and
+#12415199, then integrates them with the text of
+document #12368478 for generation. This process
+can be formalized as:
+Ko
+t , V o
+t , Do
+t = Filter(Dt, C)
+a1
+t , Kt, Vt = LLMP (qt, Dn
+t , A<t, Ko
+t , V o
+t )
+(3)
+where Do
+t is the document set that has been processed in the previous round and appears again at
+the current round Dt. We can directly obtain its
+corresponding representation Ko
+t and V o
+t from C
+without re-processing. For the new document set
+Dn
+t = Dt \ Do
+t at the current round, the prefilling
+is still required.
+Eq.(3) optimizes the prefilling phase by reusing
+the cached representation of overlapping documents in CICS, avoiding redundant computation.
+3.2 Instruction-driven Deduplication
+Guidance Reinforcement (IDGR)
+The CICS provides efficient representation reuse
+across rounds. Notably, the Key-Value representation of each document dt
+i incorporates information from previously processed documents through
+self-attention. As an example illustrated in Figure 2, at round 1, the representation of document
+#12415199 contains information from documents
+#5881721 and #10028469 due to the self-attention
+mechanism.
+The IDGR employs natural language instructions It in the prompt to guide the LLM in filtering
+redundant cached information. This module helps
+the model focus on relevant content for the current
+round, thereby ensuring high-quality generation.
+At each iteration, the instruction It is automatically
+generated based on two rules and is subsequently
+utilized during the prefilling phase, as:
+a1
+t , Kt, Vt = LLMP (qt, Dn
+t , A<t, Ro
+t , It) (4)
+where Ro
+t is the Ko
+t , V o
+t . As shown in Figure 2,
+the representation of document #10028469 is excluded from the computation. Furthermore, explicit
+instructions guide the LLM to ignore the information contained in the representation of document
+#12415199.
+The instruction It is generated according to two
+rules: First, we use document identifiers to explicitly tell the LLM which documents are relevant and
+which are irrelevant for the current generation. This
+helps the LLM focus on pertinent context while
+filtering out redundant information. Second, we
+provide document relevance rankings to the LLM.
+In cases where we cannot directly adjust the input
+order of documents based on their importance, explicit instructions guide the LLM to prioritize more
+relevant documents.
+In practice, It can be implemented with simple
+natural language directives, leveraging the strong
+
+[PAGE 5]
+semantic understanding capabilities of LLMs. For
+instance, in the second round shown in Figure 2, the
+instruction is formulated as: “#5881721 ... are related docs. #10028469 is unrelated. The relevance
+scores are ...”. The relevance scores can be obtained through either retriever rankings1 or modelbased scoring methods2. While scoring methods
+are not the focus of our study, they can be seamlessly integrated into our approach.
+3.3 Information-Guided Parallel Generation
+(IGPG)
+Figure 3: The x-axis represents the length of consecutive
+token combinations in the generated results. The yaxis represents the proportion of all combinations in
+the generated results that appear in the retrieved results.
+(LLaMA2-7B, 2WikiMultihopQA).
+RAG differs from standard LLM applications in
+its access to extensive external context. For a given
+query q, standard LLM inference can only utilize q
+itself, whereas RAG leverages both q and retrieved
+documents Dt. Furthermore, in different iterations
+of A-RAG, the LLM-generated content maintains
+high relevance to the retrieved documents Dt, as illustrated in Figure 3. This relevance plays a crucial
+role in determining the current round’s output. The
+LLM generates a significant amount of existing
+content. The autoregressive process of token-bytoken generation primarily contributes to the low
+efficiency. In contrast to standard LLM generation,
+we have the information of Dt, which contains a
+substantial portion of the content that LLM must
+generate. Consequently, we can utilize the information from Dt to guide LLM in avoiding the independent autoregressive representation process for
+existing content. By constructing phrase fragments
+and verifying multiple tokens during autoregression, parallel generation can be achieved.
+1https://github.com/Muennighoff/sgpt
+2https://huggingface.co/BAAI/bge-reranker-base
+Different with traditional speculative decoding
+approaches, IGPG requires neither the construction of small language models nor training. During each RAG iteration, IGPG uses Dt to construct a approximate probabilistic language model
+P (xt|x1, ..., xt−1) ≈ P (xt|xt−N +1, ..., xt−1), N
+is the number of recent tokens.
+Our IGPG has two steps as speculative decoding approaches: draft generation and LLM parallel generation. In the draft generation, by iterating M steps, the module constructs a M-length
+draft token sequence ˆAt,k = {ˆa1
+t,k, ˆa2
+t,k, ..., ˆaM
+t,k},
+k denotes the k-th autoregression step. During
+LLM parallel generation, the LLM validates the
+draft token sequence through a forward pass by
+P (¯ai+M +1
+t,k |a≤i
+t,k−1, ˆa1
+t,k, ..., ˆaM
+t,k). The LLM examines whether each draft token aligns with the current output, as Eq.(5). When a draft token ˆaj
+t,k fails
+validation, it is substituted with the LLM’s prediction ¯aj−1
+t,k , and draft generation resumes from this
+point until the complete sequence At is produced.
+aj
+t,k =
+(
+ˆaj
+t , if ˆaj
+t,k = ¯aj−1
+t,k , j ≥ 1
+¯aj−1
+t,k otherwise & stop (5)
+where {¯a0
+t,k, ..., ¯ai+M +1
+t,k } = LLMD(a≤i
+t,k−1, ˆAt,k),
+¯a0
+t,k corresponds to ai
+t,k−1 autoregressive.
+If at least one token in the ˆAt,k is validated by the
+LLM, combined with the token generated by the
+LLM itself, the total number of generated tokens is
+at least two, achieving a least 2× speedup.
+4 Experiments
+4.1 Language Models
+We employed the LLaMA2-7B/13B (Touvron et al.,
+2023) (L2-7B/13B) and the Vicuna-7B/13B (Chiang et al., 2023) (V-7B/13B). The Vicuna model
+is a chatbot fine-tuned on ShareGPT conversation
+data. It contains different knowledge from LLaMA
+and has an impact on A-RAG inference.
+4.2 Downstream Task Datasets
+We use the 2WikiMultihopQA (Ho et al., 2020),
+HotpotQA (Yang et al., 2018), StrategyQA (Geva
+et al., 2021) and IIRC (Ferguson et al., 2020) as
+DRAGIN (Su et al., 2024). The datasets span multihop question answering, common sense reasoning, and reading comprehension, covering different
+types of reasoning tasks.
+
+[PAGE 6]
+Methods LLMs 2WikiMultihopQA HotpotQA StrategyQA IIRC
+Pref.↑ Deco.↑ E2E↑ Pref.↑ Deco.↑ E2E↑ Pref.↑ Deco.↑ E2E↑ Pref.↑ Deco.↑ E2E↑
+FLRAG+IDR2
+L2-7B 2.23× 2.37× 1.75× 2.27× 1.85× 1.53× 1.75× 1.49× 1.40× 3.08× 2.76× 2.10×
+L2-13B2.12× 2.36× 1.64× 2.29× 2.00× 1.54× 1.76× 1.62× 1.40× 2.70× 2.65× 1.83×
+V-13B 2.05× 2.25× 1.60× 2.22× 1.97× 1.51× 1.65× 1.55× 1.31× 2.66× 2.72× 1.82×
+FSRAG+IDR2
+L2-7B 2.04× 2.64× 2.32× 2.41× 1.88× 1.69× 2.36× 1.97× 1.79× 2.92× 2.88× 2.20×
+L2-13B2.11× 2.47× 1.79× 2.16× 2.05× 1.59× 1.74× 1.59× 1.44× 2.16× 2.65× 1.74×
+V-13B 2.23× 2.31× 1.75× 2.15× 2.31× 1.66× 2.02× 1.78× 1.53× 2.35× 2.69× 1.92×
+FLARE+IDR2
+L2-7B 2.81× 2.74× 2.60× 3.12× 2.61× 2.31× 2.71× 2.27× 1.77× 3.54× 2.97× 2.89×
+L2-13B1.98× 2.24× 2.16× 2.42× 1.87× 1.80× 2.45× 1.71× 1.69× 3.58× 3.15× 3.01×
+V-13B 2.04× 2.14× 2.06× 2.27× 2.07× 1.98× 2.05× 1.93× 1.89× 2.70× 2.24× 2.22×
+DRAGIN+IDR2
+L2-7B 3.34× 2.77× 2.52× 4.09× 2.08× 2.09× 3.39× 1.98× 1.95× 4.49× 2.58× 2.58×
+L2-13B3.25× 3.21× 2.61× 3.97× 2.15× 2.01× 3.15× 1.98× 1.87× 4.25× 2.86× 2.65×
+V-13B 3.57× 2.81× 2.55× 4.14× 2.29× 2.15× 3.25× 1.88× 1.82× 4.72× 4.00× 3.53×
+Table 1: The average speedup ratios of IDR 2 across different methods, models, and datasets. Pref. (prefilling)
+demonstrates acceleration achieved through CICS and IDGR. Deco. (decoding) shows speedup from IGPG. E2E
+(end-to-end) reflects the overall A-RAG acceleration, encompassing retrieval. (n = 3, 1× = baseline speed)
+LLMs Methods 2WQA HQA SQA IIRC
+EM ↑ F1 ↑ EM ↑ F1 ↑ Acc. ↑ EM ↑ F1 ↑
+Llama2-7B DRAGIN† 22.5 28.68 22.6 33.02 65.10 15.93 20.24
+DRAGIN+Ours 25.4 33.17 22.9 32.59 62.50 16.04 20.24
+Llama2-13B DRAGIN† 30.4 39.91 31.6 42.60 66.10 18.5 22.59
+DRAGIN+Ours 34.4 41.50 29.9 41.01 65.77 18.55 22.11
+vicuna-13b DRAGIN† 25.4 34.90 30.1 42.50 66.20 23.90 28.11
+DRAGIN+Ours 28.9 36.77 31.7 42.58 68.00 21.59 26.28
+Table 2: The performance comparison on different datasets with different models. The† represents the reproduction.
+4.3 Baselines
+We selected four representative A-RAG methods
+as baselines. These methods are characterized by
+two key aspects: retrieval timing and query construction. Retrieval timing determines when to
+perform retrieval, while query construction decides
+what content to use for retrieval. These features
+directly impact both the quality and efficiency of
+A-RAG workflows. FL-RAG (Khandelwal et al.,
+2019; Borgeaud et al., 2022; Ram et al., 2023) retrieves every z tokens using previous tokens as
+queries, FS-RAG (Trivedi et al., 2023) performs
+retrieval after each sentence, FLARE (Jiang et al.,
+2023) triggers retrieval for uncertain tokens, using
+the last generated sentence as the query, and DRAGIN (Su et al., 2024) employs a dynamic approach
+based on content importance and uncertainty, utilizing attention distribution for query construction.
+4.4 Implementation Details
+For the retrieval modules, we select BM25 and follow DRAGIN (Su et al., 2024). Additionally, we
+also investigate replacing BM25 with SGPT (Muennighoff, 2022), a dense retrieval method. Our external knowledge is based on Wikipedia articles,
+which are divided into passages containing 100 tokens each. For the 7B and 13B models, we use four
+Nvidia 3090 GPUs and H800 GPUs, respectively.
+n is the number of retrieved documents. Our IDR2
+based on the PyTorch (Paszke et al., 2019).
+4.5 Main Results
+Table 1 shows the results of our approach applied
+to the different A-RAG methods, different models
+with scales, and different scenarios. Table 1 shows
+the acceleration ratios over baseline methods.
+Overall, our method demonstrates end-to-end
+speed improvements ranging from 1.31× to 3.53×.
+During the prefilling phase, we observe acceleration factors from 1.75 × to 4.72×. These results
+substantiate the efficacy of our proposed CICS and
+IDGR mechanisms in effectively eliminating redundant representations. For the decoding phase,
+the IGPG technique achieves speedup ratios from
+1.49× to 4.00× through the reduction of autoregressive inference iterations. A comparative analysis
+between the LLaMA2-7B and 13B architectures
+
+[TABLE page=6 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | 2WikiMultihopQA | HotpotQA | Unnamed: 2 | StrategyQA | Unnamed: 3 | Unnamed: 4 | IIRC | Unnamed: 5
+Row 1: Unnamed: 0: Methods | Unnamed: 1: LLMs | 2WikiMultihopQA: | HotpotQA: | Unnamed: 2: | StrategyQA: | Unnamed: 3: | Unnamed: 4: | IIRC: | Unnamed: 5:
+Row 2: Unnamed: 0: | Unnamed: 1: | 2WikiMultihopQA: Pref. ↑ Deco. ↑ E2E ↑ | HotpotQA: Pref. ↑ Deco. ↑ | Unnamed: 2: E2E ↑ | StrategyQA: Pref. ↑ Deco. ↑ | Unnamed: 3: E2E ↑ | Unnamed: 4: Pref. ↑ | IIRC: Deco. ↑ | Unnamed: 5: E2E ↑
+Row 3: Unnamed: 0: | Unnamed: 1: L2-7B | 2WikiMultihopQA: 2.23× 2.37× 1.75× | HotpotQA: 2.27× 1.85× | Unnamed: 2: 1.53× | StrategyQA: 1.75× 1.49× | Unnamed: 3: 1.40× | Unnamed: 4: 3.08× | IIRC: 2.76× | Unnamed: 5: 2.10×
+Row 4: Unnamed: 0: FLRAG+IDR2 | Unnamed: 1: L2-13B | 2WikiMultihopQA: 2.12× 2.36× 1.64× | HotpotQA: 2.29× 2.00× | Unnamed: 2: 1.54× | StrategyQA: 1.76× 1.62× | Unnamed: 3: 1.40× | Unnamed: 4: 2.70× | IIRC: 2.65× | Unnamed: 5: 1.83×
+Row 5: Unnamed: 0: | Unnamed: 1: V-13B | 2WikiMultihopQA: 2.05× 2.25× 1.60× | HotpotQA: 2.22× 1.97× | Unnamed: 2: 1.51× | StrategyQA: 1.65× 1.55× | Unnamed: 3: 1.31× | Unnamed: 4: 2.66× | IIRC: 2.72× | Unnamed: 5: 1.82×
+Row 6: Unnamed: 0: | Unnamed: 1: L2-7B | 2WikiMultihopQA: 2.04× 2.64× 2.32× | HotpotQA: 2.41× 1.88× | Unnamed: 2: 1.69× | StrategyQA: 2.36× 1.97× | Unnamed: 3: 1.79× | Unnamed: 4: 2.92× | IIRC: 2.88× | Unnamed: 5: 2.20×
+Row 7: Unnamed: 0: FSRAG+IDR2 | Unnamed: 1: L2-13B | 2WikiMultihopQA: 2.11× 2.47× 1.79× | HotpotQA: 2.16× 2.05× | Unnamed: 2: 1.59× | StrategyQA: 1.74× 1.59× | Unnamed: 3: 1.44× | Unnamed: 4: 2.16× | IIRC: 2.65× | Unnamed: 5: 1.74×
+Row 8: Unnamed: 0: | Unnamed: 1: V-13B | 2WikiMultihopQA: 2.23× 2.31× 1.75× | HotpotQA: 2.15× 2.31× | Unnamed: 2: 1.66× | StrategyQA: 2.02× 1.78× | Unnamed: 3: 1.53× | Unnamed: 4: 2.35× | IIRC: 2.69× | Unnamed: 5: 1.92×
+Row 9: Unnamed: 0: | Unnamed: 1: L2-7B | 2WikiMultihopQA: 2.81× 2.74× 2.60× | HotpotQA: 3.12× 2.61× | Unnamed: 2: 2.31× | StrategyQA: 2.71× 2.27× | Unnamed: 3: 1.77× | Unnamed: 4: 3.54× | IIRC: 2.97× | Unnamed: 5: 2.89×
+Row 10: Unnamed: 0: FLARE+IDR2 | Unnamed: 1: L2-13B | 2WikiMultihopQA: 1.98× 2.24× 2.16× | HotpotQA: 2.42× 1.87× | Unnamed: 2: 1.80× | StrategyQA: 2.45× 1.71× | Unnamed: 3: 1.69× | Unnamed: 4: 3.58× | IIRC: 3.15× | Unnamed: 5: 3.01×
+Row 11: Unnamed: 0: | Unnamed: 1: V-13B | 2WikiMultihopQA: 2.04× 2.14× 2.06× | HotpotQA: 2.27× 2.07× | Unnamed: 2: 1.98× | StrategyQA: 2.05× 1.93× | Unnamed: 3: 1.89× | Unnamed: 4: 2.70× | IIRC: 2.24× | Unnamed: 5: 2.22×
+Row 12: Unnamed: 0: | Unnamed: 1: L2-7B | 2WikiMultihopQA: 3.34× 2.77× 2.52× | HotpotQA: 4.09× 2.08× | Unnamed: 2: 2.09× | StrategyQA: 3.39× 1.98× | Unnamed: 3: 1.95× | Unnamed: 4: 4.49× | IIRC: 2.58× | Unnamed: 5: 2.58×
+Row 13: Unnamed: 0: DRAGIN+IDR2 | Unnamed: 1: L2-13B | 2WikiMultihopQA: 3.25× 3.21× 2.61× | HotpotQA: 3.97× 2.15× | Unnamed: 2: 2.01× | StrategyQA: 3.15× 1.98× | Unnamed: 3: 1.87× | Unnamed: 4: 4.25× | IIRC: 2.86× | Unnamed: 5: 2.65×
+Row 14: Unnamed: 0: | Unnamed: 1: V-13B | 2WikiMultihopQA: 3.57× 2.81× 2.55× | HotpotQA: 4.14× 2.29× | Unnamed: 2: 2.15× | StrategyQA: 3.25× 1.88× | Unnamed: 3: 1.82× | Unnamed: 4: 4.72× | IIRC: 4.00× | Unnamed: 5: 3.53×
+[/TABLE]
+
+[TABLE page=6 index=2]
+Columns: DRAGIN† | 22.5 | 28.68 | 22.6 | 33.02 | 65.10 | 15.93 | 20.24
+Row 1: DRAGIN†: DRAGIN+Ours | 22.5: 25.4 | 28.68: 33.17 | 22.6: 22.9 | 33.02: 32.59 | 65.10: 62.5 | 15.93: 16.04 | 20.24: 20.24
+Row 2: DRAGIN†: DRAGIN† | 22.5: 30.4 | 28.68: 39.91 | 22.6: 31.6 | 33.02: 42.6 | 65.10: 66.1 | 15.93: 18.5 | 20.24: 22.59
+Row 3: DRAGIN†: DRAGIN+Ours | 22.5: 34.4 | 28.68: 41.5 | 22.6: 29.9 | 33.02: 41.01 | 65.10: 65.77 | 15.93: 18.55 | 20.24: 22.11
+Row 4: DRAGIN†: DRAGIN† | 22.5: 25.4 | 28.68: 34.9 | 22.6: 30.1 | 33.02: 42.5 | 65.10: 66.2 | 15.93: 23.9 | 20.24: 28.11
+Row 5: DRAGIN†: DRAGIN+Ours | 22.5: 28.9 | 28.68: 36.77 | 22.6: 31.7 | 33.02: 42.58 | 65.10: 68.0 | 15.93: 21.59 | 20.24: 26.28
+[/TABLE]
+
+[PAGE 7]
+(a) LLaMA2-7B prefilling cost.
+(b) LLaMA2-7B decoding cost.
+(c) LLaMA2-7B end-to-end cost.
+(d) LLaMA2-13B prefilling cost.
+(e) LLaMA2-13B decoding cost.
+(f) LLaMA2-13B end-to-end cost.
+Figure 4: The analysis of speedup for different numbers of retrieved documents.
+(underlining indicates better results) shows slightly
+better results for the 7B variant. We consider that
+this effect stems from the fact that smaller models require less additional overhead to store and
+load representations. Of the various A-RAG methods, the most significant performance improvement
+(4.72× for prefilling) is achieved when applying
+IDR2 to DRAGIN. We attribute this to the query refinement mechanism of DRAGIN which improves
+query similarity, a property that effectively synergizes with our representation reduction approach.
+Models Methods Pref. (s)↓ Deco. (s)↓ E2E (s)↓
+L2-7B DR. 3.71 12.55 19.31
+DR.+Ours 1.18 6.07 9.56
+L2-13B DR. 3.84 19.26 26.31
+DR.+Ours 1.24 8.06 12.34
+V-13b DR. 4.34 25.03 33.47
+DR.+Ours 1.29 10.49 15.18
+Table 3: The runtime of IDR 2 on 2WikiMultihopQA
+dataset (n = 3), DR. denotes DRAGIN (Su et al., 2024).
+The specific runtime of the different phases in
+the generation process are exhibited in Table 3. Our
+experiments reveal that even on high-end NVIDIA
+H800 GPUs, 13B-parameter models require 26.3133.47 seconds to process a single request. The
+proposed method significantly reduces the overall
+latency to 9.56-15.18 seconds, demonstrating substantial performance improvements and enhanced
+practicality for real-world deployment.
+Table 2 shows the performance of applying the
+IDR2 to the DRAGIN method. The experimental results show that our approach effectively preserves the original performance while exhibiting
+strong adaptability and generalization across different models and tasks. Notably, our method also
+carries some enhancements on 2WikiMultiHopQA.
+4.6 Ablation studies
+4.6.1 Impact of Retrieval Size
+We analyze the impact of varying numbers of retrieved documents on A-RAG, with results visualized in Figure 4. As the document count increases,
+the context length grows monotonically, resulting
+in progressively higher prefilling overhead proportion. Our approach maintains consistent speedup
+advantages across both prefilling and decoding.
+4.6.2 Impact of Different Retrievers
+Method Retriever EM ↑ E2E ↑
+DRAGIN BM25 30.4 1×
+DRAGIN + IDR2 BM25 34.4 2.61×
+DRAGIN SGPT 27.3 1×
+DRAGIN +IDR2 SGPT 29.6 2.73×
+Table 4: Analysis of different retrievers on the 2WikiMultihopQA with LLaMA2-13B (n = 3).
+Table 4 demonstrates the effectiveness of IDR2
+
+[TABLE page=7 index=1]
+Columns: Models | Methods Pref. (s)↓ | Deco. (s)↓ | E2E (s)↓ | trieved documents on A-RAG, with results visualRow 1: Models: | Methods Pref. (s)↓: ized in Figure 4. As the document count increases,DR. 3.71 | Deco. (s)↓: 12.55 | E2E (s)↓: 19.31 | trieved documents on A-RAG, with results visual-:
+Row 2: Models: L2-7B | Methods Pref. (s)↓: | Deco. (s)↓: | E2E (s)↓: | trieved documents on A-RAG, with results visual-:
+Row 3: Models: | Methods Pref. (s)↓: DR.+Ours 1.18 | Deco. (s)↓: 6.07 | E2E (s)↓: 9.56 | trieved documents on A-RAG, with results visual-: the context length grows monotonically, resulting
+Row 4: Models: | Methods Pref. (s)↓: DR. 3.84 | Deco. (s)↓: 19.26 | E2E (s)↓: 26.31 | trieved documents on A-RAG, with results visual-: in progressively higher prefilling overhead proporRow 5: Models: L2-13B | Methods Pref. (s)↓: | Deco. (s)↓: | E2E (s)↓: | trieved documents on A-RAG, with results visual-:
+Row 6: Models: | Methods Pref. (s)↓: DR.+Ours 1.24 | Deco. (s)↓: 8.06 | E2E (s)↓: 12.34 | trieved documents on A-RAG, with results visual-: tion. Our approach maintains consistent speedup
+Row 7: Models: | Methods Pref. (s)↓: | Deco. (s)↓: | E2E (s)↓: | trieved documents on A-RAG, with results visual-: advantages across both prefilling and decoding.
+Row 8: Models: | Methods Pref. (s)↓: DR. 4.34 | Deco. (s)↓: 25.03 | E2E (s)↓: 33.47 | trieved documents on A-RAG, with results visual-:
+Row 9: Models: V-13b | Methods Pref. (s)↓: | Deco. (s)↓: | E2E (s)↓: | trieved documents on A-RAG, with results visual-:
+Row 10: Models: | Methods Pref. (s)↓: DR.+Ours 1.29 | Deco. (s)↓: 10.49 | E2E (s)↓: 15.18 | trieved documents on A-RAG, with results visual-:
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: Models Methods Pref. (s)↓ | Deco. (s)↓ | E2E (s)↓ | Unnamed: 0 | trieved documents on A-RAG, with results visual
+Row 1: Models Methods Pref. (s)↓: ized in Figure 4. As the document count increasesDR. 3.71 | Deco. (s)↓: 12.55 | E2E (s)↓: 19.31 | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+Row 2: Models Methods Pref. (s)↓: L2-7B | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+Row 3: Models Methods Pref. (s)↓: DR.+Ours 1.18 | Deco. (s)↓: 6.07 | E2E (s)↓: 9.56 | Unnamed: 0: | trieved documents on A-RAG, with results visual: the context length grows monotonically, resulting
+Row 4: Models Methods Pref. (s)↓: DR. 3.84 | Deco. (s)↓: 19.26 | E2E (s)↓: 26.31 | Unnamed: 0: | trieved documents on A-RAG, with results visual: in progressively higher prefilling overhead propor
+Row 5: Models Methods Pref. (s)↓: L2-13B | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+Row 6: Models Methods Pref. (s)↓: DR.+Ours 1.24 | Deco. (s)↓: 8.06 | E2E (s)↓: 12.34 | Unnamed: 0: | trieved documents on A-RAG, with results visual: tion. Our approach maintains consistent speedup
+Row 7: Models Methods Pref. (s)↓: | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual: advantages across both prefilling and decoding.
+Row 8: Models Methods Pref. (s)↓: DR. 4.34 | Deco. (s)↓: 25.03 | E2E (s)↓: 33.47 | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+Row 9: Models Methods Pref. (s)↓: V-13b | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+Row 10: Models Methods Pref. (s)↓: DR.+Ours 1.29 | Deco. (s)↓: 10.49 | E2E (s)↓: 15.18 | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+Row 11: Models Methods Pref. (s)↓: | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual: 4.6.2 Impact of Different Retrievers
+Row 12: Models Methods Pref. (s)↓: Table 3: The runtime of IDR2 on 2WikiMultihopQA | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+Row 13: Models Methods Pref. (s)↓: dataset (n = 3), DR. denotes DRAGIN (Su et al., 2024). | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual: Method Retriever EM ↑ E2E ↑
+Row 14: Models Methods Pref. (s)↓: | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual: DRAGIN BM25 30.4 1×
+Row 15: Models Methods Pref. (s)↓: The specific runtime of the different phases in | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual: DRAGIN + IDR2 BM25 34.4 2.61×
+Row 16: Models Methods Pref. (s)↓: the generation process are exhibited in Table 3. Our | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+Row 17: Models Methods Pref. (s)↓: | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual: DRAGIN SGPT 27.3 1×
+Row 18: Models Methods Pref. (s)↓: experiments reveal that even on high-end NVIDIA | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+Row 19: Models Methods Pref. (s)↓: | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual: DRAGIN +IDR2 SGPT 29.6 2.73×
+Row 20: Models Methods Pref. (s)↓: H800 GPUs, 13B-parameter models require 26.31- | Deco. (s)↓: | E2E (s)↓: | Unnamed: 0: | trieved documents on A-RAG, with results visual:
+[/TABLE]
+
+[PAGE 8]
+Figure 5: The detailed process of A-RAG based on a specific example, with LLaMA-13B.
+across different retrievers. Substituting the retriever
+with SGPT results in an EM score of 29.6 and a
+speedup ratio of 2.73 ×. The consistent performance and acceleration above 2.6 × across both
+frequency-based and semantic retrievers confirms
+the adaptability of IDR2.
+5 Analysis
+5.1 Do these modules impact performance?
+Table 5 shows how different modules affect the
+generation quality. The redundant information
+in the CICS module impacts the generation quality of LLM. This is evident in the performance
+of LLaMA2-7B, where EM dropped from 22.0
+to 20.3, with LLaMA2-13B showing similar decreases. The introduction of IDGR not only alleviates the adverse effects of redundant information but also brings additional performance gains.
+The LLaMA2-7B achieves EM scores of 25.4, and
+LLaMA2-13B reaches 34.4. These results confirm
+that IDGR successfully maintains inference quality.
+5.2 Specific Case Studies
+Figure 5 shows three iterative rounds. In Round
+1 (empty CICS), baseline prefilling takes 0.96s.
+IGPG reduces decoding time from 4.24s to 2.16s.
+After hallucination detection, the process enters
+Round 2. IDR2 reuses the cached representations
+of #359518 in CICS, saving 0.53s (prefilling). During the decoding process, IGPG builds fragment
+models, saving 2.31 seconds. For example, Nicos
+Poulantzas requires six token-level autoregression:
+_N, icos, _P, oul, ant, zas. After applying IGPG,
+only one autoregression is needed after the prefix
+"Nicos," is generated, achieving 4× local acceleration. Similarly, dates like October 1979, September
+1936, February 1568 achieve 4× acceleration by
+retrieving corresponding fragments from IGPG using month information. At Round 3, LLM further
+CICS IGPG IDGR LLaMA2-7BLLaMA2-13B
+EM↑ F1↑ EM↑ F1↑
+- - - 22.5 28.68 30.4 39.91
+✓ - - 20.3 26.88 28.0 37.49
+- ✓ - 22.4 28.51 30.4 40.02
+✓ ✓ - 20.2 26.78 28.3 37.62
+✓ ✓ ✓ 25.4 33.17 34.4 41.50
+Table 5: Analysis of the impact of different modules on
+2WikiMultihopQA based on DRAGIN.
+confirms Giuseppe Cesari’slifespan and generates
+the right answer. With all representations already in
+CICS, the prefilling time reduces by 0.804 seconds
+(about 80% of DRAGIN’s original time), achieving
+5× speedup. Total savings reach 1.334s (prefilling)
+and 6.16s (decoding), summing to 7.494s (48.47%
+reduction) over DRAGIN’s 15.46s, achieving 1.95×
+end-to-end acceleration.
+6 Conclusion
+This paper presents IDR 2, a model-agnostic approach that significantly improves the efficiency
+of A-RAG by addressing redundant representation
+processing across multiple iterations. To prevent
+redundant computation, this paper introduces the
+CICS module for caching document representations. The IDGR module then guides the generation process to focus on crucial information through
+the instruction-following capability of LLMs. Furthermore, the IGPG module leverages the correlation between generated content and documents
+to enable parallel generation of existing content,
+reducing autoregressive rounds. Through extensive
+experiments, IDR 2 consistently demonstrates remarkable efficiency improvements, achieving up
+to 2.0× acceleration while maintaining generation
+quality. Our future work aims to further compress
+the KV cache while preserving its representation
+capabilities.
+
+[TABLE page=8 index=1]
+Columns: across different retrievers. Substituting the retriever | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | LLaMA2-7B | LLaMA2-13B
+Row 1: across different retrievers. Substituting the retriever: | Unnamed: 0: CICS | Unnamed: 1: IGPG | Unnamed: 2: IDGR | LLaMA2-7B: | LLaMA2-13B:
+Row 2: across different retrievers. Substituting the retriever: with SGPT results in an EM score of 29.6 and a | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | LLaMA2-7B: EM ↑ F1 ↑ | LLaMA2-13B: EM ↑ F1 ↑
+Row 3: across different retrievers. Substituting the retriever: speedup ratio of 2.73 ×. The consistent perfor- | Unnamed: 0: - | Unnamed: 1: - | Unnamed: 2: - | LLaMA2-7B: 22.5 28.68 | LLaMA2-13B: 30.4 39.91
+Row 4: across different retrievers. Substituting the retriever: mance and acceleration above 2.6× across both | Unnamed: 0: ✓ | Unnamed: 1: - | Unnamed: 2: - | LLaMA2-7B: 20.3 26.88 | LLaMA2-13B: 28.0 37.49
+Row 5: across different retrievers. Substituting the retriever: frequency-based and semantic retrievers confirms | Unnamed: 0: - | Unnamed: 1: ✓ | Unnamed: 2: - | LLaMA2-7B: 22.4 28.51 | LLaMA2-13B: 30.4 40.02
+Row 6: across different retrievers. Substituting the retriever: the adaptability of IDR 2. | Unnamed: 0: ✓ | Unnamed: 1: ✓ | Unnamed: 2: - | LLaMA2-7B: 20.2 26.78 | LLaMA2-13B: 28.3 37.62
+Row 7: across different retrievers. Substituting the retriever: | Unnamed: 0: ✓ | Unnamed: 1: ✓ | Unnamed: 2: ✓ | LLaMA2-7B: 25.4 33.17 | LLaMA2-13B: 34.4 41.50
+[/TABLE]
+
+[TABLE page=8 index=2]
+Columns: "Nicos," is generated, achieving 4× local accelera- | markable efficiency improvements, achieving up
+Row 1: "Nicos," is generated, achieving 4× local accelera-: tion. Similarly, dates like October 1979, September | markable efficiency improvements, achieving up: to 2.0× acceleration while maintaining generation
+Row 2: "Nicos," is generated, achieving 4× local accelera-: 1936, February 1568 achieve 4× acceleration by | markable efficiency improvements, achieving up: quality. Our future work aims to further compress
+Row 3: "Nicos," is generated, achieving 4× local accelera-: retrieving corresponding fragments from IGPG us- | markable efficiency improvements, achieving up: the KV cache while preserving its representation
+[/TABLE]
+
+[PAGE 9]
+7 Limitations
+We acknowledge the limitations of this paper. Although our method is a general approach, it requires the corresponding LLM to be open-source
+to apply the CICS and IGPG technologies in this
+paper. It should be noted that the method in this paper is not applicable to LLM APIs that only support
+text-based interfaces. Therefore, our future work
+also aims to develop more methods to overcome
+the limitations of similar scenarios.
+References
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama
+Ahmad, Ilge Akkaya, Florencia Leoni Aleman,
+Diogo Almeida, Janko Altenschmidt, Sam Altman,
+Shyamal Anadkat, et al. 2023. Gpt-4 technical report.
+arXiv preprint arXiv:2303.08774.
+Rohan Anil, Andrew M Dai, Orhan Firat, Melvin Johnson, Dmitry Lepikhin, Alexandre Passos, Siamak
+Shakeri, Emanuel Taropa, Paige Bailey, Zhifeng
+Chen, et al. 2023. Palm 2 technical report. arXiv
+preprint arXiv:2305.10403.
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and
+Hannaneh Hajishirzi. Self-rag: Learning to retrieve,
+generate, and critique through self-reflection. In The
+Twelfth International Conference on Learning Representations.
+Sangmin Bae, Jongwoo Ko, Hwanjun Song, and SeYoung Yun. 2023. Fast and robust early-exiting
+framework for autoregressive language models with
+synchronized parallel decoding. In Proceedings of
+the 2023 Conference on Empirical Methods in Natural Language Processing, pages 5910–5924.
+Sebastian Borgeaud, Arthur Mensch, Jordan Hoffmann, Trevor Cai, Eliza Rutherford, Katie Millican, George Bm Van Den Driessche, Jean-Baptiste
+Lespiau, Bogdan Damoc, Aidan Clark, et al. 2022.
+Improving language models by retrieving from trillions of tokens. In International conference on machine learning, pages 2206–2240. PMLR.
+Charlie Chen, Sebastian Borgeaud, Geoffrey Irving,
+Jean-Baptiste Lespiau, Laurent Sifre, and John
+Jumper. 2023. Accelerating large language model
+decoding with speculative sampling. arXiv preprint
+arXiv:2302.01318.
+Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng,
+Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan
+Zhuang, Yonghao Zhuang, Joseph E Gonzalez, et al.
+2023. Vicuna: An open-source chatbot impressing
+gpt-4 with 90%* chatgpt quality. See https://vicuna.
+lmsys. org (accessed 14 April 2023), 2(3):6.
+James Ferguson, Matt Gardner, Hannaneh Hajishirzi,
+Tushar Khot, and Pradeep Dasigi. 2020. Iirc: A
+dataset of incomplete information reading comprehension questions. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language
+Processing (EMNLP), pages 1137–1147.
+Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia,
+Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, and Haofen
+Wang. 2023. Retrieval-augmented generation for
+large language models: A survey. arXiv preprint
+arXiv:2312.10997.
+Mor Geva, Daniel Khashabi, Elad Segal, Tushar Khot,
+Dan Roth, and Jonathan Berant. 2021. Did aristotle
+use a laptop? a question answering benchmark with
+implicit reasoning strategies. Transactions of the
+Association for Computational Linguistics , 9:346–
+361.
+Saurabh Goyal, Anamitra Roy Choudhury, Saurabh
+Raje, Venkatesan Chakaravarthy, Yogish Sabharwal,
+and Ashish Verma. 2020. Power-bert: Accelerating
+bert inference via progressive word-vector elimination. In International Conference on Machine Learning, pages 3690–3699. PMLR.
+Shailja Gupta, Rajesh Ranjan, and Surya Narayan
+Singh. 2024. A comprehensive survey of retrievalaugmented generation (rag): Evolution, current
+landscape and future directions. arXiv preprint
+arXiv:2410.12837.
+Xanh Ho, Anh-Khoa Duong Nguyen, Saku Sugawara,
+and Akiko Aizawa. 2020. Constructing a multi-hop
+qa dataset for comprehensive evaluation of reasoning
+steps. In Proceedings of the 28th International Conference on Computational Linguistics, pages 6609–
+6625.
+Le Hou, Richard Yuanzhe Pang, Tianyi Zhou, Yuexin
+Wu, Xinying Song, Xiaodan Song, and Denny Zhou.
+2022. Token dropping for efficient bert pretraining.
+In Proceedings of the 60th Annual Meeting of the
+Association for Computational Linguistics (Volume
+1: Long Papers), pages 3774–3784.
+Soyeong Jeong, Jinheon Baek, Sukmin Cho, Sung Ju
+Hwang, and Jong C Park. 2024. Adaptive-rag: Learning to adapt retrieval-augmented large language models through question complexity. In Proceedings of
+the 2024 Conference of the North American Chapter of the Association for Computational Linguistics:
+Human Language Technologies (Volume 1: Long Papers), pages 7029–7043.
+Zhengbao Jiang, Frank F Xu, Luyu Gao, Zhiqing Sun,
+Qian Liu, Jane Dwivedi-Yu, Yiming Yang, Jamie
+Callan, and Graham Neubig. 2023. Active retrieval
+augmented generation. In Proceedings of the 2023
+Conference on Empirical Methods in Natural Language Processing, pages 7969–7992.
+Urvashi Khandelwal, Omer Levy, Dan Jurafsky, Luke
+Zettlemoyer, and Mike Lewis. 2019. Generalization
+through memorization: Nearest neighbor language
+models. In International Conference on Learning
+Representations.
+
+[PAGE 10]
+Gyuwan Kim and Kyunghyun Cho. 2021. Lengthadaptive transformer: Train once with length drop,
+use anytime with search. In Joint Conference of the
+59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint
+Conference on Natural Language Processing, ACLIJCNLP 2021 , pages 6501–6511. Association for
+Computational Linguistics (ACL).
+Sehoon Kim, Karttikeya Mangalam, Suhong Moon, Jitendra Malik, Michael W Mahoney, Amir Gholami,
+and Kurt Keutzer. 2024. Speculative decoding with
+big little decoder. Advances in Neural Information
+Processing Systems, 36.
+Sehoon Kim, Sheng Shen, David Thorsley, Amir Gholami, Woosuk Kwon, Joseph Hassoun, and Kurt
+Keutzer. 2022. Learned token pruning for transformers. In Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery and Data Mining,
+pages 784–794.
+M Komeili. 2021. Internet-augmented dialogue generation. arXiv preprint arXiv:2107.07566.
+Jun Kong, Jin Wang, Liang-Chih Yu, and Xuejie Zhang.
+2022. Accelerating inference for pretrained language
+models by unified multi-perspective early exiting. In
+Proceedings of the 29th International Conference on
+Computational Linguistics, pages 4677–4686.
+Yaniv Leviathan, Matan Kalman, and Yossi Matias.
+2023. Fast inference from transformers via speculative decoding. In International Conference on
+Machine Learning, pages 19274–19286. PMLR.
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, et al. 2020. Retrieval-augmented generation
+for knowledge-intensive nlp tasks. Advances in Neural Information Processing Systems, 33:9459–9474.
+Xingxuan Li, Ruochen Zhao, Yew Ken Chia, Bosheng
+Ding, Shafiq Joty, Soujanya Poria, and Lidong
+Bing. Chain-of-knowledge: Grounding large language models via dynamic knowledge adapting over
+heterogeneous sources. In The Twelfth International
+Conference on Learning Representations.
+Huanshuo Liu, Bo Chen, Menghui Zhu, Jianghao Lin,
+Jiarui Qin, Hao Zhang, Yang Yang, and Ruiming
+Tang. 2024. Retrieval-oriented knowledge for clickthrough rate prediction. In Proceedings of the 33rd
+ACM International Conference on Information and
+Knowledge Management, pages 1441–1451.
+Songshuo Lu, Hua Wang, Yutian Rong, Zhi Chen, and
+Yaohua Tang. 2024. Turborag: Accelerating retrievalaugmented generation with precomputed kv caches
+for chunked text. arXiv preprint arXiv:2410.07590.
+Alex Mallen, Akari Asai, Victor Zhong, Rajarshi Das,
+Daniel Khashabi, and Hannaneh Hajishirzi. 2023.
+When not to trust language models: Investigating
+effectiveness of parametric and non-parametric memories. In Proceedings of the 61st Annual Meeting of
+the Association for Computational Linguistics (Volume 1: Long Papers), pages 9802–9822.
+Thomas Merth, Qichen Fu, Mohammad Rastegari, and
+Mahyar Najibi. Superposition prompting: Improving and accelerating retrieval-augmented generation.
+In Forty-first International Conference on Machine
+Learning.
+Xupeng Miao, Gabriele Oliaro, Zhihao Zhang, Xinhao
+Cheng, Zeyu Wang, Zhengxin Zhang, Rae Ying Yee
+Wong, Alan Zhu, Lijie Yang, Xiaoxiang Shi, et al.
+2024. Specinfer: Accelerating large language model
+serving with tree-based speculative inference and
+verification. In Proceedings of the 29th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 3, pages 932–949.
+Niklas Muennighoff. 2022. Sgpt: Gpt sentence
+embeddings for semantic search. arXiv preprint
+arXiv:2202.08904.
+Shiyu Ni, Keping Bi, Jiafeng Guo, and Xueqi Cheng.
+2024. When do llms need retrieval augmentation?
+mitigating llms’ overconfidence helps retrieval augmentation. arXiv preprint arXiv:2402.11457.
+Adam Paszke, Sam Gross, Francisco Massa, Adam
+Lerer, James Bradbury, Gregory Chanan, Trevor
+Killeen, Zeming Lin, Natalia Gimelshein, Luca
+Antiga, et al. 2019. Pytorch: An imperative style,
+high-performance deep learning library. Advances in
+neural information processing systems, 32.
+Ori Ram, Yoav Levine, Itay Dalmedigos, Dor Muhlgay,
+Amnon Shashua, Kevin Leyton-Brown, and Yoav
+Shoham. 2023. In-context retrieval-augmented language models. Transactions of the Association for
+Computational Linguistics, 11:1316–1331.
+Benjamin Frederick Spector and Christopher Re. Accelerating llm inference with staged speculative decoding. In Workshop on Efficient Systems for Foundation
+Models@ ICML2023.
+Weihang Su, Yichen Tang, Qingyao Ai, Zhijing Wu,
+and Yiqun Liu. 2024. Dragin: Dynamic retrieval augmented generation based on the real-time information needs of large language models. arXiv preprint
+arXiv:2403.10081.
+Surat Teerapittayanon, Bradley McDanel, and HsiangTsung Kung. 2016. Branchynet: Fast inference via
+early exiting from deep neural networks. In 2016
+23rd international conference on pattern recognition
+(ICPR), pages 2464–2469. IEEE.
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay
+Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti
+Bhosale, et al. 2023. Llama 2: Open foundation and fine-tuned chat models. arXiv preprint
+arXiv:2307.09288.
+
+[TABLE page=10 index=1]
+Columns: Gyuwan Kim | and | Kyunghyun Cho. | 2021. | Length- | Unnamed: 0 | effectiveness of parametric and non-parametric memRow 1: Gyuwan Kim: adaptive transformer: | and: | Kyunghyun Cho.: Train once with length drop, | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: ories. In Proceedings of the 61st Annual Meeting of
+Row 2: Gyuwan Kim: use anytime with search. | and: | Kyunghyun Cho.: In Joint Conference of the | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: the Association for Computational Linguistics (VolRow 3: Gyuwan Kim: 59th Annual Meeting of the Association for Compu- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: ume 1: Long Papers), pages 9802–9822.
+Row 4: Gyuwan Kim: tational Linguistics and the 11th International Joint | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 5: Gyuwan Kim: Conference on Natural Language Processing, ACL- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Thomas Merth, Qichen Fu, Mohammad Rastegari, and
+Row 6: Gyuwan Kim: IJCNLP 2021, | and: pages | Kyunghyun Cho.: 6501–6511. | 2021.: Association | Length-: for | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Mahyar Najibi. Superposition prompting: ImprovRow 7: Gyuwan Kim: Computational Linguistics (ACL). | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: ing and accelerating retrieval-augmented generation.
+Row 8: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: In Forty-first International Conference on Machine
+Row 9: Gyuwan Kim: Sehoon Kim, Karttikeya Mangalam, Suhong Moon, Ji- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Learning.
+Row 10: Gyuwan Kim: tendra Malik, Michael W Mahoney, Amir Gholami, | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 11: Gyuwan Kim: and Kurt Keutzer. 2024. Speculative decoding with | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Xupeng Miao, Gabriele Oliaro, Zhihao Zhang, Xinhao
+Row 12: Gyuwan Kim: big little decoder. | and: | Kyunghyun Cho.: Advances in Neural Information | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Cheng, Zeyu Wang, Zhengxin Zhang, Rae Ying Yee
+Row 13: Gyuwan Kim: Processing Systems, 36. | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Wong, Alan Zhu, Lijie Yang, Xiaoxiang Shi, et al.
+Row 14: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: 2024. Specinfer: Accelerating large language model
+Row 15: Gyuwan Kim: Sehoon Kim, Sheng Shen, David Thorsley, Amir Gho- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: serving with tree-based speculative inference and
+Row 16: Gyuwan Kim: lami, Woosuk | and: Kwon, | Kyunghyun Cho.: Joseph Hassoun, | 2021.: | Length-: and Kurt | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: verification. In Proceedings of the 29th ACM InternaRow 17: Gyuwan Kim: Keutzer. 2022. Learned token pruning for transform- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: tional Conference on Architectural Support for ProRow 18: Gyuwan Kim: ers. In Proceedings of the 28th ACM SIGKDD Con- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: gramming Languages and Operating Systems, VolRow 19: Gyuwan Kim: ference on Knowledge Discovery and Data Mining, | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: ume 3, pages 932–949.
+Row 20: Gyuwan Kim: pages 784–794. | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 21: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Niklas Muennighoff. 2022. Sgpt: Gpt sentence
+Row 22: Gyuwan Kim: M Komeili. 2021. | and: Internet-augmented dialogue genera- | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: embeddings for semantic search. arXiv preprint
+Row 23: Gyuwan Kim: tion. arXiv preprint arXiv:2107.07566. | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: arXiv:2202.08904.
+Row 24: Gyuwan Kim: Shiyu Ni, Keping Bi, Jiafeng Guo, and Xueqi Cheng.Jun Kong, Jin Wang, Liang-Chih Yu, and Xuejie Zhang. | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 25: Gyuwan Kim: When do llms need retrieval augmentation?2022. Accelerating inference for pretrained language | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: 2024.
+Row 26: Gyuwan Kim: mitigating llms’ overconfidence helps retrieval aug-models by unified multi-perspective early exiting. | and: | Kyunghyun Cho.: | 2021.: | Length-: In | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 27: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: mentation. arXiv preprint arXiv:2402.11457.
+Row 28: Gyuwan Kim: Proceedings of the 29th International Conference on | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 29: Gyuwan Kim: Computational Linguistics, pages 4677–4686. | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 30: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Adam Paszke, Sam Gross, Francisco Massa, Adam
+Row 31: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Lerer, James Bradbury, Gregory Chanan, Trevor
+Row 32: Gyuwan Kim: Yaniv Leviathan, | and: Matan | Kyunghyun Cho.: Kalman, and | 2021.: Yossi | Length-: Matias. | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 33: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Killeen, Zeming Lin, Natalia Gimelshein, Luca
+Row 34: Gyuwan Kim: 2023. Fast | and: inference | Kyunghyun Cho.: from transformers via | 2021.: | Length-: spec- | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 35: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Antiga, et al. 2019. Pytorch: An imperative style,
+Row 36: Gyuwan Kim: ulative decoding. | and: | Kyunghyun Cho.: In International Conference on | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 37: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: high-performance deep learning library. Advances in
+Row 38: Gyuwan Kim: Machine Learning, pages 19274–19286. PMLR. | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 39: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: neural information processing systems, 32.
+Row 40: Gyuwan Kim: Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 41: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Ori Ram, Yoav Levine, Itay Dalmedigos, Dor Muhlgay,
+Row 42: Gyuwan Kim: Petroni, Vladimir Karpukhin, Naman Goyal, Hein- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 43: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Amnon Shashua, Kevin Leyton-Brown, and Yoav
+Row 44: Gyuwan Kim: rich Küttler, Mike Lewis, Wen-tau Yih, Tim Rock- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 45: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Shoham. 2023. In-context retrieval-augmented lanRow 46: Gyuwan Kim: täschel, et al. 2020. Retrieval-augmented generation | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 47: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: guage models. Transactions of the Association for
+Row 48: Gyuwan Kim: for knowledge-intensive nlp tasks. Advances in Neu- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 49: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Computational Linguistics, 11:1316–1331.
+Row 50: Gyuwan Kim: ral Information Processing Systems, 33:9459–9474. | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 51: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Benjamin Frederick Spector and Christopher Re. AccelRow 52: Gyuwan Kim: Xingxuan Li, Ruochen Zhao, Yew Ken Chia, Bosheng | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: erating llm inference with staged speculative decodRow 53: Gyuwan Kim: Ding, Shafiq | and: Joty, | Kyunghyun Cho.: Soujanya Poria, | 2021.: and | Length-: Lidong | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: ing. In Workshop on Efficient Systems for Foundation
+Row 54: Gyuwan Kim: Bing. Chain-of-knowledge: | and: | Kyunghyun Cho.: Grounding large | 2021.: | Length-: lan- | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Models@ ICML2023.
+Row 55: Gyuwan Kim: guage models via dynamic knowledge adapting over | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 56: Gyuwan Kim: heterogeneous sources. | and: | Kyunghyun Cho.: In The Twelfth International | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Weihang Su, Yichen Tang, Qingyao Ai, Zhijing Wu,
+Row 57: Gyuwan Kim: Conference on Learning Representations. | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: and Yiqun Liu. 2024. Dragin: Dynamic retrieval augRow 58: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: mented generation based on the real-time informaRow 59: Gyuwan Kim: Huanshuo Liu, Bo Chen, Menghui Zhu, Jianghao Lin, | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: tion needs of large language models. arXiv preprint
+Row 60: Gyuwan Kim: Jiarui Qin, | and: Hao Zhang, | Kyunghyun Cho.: Yang Yang, | 2021.: and Ruiming | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: arXiv:2403.10081.
+Row 61: Gyuwan Kim: Tang. 2024. Retrieval-oriented knowledge for click- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 62: Gyuwan Kim: through rate prediction. | and: | Kyunghyun Cho.: In Proceedings of the 33rd | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Surat Teerapittayanon, Bradley McDanel, and HsiangRow 63: Gyuwan Kim: ACM International Conference on Information and | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Tsung Kung. 2016. Branchynet: Fast inference via
+Row 64: Gyuwan Kim: Knowledge Management, pages 1441–1451. | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: early exiting from deep neural networks. In 2016
+Row 65: Gyuwan Kim: | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: 23rd international conference on pattern recognition
+Row 66: Gyuwan Kim: Songshuo Lu, Hua Wang, Yutian Rong, Zhi Chen, and | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: (ICPR), pages 2464–2469. IEEE.
+Row 67: Gyuwan Kim: Yaohua Tang. 2024. Turborag: Accelerating retrieval- | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-:
+Row 68: Gyuwan Kim: augmented generation with precomputed kv caches | and: | Kyunghyun Cho.: | 2021.: | Length-: | Unnamed: 0: | effectiveness of parametric and non-parametric mem-: Hugo Touvron, Louis Martin, Kevin Stone, Peter Al-
+[/TABLE]
+
+[PAGE 11]
+Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot,
+and Ashish Sabharwal. 2023. Interleaving retrieval
+with chain-of-thought reasoning for knowledgeintensive multi-step questions. In Proceedings of the
+61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages
+10014–10037.
+Hanrui Wang, Zhekai Zhang, and Song Han. 2021. Spatten: Efficient sparse attention architecture with cascade token and head pruning. In 2021 IEEE International Symposium on High-Performance Computer
+Architecture (HPCA), pages 97–110. IEEE.
+Ruobing Wang, Daren Zha, Shi Yu, Qingfei Zhao, Yuxuan Chen, Yixuan Wang, Shuo Wang, Yukun Yan,
+Zhenghao Liu, Xu Han, et al. 2024a. Retrieverand-memory: Towards adaptive note-enhanced
+retrieval-augmented generation. arXiv preprint
+arXiv:2410.08821.
+Zilong Wang, Zifeng Wang, Long Le, Huaixiu Steven
+Zheng, Swaroop Mishra, Vincent Perot, Yuwei
+Zhang, Anush Mattapalli, Ankur Taly, Jingbo Shang,
+et al. 2024b. Speculative rag: Enhancing retrieval
+augmented generation through drafting. arXiv
+preprint arXiv:2407.08223.
+Ji Xin, Raphael Tang, Jaejun Lee, Yaoliang Yu, and
+Jimmy Lin. 2020. Deebert: Dynamic early exiting
+for accelerating bert inference. In Proceedings of the
+58th Annual Meeting of the Association for Computational Linguistics, pages 2246–2251.
+Nan Yang, Tao Ge, Liang Wang, Binxing Jiao, Daxin
+Jiang, Linjun Yang, Rangan Majumder, and Furu
+Wei. 2023a. Inference with reference: Lossless acceleration of large language models. arXiv preprint
+arXiv:2304.04487.
+Seongjun Yang, Gibbeum Lee, Jaewoong Cho, Dimitris Papailiopoulos, and Kangwook Lee. Predictive
+pipelined decoding: A compute-latency trade-off for
+exact llm decoding. Transactions on Machine Learning Research.
+Yuchen Yang, Houqiang Li, Yanfeng Wang, and
+Yu Wang. 2023b. Improving the reliability of large
+language models by leveraging uncertainty-aware incontext learning. arXiv preprint arXiv:2310.04782.
+Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio,
+William Cohen, Ruslan Salakhutdinov, and Christopher D Manning. 2018. Hotpotqa: A dataset for
+diverse, explainable multi-hop question answering.
+In Proceedings of the 2018 Conference on Empirical
+Methods in Natural Language Processing. Association for Computational Linguistics.
+Zijun Yao, Weijian Qi, Liangming Pan, Shulin Cao,
+Linmei Hu, Weichuan Liu, Lei Hou, and Juanzi
+Li. 2024. Seakr: Self-aware knowledge retrieval
+for adaptive retrieval augmented generation. arXiv
+preprint arXiv:2406.19215.
+Jun Zhang, Jue Wang, Huan Li, Lidan Shou, Ke Chen,
+Gang Chen, and Sharad Mehrotra. 2023a. Draft
+& verify: Lossless large language model acceleration via self-speculative decoding. arXiv preprint
+arXiv:2309.08168.
+Zhenyu Zhang, Ying Sheng, Tianyi Zhou, Tianlong
+Chen, Lianmin Zheng, Ruisi Cai, Zhao Song, Yuandong Tian, Christopher Ré, Clark Barrett, et al. 2023b.
+H2o: Heavy-hitter oracle for efficient generative
+inference of large language models. Advances in
+Neural Information Processing Systems, 36:34661–
+34710.
+Zhihao Zhang, Alan Zhu, Lijie Yang, Yihua Xu, Lanting
+Li, Phitchaya Mangpo Phothilimthana, and Zhihao
+Jia. Accelerating iterative retrieval-augmented language model serving with speculation. In Forty-first
+International Conference on Machine Learning.
+Zihan Zhang, Meng Fang, and Ling Chen. 2024. Retrievalqa: Assessing adaptive retrieval-augmented
+generation for short-form open-domain question answering. arXiv preprint arXiv:2402.16457.
+Ruochen Zhao, Xingxuan Li, Shafiq Joty, Chengwei
+Qin, and Lidong Bing. 2023. Verify-and-edit: A
+knowledge-enhanced chain-of-thought framework.
+In The 61st Annual Meeting Of The Association For
+Computational Linguistics.
+Wangchunshu Zhou, Canwen Xu, Tao Ge, Julian
+McAuley, Ke Xu, and Furu Wei. 2020. Bert loses
+patience: Fast and robust inference with early exit.
+Advances in Neural Information Processing Systems,
+33:18330–18341.
+Fengbin Zhu, Wenqiang Lei, Chao Wang, Jianming
+Zheng, Soujanya Poria, and Tat-Seng Chua. 2021.
+Retrieving and reading: A comprehensive survey on
+open-domain question answering. arXiv preprint
+arXiv:2101.00774.

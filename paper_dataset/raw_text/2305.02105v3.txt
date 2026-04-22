@@ -1,0 +1,1141 @@
+[PAGE 1]
+GPT-RE: In-context Learning for Relation Extraction
+using Large Language Models
+Zhen Wan 1 Fei Cheng 1 Zhuoyuan Mao 1
+Qianying Liu1 Haiyue Song1 Jiwei Li2 Sadao Kurohashi1
+1 Kyoto University, Japan
+2 Zhejiang University, China
+{zhenwan, zhuoyuanmao, ying, song}@nlp.ist.i.kyoto-u.ac.jp
+{feicheng, kuro}@i.kyoto-u.ac.jp
+{jiwei_li}@zju.edu.cn
+Abstract
+In spite of the potential for ground-breaking
+achievements offered by large language models
+(LLMs) (e.g., GPT-3) via in-context learning
+(ICL), they still lag significantly behind fullysupervised baselines (e.g., fine-tuned BERT)
+in relation extraction (RE). This is due to the
+two major shortcomings of ICL for RE: (1) low
+relevance regarding entity and relation in existing sentence-level demonstration retrieval approaches for ICL; and (2) the lack of explaining
+input-label mappings of demonstrations leading to poor ICL effectiveness.
+In this paper, we propose GPT-RE to successfully address the aforementioned issues by
+(1) incorporating task-aware representations
+in demonstration retrieval; and (2) enriching
+the demonstrations with gold label-induced reasoning logic. We evaluate GPT-RE on four
+widely-used RE datasets and observe that GPTRE achieves improvements over not only existing GPT-3 baselines, but also fully-supervised
+baselines as in Figure 1. Specifically, GPT-RE
+achieves SOTA performances on the Semeval
+and SciERC datasets, and competitive performances on the TACRED and ACE05 datasets.
+Additionally, a critical issue of LLMs revealed
+by previous work, the strong inclination to
+wrongly classify NULL examples into other predefined labels, is substantially alleviated by our
+method. We show an empirical analysis.1
+1 Introduction
+The emergence of large language models (LLMs)
+such as GPT-3 (Brown et al., 2020; Thoppilan et al.,
+2022; Chowdhery et al., 2022; Rae et al., 2021;
+Hoffmann et al., 2022) represents a significant advancement in natural language processing (NLP).
+Instead of following a pretraining-and-finetuning
+pipeline (Devlin et al., 2019; Beltagy et al., 2019;
+Raffel et al., 2019; Lan et al., 2019; Zhuang et al.,
+2021), which finetunes a pre-trained model on
+1https://github.com/YukinoWan/GPT-RE
+70.04
+79.94
+91.989.9Semeval
+32.4933.45
+72.1469.72TACRED
+Fine-tuning Baseline (PURE)GPT-RandomGPT-SentGPT-RE (ours)
+Figure 1: Micro F1 performances on two RE datasets.
+Previous GPT baselines (GPT-Random: randomly selected demonstrations and GPT-Sent: sentence-level
+demonstration retrieval) largely underperform finetuning baseline PURE while our GPT-RE substantially
+outperforms all baselines.
+a task-specific dataset in a fully-supervised manner, LLMs employ a new paradigm known as incontext learning (ICL) (Brown et al., 2020; Min
+et al., 2022a) which formulates an NLP task under
+the paradigm of language generation and makes
+predictions by learning from a few demonstrations. Under the framework of ICL, LLMs achieve
+remarkable performance rivaling previous fullysupervised methods even with only a limited number of demonstrations provided in various tasks
+such as solving math problems, commonsense reasoning, text classification, fact retrieval, natural
+language inference, and semantic parsing (Brown
+et al., 2020; Min et al., 2022b; Zhao et al., 2021;
+Liu et al., 2022b; Shin et al., 2021).
+Despite the overall promising performance of
+LLMs, the utilization of ICL for relation extraction
+(RE) is still suboptimal. RE is the central task for
+knowledge retrieval requiring a deep understanding
+of natural language, which seeks to identify a predefined relation between a specific entity pair mentioned in the input sentence or NULL if no relation
+is found. Given a test input, ICL for RE prompts
+the input of LLMs with the task instruction, a few
+demonstrations retrieved from the training data,
+arXiv:2305.02105v3 [cs.CL] 9 Dec 2023
+
+[TABLE page=1 index=1]
+Columns: soning logic. | We evaluate GPT-RE on four | Unnamed: 0 | ner, LLMs employ a new paradigm known as inRow 1: soning logic.: widely-used RE datasets and observe that GPT- | We evaluate GPT-RE on four: | Unnamed: 0: | ner, LLMs employ a new paradigm known as in-:
+Row 2: soning logic.: | We evaluate GPT-RE on four: | Unnamed: 0: | ner, LLMs employ a new paradigm known as in-: context learning (ICL) (Brown et al., 2020; Min
+Row 3: soning logic.: RE achieves improvements over not only exist- | We evaluate GPT-RE on four: | Unnamed: 0: | ner, LLMs employ a new paradigm known as in-:
+Row 4: soning logic.: | We evaluate GPT-RE on four: | Unnamed: 0: | ner, LLMs employ a new paradigm known as in-: et al., 2022a) which formulates an NLP task under
+Row 5: soning logic.: ing GPT-3 baselines, but also fully-supervised | We evaluate GPT-RE on four: | Unnamed: 0: | ner, LLMs employ a new paradigm known as in-:
+Row 6: soning logic.: baselines as in Figure 1. Specifically, GPT-RE | We evaluate GPT-RE on four: | Unnamed: 0: | ner, LLMs employ a new paradigm known as in-: the paradigm of language generation and makes
+Row 7: soning logic.: achieves SOTA performances on the Semeval | We evaluate GPT-RE on four: | Unnamed: 0: | ner, LLMs employ a new paradigm known as in-: predictions by learning from a few demonstra-
+[/TABLE]
+
+[PAGE 2]
+Microsoft is a technology company located in the U.S., founded in 1975 by Bill Gatesand Paul AllenRE TrainingData
+Microsoft is a famouscomputer technologycompany in the U.S. whose history started in 1975
+RetrievalTestInput
+Few-shot DemonstrationsRelation Triplet: (Microsoft, Bill Gates, founded by)
+Relation Triplet: (Microsoft, the U.S., located in)
+Figure 2: Retrieval without considering the task-aware
+triplet results in noisy demonstrations.
+and the test input itself. Then LLMs generate the
+corresponding relation. Recent research (Gutiérrez et al., 2022) has sought to apply GPT-3 ICL to
+biomedical RE, but the results are relatively negative and suggest that GPT-3 ICL still significantly
+underperforms fine-tuned models.
+The reasons that cause the pitfall of GPT-3 ICL
+in RE are two folds: (1) The low relevance regarding entity and relation in the retrieved demonstrations for ICL. Demonstrations are selected randomly or via k-nearest neighbor ( kNN) search
+based on sentence embedding (Liu et al., 2022b;
+Gutiérrez et al., 2022). Regrettably, kNN-retrieval
+based on sentence embedding is more concerned
+with the relevance of the overall sentence semantics and not as much with the specific entities and
+relations it contains, which leads to low-quality
+demonstrations. As shown in Figure 2, the test input retrieves a semantically similar sentence but is
+not desired in terms of entities and relations.
+(2) The lack of explaining input-label mappings
+in demonstrations leads to poor ICL effectiveness:
+A vanilla form of ICL lists all demonstrations as
+input-label pairs without any explanations. This
+may mislead LLMs to learn shallow clues from
+surface words, while a relation can be presented
+in diverse forms due to language complexity. Especially when ICL has a maximal input length,
+optimizing the learning efficiency of each single
+demonstration becomes extremely important.
+To this end, we propose GPT-RE for the RE
+task. GPT-RE employs two strategies to resolve
+the issues above: (1) task-aware retrieval and (2)
+gold label-induced reasoning. For (1) task-aware
+retrieval, its core is to use representations that deliberately encode and emphasize entity and relation
+information rather than sentence embedding for
+kNN search. We achieve this by two different retrieval approaches: (a) entity-prompted sentence
+embedding; (b) fine-tuned relation representation,
+which naturally places emphasis on entities and
+NULLCEIAPPNULLCEIAPP
+True
+Predicted
+BERT Fine-tuning
+NULLCEIAPP
+1.00.80.60.40.20.0NULLCEIAPP
+True
+Predicted
+GPT-3 In-context Learning
+Figure 3: Confusion matrix on Semeval dataset with
+three selected relation labels. The NULL examples are
+overpredicted to other relations by GPT-3. CE: CauseEffect, IA: Instrument-Agency, PP: Product-Producer.
+relations. Both methods contain more RE-specific
+information than sentence semantics, thus effectively addressing the problem of low relevance.
+For (2) gold label-induced reasoning, we propose to inject the reasoning logic into the demonstration to provide more evidence to align an input and the label, a strategy akin to the Chain-ofThought (CoT) research (Wei et al., 2022; Wang
+et al., 2022b; Kojima et al., 2022). But different
+from previous work, we allow LLMs to elicit the
+reasoning process to explain not only why a given
+sentence should be classified under a particular label but also why a NULL example should not be
+assigned to any of the pre-defined categories. This
+process significantly improves the ability of LLMs
+to align the relations with diverse expression forms.
+Recent work reveals another crucial problem
+named “overpredicting” as shown in Figure 3: we
+observe that LLMs have the strong inclination to
+wrongly classify NULL examples into other predefined labels . A similar phenomenon has also
+been observed in other tasks such as NER (Gutiérrez et al., 2022; Blevins et al., 2022). In this paper,
+we show that this issue can be alleviated if the representations for retrieval can be supervised with the
+whole set of NULL in the training data.
+We evaluate our proposed method on three popular general domain RE datasets: Semeval 2010 task
+8, TACRED and ACE05, and one scientific domain
+dataset SciERC. We observe that GPT-RE achieves
+improvements over not only existing GPT-3 baselines, but also fully-supervised baselines. Specifically, GPT-RE achieves SOTA performances on the
+Semeval and SciERC datasets, and competitive performances on the TACRED and ACE05 datasets.
+
+[PAGE 3]
+ℎ["#$]⊕ℎ[&$']
+Context: My 8 year-olddaughtercame up withan extremely goodidea.Relation: ?
+Training Set
+Tokens: [𝐶𝐿𝑆]My 8 year-old𝑂𝐵𝐽daughter[/𝑂𝐵𝐽]came up withan extremely good [𝑆𝑈𝐵]idea[/𝑆𝑈𝐵].Reconstructed context: The relation between “idea” and “daughter” in the context:My 8 year-olddaughtercame up with an extremely good idea.
+SimCSEFine-tuned RE Modelℎ()*+)*,)
+Context: ideasfor continuous development also emerged from the students' collaborative efforts.Relation: PRODUCT AND PRODUCER
+I will predict the relation between two entities given the context.The pre-defined relations areCAUSE AND EFFECT,COMPONENT AND WHOLE, …I will output NULLif the relation does not belong to them.
+Task Description
+ICL Demonstrations (𝒌-shot)
+Context: My 8 year-olddaughtercame up withan extremely goodidea.Given the context, the relation between ideaand daughterisTest Input
+Test OutputPRODUCT AND PRODUCER
+Gold Label-induced Reasoning (Sec. 2.5)
+Context: ideasfor continuous development also emerged from the students' collaborative efforts.Given the context, the relation between ideasand studentsis PRODUCT AND PRODUCER.Reason: The phrase "collaborative efforts" suggests that students are working together to create something;The word “emerged” …
+Task-aware Demonstration Retreval (Sec. 2.4) Prompt Construction (Sec. 2.3)
+Test Input
+𝑘NN Retrieval
+Retrieved Demonstrations
+Figure 4: An illustration of GPT-RE. Given a test input, we first leverage two different task-aware retrieval methods
+to search for highly relevant demonstrations from the training set, and then incorporate the gold label-induced
+reasoning for each demonstration. Above contents will then be included in the prompt construction to make the
+prediction.
+2 Methodology: GPT-RE
+2.1 Task Definition
+Let C denote the input context and esub ∈ C ,
+eobj ∈ C denote the pair of subject and object entity.
+Given a set of pre-defined relation classes R, relation extraction aims to predict the relation y ∈ R
+between the pair of entities ( esub, eobj) within the
+context C, or if there is no pre-defined relation between them, predict y = NULL .
+2.2 Overview
+We will first introduce the prompt construction
+to formalize RE as a language generation task
+in Sec. 2.3. Then to improve the ICL framework for RE, we will introduce two modules: (1)
+task-aware demonstration retrieval to select higherquality demonstrations (Sec. 2.4); (2) gold labelinduced reasoning to enrich each demonstration
+with explanations (Sec. 2.5). In Figure 4, we show
+the concrete workflow of processing a test input.
+2.3 Prompt Construction
+We construct a prompt for each given test example,
+which is fed to the GPT-3 model. Each prompt
+consists of the following components:
+Instructions I We provide a succinct overview
+of the RE task description and the set of pre-defined
+classes R. The model is explicitly asked to output the relation, which belongs to the pre-defined
+classes. Otherwise, the model will output NULL .
+ICL Demonstrations D We first leverage a taskaware retriever to acquire a k-shot demonstration
+set, then enrich each demonstration (xi, yi) with
+the gold label-induced reasoning ri to build a new
+set of (xi, yi, ri) as D.
+Test Input xtest Similar to the demonstrations,
+we offer the test input xtest, and GPT-3 is expected
+to generate the corresponding relation ytest.
+In summary, GPT-RE can be formulated as:
+p (ytest ∈ R ∪ {NULL }|I, D, xtest) (1)
+2.4 Task-aware Demonstration Retrieval
+Since ICL demonstrations closer to the test sample
+in the embedding space result in more consistent
+and robust performance (Liu et al., 2022b). Recent work (Gutiérrez et al., 2022; Liu et al., 2022b)
+employs the kNN to retrieve the most similar examples in the training set as the few-shot demonstrations for each test input. As kNN relies on the
+choice of the embedding space to encode both test
+input and examples in the training set, they propose
+to obtain sentence embedding using pre-trained
+language models, or other improved sentence embedding.
+However, using sentence embedding for kNN
+retrieval has a severe drawback: relation extraction focuses on pair-wise entities, which diverge
+from the semantic meaning of the entire sentence,
+leading to an ambiguous retrieval using sentence
+embedding. In this study, we propose two novel
+
+[PAGE 4]
+methods to provide more robust representations for
+better retrieval quality: (1) a naive entity-prompted
+sentence embedding in Sec. 2.4.1; (2) an advanced
+fine-tuned relation representation in Sec. 2.4.2.
+2.4.1 Entity-Prompted Sentence Embedding
+Given the discrepancy between sentence embedding and relation extraction, the original context is
+insufficient for demonstration retrieval. Considering the importance of entity information in RE, we
+propose reconstructing the context by incorporating entity pair information. For example, given the
+context “He has a sister Lisa,” the reconstructed
+context with the entity prompted will be “The relation between ‘He’ and ‘Lisa’ in the context: He
+has a sister Lisa.” This approach preserves both
+the semantic meaning of the sentence and the entity pair-centered information during retrieval. In
+the paper, we employ the latest robust model SimCSE (Gao et al., 2021) for computing sentence
+embedding-based similarity.
+2.4.2 Fine-tuned Relation Representation
+Compared to prompt entity information into context sentences, a more straightforward solution is to
+extract the relation representation from a fine-tuned
+RE model for retrieving demonstrations.
+Current BERT-based fine-tuning methods for
+RE (Baldini Soares et al., 2019; Zhong and Chen,
+2021; Wan et al., 2022) attempts to capture both
+the context information and the entity information
+by adding extra marker tokens to highlight the subject and object entities and their types. Specifically,
+given an example: “He has a sister Lisa.”, the input tokens are “[CLS] [SUB_PER] He [/SUB_PER]
+has a sister [OBJ_PER] Lisa [/OBJ_PER] . [SEP] ”
+where “PER” is the entity type if provided. Denote the n-th hidden representation of the BERT
+encoder as hn. Assuming i and j are the indices
+of two beginning entity markers [SUB_PER] and
+[OBJ_PER] , we define the relation representation as
+Rel = hi ⊕ hj where ⊕ stands for concatenation
+of representations in the first dimension. Subsequently, this representation is fed into a feedforward network for predicting the relation probability
+p(y ∈ R ∪ {NULL } | Rel).
+The entity markers have explicitly encoded subject and object entities and the relation representation Rel is naturally enriched with the entity information. We believe this approach can potentially compensate for the limitations of GPT-3 in
+RE. While GPT-3 ICL has a constraint of limited
+Context: ideasfor continuous development also emerged from the students' collaborative efforts.Given the context, the relation between ideasand studentsis PRODUCT AND PRODUCER.
+ICL Demostration
+What are the clues that lead to the relation between “ideas” and “students” to be PRODUCT AND PRODUCER in the sentence “ideasfor continuous development also emerged from the students' collaborative efforts.”?
+Query
+It is because: The phrase "collaborative efforts" suggests that students are working together to create or produce something; The use of the word "emerged" implies that the ideas are a result or product of the students' efforts. Therefore, the relation between students and ideas is PRODUCT AND PRODUCER.
+Reason
+Figure 5: An illustration of adding reasoning.
+Dataset # Relation # Train # Dev # Test (# Subset) NULL (%)Semeval 9 6,507 1,493 2,717 (2,717) 17.40%TACRED 41 68,124 22,631 15,509 (1,600) 79.40%SciERC 7 16,872 2,033 4,088 (4,088) 90.16%ACE05 6 121,368 27,597 24,420 (2,442) 95.60%
+Table 1: Statistics of datasets.
+demonstrations, the fine-tuning process is unbundled and can be done on the whole train data. It
+has two subsequent merits. First, the relation representations are directly fine-tuned to fit the RE task,
+which could significantly boost the overall retrieval
+quality. Second, the overpredicting NULL issue
+will be substantially alleviated because the similar
+NULL demonstrated can be accurately recognized
+by the fine-tuned model.
+2.5 Gold Label-induced Reasoning
+Recent CoT work has reported significant progress
+in the commonsense and numerical reasoning tasks
+by automatically eliciting the reasoning steps for
+solving a question. While in the RE task, two
+entities can possibly hold multiple relations, e.g.,
+“Joe Biden” can be either the president of or lives
+in “U.S.”. The reasoning generation could be out
+of focus if it lacks interaction with the gold label.
+In this section, we propose to let GPT-3 induce
+the reasoning logic for each demonstration by the
+corresponding gold relation label. As shown in
+Figure 5, given a selected demonstration, we first
+generate a query prompt “What are the clues that
+lead to the relation between [entity1] and [entity2]
+to be [relation] in the sentence [context]?” based
+on the demonstration and subsequently ask GPT-3
+to generate clues “It is because: ...” on the labeled
+relation between the pair of entities in the context.
+Finally, we augment the demonstration by incorporating the generated clues induced by GPT-3.
+
+[TABLE page=4 index=1]
+Columns: methods to provide more robust representations for | ICL Demostration
+Row 1: methods to provide more robust representations for: | ICL Demostration: Context: ideas for continuous development also emerged from the
+Row 2: methods to provide more robust representations for: better retrieval quality: (1) a naive entity-prompted | ICL Demostration: students' collaborative efforts. Given the context, the relation between
+Row 3: methods to provide more robust representations for: sentence embedding in Sec. 2.4.1; (2) an advanced | ICL Demostration: ideas and students is PRODUCT AND PRODUCER.
+Row 4: methods to provide more robust representations for: fine-tuned relation representation in Sec. 2.4.2. | ICL Demostration:
+Row 5: methods to provide more robust representations for: | ICL Demostration: Query
+Row 6: methods to provide more robust representations for: | ICL Demostration: What are the clues that lead to the relation between “ideas” and
+Row 7: methods to provide more robust representations for: 2.4.1 Entity-Prompted Sentence Embedding | ICL Demostration: “students” to be PRODUCT AND PRODUCER in the sentence “ideas
+Row 8: methods to provide more robust representations for: | ICL Demostration: for continuous development also emerged from the students'
+Row 9: methods to provide more robust representations for: Given the discrepancy between sentence embed- | ICL Demostration: collaborative efforts.”?
+Row 10: methods to provide more robust representations for: ding and relation extraction, the original context is | ICL Demostration:
+Row 11: methods to provide more robust representations for: | ICL Demostration: Reason
+Row 12: methods to provide more robust representations for: insufficient for demonstration retrieval. Consider- | ICL Demostration: It is because: The phrase "collaborative efforts" suggests that
+Row 13: methods to provide more robust representations for: ing the importance of entity information in RE, we | ICL Demostration: students are working together to create or produce something; The
+Row 14: methods to provide more robust representations for: | ICL Demostration: use of the word "emerged" implies that the ideas are a result or
+Row 15: methods to provide more robust representations for: propose reconstructing the context by incorporat- | ICL Demostration: product of the students' efforts. Therefore, the relation between
+Row 16: methods to provide more robust representations for: ing entity pair information. For example, given the | ICL Demostration: students and ideas is PRODUCT AND PRODUCER.
+Row 17: methods to provide more robust representations for: context “He has a sister Lisa,” the reconstructed | ICL Demostration:
+Row 18: methods to provide more robust representations for: | ICL Demostration: Figure 5: An illustration of adding reasoning.
+Row 19: methods to provide more robust representations for: context with the entity prompted will be “The re- | ICL Demostration:
+Row 20: methods to provide more robust representations for: lation between ‘He’ and ‘Lisa’ in the context: He | ICL Demostration:
+Row 21: methods to provide more robust representations for: | ICL Demostration: Dataset # Relation # Train # Dev # Test (# Subset) NULL (%)
+Row 22: methods to provide more robust representations for: has a sister Lisa.” This approach preserves both | ICL Demostration: Semeval 9 6,507 1,493 2,717 (2,717) 17.40%
+Row 23: methods to provide more robust representations for: | ICL Demostration: TACRED 41 68,124 22,631 15,509 (1,600) 79.40%
+Row 24: methods to provide more robust representations for: the semantic meaning of the sentence and the en- | ICL Demostration: SciERC 7 16,872 2,033 4,088 (4,088) 90.16%
+Row 25: methods to provide more robust representations for: tity pair-centered information during retrieval. In | ICL Demostration: ACE05 6 121,368 27,597 24,420 (2,442) 95.60%
+Row 26: methods to provide more robust representations for: the paper, we employ the latest robust model Sim- | ICL Demostration:
+Row 27: methods to provide more robust representations for: | ICL Demostration: Table 1: Statistics of datasets.
+Row 28: methods to provide more robust representations for: CSE (Gao et al., 2021) for computing sentence | ICL Demostration:
+Row 29: methods to provide more robust representations for: embedding-based similarity. | ICL Demostration:
+Row 30: methods to provide more robust representations for: | ICL Demostration: demonstrations, the fine-tuning process is unbunRow 31: methods to provide more robust representations for: 2.4.2 Fine-tuned Relation Representation | ICL Demostration:
+Row 32: methods to provide more robust representations for: | ICL Demostration: dled and can be done on the whole train data. It
+Row 33: methods to provide more robust representations for: Compared to prompt entity information into con- | ICL Demostration: has two subsequent merits. First, the relation repreRow 34: methods to provide more robust representations for: text sentences, a more straightforward solution is to | ICL Demostration: sentations are directly fine-tuned to fit the RE task,
+Row 35: methods to provide more robust representations for: extract the relation representation from a fine-tuned | ICL Demostration: which could significantly boost the overall retrieval
+Row 36: methods to provide more robust representations for: RE model for retrieving demonstrations. | ICL Demostration: quality. Second, the overpredicting NULL issue
+Row 37: methods to provide more robust representations for: Current BERT-based fine-tuning methods for | ICL Demostration: will be substantially alleviated because the similar
+Row 38: methods to provide more robust representations for: RE (Baldini Soares et al., 2019; Zhong and Chen, | ICL Demostration: NULL demonstrated can be accurately recognized
+Row 39: methods to provide more robust representations for: 2021; Wan et al., 2022) attempts to capture both | ICL Demostration: by the fine-tuned model.
+Row 40: methods to provide more robust representations for: the context information and the entity information | ICL Demostration:
+Row 41: methods to provide more robust representations for: by adding extra marker tokens to highlight the sub- | ICL Demostration: 2.5 Gold Label-induced Reasoning
+Row 42: methods to provide more robust representations for: ject and object entities and their types. Specifically, | ICL Demostration: Recent CoT work has reported significant progress
+Row 43: methods to provide more robust representations for: given an example: “He has a sister Lisa.”, the in- | ICL Demostration: in the commonsense and numerical reasoning tasks
+Row 44: methods to provide more robust representations for: put tokens are “[CLS] [SUB_PER] He [/SUB_PER] | ICL Demostration: by automatically eliciting the reasoning steps for
+Row 45: methods to provide more robust representations for: has a sister [OBJ_PER] Lisa [/OBJ_PER]. [SEP]” | ICL Demostration: solving a question. While in the RE task, two
+Row 46: methods to provide more robust representations for: where “PER” is the entity type if provided. De- | ICL Demostration: entities can possibly hold multiple relations, e.g.,
+Row 47: methods to provide more robust representations for: note the n-th hidden representation of the BERT | ICL Demostration: “Joe Biden” can be either the president of or lives
+Row 48: methods to provide more robust representations for: encoder as hn. Assuming i and j are the indices | ICL Demostration: in “U.S.”. The reasoning generation could be out
+Row 49: methods to provide more robust representations for: of two beginning entity markers [SUB_PER] and | ICL Demostration: of focus if it lacks interaction with the gold label.
+Row 50: methods to provide more robust representations for: [OBJ_PER], we define the relation representation as | ICL Demostration: In this section, we propose to let GPT-3 induce
+Row 51: methods to provide more robust representations for: Rel = hi ⊕ hj where ⊕ stands for concatenation | ICL Demostration: the reasoning logic for each demonstration by the
+Row 52: methods to provide more robust representations for: of representations in the first dimension. Subse- | ICL Demostration: corresponding gold relation label. As shown in
+Row 53: methods to provide more robust representations for: quently, this representation is fed into a feedfor- | ICL Demostration: Figure 5, given a selected demonstration, we first
+Row 54: methods to provide more robust representations for: ward network for predicting the relation probability | ICL Demostration: generate a query prompt “What are the clues that
+Row 55: methods to provide more robust representations for: p(y ∈ R ∪ {NULL} | Rel). | ICL Demostration: lead to the relation between [entity1] and [entity2]
+Row 56: methods to provide more robust representations for: The entity markers have explicitly encoded sub- | ICL Demostration: to be [relation] in the sentence [context]?” based
+Row 57: methods to provide more robust representations for: ject and object entities and the relation represen- | ICL Demostration: on the demonstration and subsequently ask GPT-3
+Row 58: methods to provide more robust representations for: tation Rel is naturally enriched with the entity in- | ICL Demostration: to generate clues “It is because: ...” on the labeled
+Row 59: methods to provide more robust representations for: formation. We believe this approach can poten- | ICL Demostration: relation between the pair of entities in the context.
+[/TABLE]
+
+[PAGE 5]
+Methods Retriever Semeval TACRED SciERC ACE05
+GPT-3 Baselines (Best k-shot)
+GPT-Random - 70.04 (30) 32.49 (15) 17.92 (25) 9.04 (25)
+GPT-Sent SimCSE 79.94 (30) 33.45 (15) 20.96 (25) 6.31 (25)
+Ours (Best k-shot)
+GPT-RE_SimCSE SimCSE 81.02 (30) 37.44 (15) 26.46 (25) 8.67 (25)
+GPT-RE_SimCSE* SimCSE 77.49 (15) 31.58 (10) - -
++ Reasoning SimCSE 79.88 (15) 33.18 (10) - GPT-RE_FT PURE 91.90 (25) 72.14 (15) 69.00 (30) 68.73 (25)
+GPT-RE_FT* PURE 91.11 (15) 70.38 (10) - -
++ Reasoning PURE 91.82 (15) 70.97 (10) - Fine-tuned RE Baselines
+Cohen et al. (2020) 91.90 - - Wang et al. (2022a) - ♣76.80 - PURE (Zhong and Chen, 2021) 89.90 69.72 68.45 70.09
+Table 2: Main Results on four RE datasets. All results are given by Micro-F1. * denotes the same k-shot for the
+comparison with + Reasoning. Due to the costly GPT-3 expense, we conducted Reasoning experiments on the two
+relatively smaller datasets Semeval and TACRED.♣ denotes that this performance is not comparable as it evaluates
+on the entire test set. The underline denotes the results outperforming the fine-tuning baseline PURE.
+3 Experiment Setup
+3.1 Datasets
+We evaluate on three popular general domain RE
+datasets and one scientific domain dataset. Due
+to the cost of running the model in the API with
+GPT-3, in our main results, we sample a subset
+(See Appendix C) from the original test set for
+two datasets: ACE05 and TACRED as shown in
+Table 1.
+Semeval 2010 task 8 Hendrickx et al. (2010) focuses on semantic relations between pairs of nominals collected from general domain resources.
+TACRED Zhang et al. (2017) is a large-scale
+relation extraction dataset with 106,264 examples
+built over newswire and web text.
+SciERC Luan et al. (2018) collects AI paper
+abstracts and annotated relations, especially for
+scientific knowledge graph construction.
+ACE05 contains the entity, relation, and event
+annotations collected from domains including
+newswire, broadcast, discussion forums, etc.
+3.2 Baseline Methods
+GPT-3 baselines For GPT-3 baselines and our
+methods, we select “ text-davinci-003” with
+maximal 4,097 input tokens and use the identical
+prompt construction (Sec. 2.3) via OpenAI API.
+We implement two categories of GPT-3 baselines:
+(1) GPT-Random Instead of randomly selecting
+few-shot demonstrations from the training data for
+each test input, we add extra constraints to make the
+label distribution of selected demonstrations more
+uniform. Our preliminary experiments suggest that
+this is a stronger baseline than the vanilla random.
+(2) GPT-Sent Previous work attempts various sentence embedding in retrieval. In this work, our implementation adopted SimCSE (Gao et al., 2021),
+which has been demonstrated to be the state-of-theart method for sentence similarity tasks.
+Fine-tuned RE Models In our experiment, we
+choose PURE (Zhong and Chen, 2021), an entity marker-based fine-tuned model mentioned in
+Sec. 2.4.2 to obtain the representations for retrieval.
+Meanwhile, PURE performs as a directly comparable baseline. We also compare with corresponding
+SOTA fine-tuned baselines on Semeval Cohen et al.
+(2020) (reformulate RE as the question answering
+task) and TACRED Wang et al. (2022a) (extra pretraining to capture RE structure) datasets.
+All implementation details are in Appendix A.
+
+[TABLE page=5 index=1]
+Columns: Methods | Retriever | Semeval TACRED | Unnamed: 0 | SciERC | ACE05
+Row 1: Methods: | Retriever: | Semeval TACRED: GPT-3 Baselines (Best k-shot) | Unnamed: 0: | SciERC: | ACE05:
+Row 2: Methods: GPT-Random | Retriever: - | Semeval TACRED: 70.04 (30) 32.49 (15) | Unnamed: 0: | SciERC: 17.92 (25) | ACE05: 9.04 (25)
+Row 3: Methods: GPT-Sent | Retriever: SimCSE | Semeval TACRED: 79.94 (30) 33.45 (15) | Unnamed: 0: | SciERC: 20.96 (25) | ACE05: 6.31 (25)
+Row 4: Methods: | Retriever: | Semeval TACRED: Ours (Best k-shot) | Unnamed: 0: | SciERC: | ACE05:
+Row 5: Methods: GPT-RE_SimCSE | Retriever: SimCSE | Semeval TACRED: 81.02 (30) 37.44 (15) | Unnamed: 0: | SciERC: 26.46 (25) | ACE05: 8.67 (25)
+Row 6: Methods: GPT-RE_SimCSE* | Retriever: SimCSE | Semeval TACRED: 77.49 (15) 31.58 (10) | Unnamed: 0: | SciERC: - | ACE05: Row 7: Methods: + Reasoning | Retriever: SimCSE | Semeval TACRED: 79.88 (15) 33.18 (10) | Unnamed: 0: | SciERC: - | ACE05: Row 8: Methods: GPT-RE_FT | Retriever: PURE | Semeval TACRED: 91.90 (25) 72.14 (15) | Unnamed: 0: | SciERC: 69.00 (30) | ACE05: 68.73 (25)
+Row 9: Methods: GPT-RE_FT* | Retriever: PURE | Semeval TACRED: 91.11 (15) 70.38 (10) | Unnamed: 0: | SciERC: - | ACE05: Row 10: Methods: + Reasoning | Retriever: PURE | Semeval TACRED: 91.82 (15) 70.97 (10) | Unnamed: 0: | SciERC: - | ACE05: Row 11: Methods: | Retriever: | Semeval TACRED: Fine-tuned RE Baselines | Unnamed: 0: | SciERC: | ACE05:
+[/TABLE]
+
+[TABLE page=5 index=2]
+Columns: We evaluate on three popular general domain RE | (1) GPT-Random Instead of randomly selecting
+Row 1: We evaluate on three popular general domain RE: datasets and one scientific domain dataset. Due | (1) GPT-Random Instead of randomly selecting: few-shot demonstrations from the training data for
+Row 2: We evaluate on three popular general domain RE: to the cost of running the model in the API with | (1) GPT-Random Instead of randomly selecting: each test input, we add extra constraints to make the
+Row 3: We evaluate on three popular general domain RE: GPT-3, in our main results, we sample a subset | (1) GPT-Random Instead of randomly selecting: label distribution of selected demonstrations more
+Row 4: We evaluate on three popular general domain RE: (See Appendix C) from the original test set for | (1) GPT-Random Instead of randomly selecting: uniform. Our preliminary experiments suggest that
+Row 5: We evaluate on three popular general domain RE: two datasets: ACE05 and TACRED as shown in | (1) GPT-Random Instead of randomly selecting: this is a stronger baseline than the vanilla random.
+Row 6: We evaluate on three popular general domain RE: Table 1. | (1) GPT-Random Instead of randomly selecting:
+Row 7: We evaluate on three popular general domain RE: | (1) GPT-Random Instead of randomly selecting: (2) GPT-Sent Previous work attempts various senRow 8: We evaluate on three popular general domain RE: Semeval 2010 task 8 Hendrickx et al. (2010) fo- | (1) GPT-Random Instead of randomly selecting: tence embedding in retrieval. In this work, our imRow 9: We evaluate on three popular general domain RE: cuses on semantic relations between pairs of nomi- | (1) GPT-Random Instead of randomly selecting: plementation adopted SimCSE (Gao et al., 2021),
+Row 10: We evaluate on three popular general domain RE: nals collected from general domain resources. | (1) GPT-Random Instead of randomly selecting: which has been demonstrated to be the state-of-theRow 11: We evaluate on three popular general domain RE: | (1) GPT-Random Instead of randomly selecting: art method for sentence similarity tasks.
+Row 12: We evaluate on three popular general domain RE: TACRED Zhang et al. (2017) is a large-scale | (1) GPT-Random Instead of randomly selecting:
+Row 13: We evaluate on three popular general domain RE: relation extraction dataset with 106,264 examples | (1) GPT-Random Instead of randomly selecting:
+Row 14: We evaluate on three popular general domain RE: built over newswire and web text. | (1) GPT-Random Instead of randomly selecting:
+Row 15: We evaluate on three popular general domain RE: SciERC Luan et al. (2018) collects AI paper | (1) GPT-Random Instead of randomly selecting: Fine-tuned RE Models In our experiment, we
+Row 16: We evaluate on three popular general domain RE: abstracts and annotated relations, especially for | (1) GPT-Random Instead of randomly selecting: choose PURE (Zhong and Chen, 2021), an enRow 17: We evaluate on three popular general domain RE: scientific knowledge graph construction. | (1) GPT-Random Instead of randomly selecting: tity marker-based fine-tuned model mentioned in
+Row 18: We evaluate on three popular general domain RE: | (1) GPT-Random Instead of randomly selecting: Sec. 2.4.2 to obtain the representations for retrieval.
+Row 19: We evaluate on three popular general domain RE: ACE05 contains the entity, relation, and event | (1) GPT-Random Instead of randomly selecting: Meanwhile, PURE performs as a directly comparaRow 20: We evaluate on three popular general domain RE: annotations collected from domains including | (1) GPT-Random Instead of randomly selecting: ble baseline. We also compare with corresponding
+Row 21: We evaluate on three popular general domain RE: newswire, broadcast, discussion forums, etc. | (1) GPT-Random Instead of randomly selecting: SOTA fine-tuned baselines on Semeval Cohen et al.
+[/TABLE]
+
+[PAGE 6]
+(a) The comparison on retrieval modules
+(b) Reasoning with fewer demonstrations.
+Figure 6: Ablation study on the retrieval and reasoning components on Semeval. We sampled a subset
+from the test data with 300 examples. We show the ‘w/o
+reasoning’ results withk = 30 for comparison.
+4 Experimental Results
+4.1 Main Results
+We compare our main experiment results with previous methods in Table 2. GPT-RE_SimCSE denotes our entity-prompted sentence embedding for
+retrieval and GPT-RE_FT denotes our fine-tuned
+relation representation for retrieval. From the table,
+we can observe that: (1) bothGPT-RE_SimCSE and
+GPT-RE_FT outperform the retrieval-based GPTSent, indicating that it is necessary to inject the taskspecific information into sentence embedding for
+selecting proper demonstrations; (2) GPT-RE_FT
+succeeds to outperform the fine-tuning baseline
+PURE on three datasets by +2.00, +2.42, +0.55
+Micro-F1. It suggests that GPT-3 has the potential to beat fine-tuning when the retriever has prior
+task knowledge. GPT-RE_FT eventually achieves
+SOTA results on Semeval and SciERC. (3) reasoning module improves GPT-RE_SimCSE by around
+2% Micro-F1, indicating that gold label-induced
+reasoning successfully enriches the knowledge
+Figure 7: Low-resource Scenario on Semeval . We
+limit the percentage of training data for both fine-tuning
+and retrieval in GPT-RE.
+of demonstrations. Meanwhile, the high-quality
+demonstrations obtained by GPT-RE_FT offset the
+effort of enriching reasoning into demonstrations,
+which shows relatively trivial improvements. Since
+reasoning aims at enriching demonstrations, this
+feature potentially works better with fewer demonstrations, as shown in Section 4.3.
+4.2 Ablation Study on Task-aware Retrieval
+We first implement the ablation experiments of the
+retrieval component with the setting of increasing
+k-shot demonstrations (Figure 6a). We find that:
+(1) compared to GPT-Random, all the retrievalbased models have higher F1 scores and large gradients of the performance curves. It means that
+GPT-3 can learn from high-quality demonstrations
+more effectively; (2) after adding entity information to the SimCSE retrieval, GPT-RE_SimCSE
+achieves better performance throughout allK shots,
+indicating that task-aware sentence embedding can
+capture the feature of RE and provide more proper
+demonstrations; (3) finally, the fine-tuned relation
+representation retriever GPT-RE_FT significantly
+outperforms all retrieval-based methods and beats
+the fine-tuning baseline when k > 15. Note that
+even with k = 5 demonstrations, GPT-RE_FT still
+works better than GPT-RE_SimCSE with k = 30
+(80.30 − →83.43(+3.13)), which indicates that the
+quality of demonstrations shows much more important than the number of demonstrations.
+4.3 Ablation Study on Reasoning Enhancing
+We then check the influence of our proposed
+reasoning-enhanced demonstration, as shown in
+Figure 6b. Due to the limited amount of input tokens of GPT-3, we have to set the k ≤ 15 for the
+
+[PAGE 7]
+(a) General domain with 17.4% NULL examples
+(b) Scientific domain with 90.16% NULL examples
+Figure 8: Analysis on the effects of NULL examples. w/o NULL refers to the classification setting that NULL
+examples are excluded from the train and test data. w/ NULL refers to the original extraction setting. We use the full
+test set for the evaluation.
+tokens of reasoning, leading to a trade-off between
+adding reasoning and adding more demonstrations.
+From the result, we find that: (1) with reasoningenhanced demonstrations, GPT-3 always achieves
+better scores across all the k-shot settings of both
+GPT-RE_SimCSE and GPT-RE_FT, indicating that
+the reasoning induced from ground truth relation
+labels can effectively unlock the reasoning ability
+of GPT-3 and improve the ICL with a deeper understanding of demonstrations. Specifically, for GPTRE_FT, the performance improvement becomes
+less significant when more demonstrations are provided, which is feasible as with more high-quality
+demonstrations available, GPT-3 can already learn
+the internal reasoning behind each demonstration;
+(2) since the reasoning enhancement works better
+with fewer demonstrations, we expect this method
+can be an effective solution to low-shot relation
+extraction (Han et al., 2018; Geng et al., 2020; Liu
+et al., 2022a), which aims at recognizing novel relations with very few or no examples, and we leave
+this for future work.
+4.4 Low-resource Scenario
+We conduct the experiment for observing the lowresource performance in the general domain Semeval task. As shown in Figure 7, we observe
+that: (1) all the GPT-3 based results work better than fine-tuning in when the training examples
+are less than # 650 (10%). It indicates that in the
+general domain RE, GPT-3 benefits from its abundant prior knowledge to understand the relations;
+(2) GPT-RE_SimCSE starts to show a substantial
+difference to GPT-Sent after the training size surpasses 30%. We believe fewer training candidates
+could limit the effects of retrieval; (3) GPT-RE_FT
+achieves an upper bound performance in all settings, even when the fine-tuned model shows poor
+performance with hundreds of training data (from
+#100 to # 400). This emphasizes the impressive
+effectiveness of fine-tuned relation representations
+for capturing higher-quality demonstrations. The
+observation in the low-resource setting is very different from Gutiérrez et al. (2022). We assume
+the difference could be caused by the domain and
+NULL proportion of the task.
+5 Analysis
+5.1 The Issue of “Overpredicting”
+To analyze the influence of NULL class, we compare the effectiveness of each method for alleviating this issue on two datasets: general domain
+Semeval with 17.4% NULL examples and scientific
+domain SciERC with 90.16% NULL examples. As
+shown in Figure 8, (1) by comparing the performance on Semeval and SciERC, a larger percentage
+of NULL examples results in more significant performance drop showing the negative influence of
+overpredicting NULL examples; (2) by comparing
+w/o NULL and w/ NULL , our GPT-RE_FT shows
+the most robustness to the influence of NULL examples, indicating that the RE fine-tuned representations in retrieval can release the overpredicting
+issue of GPT-3 by providing higher-quality demonstrations; (3) however, even with task-aware representations, all GPT-3 methods still underperform
+the fine-tuning baseline on NULL examples, this is
+due to the confusing definition of NULL , in many
+cases, there is a certain relation between entities
+in the context, but out of the distribution of pre-
+
+[TABLE page=7 index=1]
+Columns: adding reasoning and adding more demonstrations. | achieves an upper bound performance in all setRow 1: adding reasoning and adding more demonstrations.: From the result, we find that: (1) with reasoning- | achieves an upper bound performance in all set-: tings, even when the fine-tuned model shows poor
+Row 2: adding reasoning and adding more demonstrations.: enhanced demonstrations, GPT-3 always achieves | achieves an upper bound performance in all set-: performance with hundreds of training data (from
+Row 3: adding reasoning and adding more demonstrations.: better scores across all the k-shot settings of both | achieves an upper bound performance in all set-: #100 to #400). This emphasizes the impressive
+Row 4: adding reasoning and adding more demonstrations.: GPT-RE_SimCSE and GPT-RE_FT, indicating that | achieves an upper bound performance in all set-: effectiveness of fine-tuned relation representations
+Row 5: adding reasoning and adding more demonstrations.: the reasoning induced from ground truth relation | achieves an upper bound performance in all set-: for capturing higher-quality demonstrations. The
+Row 6: adding reasoning and adding more demonstrations.: labels can effectively unlock the reasoning ability | achieves an upper bound performance in all set-: observation in the low-resource setting is very difRow 7: adding reasoning and adding more demonstrations.: of GPT-3 and improve the ICL with a deeper under- | achieves an upper bound performance in all set-: ferent from Gutiérrez et al. (2022). We assume
+Row 8: adding reasoning and adding more demonstrations.: standing of demonstrations. Specifically, for GPT- | achieves an upper bound performance in all set-: the difference could be caused by the domain and
+Row 9: adding reasoning and adding more demonstrations.: RE_FT, the performance improvement becomes | achieves an upper bound performance in all set-: NULL proportion of the task.
+Row 10: adding reasoning and adding more demonstrations.: less significant when more demonstrations are pro- | achieves an upper bound performance in all set-:
+Row 11: adding reasoning and adding more demonstrations.: vided, which is feasible as with more high-quality | achieves an upper bound performance in all set-: 5 Analysis
+Row 12: adding reasoning and adding more demonstrations.: demonstrations available, GPT-3 can already learn | achieves an upper bound performance in all set-:
+Row 13: adding reasoning and adding more demonstrations.: | achieves an upper bound performance in all set-: 5.1 The Issue of “Overpredicting”
+Row 14: adding reasoning and adding more demonstrations.: the internal reasoning behind each demonstration; | achieves an upper bound performance in all set-:
+Row 15: adding reasoning and adding more demonstrations.: (2) since the reasoning enhancement works better | achieves an upper bound performance in all set-: To analyze the influence of NULL class, we comRow 16: adding reasoning and adding more demonstrations.: with fewer demonstrations, we expect this method | achieves an upper bound performance in all set-: pare the effectiveness of each method for alleviRow 17: adding reasoning and adding more demonstrations.: can be an effective solution to low-shot relation | achieves an upper bound performance in all set-: ating this issue on two datasets: general domain
+Row 18: adding reasoning and adding more demonstrations.: extraction (Han et al., 2018; Geng et al., 2020; Liu | achieves an upper bound performance in all set-: Semeval with 17.4% NULL examples and scientific
+Row 19: adding reasoning and adding more demonstrations.: et al., 2022a), which aims at recognizing novel re- | achieves an upper bound performance in all set-: domain SciERC with 90.16% NULL examples. As
+Row 20: adding reasoning and adding more demonstrations.: lations with very few or no examples, and we leave | achieves an upper bound performance in all set-: shown in Figure 8, (1) by comparing the perforRow 21: adding reasoning and adding more demonstrations.: this for future work. | achieves an upper bound performance in all set-: mance on Semeval and SciERC, a larger percentage
+Row 22: adding reasoning and adding more demonstrations.: | achieves an upper bound performance in all set-: of NULL examples results in more significant perRow 23: adding reasoning and adding more demonstrations.: | achieves an upper bound performance in all set-: formance drop showing the negative influence of
+Row 24: adding reasoning and adding more demonstrations.: 4.4 Low-resource Scenario | achieves an upper bound performance in all set-:
+Row 25: adding reasoning and adding more demonstrations.: | achieves an upper bound performance in all set-: overpredicting NULL examples; (2) by comparing
+Row 26: adding reasoning and adding more demonstrations.: We conduct the experiment for observing the low- | achieves an upper bound performance in all set-: w/o NULL and w/ NULL, our GPT-RE_FT shows
+Row 27: adding reasoning and adding more demonstrations.: resource performance in the general domain Se- | achieves an upper bound performance in all set-: the most robustness to the influence of NULL exRow 28: adding reasoning and adding more demonstrations.: meval task. As shown in Figure 7, we observe | achieves an upper bound performance in all set-: amples, indicating that the RE fine-tuned represenRow 29: adding reasoning and adding more demonstrations.: that: (1) all the GPT-3 based results work bet- | achieves an upper bound performance in all set-: tations in retrieval can release the overpredicting
+Row 30: adding reasoning and adding more demonstrations.: ter than fine-tuning in when the training examples | achieves an upper bound performance in all set-: issue of GPT-3 by providing higher-quality demonRow 31: adding reasoning and adding more demonstrations.: are less than # 650 (10%). It indicates that in the | achieves an upper bound performance in all set-: strations; (3) however, even with task-aware repreRow 32: adding reasoning and adding more demonstrations.: general domain RE, GPT-3 benefits from its abun- | achieves an upper bound performance in all set-: sentations, all GPT-3 methods still underperform
+Row 33: adding reasoning and adding more demonstrations.: dant prior knowledge to understand the relations; | achieves an upper bound performance in all set-: the fine-tuning baseline on NULL examples, this is
+Row 34: adding reasoning and adding more demonstrations.: (2) GPT-RE_SimCSE starts to show a substantial | achieves an upper bound performance in all set-: due to the confusing definition of NULL, in many
+Row 35: adding reasoning and adding more demonstrations.: difference to GPT-Sent after the training size sur- | achieves an upper bound performance in all set-: cases, there is a certain relation between entities
+[/TABLE]
+
+[PAGE 8]
+Context: among the contents of the vesselwere a set of carpenter 's tools, several large storage jars , ceramic utensils , rope ……Given the context, the relation between tools and vesselis CONTENT AND CONTAINER.
+GPT-Sent Demonstration
+Context: to preserve its catchof fish, each boat loads between 2000 and 3000 kilos of ice before it goes out to sea .Given the context, the relation between catchand fishis [NULL]
+Test Input
+Context: local fisherman heated some of their catchcooked over coals in a scuttle.Given the context, the relation between catchand scuttle is CONTENT AND CONTAINER.
+GPT-RE_SimCSE Demonstration
+Context: septembernormally marks the arrival of the earliest runof fishinto lake tributaries , and peak runs occur in october.Given the context, the relation between runand fishis NULL.
+GPT-RE_FT Demonstration
+RetrievalGPT-SentGPT-RE_SimCSEGPT-RE_FTGPT-3 OutputCONTENT AND CONTAINERPRODUCT AND PRODUCERNULL
+Figure 9: A case study of demonstration quality on
+Semeval. [NULL ] is the gold label here.
+defined classes. In these cases, GPT-3 tends to
+overpredict as the relation information may be covered in its prior knowledge. We think this ability
+of GPT-3 can be useful in more open fields, such
+as open RE (Banko and Etzioni, 2008) which has
+no pre-defined relation classes.
+5.2 Case Study of Demonstration Quality
+We select one typical test example to better illustrate the amendment of our task-aware demonstration retrieval. As shown in Figure 9, given the
+NULL Example, we show the most similar demonstration in retrieval based on three methods. The
+GPT-Sent retrieved demonstration focuses on the
+semantic meaning of “CONTENT AND CONTAINER” which is shared in the test context, but
+not revealed in the target entity pair. This mismatch
+confirms the problem of lacking entity information
+in retrieval. Instead, GPT-RE_SimCSE retrieves a
+much more relevant demonstration that shows the
+same semantic relation between “catch” and “fish”
+but still faces a minor mismatch as the gold label
+is between “catch” and “scuttle.” Finally, GPTRE_FT demonstration shares a similar structure
+with the test input regarding the pair of entities,
+which is the key clue for predicting the relation
+between entities. This result shows a level-bylevel enhancement with more entity information
+provided in retrieval. We also show some other
+case examples in Appendix B.
+6 Related Work
+In-context Learning Recent work shows that
+ICL of GPT-3 (Brown et al., 2020) can perform
+numerous tasks when provided a few examples in a
+natural language prompt. Existing work focuses on
+various aspects to effectively utilize the advantages
+of GPT-3, from prompt design (Perez et al., 2021)
+for proper input to coherence calibration (Malkin
+et al., 2022) for tackling the diverse generated output. Another research path locates in the demonstration part, including ordered prompts (Lu et al.,
+2022) and retrieval-based demonstrations (Rubin
+et al., 2022; Liu et al., 2022b; Shin et al., 2021).
+To the best of our knowledge, there is no previous work exploring the potential of GPT-3 on
+general domain RE tasks. A recent work attempts
+to leverage GPT-3 in biomedical information extraction (NER and RE), and reveals issues of ICL
+that may be detrimental to IE tasks in general. Our
+work succeeds in overcoming these issues to some
+extent and confirms the potential of GPT-3 in both
+general and the scientific domain RE.
+Retrieval-based Demonstrations Several studies have demonstrated that dynamically selecting
+few-shot demonstrations for each test example, instead of utilizing a fixed set, leads to significant
+improvement in GPT-3 ICL (Liu et al., 2022b;
+Shin et al., 2021; Rubin et al., 2022). They also
+show that nearest neighbor in-context examples
+yield much better results than the farthest ones.
+This leads to the significance of better retrieval
+modules for demonstrations. Existing attempts rely
+on sentence embedding in retrieval, including the
+sentence encoders of PLMs such as BERT (Devlin et al., 2019), RoBERTa (Zhuang et al., 2021)
+KATE (Liu et al., 2022b) , SimCSE (Gao et al.,
+2021), Sentence-BERT (Reimers and Gurevych,
+2019; Wolf et al., 2020). Unlike these sentence
+embeddings, we propose to fine-tune PLMs on our
+target RE tasks to produce more task-specific and
+robust representations for retrieval.
+7 Conclusions
+This work explores the potential of GPT-3 ICL
+on RE for bridging the performance gap to the
+fine-tuning baselines via two strategies: (1) taskaware demonstration retrieval emphasizes entity
+and relation information for improving the accuracy of searching demonstrations; (2) gold labelinduced reasoning enriches the reasoning evidence
+
+[TABLE page=8 index=1]
+Columns: Retrieval GPT-Sent | GPT-RE_SimCSE | Unnamed: 0 | GPT-RE_FT | et al., 2022; Liu et al., 2022b; Shin et al., 2021).
+Row 1: Retrieval GPT-Sent: PRODUCT ANDGPT-3 Output CONTENT AND | GPT-RE_SimCSE: | Unnamed: 0: | GPT-RE_FT: NULL | et al., 2022; Liu et al., 2022b; Shin et al., 2021).: To the best of our knowledge, there is no preRow 2: Retrieval GPT-Sent: CONTAINER | GPT-RE_SimCSE: PRODUCER | Unnamed: 0: | GPT-RE_FT: | et al., 2022; Liu et al., 2022b; Shin et al., 2021).:
+[/TABLE]
+
+[PAGE 9]
+of each demonstration. To the best of our knowledge, GPT-RE is the first GPT-3 ICL research that
+significantly outperforms the fine-tuning baseline
+on three datasets and achieves SOTA on Semeval
+and SciERC. We implement detailed studies to explore how GPT-3 overcomes the difficulties such
+as NULL example influence.
+Limitations
+Despite the overall positive results, GPT-RE still
+faces two shortcomings: (1) the issue of overpredicting has been significantly alleviated but not
+completely solved, and the NULL recall still lags
+behind full-supervised baselines, especially on the
+datasets containing a large proportion of NULL examples such as ACE05 (“95.60%”); (2) Though
+the task-aware retriever optimizes the representations of PLMs such as SimCSE and BERT, it is
+widely considered that LLMs can generate more robust representations than small PLMs. Future work
+can replace representations generated by smaller
+PLMs with GPT-3 itself. However, due to the access limitation to the representations of GPT-3, we
+can nearly confirm this proposal up to now.
+References
+Livio Baldini Soares, Nicholas FitzGerald, Jeffrey Ling,
+and Tom Kwiatkowski. 2019. Matching the blanks:
+Distributional similarity for relation learning. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics , pages 2895–
+2905, Florence, Italy. Association for Computational
+Linguistics.
+Michele Banko and Oren Etzioni. 2008. The tradeoffs
+between open and traditional relation extraction. In
+Proceedings of ACL-08: HLT, pages 28–36, Columbus, Ohio. Association for Computational Linguistics.
+Iz Beltagy, Kyle Lo, and Arman Cohan. 2019. SciBERT: A pretrained language model for scientific text.
+In Proceedings of the 2019 Conference on Empirical
+Methods in Natural Language Processing and the
+9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP), pages 3615–
+3620, Hong Kong, China. Association for Computational Linguistics.
+Terra Blevins, Hila Gonen, and Luke Zettlemoyer. 2022.
+Prompting language models for linguistic structure.
+CoRR, abs/2211.07830.
+Samuel R. Bowman, Gabor Angeli, Christopher Potts,
+and Christopher D. Manning. 2015. A large annotated corpus for learning natural language inference.
+In Proceedings of the 2015 Conference on Empirical Methods in Natural Language Processing , pages
+632–642, Lisbon, Portugal. Association for Computational Linguistics.
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, Sandhini Agarwal, Ariel Herbert-V oss,
+Gretchen Krueger, Tom Henighan, Rewon Child,
+Aditya Ramesh, Daniel Ziegler, Jeffrey Wu, Clemens
+Winter, Chris Hesse, Mark Chen, Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess, Jack
+Clark, Christopher Berner, Sam McCandlish, Alec
+Radford, Ilya Sutskever, and Dario Amodei. 2020.
+Language models are few-shot learners. In Advances in Neural Information Processing Systems ,
+volume 33, pages 1877–1901. Curran Associates,
+Inc.
+Aakanksha Chowdhery, Sharan Narang, Jacob Devlin,
+Maarten Bosma, Gaurav Mishra, Adam Roberts,
+Paul Barham, Hyung Won Chung, Charles Sutton,
+Sebastian Gehrmann, Parker Schuh, Kensen Shi,
+Sasha Tsvyashchenko, Joshua Maynez, Abhishek
+Rao, Parker Barnes, Yi Tay, Noam Shazeer, Vinodkumar Prabhakaran, Emily Reif, Nan Du, Ben
+Hutchinson, Reiner Pope, James Bradbury, Jacob
+Austin, Michael Isard, Guy Gur-Ari, Pengcheng Yin,
+Toju Duke, Anselm Levskaya, Sanjay Ghemawat,
+Sunipa Dev, Henryk Michalewski, Xavier Garcia,
+Vedant Misra, Kevin Robinson, Liam Fedus, Denny
+Zhou, Daphne Ippolito, David Luan, Hyeontaek Lim,
+Barret Zoph, Alexander Spiridonov, Ryan Sepassi,
+David Dohan, Shivani Agrawal, Mark Omernick, Andrew M. Dai, Thanumalayan Sankaranarayana Pillai, Marie Pellat, Aitor Lewkowycz, Erica Moreira,
+Rewon Child, Oleksandr Polozov, Katherine Lee,
+Zongwei Zhou, Xuezhi Wang, Brennan Saeta, Mark
+Diaz, Orhan Firat, Michele Catasta, Jason Wei, Kathy
+Meier-Hellstern, Douglas Eck, Jeff Dean, Slav Petrov,
+and Noah Fiedel. 2022. Palm: Scaling language modeling with pathways. CoRR, abs/2204.02311.
+Amir D. N. Cohen, Shachar Rosenman, and Yoav Goldberg. 2020. Relation extraction as two-way spanprediction. CoRR, abs/2010.04829.
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+Kristina Toutanova. 2019. BERT: Pre-training of
+deep bidirectional transformers for language understanding. In Proceedings of the 2019 Conference of
+the North American Chapter of the Association for
+Computational Linguistics: Human Language Technologies, V olume 1 (Long and Short Papers), pages
+4171–4186, Minneapolis, Minnesota. Association for
+Computational Linguistics.
+Tianyu Gao, Xingcheng Yao, and Danqi Chen. 2021.
+SimCSE: Simple contrastive learning of sentence embeddings. In Proceedings of the 2021 Conference
+on Empirical Methods in Natural Language Processing, pages 6894–6910, Online and Punta Cana, Dominican Republic. Association for Computational
+Linguistics.
+
+[TABLE page=9 index=1]
+Columns: dicting has | been | significantly | alleviated | but | not | Radford, Ilya Sutskever, and Dario Amodei. 2020.
+Row 1: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Language models are few-shot learners. In AdRow 2: dicting has: completely solved, and the NULL recall still lags | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 3: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: vances in Neural Information Processing Systems,
+Row 4: dicting has: behind full-supervised baselines, especially on the | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: volume 33, pages 1877–1901. Curran Associates,
+Row 5: dicting has: datasets containing a large proportion of NULL ex- | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Inc.
+Row 6: dicting has: amples such as ACE05 (“95.60%”); | been: | significantly: | alleviated: (2) Though | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 7: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Aakanksha Chowdhery, Sharan Narang, Jacob Devlin,
+Row 8: dicting has: the task-aware retriever optimizes the representa- | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Maarten Bosma, Gaurav Mishra, Adam Roberts,
+Row 9: dicting has: tions of PLMs such as SimCSE and BERT, it is | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Paul Barham, Hyung Won Chung, Charles Sutton,
+Row 10: dicting has: widely considered that LLMs can generate more ro- | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Sebastian Gehrmann, Parker Schuh, Kensen Shi,
+Row 11: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Sasha Tsvyashchenko, Joshua Maynez, Abhishek
+Row 12: dicting has: bust representations than small PLMs. Future work | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 13: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Rao, Parker Barnes, Yi Tay, Noam Shazeer, VinRow 14: dicting has: can replace representations generated by smaller | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: odkumar Prabhakaran, Emily Reif, Nan Du, Ben
+Row 15: dicting has: PLMs with GPT-3 itself. However, due to the ac- | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Hutchinson, Reiner Pope, James Bradbury, Jacob
+Row 16: dicting has: cess limitation to the representations of GPT-3, we | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Austin, Michael Isard, Guy Gur-Ari, Pengcheng Yin,
+Row 17: dicting has: Sanjay Ghemawat,can nearly confirm this proposal up to now. | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Toju Duke, Anselm Levskaya,
+Row 18: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Sunipa Dev, Henryk Michalewski, Xavier Garcia,
+Row 19: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Vedant Misra, Kevin Robinson, Liam Fedus, Denny
+Row 20: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Zhou, Daphne Ippolito, David Luan, Hyeontaek Lim,
+Row 21: dicting has: References | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Barret Zoph, Alexander Spiridonov, Ryan Sepassi,
+Row 22: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: David Dohan, Shivani Agrawal, Mark Omernick, AnRow 23: dicting has: Livio Baldini Soares, Nicholas FitzGerald, Jeffrey Ling, | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 24: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: drew M. Dai, Thanumalayan Sankaranarayana PilRow 25: dicting has: and Tom Kwiatkowski. 2019. Matching the blanks: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 26: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: lai, Marie Pellat, Aitor Lewkowycz, Erica Moreira,
+Row 27: dicting has: Distributional similarity for relation learning. | been: | significantly: | alleviated: | but: In Pro- | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 28: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Rewon Child, Oleksandr Polozov, Katherine Lee,
+Row 29: dicting has: ceedings of | been: the 57th Annual Meeting of | significantly: | alleviated: the Asso- | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 30: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Zongwei Zhou, Xuezhi Wang, Brennan Saeta, Mark
+Row 31: dicting has: ciation for Computational Linguistics, pages 2895– | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 32: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Diaz, Orhan Firat, Michele Catasta, Jason Wei, Kathy
+Row 33: dicting has: 2905, Florence, Italy. Association for Computational | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 34: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Meier-Hellstern, Douglas Eck, Jeff Dean, Slav Petrov,
+Row 35: dicting has: Linguistics. | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 36: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: and Noah Fiedel. 2022. Palm: Scaling language modRow 37: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: eling with pathways. CoRR, abs/2204.02311.
+Row 38: dicting has: Michele Banko and Oren Etzioni. 2008. The tradeoffs | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 39: dicting has: between open and traditional relation extraction. | been: | significantly: | alleviated: | but: | not: In | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Amir D. N. Cohen, Shachar Rosenman, and Yoav GoldRow 40: dicting has: Proceedings of ACL-08: HLT, pages 28–36, Colum- | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: berg. 2020. Relation extraction as two-way spanRow 41: dicting has: bus, Ohio. Association for Computational Linguis- | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: prediction. CoRR, abs/2010.04829.
+Row 42: dicting has: tics. | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.:
+Row 43: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+Row 44: dicting has: Iz Beltagy, Kyle Lo, and Arman Cohan. 2019. | been: | significantly: | alleviated: | but: SciB- | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Kristina Toutanova. 2019. BERT: Pre-training of
+Row 45: dicting has: ERT: A pretrained language model for scientific text. | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: deep bidirectional transformers for language underRow 46: dicting has: In Proceedings of the 2019 Conference on Empirical | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: standing. In Proceedings of the 2019 Conference of
+Row 47: dicting has: Methods in Natural Language Processing and the | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: the North American Chapter of the Association for
+Row 48: dicting has: 9th International Joint Conference on Natural Lan- | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Computational Linguistics: Human Language TechRow 49: dicting has: guage Processing (EMNLP-IJCNLP), pages 3615– | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: nologies, Volume 1 (Long and Short Papers), pages
+Row 50: dicting has: 3620, Hong Kong, China. Association for Computa- | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: 4171–4186, Minneapolis, Minnesota. Association for
+Row 51: dicting has: tional Linguistics. | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Computational Linguistics.
+Row 52: dicting has: Terra Blevins, Hila Gonen, and Luke Zettlemoyer. 2022. | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: Tianyu Gao, Xingcheng Yao, and Danqi Chen. 2021.
+Row 53: dicting has: Prompting language models for linguistic structure. | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: SimCSE: Simple contrastive learning of sentence emRow 54: dicting has: CoRR, abs/2211.07830. | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: beddings. In Proceedings of the 2021 Conference
+Row 55: dicting has: | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: on Empirical Methods in Natural Language ProcessRow 56: dicting has: Samuel R. Bowman, Gabor Angeli, Christopher Potts, | been: | significantly: | alleviated: | but: | not: | Radford, Ilya Sutskever, and Dario Amodei. 2020.: ing, pages 6894–6910, Online and Punta Cana, Do-
+[/TABLE]
+
+[PAGE 10]
+Xiaoqing Geng, Xiwen Chen, Kenny Q. Zhu, Libin
+Shen, and Yinggong Zhao. 2020. MICK: A metalearning framework for few-shot relation classification with small training data. In CIKM ’20: The
+29th ACM International Conference on Information
+and Knowledge Management, Virtual Event, Ireland,
+October 19-23, 2020, pages 415–424. ACM.
+Bernal Jiménez Gutiérrez, Nikolas McNeal, Clay Washington, You Chen, Lang Li, Huan Sun, and Yu Su.
+2022. Thinking about GPT-3 in-context learning for
+biomedical ie? think again. CoRR, abs/2203.08410.
+Xu Han, Hao Zhu, Pengfei Yu, Ziyun Wang, Yuan Yao,
+Zhiyuan Liu, and Maosong Sun. 2018. FewRel: A
+large-scale supervised few-shot relation classification
+dataset with state-of-the-art evaluation. In Proceedings of the 2018 Conference on Empirical Methods
+in Natural Language Processing, pages 4803–4809,
+Brussels, Belgium. Association for Computational
+Linguistics.
+Iris Hendrickx, Su Nam Kim, Zornitsa Kozareva,
+Preslav Nakov, Diarmuid Ó Séaghdha, Sebastian
+Padó, Marco Pennacchiotti, Lorenza Romano, and
+Stan Szpakowicz. 2010. SemEval-2010 task 8: Multiway classification of semantic relations between pairs
+of nominals. In Proceedings of the 5th International
+Workshop on Semantic Evaluation, pages 33–38, Uppsala, Sweden. Association for Computational Linguistics.
+Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch,
+Elena Buchatskaya, Trevor Cai, Eliza Rutherford,
+Diego de Las Casas, Lisa Anne Hendricks, Johannes
+Welbl, Aidan Clark, Tom Hennigan, Eric Noland,
+Katie Millican, George van den Driessche, Bogdan
+Damoc, Aurelia Guy, Simon Osindero, Karen Simonyan, Erich Elsen, Jack W. Rae, Oriol Vinyals,
+and Laurent Sifre. 2022. Training compute-optimal
+large language models.
+Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. 2022. Large
+language models are zero-shot reasoners. CoRR,
+abs/2205.11916.
+Zhenzhong Lan, Mingda Chen, Sebastian Goodman,
+Kevin Gimpel, Piyush Sharma, and Radu Soricut.
+2019. Albert: A lite bert for self-supervised learning
+of language representations.
+Fangchao Liu, Hongyu Lin, Xianpei Han, Boxi Cao, and
+Le Sun. 2022a. Pre-training to match for unified lowshot relation extraction. In Proceedings of the 60th
+Annual Meeting of the Association for Computational
+Linguistics (V olume 1: Long Papers), pages 5785–
+5795, Dublin, Ireland. Association for Computational
+Linguistics.
+Jiachang Liu, Dinghan Shen, Yizhe Zhang, Bill Dolan,
+Lawrence Carin, and Weizhu Chen. 2022b. What
+makes good in-context examples for GPT-3? In
+Proceedings of Deep Learning Inside Out (DeeLIO
+2022): The 3rd Workshop on Knowledge Extraction and Integration for Deep Learning Architectures,
+pages 100–114, Dublin, Ireland and Online. Association for Computational Linguistics.
+Yao Lu, Max Bartolo, Alastair Moore, Sebastian Riedel,
+and Pontus Stenetorp. 2022. Fantastically ordered
+prompts and where to find them: Overcoming fewshot prompt order sensitivity. In Proceedings of the
+60th Annual Meeting of the Association for Computational Linguistics (V olume 1: Long Papers), pages
+8086–8098, Dublin, Ireland. Association for Computational Linguistics.
+Yi Luan, Luheng He, Mari Ostendorf, and Hannaneh
+Hajishirzi. 2018. Multi-task identification of entities,
+relations, and coreference for scientific knowledge
+graph construction. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language
+Processing, pages 3219–3232, Brussels, Belgium.
+Association for Computational Linguistics.
+Nikolay Malkin, Zhen Wang, and Nebojsa Jojic. 2022.
+Coherence boosting: When your pretrained language
+model is not paying enough attention. InProceedings
+of the 60th Annual Meeting of the Association for
+Computational Linguistics (V olume 1: Long Papers),
+pages 8214–8236, Dublin, Ireland. Association for
+Computational Linguistics.
+Sewon Min, Xinxi Lyu, Ari Holtzman, Mikel Artetxe,
+Mike Lewis, Hannaneh Hajishirzi, and Luke Zettlemoyer. 2022a. Rethinking the role of demonstrations:
+What makes in-context learning work?
+Sewon Min, Xinxi Lyu, Ari Holtzman, Mikel Artetxe,
+Mike Lewis, Hannaneh Hajishirzi, and Luke Zettlemoyer. 2022b. Rethinking the role of demonstrations: What makes in-context learning work? CoRR,
+abs/2202.12837.
+Ethan Perez, Douwe Kiela, and Kyunghyun Cho. 2021.
+True few-shot learning with language models. In Advances in Neural Information Processing Systems 34:
+Annual Conference on Neural Information Processing Systems 2021, NeurIPS 2021, December 6-14,
+2021, virtual, pages 11054–11070.
+Jack W. Rae, Sebastian Borgeaud, Trevor Cai, Katie
+Millican, Jordan Hoffmann, Francis Song, John
+Aslanides, Sarah Henderson, Roman Ring, Susannah Young, Eliza Rutherford, Tom Hennigan, Jacob Menick, Albin Cassirer, Richard Powell, George
+van den Driessche, Lisa Anne Hendricks, Maribeth Rauh, Po-Sen Huang, Amelia Glaese, Johannes Welbl, Sumanth Dathathri, Saffron Huang,
+Jonathan Uesato, John Mellor, Irina Higgins, Antonia Creswell, Nat McAleese, Amy Wu, Erich Elsen,
+Siddhant Jayakumar, Elena Buchatskaya, David Budden, Esme Sutherland, Karen Simonyan, Michela Paganini, Laurent Sifre, Lena Martens, Xiang Lorraine
+Li, Adhiguna Kuncoro, Aida Nematzadeh, Elena
+Gribovskaya, Domenic Donato, Angeliki Lazaridou,
+Arthur Mensch, Jean-Baptiste Lespiau, Maria Tsimpoukelli, Nikolai Grigorev, Doug Fritz, Thibault Sottiaux, Mantas Pajarskas, Toby Pohlen, Zhitao Gong,
+Daniel Toyama, Cyprien de Masson d’Autume, Yujia
+
+[PAGE 11]
+Li, Tayfun Terzi, Vladimir Mikulik, Igor Babuschkin,
+Aidan Clark, Diego de Las Casas, Aurelia Guy,
+Chris Jones, James Bradbury, Matthew Johnson,
+Blake Hechtman, Laura Weidinger, Iason Gabriel,
+William Isaac, Ed Lockhart, Simon Osindero, Laura
+Rimell, Chris Dyer, Oriol Vinyals, Kareem Ayoub,
+Jeff Stanway, Lorrayne Bennett, Demis Hassabis, Koray Kavukcuoglu, and Geoffrey Irving. 2021. Scaling
+language models: Methods, analysis &amp; insights
+from training gopher.
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine
+Lee, Sharan Narang, Michael Matena, Yanqi Zhou,
+Wei Li, and Peter J. Liu. 2019. Exploring the limits
+of transfer learning with a unified text-to-text transformer.
+Nils Reimers and Iryna Gurevych. 2019. SentenceBERT: Sentence embeddings using Siamese BERTnetworks. In Proceedings of the 2019 Conference on
+Empirical Methods in Natural Language Processing
+and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP), pages
+3982–3992, Hong Kong, China. Association for Computational Linguistics.
+Ohad Rubin, Jonathan Herzig, and Jonathan Berant.
+2022. Learning to retrieve prompts for in-context
+learning. In Proceedings of the 2022 Conference of
+the North American Chapter of the Association for
+Computational Linguistics: Human Language Technologies, pages 2655–2671, Seattle, United States.
+Association for Computational Linguistics.
+Richard Shin, Christopher Lin, Sam Thomson, Charles
+Chen, Subhro Roy, Emmanouil Antonios Platanios,
+Adam Pauls, Dan Klein, Jason Eisner, and Benjamin
+Van Durme. 2021. Constrained language models
+yield few-shot semantic parsers. In Proceedings of
+the 2021 Conference on Empirical Methods in Natural Language Processing, pages 7699–7715, Online
+and Punta Cana, Dominican Republic. Association
+for Computational Linguistics.
+Romal Thoppilan, Daniel De Freitas, Jamie Hall,
+Noam Shazeer, Apoorv Kulshreshtha, Heng-Tze
+Cheng, Alicia Jin, Taylor Bos, Leslie Baker, Yu Du,
+YaGuang Li, Hongrae Lee, Huaixiu Steven Zheng,
+Amin Ghafouri, Marcelo Menegali, Yanping Huang,
+Maxim Krikun, Dmitry Lepikhin, James Qin, Dehao
+Chen, Yuanzhong Xu, Zhifeng Chen, Adam Roberts,
+Maarten Bosma, Vincent Zhao, Yanqi Zhou, ChungChing Chang, Igor Krivokon, Will Rusch, Marc
+Pickett, Pranesh Srinivasan, Laichee Man, Kathleen
+Meier-Hellstern, Meredith Ringel Morris, Tulsee
+Doshi, Renelito Delos Santos, Toju Duke, Johnny Soraker, Ben Zevenbergen, Vinodkumar Prabhakaran,
+Mark Diaz, Ben Hutchinson, Kristen Olson, Alejandra Molina, Erin Hoffman-John, Josh Lee, Lora
+Aroyo, Ravi Rajakumar, Alena Butryna, Matthew
+Lamm, Viktoriya Kuzmina, Joe Fenton, Aaron Cohen, Rachel Bernstein, Ray Kurzweil, Blaise AgueraArcas, Claire Cui, Marian Croak, Ed Chi, and Quoc
+Le. 2022. Lamda: Language models for dialog applications.
+Zhen Wan, Qianying Liu, Zhuoyuan Mao, Fei Cheng,
+Sadao Kurohashi, and Jiwei Li. 2022. Rescue implicit and long-tail cases: Nearest neighbor relation
+extraction. CoRR, abs/2210.11800.
+Chenguang Wang, Xiao Liu, Zui Chen, Haoyun Hong,
+Jie Tang, and Dawn Song. 2022a. DeepStruct: Pretraining of language models for structure prediction.
+In Findings of the Association for Computational Linguistics: ACL 2022 , pages 803–823, Dublin, Ireland.
+Association for Computational Linguistics.
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V .
+Le, Ed H. Chi, and Denny Zhou. 2022b. Selfconsistency improves chain of thought reasoning in
+language models. CoRR, abs/2203.11171.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Ed H. Chi, Quoc Le, and Denny Zhou. 2022.
+Chain of thought prompting elicits reasoning in large
+language models. CoRR, abs/2201.11903.
+Adina Williams, Nikita Nangia, and Samuel Bowman.
+2018. A broad-coverage challenge corpus for sentence understanding through inference. In Proceedings of the 2018 Conference of the North American
+Chapter of the Association for Computational Linguistics: Human Language Technologies, V olume
+1 (Long Papers) , pages 1112–1122, New Orleans,
+Louisiana. Association for Computational Linguistics.
+Thomas Wolf, Lysandre Debut, Victor Sanh, Julien
+Chaumond, Clement Delangue, Anthony Moi, Pierric Cistac, Tim Rault, Remi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer, Patrick von Platen,
+Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu,
+Teven Le Scao, Sylvain Gugger, Mariama Drame,
+Quentin Lhoest, and Alexander Rush. 2020. Transformers: State-of-the-art natural language processing.
+In Proceedings of the 2020 Conference on Empirical
+Methods in Natural Language Processing: System
+Demonstrations, pages 38–45, Online. Association
+for Computational Linguistics.
+Yuhao Zhang, Victor Zhong, Danqi Chen, Gabor Angeli,
+and Christopher D. Manning. 2017. Position-aware
+attention and supervised data improve slot filling.
+In Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing , pages
+35–45, Copenhagen, Denmark. Association for Computational Linguistics.
+Zihao Zhao, Eric Wallace, Shi Feng, Dan Klein, and
+Sameer Singh. 2021. Calibrate before use: Improving few-shot performance of language models. In
+Proceedings of the 38th International Conference on
+Machine Learning, ICML 2021, 18-24 July 2021, Virtual Event, volume 139 of Proceedings of Machine
+Learning Research, pages 12697–12706. PMLR.
+Zexuan Zhong and Danqi Chen. 2021. A frustratingly
+easy approach for entity and relation extraction. In
+Proceedings of the 2021 Conference of the North
+American Chapter of the Association for Computational Linguistics: Human Language Technologies ,
+
+[PAGE 12]
+pages 50–61, Online. Association for Computational
+Linguistics.
+Liu Zhuang, Lin Wayne, Shi Ya, and Zhao Jun. 2021. A
+robustly optimized BERT pre-training approach with
+post-training. In Proceedings of the 20th Chinese
+National Conference on Computational Linguistics ,
+pages 1218–1227, Huhhot, China. Chinese Information Processing Society of China.
+
+[PAGE 13]
+Hyperparameter In Experiment
+Engine text-davinci-003
+Temperature 0.0
+Max_tokens 256
+Top_p 1
+Frequency_penalty 0.0
+Presence_penalty 0.0
+Best_of 1
+Logprob 1
+Table 3: GPT-3 Hyperparamters.
+Dataset Lower bound Upper bound
+Semeval 5 30
+TACRED 5 15
+SciERC 5 30
+ACE05 5 25
+Table 4: Search range for each dataset.
+A Hyperparameters
+A.1 GPT-3 Hyperparameters
+We use the GPT-3 API during the experiments and
+set the hyperparameters as in Table 3. Since the
+“Temperature” is set to be0.0, denoting the stable
+output of GPT-3, we report the result of the single
+run for all experiments. Due to the input length limitation of GPT-3 and the various average lengths of
+contexts from each dataset, we set different search
+ranges for the number of demonstrations of each
+dataset as shown in Table 4.
+A.2 Fine-tuning Baseline PURE
+We follow their single-sentence setup to keep consistency among datasets as Semeval and TACRED
+are both sentence-level RE datasets. For the PLMs,
+we also follow PURE by using scibert-scivocabuncased (Beltagy et al., 2019) as the base encoder for SciERC and bert-base-uncased (Devlin
+et al., 2019) for the remaining three general domain
+datasets. We follow hyperparameters in their paper.
+We used 2 NVIDIA RTX3090 for training.
+A.3 Sentence Embedding Methods
+Gutiérrez et al. (2022) uses the [CLS] of RoBERTalarge as the representation in retrieval, Liu et al.
+(2022b) fine-tunes RoBERTa-large on two natural
+language inference (NLI) datasets: SNLI (Bowman et al., 2015) and MultiNLI (Williams et al.,
+2018) to enhance the quality of sentence embedding. For the sentence embedding method SimCSE in our experiment, we utilize the version:
+sup-simcse-bert-base-uncased.
+Context: this paper describes a setof principlesdesigned to help archives position themselves to address the management ......Given the context, the relation between principlesand setis MEMBER AND COLLECTION.
+GPT-Sent Demonstration
+Context: basic diagrams also work well on the computerscreenif they are carefully designed to match the grid of pixels on the screen. Given the context, the relation between screenand computer is[COMPONENT AND WHOLE]
+Test Input
+Context: thescreen works using ink, just like books and newspapers , but displays the ink particles electronically .Given the context, the relation betweenink and screenis COMPONENT AND WHOLE.
+GPT-RE_SimCSE Demonstration
+Context: the computer mousehas been the input device of choice for a long time now in the computer world .Given the context, the relation between mouse and computeris COMPONENT AND WHOLE.
+GPT-RE_FT Demonstration
+RetrievalGPT-SentGPT-RE_SimCSEGPT-RE_FTGPT-3 OutputMEMBER AND COLLECTIONCOMPONENT AND WHOLECOMPONENT AND WHOLE
+(a) [COMPONENT AND WHOLE] denotes the gold label
+Context: a woman diagnosed with breast cancer today joins a huge sisterhoodof cancer survivorsready to help her along the way ……Given the context, the relation between survivorsand sisterhoodis MEMBER AND COLLECTION.
+GPT-Sent Demonstration
+Context: the wheelchair foundation donated wheelchairsto peoplewith physical problems in hundred countries .Given the context, the relation between wheelchairsand peopleis [ENTITY AND DESTINATION].
+Test Input
+Context: the victim of last night 's car accident donated his organsto several patientswho have been waiting for donated organs .Given the context, the relation between organsand patientsis ENTITY AND DESTINATION.
+GPT-RE_SimCSE Demonstration
+Context: operation homefrontand partners delivered toysto military children.Given the context, the relation between toysand childrenis ENTITY AND DESTINATION.
+GPT-RE_FT Demonstration
+RetrievalGPT-SentGPT-RE_SimCSEGPT-RE_FTGPT-3 OutputMEMBER AND COLLECTIONENTITY AND DESTINATIONENTITY AND DESTINATION
+(b) [ENTITY AND DESTINATION] denotes the gold label.
+Figure 10: More casees.
+
+[TABLE page=13 index=1]
+Columns: GPT-RE_FT“Temperature” is set to be 0.0, denoting the stableRetrieval | GPT-Sent | GPT-RE_SimCSE | Unnamed: 0
+Row 1: GPT-RE_FT“Temperature” is set to be 0.0, denoting the stableRetrieval: GPT-3 | GPT-Sent: MEMBER AND | GPT-RE_SimCSE: COMPONENT AND | Unnamed: 0: COMPONENT AND
+Row 2: GPT-RE_FT“Temperature” is set to be 0.0, denoting the stableRetrieval: output of GPT-3, we report the result of the single Output | GPT-Sent: COLLECTION | GPT-RE_SimCSE: WHOLE | Unnamed: 0: WHOLE
+[/TABLE]
+
+[TABLE page=13 index=2]
+Columns: We used 2 NVIDIA RTX3090 for training. | Retrieval | GPT-Sent | GPT-RE_SimCSE | GPT-RE_FT
+Row 1: We used 2 NVIDIA RTX3090 for training.: | Retrieval: GPT-3 | GPT-Sent: MEMBER AND | GPT-RE_SimCSE: ENTITY AND | GPT-RE_FT: ENTITY AND
+Row 2: We used 2 NVIDIA RTX3090 for training.: | Retrieval: Output | GPT-Sent: COLLECTION | GPT-RE_SimCSE: DESTINATION | GPT-RE_FT: DESTINATION
+[/TABLE]
+
+[PAGE 14]
+Label # Num
+PHYS 28
+GEN-AFF 12
+PER-SOC 11
+GEN-AFF 33
+PART-WHOLE 13
+ART 19
+NULL 2329
+Table 5: ACE05
+B Case Study
+To verify the effectiveness of our task-aware
+demonstration retrieval, we provide more cases.
+For Figure 10a, GPT-Sent retrieves a demonstration that shares the same semantic meaning of “design” with the test input. However, the entity pair
+is irrelevant to the concept “design” resulting in a
+noisy demonstration. Instead, GPT-RE_SimCSE
+retrieves a more relative demonstration with closer
+pair of entities sharing the same relation label. Furthermore, GPT-RE_FT retrieves the demonstration
+containing both the closing entity pair and the same
+linguistic structure between entities. This case emphasizes level-by-level improvement using our proposed methods. Figure 10b shows a similar phenomenon.
+C Subset
+The number of sampled examples is not only related to the size of the training data itself. A more
+important factor is the proportion of NULL . We
+have to maintain the original label distribution in
+datasets with a high proportion of NULL . Thus, the
+rule to sample the subset is to keep the proportion
+of each relation label consistent with the original
+test set. Table 5 6 are label distributions of two
+subsets.
+GPT-RE_FT on TACRED surpasses the supervised baseline in the current subset. As we show
+above, some labels in TACRED are indeed not well
+presented (only 1 example), since TACRED dataset
+contains some long-tail labels. We decided to add
+additional results of GPT-RE_FT by enlarging our
+sampled set to # 3200 (2 times the current version),
+and the performance of GPT-RE_FT (k = 15) is
+73.16 while the performance of PURE is 70.48.
+Label # Num
+Per:title 40
+PER:city_of_death 1
+Org:shareholders 2
+Per:origin 12
+Org:top_members/employees 36
+Org:city_of_headquarters 11
+Per:religion 4
+Per:city_of_birth 1
+Per:employee_of 27
+Per:data_of_death 3
+Per:other_family 5
+Org:website 6
+Per:cause_of_death 3
+Org:subsidiaries 4
+Org:stateorprovince_of_headquarters 5
+Per:countries_of_residence 10
+Per:siblings 5
+Per:stateorprovinces_of_residence 11
+Org:alternate_names 27
+Per:spouse 4
+Per:parents 7
+Org:country_of_headquarters 9
+Per:age 21
+Per:date_of_birth 1
+Per:country_of_death 1
+Per:schools_attended 4
+Org:member_of 3
+Per:children 5
+Org:parents 7
+Per:cities_of_residence 24
+Per:stateorprovince_of_brith 1
+Per:charges 12
+Org:founded 2
+Org:country_founded_by 5
+Per:stateorprovince_of_death 1
+Org:members 4
+Per:country_of_birth 1
+Per:alternate_names 1
+Org:number_of_employees/members 1
+Org:dissolved 1
+Org:political/religious_affiliation 1
+NULL 1271
+Table 6: TACRED
+
+[TABLE page=14 index=1]
+Columns: For Figure 10a, GPT-Sent retrieves a demonstra- | Per:other_family | 5
+Row 1: For Figure 10a, GPT-Sent retrieves a demonstra-: tion that shares the same semantic meaning of “de- | Per:other_family: Org:website | 5: 6
+Row 2: For Figure 10a, GPT-Sent retrieves a demonstra-: sign” with the test input. However, the entity pair | Per:other_family: Per:cause_of_death | 5: 3
+Row 3: For Figure 10a, GPT-Sent retrieves a demonstra-: is irrelevant to the concept “design” resulting in a | Per:other_family: Org:subsidiaries | 5: 4
+Row 4: For Figure 10a, GPT-Sent retrieves a demonstra-: noisy demonstration. Instead, GPT-RE_SimCSE | Per:other_family: Org:stateorprovince_of_headquarters | 5: 5
+[/TABLE]

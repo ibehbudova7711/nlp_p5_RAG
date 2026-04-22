@@ -1,0 +1,743 @@
+[PAGE 1]
+GPT and Prejudice: A Sparse Approach to
+Understanding Learned Representations in Large
+Language Models
+Mariam Mahrana, *,1 and Katharina Simbecka, **,1
+aHTW Berlin University of Applied Sciences, Treskowallee 8, 10318 Berlin, Germany
+ORCID (Mariam Mahran): https://orcid.org/0009-0003-0568-0172, ORCID (Katharina Simbeck):
+https://orcid.org/0000-0001-6792-461X
+Abstract.Large Language Models (LLMs) are trained on massive,
+unstructured corpora, making it unclear which social patterns and biases they absorb and later reproduce. Existing evaluations typically
+examine outputs or activations, but rarely connect them back to the
+pre-training data. We introduce a pipeline that couples LLMs with
+sparse autoencoders (SAEs) to trace how different themes are encoded during training. As a controlled case study, we trained a GPTstyle model on 37 nineteenth-century novels by ten female authors,
+a corpus centered on themes such as gender, marriage, class, and
+morality. By applying SAEs across layers and probing with eleven
+social and moral categories, we mapped sparse features to humaninterpretable concepts. The analysis revealed stable thematic backbones (most prominently around gender and kinship) and showed
+how associations expand and entangle with depth. More broadly, we
+argue that the LLM+SAEs pipeline offers a scalable framework for
+auditing how cultural assumptions from the data are embedded in
+model representations.
+1 INTRODUCTION
+Modern Large Language Models (LLMs) are trained on massive,
+heterogeneous datasets combining web pages, books, code repositories, and user-generated content [19]. A well-known example is
+Common Crawl, which supplied much of the training data for GPT-3
+[7]. The sheer size and lack of structure of such corpora make them
+impossible to audit manually. As a result, the structures, biases, and
+themes embedded in the data remain opaque, despite their influence
+on model behavior [3].
+Research on bias in NLP and LLMs has largely targeted either
+model outputs or internal representations [12, 22]. Yet these approaches often fail to connect observed biases back to their origins
+in pretraining data [39]. Some recent work has begun to explore this
+connection, but progress is limited due to inaccessibility of commercial training corpora [20, 28, 39]. Without visibility into the data itself, it remains difficult to understand how models internalize societal
+narratives and assumptions.
+To bridge this gap, we propose coupling LLMs with sparse autoencoders (SAEs) as a pipeline to uncover conceptual structures in
+∗ Corresponding Author. Email: mariam.mahran@htw-berlin.de.
+∗∗ Corresponding Author. Email: katharina.simbeck@htw-berlin.de.
+1 Equal contribution.
+training data. SAEs have recently emerged withinmechanistic interpretabilityas a promising tool for exposing the factors that shape
+model behavior [15, 14, 17, 25, 37, 29, 36]. By mapping dense activations into a sparse latent space, they help disentangle overlapping
+signals revealing how features are encoded. SAEs make it possible
+to recover high-level, interpretable features that reflect the social patterns, themes, and biases embedded in the underlying corpus.
+As a case study, we trained a GPT-style model on a curated collection of novels by ten female authors from the late eighteenth
+and nineteenth centuries, known for their sustained engagement with
+themes of gender, marriage, class, and morality. By applying SAEs
+across all layers, we trace how these constructs appear in the model’s
+internal activations. While the model itself is modest in scale and not
+optimized for benchmarks, it offers a controlled setting to examine
+the link between data and representation.
+Beyond this, our pipeline provides a practical method for mapping
+model states to human-interpretable categories. This is not a new
+technique, but it illustrates how SAEs can serve as a lens onto the
+data. Demonstrated on a compact, historically grounded corpus, the
+approach is readily adaptable to larger and noisier datasets, enabling
+the recovery of hidden structures, patterns, and biases that LLMs inherit from their training material.
+2 RELATED WORK
+2.1 The Imprint of Pretraining Data
+As LLMs have become increasingly powerful and more fluent, there
+has been a renewed focus on understanding their internal mechanisms, particularly how the data they are trained on influences their
+behavior. Recent work suggests that LLMs may encode structured
+world knowledge, as certain features emerge consistently across different models [8, 2]. However, this stands in contrast to the “stochastic parrot” view, which argues that models merely reproduce patterns
+in their corpora rather than truly “understanding” language [3]. This
+perspective reframes model behavior not as a window into intelligence, but as a mirror of the data these models consume. The latter
+argument is reinforced by recent findings that LLMs often succeed
+on surface-level tasks but fail at deeper reasoning, suggesting much
+of their apparent intelligence reduces to memorized correlations [40].
+This influence of data extends to any learned bias. Research shows
+that LLMs replicate and even amplify stereotypes related to gender,
+arXiv:2510.01252v3 [cs.CL] 13 Nov 2025
+
+[PAGE 2]
+Figure 1: Overview of the probing pipeline. Curated prompts annotated with 11 concepts are passed through a GPT-style model trained on
+nineteenth-century novels. Hidden states from each layer are encoded by sparse autoencoders (SAEs), then filtered for selectivity. For each
+retained neuron-concept pair, metrics (AP,∆P), primary/secondary assignments, and polarity are computed, forming the basis for our analyses.
+race, religion, and social class [12, 20, 28, 26, 36]. For instance, one
+study found consistent social bias in code generation outputs [24].
+Another found that larger models amplify gender bias more strongly,
+suggesting scale exacerbates representational harm [10].
+Nonetheless, these studies often treat models as black boxes, addressing symptoms rather than sources. Since LLMs are shaped by
+their training data, the data itself must be examined. Recent work
+on membership inference attacks (MIAs) show that individual training examples leave detectable traces [19], providing direct evidence
+of the imprint of pretraining corpora. Similarly, analyses of large
+datasets reveal clear presence of occupational stereotypes, such as
+gendered job associations, that reappear (and sometimes intensify)
+in model outputs [39]. Efforts like prompt engineering or instruction
+tuning offer only limited mitigation.
+A larger issue is that most modern commercial LLMs rely on massive corpora scraped indiscriminately from the internet. These collections include unexpected sources such as patents, military websites,
+and even machine-generated content [9]. Their lack of structure and
+immense scale place them beyond the reach of manual auditing, leaving biases and hidden conceptual patterns undiscovered until after
+training. These concerns underline our motivation to develop tools
+that help recover and interpret the conceptual structures encoded by
+LLMs from their data.
+2.2 Sparse Autoencoders
+A key challenge with traditional interpretability approaches (e.g. attention weight visualization or probing individual neurons) is the
+problem ofsuperpositionwhere multiple overlapping features are
+compressed into the same neuron [11, 4]. This makes it unclear
+whether activations reflect a relevant concept or interference from
+other signals.
+Sparse autoencoders (SAEs) address superposition by projecting
+activations into a larger latent space while enforcingsparsity, so that
+only a few units fire for each input [15, 4]. An SAE is a simple neural
+network typically constructed with two fully connected layers with
+a non-linear activation. SAEs are trained to reconstruct the original
+activations from a layer within the LLM. The encoder maps these
+activations into a larger latent space, while enforcing sparsity, and
+the decoder reassembles them. Sparsity is usually imposed through
+techniques like L1 regularization [15, 21], top-k masking [27], or
+thresholding functions such as JumpReLU [33].
+Recent studies confirm the utility of SAEs in the interpretability of
+LLMs. They were successfully used to identify linguistic structures
+aligned with syntax and semantics [15], linguistic patterns, such as
+phonetic, syntactic, and pragmatic features distributed across layers
+[17], and even domain-specific signals such as protein functions in
+biological models [37].
+Building on these findings, we shift the focus from interpreting the
+model in isolation to using it as a lens onto the data it was trained on.
+By coupling SAEs with a language model, we can peek back into the
+corpus that shaped it.
+3 METHODOLOGY
+To examine how thematic patterns are encoded in language models, we trained a GPT-style transformer on a curated corpus of
+nineteenth-century literature. Hidden states from its layers were analyzed with sparse autoencoders to probe the structure of learned representations. This section outlines the dataset, models architecture,
+and training setup, which form the basis for the analyses that follow.
+All code and data used in this study are available for reproducibility
+at our public repository.2
+3.1 Dataset
+The dataset for this study consists of 37 novels by ten female authors
+from the late eighteenth and nineteenth centuries: Jane Austen, Anne
+Brontë, Charlotte Brontë, Emily Brontë, Elizabeth Gaskell, Fanny
+Burney, George Eliot, Maria Edgeworth, Mary Shelley, and Susan
+Ferrier. A full list of included works is provided in Appendix A. All
+novels were sourced from Project Gutenberg [31] and were cleaned
+by removing paratext such as prefaces and footnotes, standardizing
+chapter divisions, and normalizing spelling, punctuation, and encoding. The final dataset contains about7.6 million tokens, which were
+tokenized using the GPT-2 tokenizer (tiktoken) with a vocabulary
+size of 50,257.
+These authors were chosen for the thematic coherence of their
+works. Across their novels we find recurring concerns with gender
+roles, marriage, class, morality, and individual agency. For example,
+2 https://github.com/iug-htw/GPTAndPrejudice/
+
+[PAGE 3]
+Jane Austen is noted for her sharp social commentary and portrayals of women’s limited options in aristocratic society [30]; Elizabeth Gaskell engages with class and industrialization while reshaping
+gender roles [1]; and the Brontës often depict moral struggle and the
+tension between desire and social constraint [5, 6].
+Because such themes (gender,marriage,class,emotions, and
+duty) are shared across the corpus, it provides a coherent and historically grounded setting for examining how language models encode
+not only literary style but also the conceptual structures of social and
+moral life. While limited compared to commercial LLM datasets,
+its small, contained scale reduces noise and variability, allowing for
+more precise analysis of how models encode and reproduce social
+constructs.
+3.2 Language Model Design
+The custom model used in this study is a minimalist transformerbased generative language model designed for next-token prediction. The architecture closely follows the implementation detailed in
+Raschka’sBuild a Large Language Model (From Scratch)[34]. The
+trained model is publicly available on Hugging Face.3
+3.2.1 Model Architecture
+The model follows a standard decoder-only Transformer design with
+an896-dimensionaltoken embedding layer and learned positional
+embeddings. Dropout (rate 0.2) is applied to enhance generalization. The core of the model consists of8 TransformerBlocks. Each
+Transformer block first normalizes the input, then applies multi-head
+(14 heads) self-attention to capture token relationships, followed by
+dropout and a residual connection. The output is normalized again,
+then passed through a feedforward network, followed by dropout and
+another residual connection. After all layers, a final normalization
+is applied, and the hidden states are projected to vocabulary logits
+for next-token prediction. The model is trained only for next token
+generation and isnotinstruction fine-tuned. For interpretability, the
+model records hidden states and attention weights at each layer for
+later analysis.
+3.2.2 Training Setup
+The AdamW optimizer was used during training with a learning rate
+of 3e-4 and weight decay of 3e-2. The training loss smoothly declined but plateaued at 3.4, with a validation loss of 3.8. While
+suboptimal for larger neural networks, this was deemed satisfactory
+given the dataset constraints.
+3.2.3 Model Evaluation
+The model was evaluated using perplexity, a standard measure of predictive accuracy. On the held-out validation set it achieved a perplexity of60.4, showing strong fit to its training domain. To test generalization, we evaluated on three novels by female authors contemporary to those in the training set—Harriet Martineau,Julia Kavanagh,
+andMary Brunton—where perplexity rose to72.4.
+For context, perplexity values in prior work range from 78.4 on
+Penn Tree Bank with LSTMs [13] to 29.41 on WikiText-2 with GPT2 Small (117M parameters) [32], with GPT-2 also reporting 99.3 on
+WikiText-2. These comparisons are not direct baselines, but they help
+situate the scale of our results.
+3 https://huggingface.co/HTW-KI-Werkstatt/gpt_and_prejudice/
+Table 1: Example of model-generated text reflecting corpus style.
+Original prompt highlighted in bold.
+Generated Text Sample:
+"you mustnot go to church, you know," said she, with a faint smile,
+"and I hope you will not be able to stay with me."
+"I am very sorry," answered she
+Analysis:Captures period-appropriate dialogue and tone; The exchange lacks clear logical coherence.
+We further assessed the model through qualitative inspection of the
+model’s text generation. The outputs reproduce the sentence structures, word choices, and ironic tone characteristic of nineteenthcentury women’s writing, producing grammatically correct and contextually plausible sentences. However, coherence weakens in longer
+passages as narratives drift, logical consistency fades, and contradictions appear. As shown in Table 1, the generated text often sounds
+like it belongs in a nineteenth-century novel but lacks the semantic
+depth and sustained coherence expected by a human reader.
+Since the aim of this study is to examine how LLMs reflect knowledge from their training data rather than to build a fully usable language model, this lack of coherence is not a limitation for our analysis.
+3.3 Sparse Autoencoders Design
+3.3.1 SAE architecture
+Eight sparse autoencoders were trained, one per transformer layer.
+Each SAE mirrored the model’s hidden state size (896 neurons) in
+its input and output layers, with the hidden dimension expanded according to depth: a factor of 3 for Layers 1-2 (2688), 4 for Layers 3-5
+(3584), and 5 for Layers 6-8 (4480). This depth-aware scaling reflects
+the increasing feature density across layers, where early layers capture lexical or syntactic patterns and deeper layers encode more abstract, entangled semantics [16]. Providing greater capacity at depth
+allows the SAEs to better disentangle overlapping concepts without
+overparameterizing shallow layers.
+Sparsity was enforced using atop-kactivationfunction, retaining
+only the 50 most active hidden units per sample while suppressing the
+rest [27]. This constraint directs the SAE toward extracting informative features from the model’s hidden states. Training used a simple
+reconstruction objective with Mean Squared Error (MSE), ensuring
+focus on accurately reproducing the original activations.
+3.3.2 Training Setup for the SAEs
+All SAEs were trained using the same dataset as the LLM. The text
+was first split into sentences, then filtered to remove extreme cases
+(sentences shorter than five words or longer than sixty). Each sentence was fed to the trained LLM, and the hidden states from all
+layers were extracted from the model and saved in separate files per
+layer. These embeddings formed the training datasets for the SAE,
+with a 90:10 train-validation split.
+Training ran for up to 500 epochs with early stopping if no improvement was seen after 10 consecutive epochs. The objective
+throughout was to minimize reconstruction loss while maintaining
+sparsity in the activations.
+
+[PAGE 4]
+Table 2: Layer-wise reconstruction metrics for the eight sparse autoencoders, reporting mean squared error (MSE) and cosine similarity for each layer.
+Layer Reconstruction MSE Cosine Similarity
+1 0.128 0.705
+2 0.201 0.852
+3 0.356 0.877
+4 0.505 0.897
+5 0.753 0.878
+6 1.077 0.855
+7 1.385 0.830
+8 1.673 0.828
+3.4 SAEs Evaluation
+To assess the quality of our SAEs, we report reconstruction MSE and
+cosine similarity across layers (Table 2). While MSE increases with
+depth (0.13 at Layer 1 to 1.67 at Layer 8), cosine similarity remains
+consistently high, with mid-layers peaking around 0.89. These values are in line with prior SAE studies. [15] observed that reconstruction fidelity declines in deeper layers even as directional structure
+is preserved, while [23] showed that fidelity varies across layers but
+remains sufficiently high for probing tasks. Nonetheless, cosine similarity stays above 0.80 throughout, indicating that the SAEs preserve
+the directional structure of activations even when magnitude reconstruction weakens. This provides strong evidence that our SAEs are
+well-calibrated for probing conceptual representations in the model.
+4 NEURON AUDITING SETUP
+To help with our analysis, we constructed a probing dataset of short
+prompts designed to reliably activate targeted themes. Using SAEs
+and the probing dataset, we trace how different social and narrative
+themes are reflected in the model’s latent space. An overview of the
+pipeline is provided in Figure 1.
+The dataset is fully annotated with multi-hot labels corresponding to 11 recurrent concepts in the novels:gender (female),gender
+(male),family,marriage,wealth,emotion,love,scandal,duty,class,
+andsociety. Each prompt may evoke one or multiple concepts simultaneously. For example, "The girl" is annotated as female, while "His
+wife" activates marriage, female gender, and male gender.
+This annotation scheme reflects the multi-conceptual nature of natural language, where a single phrase often encodes overlapping social and moral dimensions. By framing the dataset as multi-label
+rather than single-label, we ensure closer alignment with the way
+such constructs co-occur in the novels themselves.
+The final dataset contains665 curated prompts, balanced across
+the 11 concepts. This controlled resource provides a test bed for mapping SAE neurons to human-interpretable categories, enabling us to
+track how conceptual structure evolves across the eight layers of the
+model.
+5 CONCEPTS ASSOCIATION MAPPING
+To link sparse autoencoder activations with the 11 concepts in the
+probing dataset, we designed a multi-step pipeline. Each probing
+prompt was passed through the GPT model, and the hidden states
+from each layer were encoded and reconstructed by the corresponding SAE. For each SAE, we collected neuron activations across the
+full dataset and applied a selectivity filter: a neuron was retained if
+its activation exceeded 5.0 and it fired in at least 5 and at most 150
+prompts, ensuring it was neither trivially inactive nor overly generic.
+For each neuron-concept pair, we computed the following metrics:
+•Average Precision (AP):How well the neuron ranks prompts
+containing the concept above those without it (high AP = strong
+detector).
+•P(fire|1):Probability that the neuron fires given that the prompt
+has the concept.
+•P(fire|0):Probability that the neuron fires given that the prompt
+does not have the concept.
+From these, we calculated the difference in firing rates:
+∆P=P(fire|label= 1)−P(fire|label= 0)
+A positive∆Pindicates that the neuron fires more often in the presence of the concept, while∆P≤0implies no useful selectivity or
+even negative correlation. We therefore restricted analysis to neurons
+with∆P >0, treating them as genuine detectors.
+Detector neurons were then ranked by AP. For each neuron, the
+top-ranked concept was assigned as theprimaryassociation, and
+the second-ranked as asecondaryassociation if sufficiently strong.
+To compare the relative strength of the two, we computed a polarity
+score:
+Polarity= APprimary −AP secondary
+APprimary + 10−9
+This measure expresses how much stronger the primary association is relative to the secondary, normalized by the primary score.
+A small constant is added to the denominator (ϵ= 10 −9) to avoid
+division by zero in cases where the primary AP is extremely small.
+Neurons were then categorized asdominant(secondary AP≤80%
+of primary AP),two-strong(≤50% margin), orleaning(≤20% margin).
+The result is a neuron-concept dictionary linking each selective
+neuron to at most two positively correlated concepts. This dictionary
+provides the foundation for the analyses presented in the following
+sections.
+6 RESULTS
+A summary of the results of mapping sparse features to the concepts
+present in the probing dataset is given in Table 3. Unless otherwise
+stated, the results in this subsection are aggregated across all eight
+layers.
+6.1 General Trends
+As shown in Table 3A, the number of selective neurons increased
+steadily with depth, from only 4 in Layer 1 to a peak of 147 in Layer
+7, before dropping slightly in Layer 8 (142). This reflects the greater
+density of features encoded in later layers of the model.
+Precision, measured by mean AP across all neuron-concept pairs,
+varies only modestly across the model. Scores begin at 0.223 in
+Layer 1, rise to a peak of 0.265 in Layer 2, and then stabilize in
+the 0.23 range for the remaining layers. This slight peak suggests
+that early-mid layers yield somewhat more reliable detectors, while
+deeper layers converge toward broader, less distinct precision. Still,
+the low mean scores mask the presence of individual neurons with far
+stronger precision. As shown in Table 4, several units achieve AP values above 0.55 demonstrating that even in a modest model, sharply
+
+[TABLE page=4 index=1]
+Columns: Layer | Reconstruction MSE | Cosine Similarity | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8
+Row 1: Layer: | Reconstruction MSE: | Cosine Similarity: | Unnamed: 0: • | Unnamed: 1: Average Precision | Unnamed: 2: (AP): | Unnamed: 3: How | Unnamed: 4: well | Unnamed: 5: the | Unnamed: 6: neuron | Unnamed: 7: ranks | Unnamed: 8: prompts
+Row 2: Layer: 1.0 | Reconstruction MSE: 0.128 | Cosine Similarity: 0.705 | Unnamed: 0: | Unnamed: 1: containing the concept above those without it (high AP = strong | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+Row 3: Layer: 2.0 | Reconstruction MSE: 0.201 | Cosine Similarity: 0.852 | Unnamed: 0: | Unnamed: 1: detector). | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+Row 4: Layer: 3.0 | Reconstruction MSE: 0.356 | Cosine Similarity: 0.877 | Unnamed: 0: • | Unnamed: 1: P(fire | 1): Probability that the neuron fires given that the prompt | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+Row 5: Layer: 4.0 | Reconstruction MSE: 0.505 | Cosine Similarity: 0.897 | Unnamed: 0: | Unnamed: 1: has the concept. | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+Row 6: Layer: 5.0 | Reconstruction MSE: 0.753 | Cosine Similarity: 0.878 | Unnamed: 0: • | Unnamed: 1: P(fire | 0): Probability that the neuron fires given that the prompt | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+Row 7: Layer: 6.0 | Reconstruction MSE: 1.077 | Cosine Similarity: 0.855 | Unnamed: 0: | Unnamed: 1: does not have the concept. | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+Row 8: Layer: 7.0 | Reconstruction MSE: 1.385 | Cosine Similarity: 0.83 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+Row 9: Layer: 8.0 | Reconstruction MSE: 1.673 | Cosine Similarity: 0.828 | Unnamed: 0: | Unnamed: 1: From these, we calculated the difference in firing rates: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+[/TABLE]
+
+[PAGE 5]
+Table 3: Summary of neuron-concept mapping results. (A) Layer-wise statistics, showing the number of selective neurons, growth relative to
+the previous layer, mean primary AP, and mean polarity for each of the eight layers. (B) Aggregated concept-level statistics across all layers,
+reporting the total number of primary neurons, mean primary AP, mean polarity, and number of neurons without a secondary concept for the
+most frequent concepts.
+(A) Layer-wise trends
+L Selective Growth Mean AP Mean Polarity
+1 4 0 0.223 0.127
+2 9 5 0.265 0.407
+3 20 11 0.244 0.328
+4 34 14 0.247 0.266
+5 62 28 0.238 0.268
+6 105 43 0.228 0.239
+7 147 42 0.223 0.220
+8 142 -5 0.222 0.230
+(B) Top concepts (for §6.2)
+Concept # Mean
+Primary AP
+Mean
+Polarity
+No
+Secondary
+male 74 0.309 0.302 6
+society 77 0.309 0.293 2
+female 121 0.304 0.265 10
+marriage 80 0.274 0.283 7
+family 77 0.274 0.138 –
+wealth 22 0.216 0.112 –
+tuned concept detectors emerge alongside the broader distribution of
+weaker signals.
+Polarity measures follow a similar trajectory. While some neurons
+in earlier layers were highly selective (mean polarity = 41% at Layer
+2), average polarity scores decreased as depth increased, stabilizing
+around 22%-23% in Layers 7-8. Similarly, the AP gap between primary and secondary concepts shrank across depth (from 0.135 in L2
+to 0.068 in L8), indicating that later neurons are increasingly polysemantic, combining multiple concepts rather than responding to a
+single one.
+These trends reveal a clear developmental pattern: early layers
+contain few but relatively pure detectors, mid-layers strike a balance between clarity and capacity, and deeper layers host the largest
+number of selective neurons, though these tend to be more entangled
+across concepts.
+Table 4: Top detector neurons (sorted by primary AP)
+ID Layer Primary AP Secondary Polarity
+4328 6 male 0.74 – 1.00
+1773 7 male 0.67 family 0.63
+2246 5 male 0.64 family 0.67
+2130 4 male 0.61 family 0.63
+2130 3 male 0.59 love 0.75
+1466 2 male 0.56 – 1.00
+121 7 family 0.56 female 0.47
+6.2 Concept Strengths
+Not all social and moral categories are represented equally in the
+model. Some emerge as clear, high-confidence detectors, while others appear mainly in entangled or secondary form (Table 3B).
+The strongest detectors correspond to gendered categories with
+mean AP values above 0.30, high polarity scores, and several units
+acting as near-monosemantic detectors (Table 4). For example, one
+neuron in Layer 6 detects male with an AP of 0.74 and no secondary
+association, making it the clearest single detector in the sparse space.
+Alongside gender,societyalso emerges as a relatively strong theme,
+suggesting that broad social structures are represented with more coherence than private or affective notions.
+Marriageandfamilyare also frequent as primary associations (80
+and 77 neurons respectively), but they tend to be less pure. Their
+mean primary AP scores are lower (∼0.27), and their mean polarity
+values (family= 14%,marriage= 28%) show that these neurons are
+more often entangled with related themes such aswealth,female, or
+male.
+Other categories, such asemotion,duty, andlove, appear in smaller
+numbers and with weaker selectivity.Wealthrarely appears as a primary concept but is the fourth most common secondary association,
+whilescandalbarely registers (1 neuron). These categories appear
+less as standalone detectors and more as modifiers embedded within
+other conceptual contexts.
+These trends suggest that the modelmost strongly encodes gendered categories (male/female) and broad social structures (society)as coherent detectors, while themes likemarriage and family are richly represented but more polysemantic. Economic and
+moral dimensions such as wealth or duty are present but usually in
+secondary or entangled form, rather than as dominant signals.
+6.3 Dual-Themed Neurons
+Dual-themed neurons, which are units with both a primary and a secondary concept, show how social and moral categories overlap in the
+model. They expose relationships rather than single detectors. Figure 2 presents three representative layers (Layers 1, 4, and 8) corresponding to early, mid, and late stages of the model. These layers
+serve as case studies of conceptual evolution. In each graph, nodes
+denote concepts and edges indicate the number of neurons shared
+between them, with edge width proportional to the frequency of coactivation normalized per layer. The full set of graphs for all eight
+layers is provided in Appendix C.
+In Layer 1, the network is extremely sparse, with only a few selective neurons forming a simple backbone aroundfemale, making
+it the central node at this depth. This suggests that gender (especiallyfemale) anchors the earliest structure, with kinship and marriage clustered immediately around it.
+By Layer 4, the network expands to 16 unique pairings, with a
+clear cluster around gender and kinship.Female,male,family, and
+marriagedominate as central nodes, connected by multiple overlapping neurons. At the same time, we see the first outward ties to
+broader social categories:wealth,scandal, andsociety. Emotion also
+enters here in tentative form (emotion–male,emotion–female), layering affective tones onto the gendered core.
+In Layer 8, the network is densely interconnected. Thegender–family–marriagecluster remains, butmarriagebecomes the key
+bridge outward, linking strongly tosocietyandwealth. Emotional
+and moral themes also enter, with edges such asduty–emotionand
+duty–marriage. Notably,love–marriageremains weak, andscandal
+andclassremain peripheral.
+Across all layers, thegender–family–marriagetriad persists as a
+stable backbone, growing more interconnected with depth even as its
+
+[TABLE page=5 index=1]
+Columns: L Selective | Growth | Mean AP | Mean Polarity | Concept | # | Mean | Mean.1 | No
+Row 1: L Selective: Secondary1 4 | Growth: 0.0 | Mean AP: 0.223 | Mean Polarity: 0.127 | Concept: | #: | Mean: Primary AP | Mean.1: Polarity | No:
+Row 2: L Selective: 2 9 | Growth: 5.0 | Mean AP: 0.265 | Mean Polarity: 0.407 | Concept: male | #: 74.0 | Mean: 0.309 | Mean.1: 0.302 | No: 6
+Row 3: L Selective: 3 20 | Growth: 11.0 | Mean AP: 0.244 | Mean Polarity: 0.328 | Concept: | #: | Mean: | Mean.1: | No:
+Row 4: L Selective: | Growth: | Mean AP: | Mean Polarity: | Concept: society | #: 77.0 | Mean: 0.309 | Mean.1: 0.293 | No: 2
+Row 5: L Selective: 4 34 | Growth: 14.0 | Mean AP: 0.247 | Mean Polarity: 0.266 | Concept: | #: | Mean: | Mean.1: | No:
+Row 6: L Selective: | Growth: | Mean AP: | Mean Polarity: | Concept: female | #: 121.0 | Mean: 0.304 | Mean.1: 0.265 | No: 10
+Row 7: L Selective: 5 62 | Growth: 28.0 | Mean AP: 0.238 | Mean Polarity: 0.268 | Concept: | #: | Mean: | Mean.1: | No:
+Row 8: L Selective: 6 105 | Growth: 43.0 | Mean AP: 0.228 | Mean Polarity: 0.239 | Concept: marriage | #: 80.0 | Mean: 0.274 | Mean.1: 0.283 | No: 7
+Row 9: L Selective: 7 147 | Growth: 42.0 | Mean AP: 0.223 | Mean Polarity: 0.22 | Concept: family | #: 77.0 | Mean: 0.274 | Mean.1: 0.138 | No: –
+Row 10: L Selective: 8 142 | Growth: -5.0 | Mean AP: 0.222 | Mean Polarity: 0.23 | Concept: wealth | #: 22.0 | Mean: 0.216 | Mean.1: 0.112 | No: –
+[/TABLE]
+
+[TABLE page=5 index=2]
+Columns: ID | Layer | Primary | AP | Secondary | Polarity | model. They expose relationships rather than single detectors. FigRow 1: ID: 4328.0 | Layer: 6.0 | Primary: male | AP: 0.74 | Secondary: – | Polarity: 1.0 | model. They expose relationships rather than single detectors. Fig-: ure 2 presents three representative layers (Layers 1, 4, and 8) corRow 2: ID: 1773.0 | Layer: 7.0 | Primary: male | AP: 0.67 | Secondary: family | Polarity: 0.63 | model. They expose relationships rather than single detectors. Fig-: responding to early, mid, and late stages of the model. These layers
+Row 3: ID: 2246.0 | Layer: 5.0 | Primary: male | AP: 0.64 | Secondary: family | Polarity: 0.67 | model. They expose relationships rather than single detectors. Fig-: serve as case studies of conceptual evolution. In each graph, nodes
+Row 4: ID: 2130.0 | Layer: 4.0 | Primary: male | AP: 0.61 | Secondary: family | Polarity: 0.63 | model. They expose relationships rather than single detectors. Fig-:
+Row 5: ID: | Layer: | Primary: | AP: | Secondary: | Polarity: | model. They expose relationships rather than single detectors. Fig-: denote concepts and edges indicate the number of neurons shared
+Row 6: ID: 2130.0 | Layer: 3.0 | Primary: male | AP: 0.59 | Secondary: love | Polarity: 0.75 | model. They expose relationships rather than single detectors. Fig-:
+Row 7: ID: 1466.0 | Layer: 2.0 | Primary: male | AP: 0.56 | Secondary: – | Polarity: 1.0 | model. They expose relationships rather than single detectors. Fig-: between them, with edge width proportional to the frequency of coRow 8: ID: 121.0 | Layer: 7.0 | Primary: family | AP: 0.56 | Secondary: female | Polarity: 0.47 | model. They expose relationships rather than single detectors. Fig-: activation normalized per layer. The full set of graphs for all eight
+[/TABLE]
+
+[TABLE page=5 index=3]
+Columns: in earlier layers were highly selective (mean polarity = 41% at Layer | while scandal barely registers (1 neuron). These categories appear
+Row 1: in earlier layers were highly selective (mean polarity = 41% at Layer: 2), average polarity scores decreased as depth increased, stabilizing | while scandal barely registers (1 neuron). These categories appear: less as standalone detectors and more as modifiers embedded within
+Row 2: in earlier layers were highly selective (mean polarity = 41% at Layer: around 22%-23% in Layers 7-8. Similarly, the AP gap between pri- | while scandal barely registers (1 neuron). These categories appear: other conceptual contexts.
+Row 3: in earlier layers were highly selective (mean polarity = 41% at Layer: mary and secondary concepts shrank across depth (from 0.135 in L2 | while scandal barely registers (1 neuron). These categories appear: These trends suggest that the model most strongly encodes genRow 4: in earlier layers were highly selective (mean polarity = 41% at Layer: to 0.068 in L8), indicating that later neurons are increasingly poly- | while scandal barely registers (1 neuron). These categories appear: dered categories (male/female) and broad social structures (soRow 5: in earlier layers were highly selective (mean polarity = 41% at Layer: semantic, combining multiple concepts rather than responding to a | while scandal barely registers (1 neuron). These categories appear: ciety) as coherent detectors, while themes like marriage and fam-
+[/TABLE]
+
+[PAGE 6]
+Figure 2: Conceptual mappings of dual-theme neurons in SAE Layer 1 , 4, and 8 (from left to right). Each node represents a social concept,
+and edges represent shared neurons that consistently co-activate for both themes.
+dominance gives way to broader entanglement. Together, these three
+layers illustrate the progression of dual-themed associations: sparse
+and focused in the early model, more coherent and structured at middepth, and densely interwoven in later layers, where boundaries blur
+but recurring sub-clusters remain.
+7 DISCUSSION
+The main goal of this study is not to interpret a model in isolation but
+to demonstrate how sparse autoencoders combined with a probing
+dataset can recover conceptual relations from text. Using a GPT-style
+model trained on nineteenth-century novels, we identified recurring
+structures around social and moral themes from the underlying corpus. This serves as a proof of concept for a pipeline that can be scaled
+to larger models and corpora, offering a generalizable approach to
+studying cultural and social patterns in text.
+The associations we uncover align with themes well documented
+in literary scholarship. For instance, a persistentgender-familymarriagebackbone reflects how central such themes are to the novels. For example, in George Eliot’sMiddlemarch, Brooke’s marriage
+illustrates the tension between gender expectations, duty, and family
+standing, while in Anne Brontë’sThe Tenant of Wildfell Hall, Helen’s
+abusive marriage shows how familial obligations confine women in
+destructive unions [35, 18].
+The weakmarriage–lovelink likewise matches the period’s cultural logic, where marriage was framed as rational and stabilizing,
+while love was considered unstable and rarely central [18].Middlemarchitself depicts love as disconnected from a “good match.”
+By contrast, the model highlights a strongmarriage–wealth–society
+axis, consistent with the economic framing of marriage. In Austen’s
+Pride and Prejudice, a character defends her acceptance of a marriage proposal for financial security, while in Charlotte Brontë’sJane
+Eyre, Jane’s inheritance grants independence and enables a more
+equal union [38, 5]. These examples confirm that the model’s relational framework mirrors the thematic structures in the corpus.
+Another notable pattern emerges. Themalecategory produces the
+purest detectors, with several neurons highly selective formalealone.
+Female, by contrast, rarely appears in isolation, with only a few pure
+detectors. In the dual-themed networks, however,femaletakes on a
+central role, outwardly (withfemaleas primary) linking to nearly
+every major concept, whilemaleforms fewer, more selective ties,
+often tied back tofemale. This suggests thatmaleis encoded more
+discretely, whilefemalefunctions as a relational hub. One possible
+explanation, though speculative, is the narrative perspective. These
+novels are written from a female viewpoint, often withmalefigures
+as objects of description.
+It is important to recognize that these results are shaped by the
+probing dataset. We defined eleven concepts that guided the analysis,
+and the relations surfaced are therefore dependent on this design.
+Other categories (e.g.,religion,education, orpolitics) might have
+yielded different insights from the data. Some, likesociety,classor
+scandal, were harder to capture in short probing prompts, reflecting
+both the broadness of their definitions and the subjectivity of human
+annotation. Rather than a flaw, we see this as a feature of the method:
+the probing dataset can be tuned to the needs of a given application.
+The pipeline extends beyond literary analysis, since the probing
+dataset can be tailored to different domains. In HR, categories such
+as gender, occupation, promotion, and salary could be used to evaluate bias patterns, while in healthcare, probing might focus on gender, diagnosis, treatment, and insurance coverage. This adaptability
+makes the method a customizable lens for examining model behavior across contexts. While demonstrated here on a small model and
+a limited dataset, the ability to recover coherent thematic structures
+in this setting demonstrates the viability of the approach. Applied
+to larger models trained on more heterogeneous corpora, the same
+pipeline could uncover richer and more nuanced patterns.
+Most importantly, the contribution here goes beyond interpretability. The LLMs+SAEs framework uses models as instruments to study
+corpora themselves. Rather than treating SAEs only as tools for explaining models, this approach surfaces the social patterns and thematic structures embedded in training data. It thus provides a scalable framework for exploring literary traditions at scale and auditing
+massive datasets that cannot be examined manually, bridging the gap
+between interpretability research and corpus analysis.
+8 CONCLUSION
+This paper presented a pipeline that combines LLMs with SAEs to
+uncover conceptual relations in text. A GPT-style model was first
+trained on a corpus of nineteenth-century novels, and SAEs were
+then applied to its hidden states. The resulting sparse features were
+mapped to 11 social and moral categories, revealing recurring structures that reflect the literature.
+The results show that the LLM+SAEs approach can offer a systematic method for exploring cultural and social patterns in corpora.
+Because the probing dataset can be customized, the same pipeline
+can be applied to domains ranging from literary analysis to fairness
+auditing in applied systems.
+
+[PAGE 7]
+Future work includes applying the pipeline to larger, more diverse
+corpora and extending the probing concepts to test different conceptual frames.
+Acknowledgements
+This paper portrays the work carried out in the context of the KIWI
+project (16DHBKI071) that is generously funded by the Federal
+Ministry of Research, Technology and Space (BMFTR).
+References
+[1] A. Algotsson. Transgression and Tradition: Redefining Gender Roles
+in Elizabeth Gaskell´s North and South (Dissertation), 2015. URL
+https://urn.kb.se/resolve?urn=urn:nbn:se:liu:diva-119026. https://urn.
+kb.se/resolve?urn=urn:nbn:se:liu:diva-119026.
+[2] D. D. Baek, Y . Li, and M. Tegmark. Generalization from Starvation:
+Hints of Universality in LLM Knowledge Graph Learning, 2024. URL
+https://arxiv.org/abs/2410.08255. https://arxiv.org/abs/2410.08255.
+[3] E. M. Bender, T. Gebru, A. McMillan-Major, and S. Shmitchell. On the
+Dangers of Stochastic Parrots: Can Language Models Be Too Big? In
+Proceedings of the 2021 ACM Conference on Fairness, Accountability,
+and Transparency, FAccT ’21, New York, NY , USA, 2021. Association for Computing Machinery. ISBN 9781450383097. doi: 10.1145/
+3442188.3445922. URL https://doi.org/10.1145/3442188.3445922.
+[4] T. Bricken, A. Templeton, J. Batson, B. Chen, A. Jermyn, T. Conerly, N. Turner, C. Anil, C. Denison, A. Askell, R. Lasenby,
+Y . Wu, S. Kravec, N. Schiefer, T. Maxwell, N. Joseph, Z. HatfieldDodds, A. Tamkin, K. Nguyen, B. McLean, J. E. Burke, T. Hume,
+S. Carter, T. Henighan, and C. Olah. Towards Monosemanticity:
+Decomposing Language Models With Dictionary Learning.Transformer Circuits Thread, 2023. https://transformer-circuits.pub/2023/
+monosemantic-features/index.html.
+[5] C. Brontë.Jane Eyre: An Autobiography. Project Gutenberg, 1998.
+URL https://www.gutenberg.org/ebooks/1260. EBook #1260. https://
+www.gutenberg.org/ebooks/1260. Accessed: 2025-09-16.
+[6] E. Brontë.Wuthering Heights. Project Gutenberg, 1996. URL https://
+www.gutenberg.org/ebooks/768. EBook #768. https://www.gutenberg.
+org/ebooks/768. Accessed: 2025-09-16.
+[7] T. B. Brown, B. Mann, N. Ryder, M. Subbiah, J. Kaplan, P. Dhariwal,
+A. Neelakantan, P. Shyam, G. Sastry, A. Askell, S. Agarwal, A. HerbertV oss, G. Krueger, T. Henighan, R. Child, A. Ramesh, D. M. Ziegler,
+J. Wu, C. Winter, C. Hesse, M. Chen, E. Sigler, M. Litwin, S. Gray,
+B. Chess, J. Clark, C. Berner, S. McCandlish, A. Radford, I. Sutskever,
+and D. Amodei. Language models are few-shot learners. InProceedings
+of the 34th International Conference on Neural Information Processing
+Systems, NIPS ’20, Red Hook, NY , USA, 2020. Curran Associates Inc.
+ISBN 9781713829546.
+[8] B. Chughtai, L. Chan, and N. Nanda. A toy model of universality: reverse engineering how networks learn group operations. InProceedings
+of the 40th International Conference on Machine Learning, ICML’23.
+JMLR.org, 2023.
+[9] J. Dodge, M. Sap, A. Marasovi ´c, W. Agnew, G. Ilharco, D. Groeneveld,
+M. Mitchell, and M. Gardner. Documenting Large Webtext Corpora:
+A Case Study on the Colossal Clean Crawled Corpus. InProceedings
+of the 2021 Conference on Empirical Methods in Natural Language
+Processing, Online and Punta Cana, Dominican Republic, Nov. 2021.
+Association for Computational Linguistics. doi: 10.18653/v1/2021.
+emnlp-main.98. URL https://aclanthology.org/2021.emnlp-main.98/.
+[10] X. Dong, Y . Wang, P. S. Yu, and J. Caverlee. Disclosure and Mitigation
+of Gender Bias in LLMs, 2024. URL https://arxiv.org/abs/2402.11190.
+https://arxiv.org/abs/2402.11190.
+[11] N. Elhage, T. Hume, C. Olsson, N. Schiefer, T. Henighan, S. Kravec,
+Z. Hatfield-Dodds, R. Lasenby, D. Drain, C. Chen, R. Grosse, S. McCandlish, J. Kaplan, D. Amodei, M. Wattenberg, and C. Olah. Toy
+Models of Superposition, 2022. URL https://arxiv.org/abs/2209.10652.
+https://arxiv.org/abs/2209.10652.
+[12] I. O. Gallegos, R. A. Rossi, J. Barrow, M. M. Tanjim, S. Kim, F. Dernoncourt, T. Yu, R. Zhang, and N. K. Ahmed. Bias and Fairness in
+Large Language Models: A Survey.Computational Linguistics, 50(3),
+Sept. 2024. doi: 10.1162/coli_a_00524. URL https://aclanthology.org/
+2024.cl-3.8/.
+[13] E. Grave, A. Joulin, and N. Usunier. Improving Neural Language
+Models with a Continuous Cache. InInternational Conference on
+Learning Representations, 2017. URL https://openreview.net/forum?
+id=B184E5qee.
+[14] S. S. R. Hindupur, E. S. Lubana, T. Fel, and D. E. Ba. Projecting
+Assumptions: The Duality Between Sparse Autoencoders and Concept Geometry. InICML 2025 Workshop on Methods and Opportunities at Small Scale, 2025. URL https://openreview.net/forum?id=
+AKaoBzhIIF.
+[15] R. Huben, H. Cunningham, L. R. Smith, A. Ewart, and L. Sharkey.
+Sparse Autoencoders Find Highly Interpretable Features in Language Models. InThe Twelfth International Conference on Learning Representations, 2024. URL https://openreview.net/forum?id=
+F76bwRSLeK.
+[16] G. Jawahar, B. Sagot, and D. Seddah. What does BERT learn about the
+structure of language? InProceedings of the 57th Annual Meeting of the
+Association for Computational Linguistics, pages 3651–3657, Florence,
+Italy, July 2019. Association for Computational Linguistics. doi: 10.
+18653/v1/P19-1356. URL https://aclanthology.org/P19-1356/.
+[17] Y . Jing, Z. Yao, L. Ran, H. Guo, X. Wang, L. Hou, and J. Li. Sparse
+Auto-Encoder Interprets Linguistic Features in Large Language Models, 2025. URL https://arxiv.org/abs/2502.20344. https://arxiv.org/abs/
+2502.20344.
+[18] K. M. Kelly. George Eliot’s Middlemarch: The Making of a Modern
+Marriage. Master’s thesis, University of New Orleans, 2010. URL https:
+//scholarworks.uno.edu/td/1173. https://scholarworks.uno.edu/td/1173.
+[19] G. Kim, Y . Li, E. Spiliopoulou, J. Ma, M. Ballesteros, and W. Y . Wang.
+Detecting Training Data of Large Language Models via Expectation
+Maximization. InNeurIPS 2025 Workshop on Evaluating the Evolving LLM Lifecycle: Benchmarks, Emergent Abilities, and Scaling, 2025.
+URL https://openreview.net/forum?id=ZYIP2PhWyz.
+[20] A. Köksal, O. Yalcin, A. Akbiyik, M. Kilavuz, A. Korhonen, and
+H. Schuetze. Language-Agnostic Bias Detection in Language Models with Bias Probing. InFindings of the Association for Computational Linguistics: EMNLP 2023, Singapore, Dec. 2023. Association
+for Computational Linguistics. doi: 10.18653/v1/2023.findings-emnlp.
+848. URL https://aclanthology.org/2023.findings-emnlp.848/.
+[21] Y . Li, Y . Lei, P. Wang, M. Jiang, and Y . Liu. Embedded stacked group
+sparse autoencoder ensemble with L1 regularization and manifold reduction.Applied Soft Computing, 101:107003, 2021. ISSN 15684946. doi: https://doi.org/10.1016/j.asoc.2020.107003. URL https:
+//www.sciencedirect.com/science/article/pii/S156849462030942X.
+[22] Y . Li, M. Du, R. Song, X. Wang, and Y . Wang. A Survey on Fairness in
+Large Language Models, 2024. URL https://arxiv.org/abs/2308.10149.
+https://arxiv.org/abs/2308.10149.
+[23] T. Lieberum, S. Rajamanoharan, A. Conmy, L. Smith, N. Sonnerat,
+V . Varma, J. Kramar, A. Dragan, R. Shah, and N. Nanda. Gemma
+scope: Open sparse autoencoders everywhere all at once on gemma
+2. InProceedings of the 7th BlackboxNLP Workshop: Analyzing
+and Interpreting Neural Networks for NLP, pages 278–300, Miami,
+Florida, US, Nov. 2024. Association for Computational Linguistics.
+doi: 10.18653/v1/2024.blackboxnlp-1.19. URL https://aclanthology.
+org/2024.blackboxnlp-1.19/.
+[24] L. Ling, F. Rabbi, S. Wang, and J. Yang. Bias Unveiled: Investigating
+Social Bias in LLM-Generated Code.Proceedings of the AAAI Conference on Artificial Intelligence, 39(26):27491–27499, Apr. 2025. doi:
+10.1609/aaai.v39i26.34961. URL https://ojs.aaai.org/index.php/AAAI/
+article/view/34961.
+[25] H. Lou, C. Li, J. Ji, and Y . Yang. SAE-V: Interpreting Multimodal
+Models for Enhanced Alignment. InForty-second International Conference on Machine Learning, 2025. URL https://openreview.net/forum?
+id=S4HPn5Bo6k.
+[26] M. Mahran and K. Simbeck. Investigating Bias: A Multilingual Pipeline
+for Generating, Solving, and Evaluating Math Problems with LLMs.
+InEdu4AI’25: 2nd Workshop on Education for Artificial Intelligence,
+ECAI, Bologna, Italy, 2025. URL https://arxiv.org/abs/2509.17701.
+[27] A. Makhzani and B. Frey. k-Sparse Autoencoders, 2014. URL https:
+//arxiv.org/abs/1312.5663. https://arxiv.org/abs/1312.5663.
+[28] H. Orgad and Y . Belinkov. Choose your lenses: Flaws in gender bias
+evaluation. InProceedings of the 4th Workshop on Gender Bias in Natural Language Processing (GeBNLP), Seattle, Washington, July 2022.
+Association for Computational Linguistics. doi: 10.18653/v1/2022.
+gebnlp-1.17. URL https://aclanthology.org/2022.gebnlp-1.17/.
+[29] G. S. Paulo, A. T. Mallen, C. Juang, and N. Belrose. Automatically
+Interpreting Millions of Features in Large Language Models. InFortysecond International Conference on Machine Learning, 2025. URL
+https://openreview.net/forum?id=EemtbhJOXc.
+[30] E. Phillips. Jane austen: A study on the influences, world, and character of an eighteenth-century novelist.Bound Away: The Liberty Journal of History, 5(1), 2022. doi: 10.70623/YRIR8982. URL https:
+
+[PAGE 8]
+//digitalcommons.liberty.edu/ljh/vol5/iss1/1.
+[31] Project Gutenberg. https://www.gutenberg.org/, n.d. Accessed: 202509-16.
+[32] A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, and I. Sutskever.
+Language Models are Unsupervised Multitask Learners.OpenAI,
+2019. URL https://cdn.openai.com/better-language-models/language_
+models_are_unsupervised_multitask_learners.pdf.
+[33] S. Rajamanoharan, T. Lieberum, N. Sonnerat, A. Conmy, V . Varma,
+J. Kramár, and N. Nanda. Jumping Ahead: Improving Reconstruction Fidelity with JumpReLU Sparse Autoencoders, 2024. URL https:
+//arxiv.org/abs/2407.14435. https://arxiv.org/abs/2407.14435.
+[34] S. Raschka.Build a Large Language Model (From Scratch).
+Manning Publications, Shelter Island, NY , 2024. ISBN
+978-1633437166. URL https://www.manning.com/books/
+build-a-large-language-model-from-scratch.
+[35] C. A. Senf. The tenant of wildfell hall": Narrative silences and questions of gender.College English, 52:446, 1990. URL https://api.
+semanticscholar.org/CorpusID:151312545.
+[36] K. Simbeck and M. Mahran. Mechanistic Interpretability with SAEs:
+Probing Religion, Violence, and Geography in Large Language Models. InAEQUITAS 2025: Workshop on Fairness and Bias in AI, ECAI,
+Bologna, Italy, 2025. URL https://arxiv.org/abs/2509.17665.
+[37] E. Simon and J. Zou. InterPLM: Discovering Interpretable Features in
+Protein Language Models via Sparse Autoencoders, 2024. URL https:
+//arxiv.org/abs/2412.12101.
+[38] Sudesh. Marriage, Love and Money in Themes of Jane Austen’s Mansfield Park and Emma.Academia Arena, 14(11):1–7, 2022. ISSN
+1553-992X. URL https://www.sciencepub.net/academia/aaj141122/
+01_38184aaj141122_1_7.pdf.
+[39] M. Thaler, A. Köksal, A. Leidinger, A. Korhonen, and H. Schütze.
+How far can bias go? – Tracing bias from pretraining data to alignment, 2024. URL https://arxiv.org/abs/2411.19240. https://arxiv.org/
+abs/2411.19240.
+[40] M. Yu, L. Liu, J. Wu, T. T. Chung, S. Zhang, J. Li, D.-Y . Yeung, and
+J. Zhou. The Stochastic Parrot on LLM’s Shoulder: A Summative Assessment of Physical Concept Understanding. InProceedings of the
+2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies
+(Volume 1: Long Papers), Albuquerque, New Mexico, Apr. 2025. Association for Computational Linguistics. ISBN 979-8-89176-189-6. doi:
+10.18653/v1/2025.naacl-long.569. URL https://aclanthology.org/2025.
+naacl-long.569/.
+
+[PAGE 9]
+A FULL LIST OF DATASET AUTHORS AND WORKS
+Table 5 lists all authors and novels included in the corpus, along with the general period of their literary activity. All novels were sourced from
+Project Gutenberg(https://www.gutenberg.org/).
+Author Novels Count Novels Included Active Period
+Training & Validation Set
+Anne Brontë 2Agnes Grey;The Tenant of Wildfell Hall1836–1849
+Charlotte Brontë 4Jane Eyre;Shirley;Villette;The Professor1835–1855
+Emily Brontë 1Wuthering Heights1845–1848
+Elizabeth Gaskell 8Cranford;Mary Barton;My Lady Ludlow;North and South;Ruth;Sylvia’s
+Lovers;The Moorland Cottage;Wives and Daughters
+1848–1865
+Frances Burney 4Evelina;Cecilia;Camilla;The Wanderer1778–1814
+George Eliot 2Middlemarch;The Mill on the Floss1857–1880
+Jane Austen 6Pride and Prejudice;Sense and Sensibility;Emma;Mansfield Park;
+Northanger Abbey;Persuasion
+1787–1817
+Maria Edgeworth 8Belinda;Castle Rackrent;Harrington & Ormond;Helen;Leonora;Patronage;The Absentee;Tomorrow
+1795–1848
+Mary Shelley 1Lodore1817–1851
+Susan Ferrier 1Marriage1810–1831
+Evaluation Set
+Harriet Martineau 1Deerbrook1823–1876
+Julia Kavanagh 1Daisy Burns1847–1877
+Mary Brunton 1Self-Control1811–1818
+Table 5: Authors and novels included in the training, validation, and evaluation datasets, with approximate active literary periods.
+B COMPUTATIONAL ENVIRONMENT
+All training was conducted on a high-performance computing (HPC) cluster managed with SLURM. The GPT-style language model and the
+eight Sparse Autoencoders (SAEs) were trained on nodes equipped with 8× NVIDIA A100 GPUs. Individual training runs did not exceed 2
+hours.The code to reproduce, data, and results can be found at https://github.com/BLINDED.
+
+[TABLE page=9 index=1]
+Columns: Project Gutenberg (https://www.gutenberg.org/). | Unnamed: 0
+Row 1: Project Gutenberg (https://www.gutenberg.org/).: Author Novels Count Novels Included | Unnamed: 0: Active Period
+Row 2: Project Gutenberg (https://www.gutenberg.org/).: Training & Validation Set | Unnamed: 0:
+Row 3: Project Gutenberg (https://www.gutenberg.org/).: Anne Brontë 2 Agnes Grey; The Tenant of Wildfell Hall | Unnamed: 0: 1836–1849
+Row 4: Project Gutenberg (https://www.gutenberg.org/).: Charlotte Brontë 4 Jane Eyre; Shirley; Villette; The Professor | Unnamed: 0: 1835–1855
+Row 5: Project Gutenberg (https://www.gutenberg.org/).: Emily Brontë 1 Wuthering Heights | Unnamed: 0: 1845–1848
+Row 6: Project Gutenberg (https://www.gutenberg.org/).: Elizabeth Gaskell 8 Cranford; Mary Barton; My Lady Ludlow; North and South; Ruth; Sylvia’s | Unnamed: 0: 1848–1865
+Row 7: Project Gutenberg (https://www.gutenberg.org/).: Lovers; The Moorland Cottage; Wives and Daughters | Unnamed: 0:
+Row 8: Project Gutenberg (https://www.gutenberg.org/).: Frances Burney 4 Evelina; Cecilia; Camilla; The Wanderer | Unnamed: 0: 1778–1814
+Row 9: Project Gutenberg (https://www.gutenberg.org/).: George Eliot 2 Middlemarch; The Mill on the Floss | Unnamed: 0: 1857–1880
+Row 10: Project Gutenberg (https://www.gutenberg.org/).: Jane Austen 6 Pride and Prejudice; Sense and Sensibility; Emma; Mansfield Park; | Unnamed: 0: 1787–1817
+Row 11: Project Gutenberg (https://www.gutenberg.org/).: Northanger Abbey; Persuasion | Unnamed: 0:
+Row 12: Project Gutenberg (https://www.gutenberg.org/).: Maria Edgeworth 8 Belinda; Castle Rackrent; Harrington & Ormond; Helen; Leonora; Patron- | Unnamed: 0: 1795–1848
+Row 13: Project Gutenberg (https://www.gutenberg.org/).: age; The Absentee; Tomorrow | Unnamed: 0:
+Row 14: Project Gutenberg (https://www.gutenberg.org/).: Mary Shelley 1 Lodore | Unnamed: 0: 1817–1851
+Row 15: Project Gutenberg (https://www.gutenberg.org/).: Susan Ferrier 1 Marriage | Unnamed: 0: 1810–1831
+Row 16: Project Gutenberg (https://www.gutenberg.org/).: Evaluation Set | Unnamed: 0:
+Row 17: Project Gutenberg (https://www.gutenberg.org/).: Harriet Martineau 1 Deerbrook | Unnamed: 0: 1823–1876
+Row 18: Project Gutenberg (https://www.gutenberg.org/).: Julia Kavanagh 1 Daisy Burns | Unnamed: 0: 1847–1877
+Row 19: Project Gutenberg (https://www.gutenberg.org/).: Mary Brunton 1 Self-Control | Unnamed: 0: 1811–1818
+[/TABLE]
+
+[PAGE 10]
+C DUAL-THEMED NEURON GRAPHS ACROSS LAYERS
+Figures 3 and 4 show the complete set of dual-theme neuron graphs for all eight layers. These visualizations complement the discussion in the
+main text, where Layers 1, 4, and 8 were highlighted as representative examples. Here, the full results are provided for reference.
+Figure 3: Dual-themed neuron associations for Layers 1-4.
+
+[PAGE 11]
+Figure 4: Dual-themed neuron associations for Layers 5-8.

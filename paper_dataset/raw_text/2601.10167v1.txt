@@ -1,0 +1,646 @@
+[PAGE 1]
+Credit C-GPT: A Domain-Specialized Large Language Model for
+Conversational Understanding in Vietnamese Debt Collection
+Nhung Nguyen Thi Hong
+nhung.nguyen@emandai.net
+Cuong Nguyen Dang
+cuong.nguyen@emandai.net
+Tri Le Ngoc*
+tri.ln@emandai.net
+Abstract
+Debt collection is a critical function within
+the Banking, Financial Services, and Insurance (BFSI) sector, relying heavily on largescale, human-to-human conversational interactions conducted primarily in Vietnamese contact centers. These conversations are characterized by informal spoken language, emotional
+volatility, and complex domain-specific reasoning, posing significant challenges for traditional natural language processing (NLP) systems. In this paper, we introduce Credit CGPT, a 7-billion-parameter domain-specialized
+large language model fine-tuned for conversational understanding in Vietnamese debt collection. Credit C-GPT unifies multiple conversational intelligence tasks—including dialogue
+understanding, sentiment recognition, intent
+detection, call stage classification, and structured slot-value extraction—within a single
+reasoning-based model. We describe the data
+construction, annotation process, and training
+methodology, and evaluate the model on proprietary human-annotated datasets. Experimental results demonstrate consistent improvements over traditional pipeline-based baselines, suggesting that domain-specialized conversational LLMs offer a scalable and privacypreserving solution for real-time assistance and
+post-call analytics in enterprise contact centers.
+1 Introduction
+Debt collection contact centers handle millions of
+customer interactions daily, forming a core operational pillar of the BFSI industry. These interactions are not only transactional but also emotionally
+charged, involving negotiation, resistance, compliance obligations, and dynamic conversational
+strategies. Understanding such conversations at
+scale is essential for improving recovery rates, ensuring regulatory compliance, coaching agents, and
+enhancing customer experience.
+*Corresponding author.
+However, existing NLP solutions deployed in
+contact centers largely rely on modular pipelines
+composed of automatic speech recognition (ASR),
+intent classification, sentiment analysis, and slotfilling models (Tur and De Mori, 2011; Xu and
+Sarikaya, 2014; Y ao et al., 2013; Bhargava et al.,
+2013; Ravuri and Stolcke, 2015; Sarikaya et al.,
+2014; T ¨ur et al., 2012; Martín-Do˜nas et al., 2024).
+These systems typically operate on short utterances, assume clean text input, and lack the ability
+to reason over long conversational context. As a
+result, they struggle with spoken language phenomena such as disfluencies, code-switching, implicit
+intent, emotional escalation, and stage transitions
+that are pervasive in debt collection calls.
+Recent advances in large language models
+(LLMs) have demonstrated strong general-purpose
+reasoning and language understanding capabilities
+(Wei et al., 2022; Brown et al., 2020; Achiam et al.,
+2023; Minaee et al., 2024; Hagos et al., 2024; Khan
+et al., 2025). Inspired by domain-specialized models such as BloombergGPT (Wu et al., 2023) for
+finance, there is growing interest in adapting LLMs
+to specific enterprise domains where data distributions, terminology, and reasoning patterns differ
+substantially from open-domain text (Wu et al.,
+2023; Gururangan et al., 2020; Y ang et al., 2020).
+Nevertheless, the application of LLMs to conversational debt collection intelligence remains underexplored in the research literature.
+In this work, we present Credit C-GPT, a 7Bparameter large language model fine-tuned on
+domain-specific conversational data from Vietnamese debt collection contact centers. Credit
+C-GPT is trained to perform multiple interrelated
+conversational analysis tasks within a single model,
+including:
+• Understanding multi-turn, real-world spoken
+dialogue between agents and customers;
+•Recognizing customer emotion and attitude;
+arXiv:2601.10167v1 [cs.CL] 15 Jan 2026
+
+[PAGE 2]
+• Identifying dynamic intents that evolve across
+the call;
+• Classifying call stages such as verification,
+negotiation, commitment, and closure;
+• Extracting structured slot-value information
+such as promised payment amounts and dates.
+By unifying these tasks into a single conversational reasoning model, Credit C-GPT reduces system complexity and improves consistency across
+predictions. The main contributions of this paper
+are threefold:
+1. We introduce the first domain-specialized
+conversational LLMs tailored specifically for
+Vietnamese BFSI debt collection.
+2. We propose a unified modeling approach
+that replaces traditional multi-model NLP
+pipelines with a single reasoning-based
+LLMs.
+3. We provide an empirical evaluation demonstrating the effectiveness of domain-adaptive
+fine-tuning for complex, spoken conversational tasks.
+The remainder of this paper is organized as follows. Section 2 reviews related work on domainspecific LLMs and conversational analytics. Section 3 describes the model architecture. Section
+4 details the dataset and annotation process. Section 5 outlines the training methodology. Section
+6 presents experimental results and evaluation. Finally, Section 7 discusses limitations and future
+work, and Section 8 concludes the paper.
+2 Related Work
+2.1 Domain-Specialized Language Models
+Recent efforts in training models exclusively on
+domain-specific data have shown that smaller, specialized models can outperform general-purpose
+LLMs on in-domain tasks, particularly in scientific (Taylor et al., 2022) and biomedical domains
+(Bolton et al., 2024; Luo et al., 2022; Lehman et al.,
+2023), as well as in finance with FinBERT (Y ang
+et al., 2020) and BloombergGPT (Wu et al., 2023).
+While these models demonstrate strong in-domain
+performance, they are primarily trained on written
+text, limiting their applicability to spoken, multiturn conversational settings.
+2.2 Pipeline-based Conversational Analytics
+Research on conversational analytics has traditionally relied on modular NLP pipelines comprising
+intent classification, sentiment or emotion analysis,
+and slot-filling components (Bhargava et al., 2013;
+Ravuri and Stolcke, 2015; Araci, 2019). Although
+effective in constrained scenarios, these approaches
+struggle with spoken-language phenomena such
+as disfluencies, overlapping speech (Teleki et al.,
+2024; Lian and Anumanchipalli, 2024; Faruqui and
+Hakkani-T¨ur, 2021), long-range conversational dependencies (Varzaneh et al., 2024), and dynamically evolving user intent (Kanani and Sanghani,
+2025). More recent work has explored the use
+of LLMs to jointly model multiple conversational
+tasks in an end-to-end manner, highlighting the advantages of unified, context-aware modeling (Yi
+et al., 2024).
+2.3 Unified LLM-based Conversational
+Modeling
+Despite these advances, most existing domainspecialized conversational LLMs primarily focus
+on English and other high-resource languages, with
+limited attention to Vietnamese spoken dialogue
+in enterprise settings (Van et al., 2022; Dinh et al.,
+2024). In contrast, our work targets Vietnamese
+debt collection conversations, which present additional challenges such as colloquial expressions,
+code-switching, and domain-specific pragmatic
+cues. By adapting a large language model to Vietnamese conversational data and unifying multiple analytical tasks within a single model, our approach addresses a gap in prior research on domainspecific conversational analytics for low- to midresource languages.
+3 Model Architecture and Inference
+3.1 Base Architecture
+Credit C-GPT is based on the Qwen2.5-7B Instruct decoder-only Transformer architecture (Y ang
+et al., 2024), which employs rotary positional embeddings and multi-head self-attention. We adopt
+the base architecture without architectural modification, focusing instead on domain adaptation
+through data curation, supervised instruction tuning, and training strategy. Qwen is selected for
+its strong multilingual capabilities, robustness in
+instruction-following tasks, and favorable performance–efficiency trade-offs for enterprise deployment, particularly in long-context conversational
+
+[PAGE 3]
+settings.
+3.2 Inference Strategy
+The model supports context-aware turn-level inference and can be extended to post-call analytical workflows. In real-time agent assist scenarios, Credit C-GPT performs turn-level inference by
+conditioning on the entire conversational history in
+a rolling context and generating structured annotations for a designated target turn. This approach
+enables the model to leverage long-range conversational context while maintaining low latency and
+fine-grained predictions required for real-time applications.
+For post-call analytics, the model conditions on
+the full multi-turn transcript as contextual input to
+generate detailed turn-level annotations across the
+conversation. These turn-level outputs can subsequently be aggregated at the call level to support
+downstream tasks such as call summarization, final outcome determination, and the extraction of
+high-level business metrics. This flexibility enables
+deployment across multiple operational workflows
+using a single model checkpoint.
+4 Dataset and Annotation
+4.1 Data Collection
+The training data for the model is constructed based
+on simulated conversational scenarios that are carefully recreated from real-world debt collection calls
+conducted at BFSI contact centers. Through multiple years of hands-on experience supporting the
+deployment and operation of conversational bots
+in the BFSI domain, our organization has built a
+team of domain experts with extensive operational
+knowledge and deep professional expertise in debt
+collection.
+Leveraging this domain experience, we reconstruct representative conversational scenarios that
+reflect the full spectrum of real operational situations, including cooperative responses, resistance,
+negotiation, deferment, and payment commitment.
+Based on these scenarios, simulated phone calls
+are conducted between debt collection agents and
+customers, strictly adhering to real-world business
+logic, regulatory constraints, and conversational
+strategies used in production environments.
+All audio data generated from the simulated
+calls is subsequently transcribed into text. During dataset construction, special care is taken to
+ensure that the transcripts faithfully reflect realworld conversational conditions, including but not
+limited to:
+• Background noise and acoustic interference
+commonly observed in contact center environments;
+• Disfluencies such as hesitations, repetitions,
+and self-corrections;
+• Overlapping speech between agents and customers;
+• Incomplete, fragmented, or semantically underspecified utterances;
+• Informal, verbose, and emotionally charged
+spoken expressions.
+Although the dataset is generated through simulation, the scenarios and conversations are designed
+and executed by experienced domain practitioners,
+allowing the data to achieve a high level of realism
+while ensuring strict compliance with data privacy
+and confidentiality requirements. This approach
+provides a reliable and scalable data foundation
+for training conversational language models that
+must robustly handle spoken-language phenomena
+in debt collection interactions.
+4.2 Annotation Schema
+Each conversation is segmented into dialogue turns
+and annotated by trained domain experts following detailed annotation guidelines. The annotation
+schema includes multiple interdependent labels:
+• Emotion: capturing the customer’s affective
+state (e.g., neutral, negative, positive);
+• Sentiment: indicates the level and form
+of negative or confrontational behavior expressed in the customer’s utterance. (e.g., insult, refusal, threat);
+• Intent: identifying the underlying goal or response strategy expressed by the customer,
+which may evolve throughout the call;
+• Call Stage: labeling high-level phases of the
+debt collection process such as opening, verification, negotiation, commitment, and closure;
+• Slot-Value Pairs: extracting structured entities
+including payment amount, promised date,
+days past due, customer name.
+
+[PAGE 4]
+Table 1:Dataset statistics.
+Split Conversations Turns Turns/Conv
+Train 15,300 298,755 19.5
+Valid 1,700 38,160 22.4
+Test 400 11,955 29.9
+Annotations are performed at both turn-level and
+segment-level to capture dynamic transitions in intent and call stage. Inter-annotator agreement is
+monitored throughout the labeling process to ensure consistency and reliability. The final dataset is
+partitioned into training, validation, and test splits
+with no overlap at the call level, preventing information leakage across splits.
+In contrast to traditional intent classification
+datasets that treat utterances independently, this
+dataset preserves full conversational context, enabling Credit C-GPT to learn long-range dependencies and domain-specific reasoning patterns inherent to debt collection dialogues.
+4.3 Dataset Statistics
+The full dataset consists of 17,000 debt collection
+conversations, comprising approximately 336,935
+dialogue turns. The data is split at the conversation
+level into training and validation sets using a 90/10
+ratio to prevent information leakage across splits.
+In addition, a held-out real-world test set is constructed from production Vietnamese debt collection calls that are not used during training or validation. This test set serves to evaluate the model’s
+generalization ability from simulated to real conversational data.
+Compared to the simulated training data, realworld test conversations are notably longer and exhibit higher variability in conversational flow and
+emotional dynamics, reflecting the complexity of
+authentic debt collection interactions in production
+environments.
+5 Training Methodology
+Credit C-GPT is adapted to the debt collection
+domain through supervised instruction tuning on
+annotated conversational data. Training samples
+are constructed as instruction–input–output triples,
+where the instruction specifies the required analytical tasks, the input consists of a dialogue segment
+or a full transcript together with a designated target
+turn, and the output is a structured JSON representation of the extracted information.
+Rather than introducing task-specific heads,
+Credit C-GPT is trained as a unified generative
+model that jointly predicts sentiment, intent, call
+stage, and slot–value information in a single forward pass, enabling consistent cross-task reasoning. Domain instructions and output schemas are
+embedded directly into the training prompts, allowing the model to internalize task boundaries
+without architectural modifications.
+To improve training efficiency, we apply QLoRA
+(Quantized Low-Rank Adaptation) (Dettmers et al.,
+2023) during fine-tuning. The base model is quantized to 4-bit precision, while low-rank adaptation
+parameters are trained on selected Transformer layers, substantially reducing memory and compute
+requirements while preserving inference performance and domain adaptability.
+Training batches include a mixture of short dialogue excerpts and long multi-turn conversations
+to enhance robustness to varying context lengths.
+Hyperparameters are selected based on validation
+performance, and training is conducted on a GPU
+cluster consisting of four NVIDIA L40S GPUs,
+which is suitable for fine-tuning models at the 7B
+parameter scale. No external financial corpora are
+used beyond the proprietary dataset.
+6 Evaluation
+6.1 Evaluation Tasks and Metrics
+We evaluate Credit C-GPT across five core conversational intelligence tasks: emotion recognition,
+sentiment classification, intent detection, call stage
+classification, and slot–value extraction. For all
+tasks, the model operates in a turn-level inference
+setting, where each target turn is evaluated conditioned on the full preceding conversational history.
+At inference time, the input consists of the dialogue context and a designated target turn, formatted according to the instruction schema used during
+training. The model produces structured JSON outputs containing task-specific predictions, including
+categorical labels and extracted slot–value pairs.
+Classification tasks are evaluated using accuracy.
+Slot–value extraction performance is measured using entity-level accuracy.
+Evaluation is conducted on a held-out test set
+consisting of 400 real-world Vietnamese debt collection calls, comprising approximately 11,955 annotated dialogue turns. These conversations reflect
+authentic contact center interactions and are not
+used during training or validation.
+
+[TABLE page=4 index=1]
+Columns: Split Conversations | Turns | Turns/Conv | Unnamed: 0
+Row 1: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: model that jointly predicts sentiment, intent, call
+Row 2: Split Conversations: Train 15,300 | Turns: 298,755 | Turns/Conv: 19.5 | Unnamed: 0:
+Row 3: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: stage, and slot–value information in a single forRow 4: Split Conversations: Valid 1,700 | Turns: 38,160 | Turns/Conv: 22.4 | Unnamed: 0:
+Row 5: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: ward pass, enabling consistent cross-task reasonRow 6: Split Conversations: Test 400 | Turns: 11,955 | Turns/Conv: 29.9 | Unnamed: 0:
+Row 7: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: ing. Domain instructions and output schemas are
+Row 8: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: embedded directly into the training prompts, alRow 9: Split Conversations: Annotations are performed at both turn-level and | Turns: | Turns/Conv: | Unnamed: 0: lowing the model to internalize task boundaries
+Row 10: Split Conversations: segment-level to capture dynamic transitions in in- | Turns: | Turns/Conv: | Unnamed: 0: without architectural modifications.
+Row 11: Split Conversations: tent and call stage. Inter-annotator agreement is | Turns: | Turns/Conv: | Unnamed: 0: To improve training efficiency, we apply QLoRA
+Row 12: Split Conversations: monitored throughout the labeling process to en- | Turns: | Turns/Conv: | Unnamed: 0: (Quantized Low-Rank Adaptation) (Dettmers et al.,
+Row 13: Split Conversations: sure consistency and reliability. The final dataset is | Turns: | Turns/Conv: | Unnamed: 0: 2023) during fine-tuning. The base model is quanRow 14: Split Conversations: partitioned into training, validation, and test splits | Turns: | Turns/Conv: | Unnamed: 0: tized to 4-bit precision, while low-rank adaptation
+Row 15: Split Conversations: with no overlap at the call level, preventing infor- | Turns: | Turns/Conv: | Unnamed: 0: parameters are trained on selected Transformer layRow 16: Split Conversations: mation leakage across splits. | Turns: | Turns/Conv: | Unnamed: 0: ers, substantially reducing memory and compute
+Row 17: Split Conversations: In contrast to traditional | Turns: intent | Turns/Conv: classification | Unnamed: 0: requirements while preserving inference perforRow 18: Split Conversations: datasets that treat utterances | Turns: independently, | Turns/Conv: this | Unnamed: 0: mance and domain adaptability.
+Row 19: Split Conversations: dataset preserves full conversational context, en- | Turns: | Turns/Conv: | Unnamed: 0: Training batches include a mixture of short diRow 20: Split Conversations: abling Credit C-GPT to learn long-range depen- | Turns: | Turns/Conv: | Unnamed: 0: alogue excerpts and long multi-turn conversations
+Row 21: Split Conversations: dencies and domain-specific reasoning patterns in- | Turns: | Turns/Conv: | Unnamed: 0: to enhance robustness to varying context lengths.
+Row 22: Split Conversations: herent to debt collection dialogues. | Turns: | Turns/Conv: | Unnamed: 0: Hyperparameters are selected based on validation
+Row 23: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: performance, and training is conducted on a GPU
+Row 24: Split Conversations: 4.3 Dataset Statistics | Turns: | Turns/Conv: | Unnamed: 0: cluster consisting of four NVIDIA L40S GPUs,
+Row 25: Split Conversations: which is suitable for fine-tuning models at the 7BThe full dataset consists of 17,000 debt collection | Turns: | Turns/Conv: | Unnamed: 0:
+Row 26: Split Conversations: parameter scale. No external financial corpora areconversations, comprising approximately 336,935 | Turns: | Turns/Conv: | Unnamed: 0:
+Row 27: Split Conversations: used beyond the proprietary dataset.dialogue turns. The data is split at the conversation | Turns: | Turns/Conv: | Unnamed: 0:
+Row 28: Split Conversations: level into training and validation sets using a 90/10 | Turns: | Turns/Conv: | Unnamed: 0:
+Row 29: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: 6 Evaluation
+Row 30: Split Conversations: ratio to prevent information leakage across splits. | Turns: | Turns/Conv: | Unnamed: 0:
+Row 31: Split Conversations: In addition, a held-out real-world test set is con- | Turns: | Turns/Conv: | Unnamed: 0: 6.1 Evaluation Tasks and Metrics
+Row 32: Split Conversations: structed from production Vietnamese debt collec- | Turns: | Turns/Conv: | Unnamed: 0:
+Row 33: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: We evaluate Credit C-GPT across five core conRow 34: Split Conversations: tion calls that are not used during training or vali- | Turns: | Turns/Conv: | Unnamed: 0:
+Row 35: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: versational intelligence tasks: emotion recognition,
+Row 36: Split Conversations: dation. This test set serves to evaluate the model’s | Turns: | Turns/Conv: | Unnamed: 0:
+Row 37: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: sentiment classification, intent detection, call stage
+Row 38: Split Conversations: generalization ability from simulated to real con- | Turns: | Turns/Conv: | Unnamed: 0:
+Row 39: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: classification, and slot–value extraction. For all
+Row 40: Split Conversations: versational data. | Turns: | Turns/Conv: | Unnamed: 0:
+Row 41: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: tasks, the model operates in a turn-level inference
+Row 42: Split Conversations: Compared to the simulated training data, real- | Turns: | Turns/Conv: | Unnamed: 0:
+Row 43: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: setting, where each target turn is evaluated condiRow 44: Split Conversations: world test conversations are notably longer and ex- | Turns: | Turns/Conv: | Unnamed: 0:
+Row 45: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: tioned on the full preceding conversational history.
+Row 46: Split Conversations: hibit higher variability in conversational flow and | Turns: | Turns/Conv: | Unnamed: 0:
+Row 47: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: At inference time, the input consists of the diaRow 48: Split Conversations: emotional dynamics, reflecting the complexity of | Turns: | Turns/Conv: | Unnamed: 0:
+Row 49: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: logue context and a designated target turn, formatRow 50: Split Conversations: authentic debt collection interactions in production | Turns: | Turns/Conv: | Unnamed: 0:
+Row 51: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: ted according to the instruction schema used during
+Row 52: Split Conversations: environments. | Turns: | Turns/Conv: | Unnamed: 0:
+Row 53: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: training. The model produces structured JSON outRow 54: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: puts containing task-specific predictions, including
+Row 55: Split Conversations: 5 Training Methodology | Turns: | Turns/Conv: | Unnamed: 0:
+Row 56: Split Conversations: | Turns: | Turns/Conv: | Unnamed: 0: categorical labels and extracted slot–value pairs.
+Row 57: Split Conversations: Credit C-GPT is adapted | Turns: to the debt | Turns/Conv: collection | Unnamed: 0: Classification tasks are evaluated using accuracy.
+Row 58: Split Conversations: domain through supervised instruction tuning on | Turns: | Turns/Conv: | Unnamed: 0: Slot–value extraction performance is measured usRow 59: Split Conversations: annotated conversational data. | Turns: Training samples | Turns/Conv: | Unnamed: 0: ing entity-level accuracy.
+Row 60: Split Conversations: are constructed as instruction–input–output triples, | Turns: | Turns/Conv: | Unnamed: 0: Evaluation is conducted on a held-out test set
+Row 61: Split Conversations: where the instruction specifies the required analyt- | Turns: | Turns/Conv: | Unnamed: 0: consisting of 400 real-world Vietnamese debt colRow 62: Split Conversations: ical tasks, the input consists of a dialogue segment | Turns: | Turns/Conv: | Unnamed: 0: lection calls, comprising approximately 11,955 anRow 63: Split Conversations: or a full transcript together with a designated target | Turns: | Turns/Conv: | Unnamed: 0: notated dialogue turns. These conversations reflect
+Row 64: Split Conversations: turn, and the output is a structured JSON represen- | Turns: | Turns/Conv: | Unnamed: 0: authentic contact center interactions and are not
+[/TABLE]
+
+[PAGE 5]
+In addition to automatic metrics, a subset of
+model outputs is reviewed by domain experts to
+assess qualitative correctness and practical usability in enterprise workflows.
+6.2 Baselines
+We compare Credit C-GPT against a BERT-based
+encoder model implemented as a standard classification pipeline. The baseline is trained on the
+same domain-specific Vietnamese conversational
+dataset as Credit C-GPT and uses identical train–
+validation–test splits.
+The BERT-based pipeline consists of multiple
+independently trained components commonly deployed in contact center analytics, including:
+• Utterance-level intent classifiers based on
+fine-tuned transformer encoders;
+•Sequence labeling models for slot extraction;
+• Standalone sentiment analysis models for
+emotion detection.
+These baselines operate independently and do not
+share conversational context beyond a limited window, reflecting typical production deployments.
+We additionally compare against GPT-5,
+prompted to perform the same annotation tasks.
+GPT-5 and Credit C-GPT receive identical conversational inputs and are evaluated using the same
+output schema and metrics, enabling a direct comparison between domain-specialized fine-tuning
+and prompt-based adaptation of general-purpose
+LLMs.
+6.3 Results and Analysis
+Table 2 reports the performance on core conversational classification tasks, including emotion, sentiment, intent, and call stage classification. Credit
+C-GPT consistently outperforms traditional BERTbased pipeline models across all tasks, with particularly strong improvements in intent detection and
+call stage classification. These results highlight the
+advantage of unified conversational modeling over
+modular pipelines, which often suffer from error
+propagation and limited context utilization.
+While general-purpose LLMs such as GPT5 achieve higher absolute scores, Credit C-GPT
+demonstrates competitive performance despite being substantially smaller and trained exclusively on
+domain-specific Vietnamese conversational data.
+Notably, Credit C-GPT shows strong robustness on
+Table 2:Performance Comparison on Conversational
+Classification Tasks.
+Task BERT-based↑ Qwen2.5 7B Instruct↑ Credit C-GPT↑ GPT-5↑
+Emotion 0.74 0.78 0.900.97Sentiment 0.70 0.70 0.890.95Intent 0.65 0.59 0.770.84Call Stage 0.72 0.62 0.880.92All Tasks(avg) 0.73 0.67 0.860.92
+tasks requiring long-context reasoning and temporal modeling of dialogue progression.
+To further isolate the impact of domain-specific
+fine-tuning from model architecture and scale, we
+additionally compare Credit C-GPT with the base
+Qwen2.5 7B Instruct model using prompt-based
+adaptation without domain-specific training. As
+both models share the same backbone and parameter scale, this comparison provides a controlled
+evaluation of domain adaptation.
+As shown in Tables 2 and 3, Credit C-GPT consistently outperforms Qwen across all tasks, with
+particularly large gains in intent detection, call
+stage classification, and debt-related slot–value
+extraction. While Qwen exhibits strong general
+instruction-following capability, it often struggles
+with implicit intent shifts, colloquial Vietnamese
+expressions, and domain-specific negotiation patterns common in debt collection conversations.
+This further suggests that domain supervision,
+rather than model scale alone, plays a critical role in
+complex multi-turn conversational understanding.
+Beyond LLM-based approaches, encoder-based
+models for Vietnamese such as PhoBERT (Nguyen
+and Nguyen, 2020) can be applied to slot filling
+in a token classification setup. However, such
+approaches typically operate on single utterances
+or short context windows and struggle to capture
+long-range dependencies across multi-turn conversations, which are critical for extracting commitments and temporal information in debt collection
+calls.
+GPT-5 is evaluated as a general-purpose externally hosted LLM via prompting without domainspecific fine-tuning.
+Table 3 presents entity-level Accuracy for
+slot–value extraction. Credit C-GPT achieves
+strong performance across key business-critical entities, particularly for agent and customer identifiers as well as debt-related attributes. Although
+GPT-5 attains higher absolute scores, Credit CGPT remains competitive given its smaller scale
+and domain-restricted training data.
+Although Credit C-GPT does not surpass GPT-5
+
+[TABLE page=5 index=1]
+Columns: assess qualitative correctness and practical usabil- | Task | BERT-based↑ | Qwen2.5 7B Instruct↑ | Credit C-GPT↑ | GPT-5↑
+Row 1: assess qualitative correctness and practical usabil-: ity in enterprise workflows. | Task: Emotion | BERT-based↑: 0.74 | Qwen2.5 7B Instruct↑: 0.78 | Credit C-GPT↑: 0.9 | GPT-5↑: 0.97
+Row 2: assess qualitative correctness and practical usabil-: | Task: Sentiment | BERT-based↑: 0.7 | Qwen2.5 7B Instruct↑: 0.7 | Credit C-GPT↑: 0.89 | GPT-5↑: 0.95
+Row 3: assess qualitative correctness and practical usabil-: | Task: Intent | BERT-based↑: 0.65 | Qwen2.5 7B Instruct↑: 0.59 | Credit C-GPT↑: 0.77 | GPT-5↑: 0.84
+Row 4: assess qualitative correctness and practical usabil-: 6.2 Baselines | Task: Call Stage | BERT-based↑: 0.72 | Qwen2.5 7B Instruct↑: 0.62 | Credit C-GPT↑: 0.88 | GPT-5↑: 0.92
+Row 5: assess qualitative correctness and practical usabil-: | Task: All Tasks(avg) | BERT-based↑: 0.73 | Qwen2.5 7B Instruct↑: 0.67 | Credit C-GPT↑: 0.86 | GPT-5↑: 0.92
+[/TABLE]
+
+[TABLE page=5 index=2]
+Columns: Table 2 reports the performance on core conversa- | long-range dependencies across multi-turn converRow 1: Table 2 reports the performance on core conversa-: tional classification tasks, including emotion, sen- | long-range dependencies across multi-turn conver-: sations, which are critical for extracting commitRow 2: Table 2 reports the performance on core conversa-: timent, intent, and call stage classification. Credit | long-range dependencies across multi-turn conver-: ments and temporal information in debt collection
+[/TABLE]
+
+[PAGE 6]
+Table 3:Slot–Value Extraction Performance (Entitylevel Accuracy).
+Slot Qwen2.5 7B Instruct ↑ Credit C-GPT↑ GPT-5↑
+agent_name 0.73 0.930.98customer_name 0.70 0.850.92total_debt 0.78 0.900.97days_past_due 0.62 0.890.97promised_payment_date 0.65 0.700.83promised_payment_amount 0.59 0.720.84due_date 0.60 0.750.83
+in absolute metrics, it offers a favorable balance
+between performance, domain alignment, and deployability. Credit C-GPT is designed to satisfy
+the stringent security, privacy, and data governance
+requirements of BFSI environments, enabling onpremise deployment, fine-tuning on proprietary
+data, and controlled structured outputs. In practical
+debt collection workflows, these constraints often
+outweigh marginal gains in raw accuracy, making
+Credit C-GPT a competitive and operationally viable solution.
+Qualitative analysis further indicates that Credit
+C-GPT effectively captures implicit intent shifts,
+emotional escalation, and negotiation dynamics that are difficult to model using traditional
+pipeline-based systems. Together, these findings
+support the effectiveness of domain-specialized
+LLMs for real-world conversational analytics in
+Vietnamese debt collection contact centers.
+7 Discussion and Limitations
+While Credit C-GPT demonstrates strong performance on conversational debt collection analysis, several limitations should be acknowledged.
+First, the model is trained primarily on proprietary
+domain-specific data, which limits direct reproducibility and comparison by the research community. This constraint is common in enterprise NLP
+settings but nonetheless restricts open benchmarking and independent validation.
+Second, similar to other large language models, Credit C-GPT remains sensitive to prompt
+formulation and may occasionally produce hallucinated outputs in low-information or ambiguous
+conversational contexts. Although structured output schemas mitigate this behavior to some extent,
+complete elimination of such errors remains an
+open challenge.
+From a deployment perspective, Credit C-GPT
+is designed for on-premise enterprise environments
+and is served in a 4-bit quantized configuration on
+a single GPU. While vertical scaling can improve
+throughput and latency, a comprehensive systemlevel performance and cost benchmark is beyond
+the scope of this paper.
+Due to the absence of publicly available Vietnamese conversational datasets in the BFSI domain, evaluation is conducted exclusively on proprietary, real-world test data. Consequently, we
+do not assess potential catastrophic forgetting on
+general-domain benchmarks, which we leave for
+future investigation.
+Future work will explore reinforcement learning from human feedback, tighter output validation
+constraints, and multilingual expansion to additional regional markets. Further investigation into
+explainability and regulatory compliance is also
+warranted given the high-stakes nature of BFSI
+applications.
+8 Conclusion
+This paper introduces Credit C-GPT, a 7Bparameter domain-specialized large language
+model designed for understanding spoken Vietnamese conversations in BFSI debt collection contact centers. By unifying emotion recognition, intent detection, call stage classification, and slotvalue extraction within a single reasoning model,
+Credit C-GPT addresses key limitations of traditional NLP pipelines when applied to informal,
+multi-turn, and emotionally dynamic spoken dialogue.
+Beyond accuracy improvements, Credit C-GPT
+is designed to operate as an on-premise analytical model, reflecting the strict data security and
+privacy requirements of BFSI environments. The
+model is positioned as a drop-in replacement for
+conventional NLP components in contact center analytics, enabling improved performance on
+Vietnamese spoken conversations while remaining non-generative with respect to customer-facing
+responses. As a result, the risk of uncontrolled
+language generation and hallucination is substantially reduced compared to end-to-end generative
+dialogue systems.
+Our empirical results highlight the effectiveness
+of domain-adaptive fine-tuning for spoken Vietnamese conversational data and suggest that specialized conversational LLMs offer a practical and
+reliable path toward modernizing enterprise contact
+center intelligence under real-world deployment
+constraints.
+
+[TABLE page=6 index=1]
+Columns: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond
+Row 1: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: level Accuracy). the scope of this paper.
+Row 2: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: Slot Qwen2.5 7B Instruct↑ Credit C-GPT↑ GPT-5↑ Due to the absence of publicly available VietRow 3: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: agent_name 0.73 0.93 0.98
+Row 4: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: customer_name 0.70 0.85 0.92 namese conversational datasets in the BFSI doRow 5: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: total_debt 0.78 0.90 0.97 main, evaluation is conducted exclusively on proRow 6: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: days_past_due 0.62 0.89 0.97
+Row 7: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: promised_payment_date 0.65 0.70 0.83 prietary, real-world test data. Consequently, we
+Row 8: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: promised_payment_amount 0.59 0.72 0.84
+Row 9: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: due_date 0.60 0.75 0.83 do not assess potential catastrophic forgetting on
+Row 10: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: general-domain benchmarks, which we leave for
+Row 11: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: future investigation.
+Row 12: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: in absolute metrics, it offers a favorable balance
+Row 13: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: Future work will explore reinforcement learnRow 14: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: between performance, domain alignment, and deRow 15: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: ing from human feedback, tighter output validation
+Row 16: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: ployability. Credit C-GPT is designed to satisfy
+Row 17: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: constraints, and multilingual expansion to addiRow 18: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: the stringent security, privacy, and data governance
+Row 19: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: tional regional markets. Further investigation into
+Row 20: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: requirements of BFSI environments, enabling onRow 21: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: explainability and regulatory compliance is also
+Row 22: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: premise deployment, fine-tuning on proprietary
+Row 23: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: warranted given the high-stakes nature of BFSI
+Row 24: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: data, and controlled structured outputs. In practical
+Row 25: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: applications.
+Row 26: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: debt collection workflows, these constraints often
+Row 27: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: outweigh marginal gains in raw accuracy, making
+Row 28: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: Credit C-GPT a competitive and operationally vi- 8 Conclusion
+Row 29: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: able solution.
+Row 30: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: Qualitative analysis further indicates that Credit This paper introduces Credit C-GPT, a 7BRow 31: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: C-GPT effectively captures implicit intent shifts, parameter domain-specialized large language
+Row 32: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: emotional escalation, and negotiation dynam- model designed for understanding spoken VietRow 33: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: ics that are difficult to model using traditional namese conversations in BFSI debt collection conRow 34: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: pipeline-based systems. Together, these findings tact centers. By unifying emotion recognition, inRow 35: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: support the effectiveness of domain-specialized tent detection, call stage classification, and slotRow 36: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: LLMs for real-world conversational analytics in value extraction within a single reasoning model,
+Row 37: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: Vietnamese debt collection contact centers. Credit C-GPT addresses key limitations of tradiRow 38: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: tional NLP pipelines when applied to informal,
+Row 39: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: 7 Discussion and Limitations multi-turn, and emotionally dynamic spoken diaRow 40: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: logue.While Credit C-GPT demonstrates strong perforRow 41: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: mance on conversational debt collection analy- Beyond accuracy improvements, Credit C-GPT
+Row 42: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: sis, several limitations should be acknowledged. is designed to operate as an on-premise analytiRow 43: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: First, the model is trained primarily on proprietary cal model, reflecting the strict data security and
+Row 44: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: domain-specific data, which limits direct repro- privacy requirements of BFSI environments. The
+Row 45: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: ducibility and comparison by the research commu- model is positioned as a drop-in replacement for
+Row 46: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: nity. This constraint is common in enterprise NLP conventional NLP components in contact cenRow 47: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: settings but nonetheless restricts open benchmark- ter analytics, enabling improved performance on
+Row 48: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: ing and independent validation. Vietnamese spoken conversations while remainRow 49: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: Second, similar to other large language mod- ing non-generative with respect to customer-facing
+Row 50: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: els, Credit C-GPT remains sensitive to prompt responses. As a result, the risk of uncontrolled
+Row 51: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: formulation and may occasionally produce hallu- language generation and hallucination is substanRow 52: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: cinated outputs in low-information or ambiguous tially reduced compared to end-to-end generative
+Row 53: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: conversational contexts. Although structured out- dialogue systems.
+Row 54: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: put schemas mitigate this behavior to some extent, Our empirical results highlight the effectiveness
+Row 55: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: complete elimination of such errors remains an of domain-adaptive fine-tuning for spoken VietRow 56: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: open challenge. namese conversational data and suggest that speRow 57: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: From a deployment perspective, Credit C-GPT cialized conversational LLMs offer a practical and
+Row 58: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: is designed for on-premise enterprise environments reliable path toward modernizing enterprise contact
+Row 59: Table 3: Slot–Value Extraction Performance (Entity- level performance and cost benchmark is beyond: and is served in a 4-bit quantized configuration on center intelligence under real-world deployment
+[/TABLE]
+
+[PAGE 7]
+References
+OpenAI Josh Achiam, Steven Adler, Sandhini Agarwal,
+Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, Red Avila, Igor Babuschkin,
+Suchir Balaji, Valerie Balcom, Paul Baltescu, Haim
+ing Bao, Mo Bavarian, Jeff Belgum, Irwan Bello, and
+260 others. 2023. Gpt-4 technical report.
+Dogu Araci. 2019. Finbert: Financial sentiment analysis with pre-trained language models.ArXiv,
+abs/1908.10063.
+Aditya Bhargava, Asli Celikyilmaz, Dilek Z. HakkaniT¨ur, and Ruhi Sarikaya. 2013. Easy contextual intent
+prediction and slot detection.2013 IEEE International Conference on Acoustics, Speech and Signal
+Processing, pages 8337–8341.
+Elliot Bolton, Abhinav Venigalla, Michihiro Y asunaga,
+David Leo Wright Hall, Betty Xiong, Tony Lee,
+Roxana Daneshjou, Jonathan Frankle, Percy Liang,
+Michael Carbin, and Christopher D. Manning. 2024.
+Biomedlm: A 2.7b parameter language model trained
+on biomedical text.ArXiv, abs/2403.18421.
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, Sandhini Agarwal, Ariel Herbert-Voss,
+Gretchen Krueger, T. J. Henighan, Rewon Child,
+Aditya Ramesh, Daniel M. Ziegler, Jeff Wu, Clemens
+Winter, and 12 others. 2020. Language models are
+few-shot learners.ArXiv, abs/2005.14165.
+Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and
+Luke Zettlemoyer. 2023. Qlora: Efficient finetuning
+of quantized llms.ArXiv, abs/2305.14314.
+Nguyen Van Dinh, Thanh Chi Dang, Luan Thanh
+Nguyen, Luan Thanh Nguyen, and Kiet Van Nguyen.
+2024. Multi-dialect vietnamese: Task, dataset, baseline models and challenges. InConference on Empirical Methods in Natural Language Processing.
+Manaal Faruqui and Dilek Z. Hakkani-T ¨ur. 2021. Revisiting the boundary between asr and nlu in the age
+of conversational dialog systems.Computational
+Linguistics, 48:221–232.
+Suchin Gururangan, Ana Marasovi ´c, Swabha
+Swayamdipta, Kyle Lo, Iz Beltagy, Doug Downey,
+and Noah A. Smith. 2020. Don’t stop pretraining:
+Adapt language models to domains and tasks.ArXiv,
+abs/2004.10964.
+Desta Haileselassie Hagos, Rick Battle, and Danda B.
+Rawat. 2024. Recent advances in generative ai and
+large language models: Current status, challenges,
+and perspectives.IEEE Transactions on Artificial
+Intelligence, 5:5873–5893.
+Khyati C Kanani and Gopi B Sanghani. 2025. The
+evolution of intent detection: Deep learningbased paradigms for natural language understanding.
+Cureus Journal of Computer Science.
+Asifullah Khan, Muhammad Zaeem Khan, Saleha
+Jamshed, Sadia Ahmad, Aleesha Zainab, Kaynat
+Khatib, Faria Bibi, and Abdul Rehman. 2025. Advances in llms with focus on reasoning, adaptability,
+efficiency and ethics.ArXiv, abs/2506.12365.
+Eric P . Lehman, Evan Hernandez, Diwakar Mahajan,
+Jonas Wulff, Micah J. Smith, Zachary M. Ziegler,
+Daniel Nadler, Peter Szolovits, Alistair E. W. Johnson, and Emily Alsentzer. 2023. Do we still need
+clinical language models?ArXiv, abs/2302.08091.
+Jiachen Lian and Gopala Krishna Anumanchipalli.
+2024. Towards hierarchical spoken language disfluency modeling.ArXiv, abs/2401.10015.
+Renqian Luo, Liai Sun, Yingce Xia, Tao Qin, Sheng
+Zhang, Hoifung Poon, and Tie- Y an Liu. 2022.
+Biogpt: Generative pre-trained transformer for
+biomedical text generation and mining.Briefings
+in bioinformatics.
+Juan Manuel Martín-Do˜nas, Asier López Zorrilla, Mikel
+deVelasco, J. C. Vásquez-Correa, Aitor Álvarez,
+M. Inés Torres, Paz Delgado, Ane Lazpiur, Blanca
+Romero, and Irati Alkorta. 2024. Speech emotion
+recognition for call centers using self-supervised
+models: A complete pipeline for industrial applications. InInternational Conference on Natural Language and Speech Processing.
+Shervin Minaee, Tomá ˇs Mikolov, Narjes Nikzad,
+Meysam Asgari Chenaghlu, Richard Socher, Xavier
+Amatriain, and Jianfeng Gao. 2024. Large language
+models: A survey.ArXiv, abs/2402.06196.
+Dat Quoc Nguyen and Anh Gia-Tuan Nguyen. 2020.
+Phobert: Pre-trained language models for vietnamese. InFindings.
+Suman V . Ravuri and Andreas Stolcke. 2015. Recurrent
+neural network and lstm models for lexical utterance
+classification. InInterspeech.
+Ruhi Sarikaya, Geoffrey E. Hinton, and Anoop Deoras. 2014. Application of deep belief networks for
+natural language understanding.IEEE/ACM Transactions on Audio, Speech, and Language Processing,
+22(4):778–784.
+Ross Taylor, Marcin Kardas, Guillem Cucurull, Thomas
+Scialom, Anthony S. Hartshorn, Elvis Saravia, Andrew Poulton, Viktor Kerkez, and Robert Stojnic.
+2022. Galactica: A large language model for science.
+ArXiv, abs/2211.09085.
+Maria Teleki, Xiangjue Dong, and James Caverlee.
+2024. Quantifying the impact of disfluency on spoken content summarization. InInternational Conference on Language Resources and Evaluation.
+G. T ur and R. De Mori. 2011.Spoken Language Understanding: Systems for Extracting Semantic Information from Speech. Wiley.
+
+[PAGE 8]
+G¨okhan T ¨ur, Li Deng, Dilek Z. Hakkani-T ¨ur, and Xiaodong He. 2012. Towards deeper understanding:
+Deep convex networks for semantic utterance classification.2012 IEEE International Conference on
+Acoustics, Speech and Signal Processing (ICASSP),
+pages 5045–5048.
+Phi Nguyen Van, Tung Cao Hoang, Dũng Nguyễn
+Mạnh, Quang Nguyen Minh, and Long Tran Quoc.
+2022. Viwoz: A multi-domain task-oriented dialogue
+systems dataset for low-resource language.ArXiv,
+abs/2203.07742.
+Mostafa Varzaneh, Pooja Voladoddi, Tanmay Bakshi,
+and Uma Sushmitha Gunturi. 2024. Transforming nlu with babylon: A case study in development
+of real-time, edge-efficient, multi-intent translation
+system for automated drive-thru ordering.ArXiv,
+abs/2411.15372.
+Jason Wei, Yi Tay, Rishi Bommasani, Colin Raffel, Barret Zoph, Sebastian Borgeaud, Dani Y ogatama, Maarten Bosma, Denny Zhou, Donald Metzler, Ed H. Chi, Tatsunori Hashimoto, Oriol Vinyals,
+Percy Liang, Jeff Dean, and William Fedus. 2022.
+Emergent abilities of large language models.ArXiv,
+abs/2206.07682.
+Shijie Wu, Ozan Irsoy, Steven Lu, Vadim Dabravolski, Mark Dredze, Sebastian Gehrmann, Prabhanjan Kambadur, David Rosenberg, and Gideon Mann.
+2023. Bloomberggpt: A large language model for
+finance.ArXiv, abs/2303.17564.
+Puyang Xu and Ruhi Sarikaya. 2014. Contextual domain classification in spoken language understanding
+systems using recurrent neural network.2014 IEEE
+International Conference on Acoustics, Speech and
+Signal Processing (ICASSP), pages 136–140.
+Qwen An Y ang, Baosong Y ang, Beichen Zhang,
+Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li,
+Dayiheng Liu, Fei Huang, Guanting Dong, Haoran
+Wei, Huan Lin, Jian Y ang, Jianhong Tu, Jianwei
+Zhang, Jianxin Y ang, Jiaxin Y ang, Jingren Zhou,
+Junyang Lin, and 25 others. 2024. Qwen2.5 technical
+report.ArXiv, abs/2412.15115.
+Yi Y ang, MA Uy, and Allen Huang. 2020. Finbert: A
+pretrained language model for financial communications.ArXiv, abs/2006.08097.
+Kaisheng Y ao, Geoffrey Zweig, Mei- Yuh Hwang,
+Y angyang Shi, and Dong Yu. 2013. Recurrent neural
+networks for language understanding. InInterspeech.
+Zihao Yi, Jiarui Ouyang, Zhe Xu, Yuwen Liu, Tianhao
+Liao, Haohao Luo, and Ying Shen. 2024. A survey
+on recent advances in llm-based multi-turn dialogue
+systems.ACM Computing Surveys, 58:1 – 38.

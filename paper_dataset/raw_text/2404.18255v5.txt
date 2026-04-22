@@ -1,0 +1,1026 @@
+[PAGE 1]
+PatentGPT: A Large Language Model for
+Intellectual Property
+Zilong Bai, Ruiji Zhang, Linqing Chen, Qijun Cai, Yuan Zhong, Cong Wang
+Yan Fang, Jie Fang, Jing Sun, Weikuan Wang, Lizhi Zhou, Haoran Hua
+Tian Qiu, Chaochao Wang, Cheng Sun, Jianping Lu, Yixin Wang, Yubin Xia
+Meng Hu, Haowen Liu, Peng Xu, Licong Xu, Fu Bian, Xiaolong Gu, Lisha Zhang
+Weilei Wang∗, Changyang Tu
+Patsnap LLM Team
+baizilong@patsnap.com, wangweilei@patsnap.com
+June 6, 2024
+Abstract
+In recent years, large language models(LLMs) have attracted significant attention due to their
+exceptional performance across a multitude of natural language process tasks, and have been widely
+applied in various fields. However, the application of large language models in the Intellectual
+Property (IP) domain is challenging due to the strong need for specialized knowledge, privacy
+protection, processing of extremely long text in this field. In this technical report, we present for
+the first time a low-cost, standardized procedure for training IP-oriented LLMs, meeting the unique
+requirements of the IP domain. Using this standard process, we have trained the PatentGPT
+series models based on open-source pretrained models. By evaluating them on the open-source
+IP-oriented benchmark MOZIP, our domain-specific LLMs outperforms GPT-4, indicating the
+effectiveness of the proposed training procedure and the expertise of the PatentGPT models in the
+IP domain. Remarkably, our model surpassed GPT-4 on the 2019 China Patent Agent Qualification
+Examination, scoring 65 and matching human expert levels. Additionally, the PatentGPT model,
+which utilizes the SMoE architecture, achieves performance comparable to that of GPT-4 in the IP
+domain and demonstrates a better cost-performance ratio on long-text tasks, potentially serving
+as an alternative to GPT-4 within the IP domain.
+1 Introduction
+Over the past few years, Large Language Models (LLMs) based on decoder-only transformers have
+received substantial attention, due to their excellent alignment with human preference and remarkable
+performance across various NLP tasks, including reading comprehension, novel creation, text summarization, code completion, and document drafting. Recent research suggests that LLMs are not merely
+reproducing surface statistics, but are instead learning a meaningful world model. [1–3] opening up
+the imaginative space for the application of LLMs. The performance of LLMs follows the scaling law
+that models with more pretraining data and parameters achieve better performance [4–7], indicating
+that the costs to train and apply a high-performance LLM are significant.
+To reduce the pretraining and deployment costs of LLMs, more and more pretrained models are
+being published in open-source communities. These LLMs, including LLaMA [8, 9], Bloom [10], and
+ChatGLM [11], have parameters ranging from several billions to tens of billions, and they were pretrained on over a trillion tokens, showing exceptional performance in base capabilities. Developers can
+adapt these general models into domain-specific models by continuous training or fine-tuning without
+conducting an extensive pretraining process. We have selected LLama as the base model for further
+∗Corresponding author
+arXiv:2404.18255v5 [cs.CL] 5 Jun 2024
+
+[PAGE 2]
+pretraining among open-source LLMs. These models, which range from 7 billion to 70 billion parameters in LLama2 and from 8 billion to 70 billion parameters in LLama3, integrate various significant
+works to establish an effective and stable framework. Consequently, the LLaMA series has established
+itself as the standard reference for architecture and performance within open-source models.
+Low-resource inference for LLMs also attracts more attention. Main research focuses on implementation of quantization [12–17], knowledge distillation [18–22], and sparse activation mechanisms [23–26].
+Recently, Jiang et al. research [27] on Sparse Mixture-of-Experts (SMoE) has demonstrated that compared to dense LLMs of the same parameter scale, SMoE LLMs allow faster inference speed and higher
+throughput while maintaining comparable performance.Their findings indicate that SMoE is one of the
+most promising architectures for reducing inference resource requirements. By sharing attention heads
+between experts and reducing the dimensions of key and value tensors within the attention heads,
+SMoE LLMs can significantly reduce the memory consumption of the key-value Cache (KV cache)
+when processing long texts, thereby providing better support for long-document applications. This is
+particularly important in long-text comparison scenarios.
+Furthermore, it is worth exploring how cost-effective and high-performance LLMs can be implemented
+within domain-specific industries. Recent research [28–31] suggests that by continuous training of
+generic LLMs on domain-specific data, smaller models can achieve the same or even better performance in specialized fields compared to much larger models with significantly more parameters. This
+result provides a new approach for cost-effective and specialized applications of LLMs in specific domains. For the IP domain, the main applications of LLMs are concerned with responding to IP-oriented
+legal questions, assisting in reading patent specifications, drafting patent documents, and comparing
+patent documents in the context of Freedom-To-Operate (FTO) scenarios. These applications either
+require specialized knowledge, introduce privacy concerns, or involve extremely long input texts that
+lead to high practical costs. Therefore, it is unwise to directly apply open-source models (e.g., LLaMA)
+or commercial models (e.g., GPT-4) to the IP domain.
+In this report, we introduce methodologies for training IP-oriented LLMs and establish a benchmark
+called PatentBench in the IP domain. By training on over 240 billion tokens of IP-oriented data, our
+PatentGPT models exhibit performance in the IP domain that surpasses that of GPT-4. Further experiments suggest that the PatentGPT model with SMoE architecture shows a better cost-performance
+ratio on long-text tasks compared to dense LLMs.
+2 Pretraining
+We trained PatentGPT models with the base models of LLaMA2 (13B), LLaMA2 (70B) [9], and
+Mixtral 8 × 7B [27], and we named the series of LLMs PatentGPT-0.5, PatentGPT-1.0-Dense and
+PatentGPT-1.0-MoE respectively.
+2.1 Pretraining Data
+To create an effective pre-training dataset, it is crucial to ensure that the pretraining data are diverse
+and cover a wide range of types, domains, and tasks. In the IP domain, it involves legal knowledge
+as well as engineering and technical knowledge from various disciplines, and requires a strong ability
+to contextualize when writing patent specifications and comparing distinctions between two patents.
+Aiming to meet these requirements, the pretraining dataset was made up of publicly available internet
+resources, such as websites, wikis, books, exam databases, code repositories, and news articles, as well
+as non-public internal sources, including patents, file wrappers [32], annotated datasets, and litigation
+records. Additionally, we incorporated data from third parties like research papers, books, and research reports, along with internally generated data. We trained PatentGPT models using a two-stage
+pretraining process over 240 billion tokens of data in both English and Chinese. The proportion of
+Chinese pretraining data is 37%. The composition of the training data is shown in Figure 1. To obtain
+a high-quality dataset for pretraining, we employed several data preprocessing procedures including
+filtering, deduplication rewriting, and synthesis.
+
+[PAGE 3]
+Book (2.95 %)Chat (0.76 %)Exam (0.08 %)
+Web (10.79%)Litigation (1.16 %)
+Code (0.04 %)News (4.62 %)
+File Wrapper (6.41 %)Other (0.25%)
+Paper (22.88 %)
+Patent (47.74 %)
+Research Report (0.02 %)Wiki (2.30 %)
+Figure 1: The distribution of different categories of pretraining data for PatentGPT models.
+Filtering: A hybrid approach of rule-based and machine-learning-based techniques was engaged to
+remove toxicity and low-quality data, including data feature filtering logic set by business experts,
+binary classification-specific mini-models constructed by our technical teams, black/white list keyword
+filters, and other internal data cleansing tools.
+Deduplication: Both exact matches and approximate matches were used to remove repeated documents from the dataset. For exact matches, we matched substrings within the documents and their
+corresponding attribute labels, including the Digital Object Identifier (DOI) for academic papers, as
+well as the patent family information for patents. For fuzzy duplicate detection, MinHash [33] was
+utilized during data preprocessing.
+Rewriting: Inspired by Li et al. [34, 35], we up-sampled data from books with IP-oriented knowledge
+about terminologies and regulations of IP systems by rewriting the original documents into various
+expressions, including summarization and conversation, to inject IP-oriented knowledge into LLMs
+more efficiently.
+Synthesis: In practice, most LLMs struggle in differentiating patents or retrieving similar patents
+given the large amount of candidates and high overlapping of text. To enable PatentGPT models to
+better understand the differences and inherent connections between similar patents, we have reorganized the data from different sources through their attribute labels. A file wrapper is a written record
+in a patent office of the application and negotiations for a patent preceding the issuance of the patent.
+To obtain synthesis data, we concatenated the claims of the patent under examination with the full
+text of the corresponding comparative patents. We then added a file wrapper document at the end
+to reveal the connections between the two patents. We also recombined a document by concatenating
+two patents that share an X-File relationship to facilitate the model in understanding the connections
+between the two patents. Data examples can be found in Appendix A.
+2.2 Training Details
+We began with the pretraining approach described in Touvron et al. [9], using an optimized autoregressive transformer. However, we made several changes to pretrain IP-oriented LLMs. These
+changes include multilingual pretraining and a carefully constructed, IP-oriented pretrain dataset as
+described in Section 2.1. Additionally, we conducted a two-stage pretraining process to inject IPoriented knowledge as well as develop abilities for recognizing, drafting, and comparing patents. All
+
+[PAGE 4]
+PatentGPT models were trained on GPU clusters using Megatron-LM [36] equipped by flash attention
+modules. To create batches of data, we shuffled and merged the documents, and then concatenated
+or truncated them to the specified context lengths. We adopt the standard optimizer AdamW [37] for
+pretraining optimization and trained the LLMs with BFloat16 mixed precision for training stability.
+We used a cosine learning rate schedule, and decayed final learning rate down to 10% of the peak
+learning rate. The number of training tokens in each batch were set to 4 M. The attributes and the
+corresponding two-stage pretraining hyperparameters of PatentGPT models are listed in Table 1.
+Stage 1 Stage 2
+Base Model Params T okens LR Context
+Length
+W armup Context
+Length
+W armup
+PatentGPT-0.5 LLaMA 2 13B 246B 2 ×10−5 4K 2K 16K 1K
+PatentGPT-1.0-Dense LLaMA 2 70B 246B 2 ×10−5 4K 2K 4K 1K
+PatentGPT-1.0-MoE Mixtral 8×7B 47B 246B 3 ×10−5 8K 2K 16K 1K
+Table 1: The attributes and the corresponding two-stage pretraining hyperparameters of PatentGPT
+models.
+Multilingual pretraining: Before the pretraining process, we trained a new tokenizer using bytepair encoding (BPE) [38] from SentencePiece [39] on the pretraining data. Then, we merged it with
+the LLaMA2 tokenizer to obtain a new tokenizer with a vocabulary size of 55,296, aiming to improve
+the token compression rate for text in Chinese and the IP domain. The new tokenizer contains an
+additional 23,296 tokens to the LLaMA2 tokenizer and is shared by all PatentGPT models. To adapt
+our PatentGPT models for the new tokenizer, we resized the word embedding layers and output layers
+from shape V × H to V ′ × H, where V = 32,000 denotes the original vocabulary size, and V = 55,296 is
+the new vocabulary size of the new tokenizer. The new rows were appended to the end of the original
+embedding matrices, ensuring that the embeddings of the tokens in the original vocabulary remain
+unaffected. Finally, the additional parameters were trained in the further pretraining process. This
+multilingual alignment process ensures the enhancement of the context compression ratio, Chinese
+contextual understanding, and generation capabilities of our PatentGPT models.
+Two-stage pretraining: We trained the PatentGPT models using a two-stage pretraining process,
+during which 226B tokens were consumed in stage 1 and 20B tokens in stage 2, respectively. Figure 2
+shows the proportion of different types of data used in each pretraining stage compared to the total
+amount of the corresponding type of pretraining data. The data of different categories is not randomly
+distributed in the pretraining processes of the two stages. During stage 1, almost all the data from
+Web, News, Patent and Paper were consumed to inject basic knowledge into the PatentGPT models.
+For stage 2, most of the data from Research Reports and Exams, and a considerable proportion of
+the data from Books, Chats, Codes, File Wrappers and Supervised Data were used. It should be
+noted that due to the total tokens of pretraining data in stage 2 being less than a tenth of that in
+the stage 1, the proportion of data from Books, Chats, Exams, Codes, File Wrappers, and Research
+Reports relatively increased in stage 2, ensuring our PatentGPT models can be adequately trained in
+IP-oriented knowledges and tasks.
+Long context extending: As expected to reduce computation resources, we trained PatentGPT-0.5
+and PatentGPT-1.0-MoE in a shorter context length in stage 1, and then extended them to 16k during
+stage 2. For PatentGPT-0.5, the context length of the base model is 4k. Inspired by Xiong et al.
+[40], we modified the base frequency of PatentGPT-0.5 from 10k to 100k and extended the training
+context length from 4k to 16k in stage 2, aiming to reduce the model performance regression. Due
+to the fact that the original context length of Mixtral 8 × 7B is 32k, we directly concatenated the
+samples in pretraining data to 16k and trained the model in stage 2, without performing any other
+special conductions.
+3 Alignment
+LLMs have demonstrated impressive performance in various NLP tasks. However, their implementation
+presents limitations, as pretrained LLMs frequently misconstrue human intentions or generate harmful
+
+[PAGE 5]
+0%10%20%30%40%50%60%70%80%90%100%
+BookChatExamWebLitigationCodeNewsFile WrapperOtherPaperPatentResearch Report
+Wiki
+Supervised DataStage 1Stage 2
+Figure 2: The proportion of different types of data used in each pretraining stage compared to the
+total amount of the corresponding type of pretraining data.
+informations [41–43]. To address these limitations in our PatentGPT models, we utilized alignment
+techniques including Supervised Finetuning (SFT) and Reinforcement Learning from Human Feedback
+(RLHF). We collected over 43k SFT samples and trained pretrained PatentGPT models on them to
+construct the SFT models. Next, we applied the RLHF process to the SFT models to further improve
+their performance in the IP Domain. The conductions of SFT and RLHF processed on PatentGPT
+models are shown in Figure 3.
+Figure 3: The workflow for conducting SFT and RLHF on PatentGPT models
+3.1 Supervised Finetuning
+Data: In total, we used 30,000 general instructions ( Dgen) and 13,000 IP-specific instructions ( Dexp)
+for conducting SFT on the pretrained PatentGPT models. Dgen is composed of sampled data from
+several public datasets, including FLAN datasets [44], COIG datasets [45], Firefly [46], BELLE [47],
+MOSS [48], and Ultrachat [49]. Dexp consists of IP-specific instructions annotated by patent examiners
+and other experts in technics. Dexp not only contains Q&A data in the IP domain and technical domains, but also includes supervised data specially designed to support retrieval augmented generation
+(RAG), and data supporting several IP application scenarios, including technical means summaries,
+
+[PAGE 6]
+implementation summaries, and patent comparisons, among others. The final dataset for SFT isDSF T ,
+where DSF T = Dgen ∪ D exp.
+Training: For SFT, we concatenated all the instructions and outputs from DSF T . A special token was utilized to separate the instructs and outputs. All data from DSF T was used to conduct SFT
+on PatentGPT-0.5 and PatentGPT-1.0-MoE, but only data with sequence length shorter than 4096
+tokens was used to conduct SFT on PatentGPT-1.0-Dense.
+Inspired by Wang et al. [50], we utilized a weighted autoregressive objective and zeroed out the
+loss on tokens from the user instructions to better align with human intentions. Then loss function
+can be expressed as:
+LSF T (Θ) = Ex∼DSF T
+
+−α
+X
+i∈output
+log p (xi|x0, x 1, . . . , x i−1; Θ)
+
+
+α =
+(
+1, if x ∈ Dexp
+0.1, if x ∈ Dgen
+(1)
+where Θ represents the model’s parameters, DSF T is the fine-tuning dataset, x = (x0, x 1, . . . , x i−1)
+represents the tokenized input sequence, output dominates the tokens that belong to the output segments.
+We employed a cosine learning rate schedule with a pick learning rate of 2 × 10−5, a warmup of
+10 % of the total steps, a batch size of 64 for PatentGPT-0.5 and PatentGPT-1.0-MoE, and a batch
+size of 128 for PatentGPT-1.0-Dense. Finally, we fine-tuned the models for 3 epochs in total.
+3.2 Reinforcement Learning from Human Feedback
+RLHF is a training procedure applied to a fine-tuned language model to further align model behaviors with human preference and instruction following. We applied RLHF to the PatentGPT models,
+following the approaches of Bai et al. [51].
+Reward model (RM): We collected 100k human preference data for reward modeling, including
+20k expert annotations and 80k AI-generated annotations. Each annotation consists of a prompt
+followed by several responses generated by our PatentGPT models of different sizes, and commercial
+LLMs such as GPT-4 and ChatGPT-3.5, to enhance response diversity. For an expert annotation,
+an annotator ranked the responses from best to worst following standard annotation guidelines, and
+constructed comparison pairs based on this ranking. In the AI-generated annotation process, responses
+were ranked by GPT-4 in accordance with the RLAIF approach proposed by Lee et al. [52].
+According to Lee’s results [51], larger RMs achieve better performance for reward modeling. Therefore, we adopted the pretrained model of PatentGPT-1.0-Dense to initialize the parameters of the RM.
+This RM will be used for reinforcement learning in all PatentGPT models. The end token in each
+sample was aligned through left-padding, and two MLP layers were added to RM, enabling the model
+to output a scalar score that indicates human preference. Finally, we used a binary ranking loss to
+optimize the RM, which is expressed by[53]:
+Lranking = − log (σ (rθ (x, yc) − rθ (x, yr))) (2)
+where rθ (x, yc) represents the scalar score output for a given promptx and its corresponding annotatorpreferred response yc, yr denotes the response that is rejected, and σ denotes the sigmoid function.
+Reinforcement learning (RL): To stabilize RL training, we used proximal policy optimization (PPO)
+[54] with a reward signal provided by the RM score [9]. During the RLHF training process, both the
+actor model and the reference model were initialized with the SFT models described in Section 3.1,
+while the critic model was initialized with RM. In each step, the actor model was required to generate
+four responses from a given prompt, and the response with the highest reward signal, provided by the
+RM scores, was selected to optimize the actor model.
+
+[PAGE 7]
+For all models, we used the AdamW optimizer with β1 = 0.9, β2 = 0.95, and eps = 10 −5. A batch
+size of 64 and a KL divergence coefficient of 0.01 were used to train the RLHF model. The generation
+parameter, top p, was set to 0.9. The learning rates of the actor and critic models followed a cosine
+learning rate schedule with a peak learning rate of 1 × 10−6 and decaying to a final learning rate of
+1 × 10−7.
+4 Evaluation Results
+In order to evaluate the general capabilities of LLMs objectively and effectively, benchmarks such as
+Truthful QA [55], LongBench [56], and MMLU [57] have been proposed in previous works. On the
+other hand, considering the diverse demands of various industries, domain-specific benchmarks such as
+CoderEval [58], PubMedQA [59], and FinBench [60] also have been introduced as evaluation standards
+for domain-specific LLMs. Recently, Ni et al. [61] introduced an IP-oriented benchmark called MoZIP,
+which utilizes IP-related open question answering and multiple-choice questions to evaluate models’
+performance in IP-oriented knowledge and their proficiency in matching patent texts. However, MoZIP
+does not involve tasks such as patent specification drafting, patent classification, and summarizing key
+technical information from patent specifications, which are very important for the application of LLMs
+in the IP domain.
+In this section, we first introduce PatentBench, a comprehensive benchmark focusing on the IP domain.
+Then, we present the evaluation results of the PatentGPT models, as well as those of ChatGPT-3.5turbo and GPT-4 on PatentBench, MoZIP, MMLU, and C-Eval, respectively.
+4.1 PatentBench
+To compensate for the lack of specialization in the IP domain of open-source benchmarks, we proposed
+PatentBench which for the first time incorporates tasks related to patent agency and examination process such as patent specification drafting, patent classification, and summarizing key technical points
+of patents into a benchmark for evaluating IP-specific LLMs. We plan to open-source PatentBench in
+the fourth quarter of this year, contributing to the development of the open source communities and
+the IP industry. The main evaluation tasks of PatentBench are as follows:
+Patent QA: We constructed the Patent QA dataset to evaluate if an LLM understand IP-related
+concepts and regulations. The instructions were collected from product experts, top sellers of Patsnap
+and FAQs from the official websites of major national IP offices and the leading IP education websites.
+Each instance consists of a prompt with one or two questions and the corresponding reference answers
+as the output. The total number of questions is 250 for Chinese and 250 for English.
+Patent Writing: Patent Writing is a dataset designed to evaluate the ability of LLMs to draft patent
+texts. It involves drafting patent specifications based on technical disclosure documents, rewriting and
+refining various sections within the patent descriptions, as well as supplementing the claims. All instances in this dataset were manually constructed by annotators using tools assisted by LLMs based
+on patent specifications in either English or Chinese. The total number of instances in this dataset is
+300.
+Patent Classification: According to the classification rules of the International Patent Classification
+(IPC), patents can be divided into 118 categories based on the Section and Class of the IPC number.
+We have uniformly selected 1,180 patents from the Chinese and United States patent databases across
+these 118 categories. The instructions for this dataset require the LLMs to generate the correct categories based on the abstract and claims of each patent.
+Patent Summary: This dataset comprises four sub-tasks: technical effects, technical problems,
+technical means, and patent abstracts. Each sub-task contains 300 instances. First, we trained an
+extraction model to accurately extract paragraphs involving technical effects, technical problems, and
+technical means. Then we inputted the extracted paragraphs along with carefully designed prompts
+into GPT-4, requesting GPT-4 to summarize the technical effects, technical problems, technical means,
+
+[PAGE 8]
+or the abstracts of the patents based on the input contents. Each instance in the dataset consists of a
+prompt accompanied by extracted paragraphs and a task instruction, as well as the manually refined
+response from GPT-4 as the output.
+Patent Reasoning: We have created this dataset to evaluate the capability of LLMs in reasoning. The tasks covered by this dataset include patent infringement judgment, reasoning sentences’
+logical relationships, and mathematical and logical reasoning tasks. All instances in this dataset were
+semi-manually constructed in both English and Chinese with the assistance of GPT-4. The total number of instances in this dataset is 247.
+Patent Correction: First, annotators were required to transcribe patent specifications. Next, we
+checked these transcriptions to identify any sentences containing spelling errors. We used this data
+to construct 300 test samples designed to challenge LLMs to correct misspelled characters or words.
+Each sentence contains only one incorrect Chinese character or English word. Responses of LLMs that
+exactly match the corrected versions provided by the annotators are regarded as correct.
+Patent Translation: We collected users’ feedback on incorrect translations from Patsnap’s products. Based on this data, we constructed the Patent Translation dataset to assess the performance
+of LLMs in translating patent texts. Each instance in the dataset consists of a prompt and an output, where the prompt is made up of a text in original language and an instruction asking LLMs to
+translate the text into the target language. We have completely constructed 1,000 instances, of which
+500 instances require the LLMs to translate Chinese texts into English, and the other 500 instances
+require the reverse translation from English to Chinese.
+4.2 Results on PatentBench
+We first evaluated zero-shot performance of our PatentGPT models on the PatentBench using both
+GPT-4 and the metrics widely used in NLP. To assess the models’ summarization, writing, and conversational abilities, we employed GPT-4 as a judge by inputting a prompt that required it to compare
+the outputs from two assistants (GPT-3.5-turbo and one of our PatentGPT models) and to generate
+scores based on well-designed guidelines. Each pair of outputs from different models was evaluated
+twice with their positions in the prompt reversed, and the final scores were calculated by averaging,
+aiming to eliminate influences associated with position bias. Finally, we statisticed on the number of
+wins, loses, and ties across the two models, and the results is shown in Figure 4. Our PatentGPT
+models show significant improvements over ChatGPT-3.5-turbo in terms of drafting, and IP-oriented
+open question answering, indicating that our PatentGPT models have the potential to serve as patent
+assistants, thus helping humans in drafting patent specifications, reading patents, and understanding
+patent laws and regulations. In summarization tasks, the proportion of ties is very high, suggesting
+that the gap in summarization ability between ChatGPT-3.5-turbo and our PatentGPT models is
+difficult to be evaluated by GPT-4.
+We subsequently evaluated classification, examination, translation, text correction, and reasoning abilities based on different metrics. The classification capability of the models was measured by the F1
+scores, the examination ability by accuracy, the translation quality by BLEU scores, and the reasoning
+and text correction abilities by EM scores [62]. Besides PatentGPT-0.5, our PatentGPT models have
+outperformed ChatGPT-3.5-turbo in capabilities other than reasoning. These results demonstrate the
+effectiveness of our pre-training and the advanced nature of our PatentGPT models in the IP domain.
+To further demonstrate the expertise of the PatentGPT models in the IP domain, we tested PatentGPT
+models using the 2019 China Patent Agent Qualification Examination. For convenience in statistics,
+we simplified the score calculation rules for the patent agent exam. We determined that for the 200
+multiple choice questions in patent law and related laws, each correct answer will be awarded 0.5
+points, achieving a perfect score of 100 if all questions are answered correctly. Figure 5 depicts the
+exam scores of ChatGPT-3.5-turbo, GPT-4-1106-preview and the PatentGPT models on the patent
+agent exam. Results show that all commercial general LLMs failed to pass the cutoff of 60 points for
+the patent agent exam, whereas PatentGPT-1.0-Dense and PatentGPT-1.0-MoE scored 65 points and
+60 points respectively, approaching the level of an IP expert. This result reveals the shortcomings of
+
+[PAGE 9]
+0%20%40%60%80%100%PatentGPT-1.0-DensePatentGPT-1.0-MoEPatentGPT-0.5PatentGPT-1.0-DensePatentGPT-1.5-MoEPatentGPT-0.5PatentGPT-1.0-DensePatentGPT-1.0-MoE
+PatentGPT WinsTiesPatentGPT Loses
+Patent_Summary
+Patent_Drufting
+Patent_QAPatentGPT-0.5
+Patent_Classification
+Patent_Reasoning
+Patent_CorrectionPatent_Translation
+Patent_Exam
+ChatGPT-3.5-turboPatentGPT-0.5PatentGPT-1.0-DensePatentGPT-1.0-MoE
+Figure 4: Zero-shot performance of PatentGPT models on PatentBench: The left panel illustrates
+patent summarization, drafting and IP-oriented open question answering capabilities of PatentGPT
+models in comparison with GPT-3.5-turbo, as evaluated automatically by GPT-4. The right panel
+shows the classification, examination, translation, text correction, and reasoning abilities assessed
+based on metrics widely used in NLP.
+general LLMs in the IP domain, and once again emphasizes the effectiveness and necessity of pretraining domain specific LLMs.
+25 33
+65 600.740.610.62
+0.840.88
+00.20.40.60.81
+GPT-4-1106-previewChatGPT-3.5-TurboPatentGPT-0.5PatentGPT-1.0-DensePatentGPT-1.0-MoE
+Score PPA
+Figure 5: The performance of all models on the 2019 China Patent Agent Qualification Examination
+and their corresponding PPA scores.
+It should be particularly emphasized that patent agent exam results presented in Figure 5 aren’t merely
+achieved by integrating IP knowledge into the models. We have also enhanced the models’ ability to
+eliminate the interference of option order through a series of data augmentation techniques, and this
+ability can be expressed in PPA, suggested by Robinson et al. [63]. Through our data augmentation
+processes, the PPA of PatentGPT-1.0-Dense significantly outperforms that of GPT-4-1106-preview,
+implying a higher score ceiling for PatentGPT-1.0-Dense.
+4.3 Results on MoZIP Benchmark
+In addition to evaluating our PatentGPT models on the PatentBench, we also assessed them on MoZIP
+[61], which is a public benchmark specifically designed for the IP industry. MoZIP benchmark includes
+three challenging tasks: IP multiple-choice quiz (IPQuiz), IP question answering (IPQA), and patent
+matching (PatentMatch). GPT-3.5-turbo and GPT-4-1106-preview were used as baselines to evaluate
+the PatentGPT models. The 5-shot results on IPQuiz are shown in Table 2. PatentGPT-1.0-Dense
+and PatentGPT-1.0-MoE outperform GPT-3.5-turbo, indicating that these PatentGPT models demonstrate a better understanding of the fundamental concepts and regulations of IP. The PatentGP-1.0
+model achieved a score of 79.9, which is 2.1 points higher than the GPT-4-1106-preview, and once
+again performs the best among all the models, which is consistent with the results of the China Patent
+Agent Qualification Examination shown in Figure 5. This result suggests a significant advantage of
+PatentGPT-1.0-Dense over generic models in the IP domain. We also notice that, in this experiment,
+
+[TABLE page=9 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | 0.74 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | 0.8
+Row 1: Unnamed: 0: 60.0 | Unnamed: 1: 56.0 | 0.74: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | 0.8:
+Row 2: Unnamed: 0: | Unnamed: 1: | 0.74: | Unnamed: 2: | Unnamed: 3: 0.61 | Unnamed: 4: | Unnamed: 5: 0.62 | 0.8:
+Row 3: Unnamed: 0: | Unnamed: 1: | 0.74: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | 0.8: 0.6
+Row 4: Unnamed: 0: 40.0 | Unnamed: 1: | 0.74: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: 33.0 | Unnamed: 5: | 0.8:
+Row 5: Unnamed: 0: | Unnamed: 1: | 0.74: | Unnamed: 2: 25.0 | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | 0.8: 0.4
+Row 6: Unnamed: 0: 20.0 | Unnamed: 1: | 0.74: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | 0.8:
+Row 7: Unnamed: 0: | Unnamed: 1: | 0.74: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | 0.8: 0.2
+[/TABLE]
+
+[PAGE 10]
+the performance gaps between these models were not as significant as those revealed in Figure 5, which
+can be attributed to the fact that tasks in IPQuiz were clearly easier than those in the 2019 China
+Patent Agent Qualification Examination.
+Model IPQuiz-EN IPQuiz-ZH Average
+ChatGPT-3.5 turbo 68.1 66.0 67.1
+GPT-4-1106-preview 74.9 80.6 77.8
+PatentGPT-0.5 52.0 64.2 58.1
+PatentGPT-1.0-Dense 78.9 80.9 79.9
+PatentGPT-1.0-MoE 77.0 75.2 76.1
+Table 2: 5-shot performance of all models on IPQuiz. IPQuiz-EN and IPQuiz-ZH comprise all test
+samples written in English and Chinese, respectively.
+Table 3 additionally illustrates that all PatentGPT models outperform GPT-3.5-turbo on PatentMatch,
+suggesting that compared to GPT-3.5-turbo, our models are superior at grasping the relationships between various patents. This capability is beneficial in assisting patent examiners in identifying potential
+infringement contents in a patent. It is worth noting that PatentGPT-0.5 has only 13 billion parameters, yet it has achieved a 15.6 point improvement on PatentMatch compared to GPT-3.5-turbo that
+has far more parameters. Furthermore, PatentGPT-1.0-Dense has an average score of 69.1, which is 2.8
+points higher than that of GPT-4-1106-preview. These results indicate that our meticulously prepared
+pre-training data and strategies effectively enhance the model’s performance in the IP domain.
+Model PatentMatch-EN PatentMatch-ZH Average
+ChatGPT-3.5 turbo 34.6 43.0 38.8
+GPT-4-1106-preview 72.3 60.3 66.3
+PatentGPT-0.5 49.5 59.2 54.4
+PatentGPT-1.0-Dense 66.2 72.0 69.1
+PatentGPT-1.0-MoE 70.6 60.8 65.7
+Table 3: 5-shot performance of all models on IPQuiz. IPQuiz-EN and IPQuiz-ZH comprise all test
+samples written in English and Chinese, respectively.
+During the IPQA evaluation, all questions in this dataset were initially answered by ChatGPT-3.5turbo, GPT-4-1106-preview, and the PatentGPT models. Subsequently, annotators were asked to
+select which answer they considered superior, or to determine whether there was a significant difference between the two answers generated by the different models. If no distinction was apparent, then
+results were ties.
+Figure 6 shows the number of questions on IPQA that PatentGPTs wins, ties or loses, compared
+to ChatGPT-3.5-turbo. All PatentGPT models achieve superior performance, despite having fewer
+parameters than ChatGPT-3.5-turbo. These results are consistent with those assessed by GPT-4 and
+presented in Figure 4. They once again confirm that human experts prefer the PatentGPT models over
+ChatGPT-3.5-turbo for addressing IP issues, demonstrating that PatentGPT models generate more
+professional answers with fewer hallucinations.
+4.4 Results on MMLU and C-Eval
+In the process of a patent specification being drafting or reviewed, common sense knowledge in areas
+such as physics, chemistry, and engineering are involved, along with patent laws. Therefore, we
+evaluated the scientific and technological common sense of our PatentGPT models using MMLU and
+C-Eval, which are widely used to evaluate performance of LLMs. We assessed the performance of
+the PatentGPT models and ChatGPT-3.5-turbo on the test set of MMLU and the validation set of
+
+[TABLE page=10 index=1]
+Columns: Model | IPQuiz-EN | IPQuiz-ZH | Average
+Row 1: Model: ChatGPT-3.5 turbo | IPQuiz-EN: 68.1 | IPQuiz-ZH: 66.0 | Average: 67.1
+Row 2: Model: GPT-4-1106-preview | IPQuiz-EN: 74.9 | IPQuiz-ZH: 80.6 | Average: 77.8
+Row 3: Model: PatentGPT-0.5 | IPQuiz-EN: 52.0 | IPQuiz-ZH: 64.2 | Average: 58.1
+Row 4: Model: PatentGPT-1.0-Dense | IPQuiz-EN: 78.9 | IPQuiz-ZH: 80.9 | Average: 79.9
+Row 5: Model: PatentGPT-1.0-MoE | IPQuiz-EN: 77.0 | IPQuiz-ZH: 75.2 | Average: 76.1
+[/TABLE]
+
+[TABLE page=10 index=2]
+Columns: Model | PatentMatch-EN | PatentMatch-ZH | Average
+Row 1: Model: ChatGPT-3.5 turbo | PatentMatch-EN: 34.6 | PatentMatch-ZH: 43.0 | Average: 38.8
+Row 2: Model: GPT-4-1106-preview | PatentMatch-EN: 72.3 | PatentMatch-ZH: 60.3 | Average: 66.3
+Row 3: Model: PatentGPT-0.5 | PatentMatch-EN: 49.5 | PatentMatch-ZH: 59.2 | Average: 54.4
+Row 4: Model: PatentGPT-1.0-Dense | PatentMatch-EN: 66.2 | PatentMatch-ZH: 72.0 | Average: 69.1
+Row 5: Model: PatentGPT-1.0-MoE | PatentMatch-EN: 70.6 | PatentMatch-ZH: 60.8 | Average: 65.7
+[/TABLE]
+
+[PAGE 11]
+0%20%40%60%80%100%PatentGPT-0.5
+PatentGPT-1.0-Dense
+PatentGPT-1.0-MoE
+PatentGPT WinsTiesPatentGPT Loses
+Figure 6: The number of questions on IPQA that PatentGPTs wins, ties or loses, compared to
+ChatGPT-3.5-turbo.
+C-Eval using zero-shot. The answering accuracy of each model is summarized in Table 4, and the
+evaluation results of each subject are presented in Appendix B. It demonstrates that PatentGPT1.0-MoE performs comparably to GPT-3.5-turbo on both MMLU and C-Eval, suggesting that our
+PatentGPT models can not only resolve issues in patent laws but also excel in dealing with tasks
+such as patent drafting, patent comparison, patent classification, and technical word extension, which
+concern common sense understanding in various subjects.
+Model MMLU C-Eval Everage
+PatentGPT-0.5 51 45 48
+PatentGPT-1.0-Dense 61 46 53.5
+PatentGPT-1.0-MoE 59 52 55.5
+ChatGPT-3.5-turbo 66 47 56.5
+Table 4: Performance of PatentGPT models on MMLU and C-Eval compared to ChatGPT-3.5 turbo.
+4.5 Results on inference resources consumption
+The evaluation results presented in Sections 4.1-4.3 demonstrate that PatentGPT-1.0-MoE slightly
+underperforms PatentGPT-1.0-Dense but achieves performance comparable to that of GPT-4. This
+indicates that both PatentGPT-1.0-Dense and PatentGPT-1.0-MoE have the potential to serve as
+alternatives to GPT-4 in the IP industry. In addition to performance, the response latency and operational costs of the models are critical for their commercial viability. Therefore, we performed the
+4-bit quantization cross all PatentGPT models and employed Text-Generation-Inference(TGI)-1.4 to
+assess their resource consumption when they output the first token. All experiments were conducted
+on a server equipped with a NVIDIA A100 80GB GPU.
+PatentGPT-0.5PatentGPT-1.0-DensePatentGPT-1.0-MoE00.511.522.533.5
+100020003000400050006000700080009000100001100012000PatentGPT-0.5PatentGPT-1.0-DensePatentGPT-1.0-MoEInput Sequence Length Input Sequence Length
+GPU Memory Usage (GB)
+Response Latency (s)
+Figure 7: The correlation between input sequence length and resource consumption during the inference
+stage. The left panel illustrates the variation of GPU memory usage versus the input sequence length.
+The right panel shows the variation of response latency versus the input sequence length.
+Figure 7 illustrates the correlation between input sequence length and resource consumption during
+
+[TABLE page=11 index=1]
+Columns: PatentGPT-1.0-MoE | Unnamed: 0 | 59 | Unnamed: 1 | 25 | Unnamed: 2 | 16
+Row 1: PatentGPT-1.0-MoE: GPU Memory Usage (GB) | Unnamed: 0: | 59: | Unnamed: 1: | 25: | Unnamed: 2: | 16:
+Row 2: PatentGPT-1.0-MoE: PatentGPT-1.0-Dense | Unnamed: 0: | 59: 58.0 | Unnamed: 1: | 25: 24.0 | Unnamed: 2: | 16: 18.0
+Row 3: PatentGPT-1.0-MoE: PatentGPT-0.5 | Unnamed: 0: 36.0 | 59: | Unnamed: 1: 32.0 | 25: | Unnamed: 2: 32.0 | 16:
+[/TABLE]
+
+[TABLE page=11 index=2]
+Columns: Model | MMLU | C-Eval | Everage
+Row 1: Model: PatentGPT-0.5 | MMLU: 51 | C-Eval: 45 | Everage: 48.0
+Row 2: Model: PatentGPT-1.0-Dense | MMLU: 61 | C-Eval: 46 | Everage: 53.5
+Row 3: Model: PatentGPT-1.0-MoE | MMLU: 59 | C-Eval: 52 | Everage: 55.5
+Row 4: Model: ChatGPT-3.5-turbo | MMLU: 66 | C-Eval: 47 | Everage: 56.5
+[/TABLE]
+
+[TABLE page=11 index=3]
+Columns: 50 | 2
+Row 1: 50: 40.0 | 2: 1.5
+Row 2: 50: 30.0 | 2:
+Row 3: 50: | 2: 1.0
+Row 4: 50: 20.0 | 2:
+Row 5: 50: 10.0 | 2: 0.5
+[/TABLE]
+
+[PAGE 12]
+the inference stage. The results show that the GPU memory usage of all models is positively correlated
+with both their number of parameters and the length of the input sequence. Among them, PatentGPT1.0-MoE exhibits the smallest increase in GPU memory usage as the input sequence length increases.
+This indicates that PatentGPT-1.0-MoE is more resource-efficient in applications that involve long
+contextual scenarios. Additionally, PatentGPT-0.5 and PatentGPT-1.0-MoE have the same response
+latency, which is significantly shorter than that of PatentGPT-1.0-Dense, suggesting that PatentGPT0.5 and PatentGPT-1.0-MoE have relatively lower computation requirements. The smaller dimensions
+of the MLP layers and multi-head attention layers are responsible for these results.
+The experiment results also reveal that under conditions where model performance levels are nearly
+equivalent, PatentGPT-1.0-MoE tends to outperform in terms of inference efficiency. A particular
+point of concern for IP models is the computation resource management of long contexts sequence,
+which remains a significant challenge. The design of PatentGPT-1.0-MoE allows for handling long
+context and maintaining high performance levels without undue strain on system resources, offering
+a potentially superior compromise. This could mark a pivotal step in the deployment of advanced
+IP-oriented models in environments where resource management is just as critical as the capacity to
+handle complex and lengthy data sequences. These findings underscore the viability of SMoE models
+like PatentGPT-1.0-MoE in the IP industry and the importance of selecting the model architecture to
+develop powerful, efficient, and professional-use solutions.
+5 Conclusions and Future Works
+In this report, we introduced methodologies for training IP-oriented LLMs and establish the most
+comprehensive benchmark in the IP domain, the PatentBench. The main conclusions of this report
+are summarized as follows:
+First, we proposed a standard training procedure for LLMs in the IP domain, including data preprocessing, pretraining, alignment, and evaluation. Under the guidance of this procedure, we trained
+the PatentGPT models. The results of the experiments indicate that our PatentGPT models demonstrated overall performance that surpasses that of ChatGPT-3.5-turbo in the IP domain. Moreover,
+PatentGPT-1.0-Dense, with 70 billion parameters, even exhibits superior performance compared to
+GPT-4 in this field, indicating the effectiveness of the methodology we employed.
+Secondly, we compared the performance of PatentGPT models that were pre-trained using open-source
+base models with various parameter scales and across different frameworks. After a comprehensive
+evaluation of these models’ performance on IP-oriented tasks and their computational resource consumption, we found that IP-oriented LLMs with 70 billion parameters tended to perform better on
+tasks in the IP domain, while the SMoE model with 47 billion parameters exhibited a better costperformance ratio on long-text tasks, achieving a better tradeoff between model quality and inference
+efficiency.
+Finally, we provided a benchmark closer to the use cases of LLMs in the IP domain, called PatentBench, which serves a reference for comprehensive evaluation of LLMs in the IP domain.
+Future work will focus on enhancing long-context support, aiming to achieve the ability to support up
+to 128k tokens to meet more diverse IP-oriented scenarios. Additionally, we will prioritize the accumulation of English pretraining corpora and SFT data to further improve our models’ performance in
+English.
+References
+[1] Wes Gurnee and Max Tegmark. “Language models represent space and time”. In: arXiv preprint
+arXiv:2310.02207 (2023).
+[2] Shibo Hao et al. “Reasoning with language model is planning with world model”. In: arXiv
+preprint arXiv:2305.14992 (2023).
+
+[PAGE 13]
+[3] Lin Guan et al. “Leveraging pre-trained large language models to construct and utilize world
+models for model-based task planning”. In: Advances in Neural Information Processing Systems
+36 (2023), pp. 79081–79094.
+[4] Jordan Hoffmann et al. “Training compute-optimal large language models”. In: arXiv preprint
+arXiv:2203.15556 (2022).
+[5] Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine
+Learning Research 24.377 (2023), pp. 1–8.
+[6] Haowei Lin et al. “Selecting Large Language Model to Fine-tune via Rectified Scaling Law”. In:
+arXiv preprint arXiv:2402.02314 (2024).
+[7] Tom Brown et al. “Language models are few-shot learners”. In: Advances in neural information
+processing systems 33 (2020), pp. 1877–1901.
+[8] Hugo Touvron et al. “Llama: Open and efficient foundation language models”. In: arXiv preprint
+arXiv:2302.13971 (2023).
+[9] Hugo Touvron et al. “Llama 2: Open foundation and fine-tuned chat models”. In: arXiv preprint
+arXiv:2307.09288 (2023).
+[10] Teven Le Scao et al. “Bloom: A 176b-parameter open-access multilingual language model”. In:
+(2022).
+[11] Aohan Zeng et al. “Glm-130b: An open bilingual pre-trained model”. In: arXiv preprint arXiv:2210.02414
+(2022).
+[12] Guangxuan Xiao et al. “Smoothquant: Accurate and efficient post-training quantization for large
+language models”. In: International Conference on Machine Learning . PMLR. 2023, pp. 38087–
+38099.
+[13] Ji Lin et al. “Awq: Activation-aware weight quantization for llm compression and acceleration”.
+In: arXiv preprint arXiv:2306.00978 (2023).
+[14] Jing Liu et al. “Qllm: Accurate and efficient low-bitwidth quantization for large language models”. In: arXiv preprint arXiv:2310.08041 (2023).
+[15] Shih-yang Liu et al. “Llm-fp4: 4-bit floating-point quantized transformers”. In: arXiv preprint
+arXiv:2310.16836 (2023).
+[16] Changhun Lee et al. “Owq: Lessons learned from activation outliers for weight quantization in
+large language models”. In: arXiv preprint arXiv:2306.02272 (2023).
+[17] Yilong Zhao et al. “Atom: Low-bit quantization for efficient and accurate llm serving”. In: arXiv
+preprint arXiv:2310.19102 (2023).
+[18] Kumar Shridhar, Alessandro Stolfo, and Mrinmaya Sachan. “Distilling reasoning capabilities into
+smaller language models”. In: arXiv preprint arXiv:2212.00193 (2022).
+[19] Rishabh Agarwal et al. “On-policy distillation of language models: Learning from self-generated
+mistakes”. In: The Twelfth International Conference on Learning Representations . 2024.
+[20] Yukun Huang et al. “In-context learning distillation: Transferring few-shot learning ability of
+pre-trained language models”. In: arXiv preprint arXiv:2212.10670 (2022).
+[21] Cheng-Yu Hsieh et al. “Distilling step-by-step! outperforming larger language models with less
+training data and smaller model sizes”. In: arXiv preprint arXiv:2305.02301 (2023).
+[22] Li Chenglin et al. “Mixed distillation helps smaller language model better reasoning”. In: arXiv
+preprint arXiv:2312.10730 (2023).
+[23] James Oldfield et al. “Multilinear Mixture of Experts: Scalable Expert Specialization through
+Factorization”. In: arXiv preprint arXiv:2402.12550 (2024).
+[24] Shashank Gupta et al. “Sparsely activated mixture-of-experts are robust multi-task learners”.
+In: arXiv preprint arXiv:2204.07689 (2022).
+[25] William Fedus, Barret Zoph, and Noam Shazeer. “Switch transformers: Scaling to trillion parameter models with simple and efficient sparsity”. In: Journal of Machine Learning Research
+23.120 (2022), pp. 1–39.
+
+[TABLE page=13 index=1]
+Columns: [5] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine
+Row 1: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Learning Research 24.377 (2023), pp. 1–8.
+Row 2: [5]: [6] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Haowei Lin et al. “Selecting Large Language Model to Fine-tune via Rectified Scaling Law”. In:
+Row 3: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: arXiv preprint arXiv:2402.02314 (2024).
+Row 4: [5]: [7] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Tom Brown et al. “Language models are few-shot learners”. In: Advances in neural information
+Row 5: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: processing systems 33 (2020), pp. 1877–1901.
+Row 6: [5]: [8] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Hugo Touvron et al. “Llama: Open and efficient foundation language models”. In: arXiv preprint
+Row 7: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: arXiv:2302.13971 (2023).
+Row 8: [5]: [9] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Hugo Touvron et al. “Llama 2: Open foundation and fine-tuned chat models”. In: arXiv preprint
+Row 9: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: arXiv:2307.09288 (2023).
+Row 10: [5]: [10] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Teven Le Scao et al. “Bloom: A 176b-parameter open-access multilingual language model”. In:
+Row 11: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: (2022).
+Row 12: [5]: [11] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Aohan Zeng et al. “Glm-130b: An open bilingual pre-trained model”. In: arXiv preprint arXiv:221
+Row 13: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: (2022).
+Row 14: [5]: [12] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Guangxuan Xiao et al. “Smoothquant: Accurate and efficient post-training quantization for large
+Row 15: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: language models”. In: International Conference on Machine Learning. PMLR. 2023, pp. 38087–
+Row 16: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: 38099.
+Row 17: [5]: [13] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Ji Lin et al. “Awq: Activation-aware weight quantization for llm compression and acceleration”.
+Row 18: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: In: arXiv preprint arXiv:2306.00978 (2023).
+Row 19: [5]: [14] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Jing Liu et al. “Qllm: Accurate and efficient low-bitwidth quantization for large language modRow 20: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: els”. In: arXiv preprint arXiv:2310.08041 (2023).
+Row 21: [5]: [15] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Shih-yang Liu et al. “Llm-fp4: 4-bit floating-point quantized transformers”. In: arXiv preprint
+Row 22: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: arXiv:2310.16836 (2023).
+Row 23: [5]: [16] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Changhun Lee et al. “Owq: Lessons learned from activation outliers for weight quantization in
+Row 24: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: large language models”. In: arXiv preprint arXiv:2306.02272 (2023).
+Row 25: [5]: [17] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Yilong Zhao et al. “Atom: Low-bit quantization for efficient and accurate llm serving”. In: arXiv
+Row 26: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: preprint arXiv:2310.19102 (2023).
+Row 27: [5]: [18] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Kumar Shridhar, Alessandro Stolfo, and Mrinmaya Sachan. “Distilling reasoning capabilities into
+Row 28: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: smaller language models”. In: arXiv preprint arXiv:2212.00193 (2022).
+Row 29: [5]: [19] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Rishabh Agarwal et al. “On-policy distillation of language models: Learning from self-generated
+Row 30: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: mistakes”. In: The Twelfth International Conference on Learning Representations. 2024.
+Row 31: [5]: [20] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Yukun Huang et al. “In-context learning distillation: Transferring few-shot learning ability of
+Row 32: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: pre-trained language models”. In: arXiv preprint arXiv:2212.10670 (2022).
+Row 33: [5]: [21] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Cheng-Yu Hsieh et al. “Distilling step-by-step! outperforming larger language models with less
+Row 34: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: training data and smaller model sizes”. In: arXiv preprint arXiv:2305.02301 (2023).
+Row 35: [5]: [22] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Li Chenglin et al. “Mixed distillation helps smaller language model better reasoning”. In: arXiv
+Row 36: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: preprint arXiv:2312.10730 (2023).
+Row 37: [5]: [23] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: James Oldfield et al. “Multilinear Mixture of Experts: Scalable Expert Specialization through
+Row 38: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Factorization”. In: arXiv preprint arXiv:2402.12550 (2024).
+Row 39: [5]: [24] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: Shashank Gupta et al. “Sparsely activated mixture-of-experts are robust multi-task learners”.
+Row 40: [5]: | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: In: arXiv preprint arXiv:2204.07689 (2022).
+Row 41: [5]: [25] | Adam Roberts et al. “Scaling up models and data with t5x and seqio”. In: Journal of Machine: William Fedus, Barret Zoph, and Noam Shazeer. “Switch transformers: Scaling to trillion pa-
+[/TABLE]
+
+[PAGE 14]
+[26] Dmitry Lepikhin et al. “Gshard: Scaling giant models with conditional computation and automatic sharding”. In: arXiv preprint arXiv:2006.16668 (2020).
+[27] Albert Q Jiang et al. “Mixtral of experts”. In: arXiv preprint arXiv:2401.04088 (2024).
+[28] Chen Li et al. “Common 7B Language Models Already Possess Strong Math Capabilities”. In:
+arXiv preprint arXiv:2403.04706 (2024).
+[29] Xiao-Yang Liu, Guoxuan Wang, and Daochen Zha. “Fingpt: Democratizing internet-scale data
+for financial large language models”. In: arXiv preprint arXiv:2307.10485 (2023).
+[30] Baptiste Roziere et al. “Code llama: Open foundation models for code”. In: arXiv preprint
+arXiv:2308.12950 (2023).
+[31] Arindam Mitra et al. “Orca 2: Teaching small language models how to reason”. In: arXiv preprint
+arXiv:2311.11045 (2023).
+[32] Merriam-Webster. file wrapper. 2024. url: https://www.merriam-webster.com/legal/file%
+20wrapper (visited on 03/29/2024).
+[33] Moses S Charikar. “Similarity estimation techniques from rounding algorithms”. In: Proceedings
+of the thiry-fourth annual ACM symposium on Theory of computing . 2002, pp. 380–388.
+[34] Suriya Gunasekar et al. “Textbooks are all you need”. In: arXiv preprint arXiv:2306.11644
+(2023).
+[35] Yuanzhi Li et al. “Textbooks are all you need ii: phi-1.5 technical report”. In: arXiv preprint
+arXiv:2309.05463 (2023).
+[36] Mohammad Shoeybi et al. “Megatron-lm: Training multi-billion parameter language models
+using model parallelism”. In: arXiv preprint arXiv:1909.08053 (2019).
+[37] Ilya Loshchilov and Frank Hutter. “Decoupled weight decay regularization”. In: arXiv preprint
+arXiv:1711.05101 (2017).
+[38] Yusuxke Shibata et al. “Byte pair encoding: A text compression scheme that accelerates pattern
+matching”. In: (1999).
+[39] Taku Kudo and John Richardson. “Sentencepiece: A simple and language independent subword tokenizer and detokenizer for neural text processing”. In: arXiv preprint arXiv:1808.06226
+(2018).
+[40] Wenhan Xiong et al. “Effective long-context scaling of foundation models”. In: arXiv preprint
+arXiv:2309.16039 (2023).
+[41] Xin Zhou et al. “Making harmful behaviors unlearnable for large language models”. In: arXiv
+preprint arXiv:2311.02105 (2023).
+[42] Michiel Bakker et al. “Fine-tuning language models to find agreement among humans with diverse
+preferences”. In: Advances in Neural Information Processing Systems35 (2022), pp. 38176–38189.
+[43] Binghai Wang et al. “Secrets of rlhf in large language models part ii: Reward modeling”. In:
+arXiv preprint arXiv:2401.06080 (2024).
+[44] Jason Wei et al. “Finetuned Language Models are Zero-Shot Learners”. In: International Conference on Learning Representations.
+[45] Ge Zhang et al. Chinese Open Instruction Generalist: A Preliminary Release. 2023. arXiv: 2304.
+07987 [cs.CL].
+[46] Jianxin Yang. Firefly. https://github.com/yangjianxin1/Firefly. 2023.
+[47] BELLEGroup. BELLE: Be Everyone’s Large Language model Engine . https://github.com/
+LianjiaTech/BELLE. 2023.
+[48] Tianxiang Sun et al. “Moss: Training conversational language models from synthetic data”. In:
+arXiv preprint arXiv:2307.15020 7 (2023).
+[49] Ning Ding et al. “Enhancing Chat Language Models by Scaling High-quality Instructional Conversations”. In: arXiv preprint arXiv:2305.14233 (2023).
+[50] Guan Wang et al. “Openchat: Advancing open-source language models with mixed-quality data”.
+In: arXiv preprint arXiv:2309.11235 (2023).
+
+[PAGE 15]
+[51] Yuntao Bai et al. “Training a helpful and harmless assistant with reinforcement learning from
+human feedback”. In: arXiv preprint arXiv:2204.05862 (2022).
+[52] Harrison Lee et al. “Rlaif: Scaling reinforcement learning from human feedback with ai feedback”.
+In: arXiv preprint arXiv:2309.00267 (2023).
+[53] Long Ouyang et al. “Training language models to follow instructions with human feedback,
+2022”. In: URL https://arxiv. org/abs/2203.02155 13 (2022), p. 1.
+[54] John Schulman et al. “Proximal policy optimization algorithms”. In: arXiv preprint arXiv:1707.06347
+(2017).
+[55] Stephanie Lin, Jacob Hilton, and Owain Evans. “Truthfulqa: Measuring how models mimic
+human falsehoods”. In: arXiv preprint arXiv:2109.07958 (2021).
+[56] Yushi Bai et al. “Longbench: A bilingual, multitask benchmark for long context understanding”.
+In: arXiv preprint arXiv:2308.14508 (2023).
+[57] Dan Hendrycks et al. “Measuring massive multitask language understanding”. In: arXiv preprint
+arXiv:2009.03300 (2020).
+[58] Hao Yu et al. “Codereval: A benchmark of pragmatic code generation with generative pretrained models”. In: Proceedings of the 46th IEEE/ACM International Conference on Software
+Engineering. 2024, pp. 1–12.
+[59] Qiao Jin et al. “Pubmedqa: A dataset for biomedical research question answering”. In: arXiv
+preprint arXiv:1909.06146 (2019).
+[60] Shipeng Qi et al. “The LDBC Financial Benchmark”. In: arXiv preprint arXiv:2306.15975
+(2023).
+[61] Shiwen Ni et al. “MoZIP: A Multilingual Benchmark to Evaluate Large Language Models in
+Intellectual Property”. In: arXiv preprint arXiv:2402.16389 (2024).
+[62] Zhilin Yang et al. “HotpotQA: A dataset for diverse, explainable multi-hop question answering”.
+In: arXiv preprint arXiv:1809.09600 (2018).
+[63] Joshua Robinson, Christopher Michael Rytting, and David Wingate. “Leveraging Large Language Models for Multiple Choice Question Answering”. In: (2022).
+
+[PAGE 16]
+A Examples of Synthetic Data
+Combination of Patent Text and File Wrapper:
+In this section, we introduce the method for constructing synthetic data using structured data from
+various sources along with the corresponding attribute labels.
+Taking the generation of synthetic data with File Wrappers and patents as an example:
+We first extracted the patent numbers of the Patent under Examination and the Public Patent used as
+comparisons from the corresponding File Wrapper using named entity recognition (NER) to construct
+attribute labels.
+Then, utilizing these attribute labels, we located the claims of the Patent under Examination and
+the claims and description of the Public Patent from the patent database. These elements were concatenated with the sections of the File Wrapper that expound the examination comments, forming
+synthetic data for pretraining. Table 5 and Figure 6 illuminate the English and Chinese examples of
+the mentioned process, respectively.
+Extraction of Similar Corpus Pairs in the File Wrapper:
+In addition to combining patent texts and File Wrapper into a training corpus, we can also extract
+X-file text pairs (text pairs extracted from the patent under examnation and the public patent, respectively, representing the existence of technological connections between the two patents) from the File
+Wrapper, and the X-file text pairs can also be combined with other patent texts to form training data
+or instruction data. Table 7 shows the logic of generating English X-file text pairs, Table 8 shows the
+logic of generating Chinese X-file text pairs, and Table 9 shows the samples of X-file text combined
+with other patent text to form training data.
+Firstly, we extracted the description text for patent comparison by the examiner from the File Wrapper; secondly, we extracted the original text (at the level of large paragraphs) for patent comparison
+mentioned in the File Wrapper from the patent under examnation and the public patent (the patent
+used for comparison); finally, we extracted the original sentence from the two patents according to the
+description text for patent comparison mentioned in the File Wrapper and the original text (at the
+level of large paragraphs) of the patent.
+With training the similar corpus pairs (X-file pairs) that showed in Table 9, PatentGPT can be realized to capture the sentence pairs with the closest technical expression in patent comparisons, which
+meanwhile that the later application of the two patents may be at risk of infringement. This capability
+can greatly improve the efficiency and accuracy of IP practitioners in designing the scope of patent
+protection.
+
+[PAGE 17]
+Patent under Examnation(PN:US 2023/0333692 A1):
+Claims:
+1. An electronic device comprising: a display layer; a sensor layer on the display layer, and
+comprising: a plurality of electrodes comprising a first electrode, and a second electrode adjacent
+to the first electrode; . . . in the second electrode by the input device.
+. . .
+20. The electronic device of claim 16, wherein the plurality of electrodes further comprise: a third
+electrode interposed between the first electrode and the second electrode, and a fourth electrode
+interposed between the first electrode and the third electrode...
+Public Patent(PN: US 2014/0078104 A1, Authors: De Foras et al.)
+Claims:
+1. A display device, comprising: a display panel comprising a first display substrate and a
+second display substrate facing the first display substrate . . . and the second sensing signals.
+. . .
+90. The display device of claim 89, wherein the display period is longer than the non-display
+period, and the first scan signal output part is configured to provide the first scan signals more
+than once to the first touch coils during the display period.
+Description:
+CROSS REFERENCE TO RELATED APPLICATION
+[0001] This U.S. non-provisional patent application claims priority from and the benefit of
+U.S. Provisional Patent Application No. 61/701,100, filed on Sep. 14, 2012, Korean Patent
+Application No. 10-2013-0021423, filed on Feb. 27, 2013, Korean Patent Application No.
+10-2013-0021426, filed on Feb. 27, 2013, and Korean Patent Application No. 10-2013-0055845,
+filed on May 16, 2013, which are hereby incorporated by reference for all purposes as if fully set
+forth herein.
+. . .
+[0475] Although the exemplary embodiments of the present disclosure have been described, it
+will be apparent to those skilled in the art that various modifications and variations can be
+made in the present disclosure without departing from the spirit or scope of the disclosed subject
+matter. Thus, it is intended that the present disclosure cover the modifications and variations
+of the disclosed subject matter provided they come within the scope of the appended claims and
+their equivalents.
+File Wrapper:
+DETAILED ACTION
+Notice of Pre-AIA or AIA Status
+. . .
+Instant Claim 2: The electronic device of claim 1, wherein the driving circuit comprises an analog
+front end comprising: an amplifier configured to amplify the first input signal and the second
+input signal; and a filter configured to remove noise from a signal output from the amplifier.
+(“The first signal processor 530 (fig 28B) includes an amplifier, a noise filter, and an analog-todigital converter. The amplifier amplifies the first sensing signals SS1(1) to SS1(r). The noise
+filter removes noises from the amplified first sensing signals SS1(1) to SS1(r).” (Lee, paragraph
+296))
+. . .
+Examier, Art Unit
+Table 5: An example of synthetic data in English:
+texts highlighted with a blue background indicate claims from the Patent under Examination; texts
+highlighted with a green background represent the claims and description of the Public Patent; and
+texts highlighted with a yellow background denote examination comments from the File Wrapper.
+
+[PAGE 18]
+Patent under Examnation(PN:CN111865430A):
+Claims:
+1.一种光电接收器，其特征在于，所述光电接收器包括壳体、跨阻放大器、固定支架和光电转换
+元件，所述壳体设有安装面，所述跨阻放大器固定于所述安装面上，所述固定支架 ... 位于所述
+跨阻放大器在所述安装面的正投影内。
+...
+10.如权利要求1～6任意一项所述的光电接收器，其特征在于，所述承载部设有定位孔，所述光
+电转换元件嵌入所述定位孔中，以对所述光电转换元件进行定位。
+Public Patent(PN:CN207366793U)
+Claims:
+1.一种光接收器件结构，其特征在于，结构中包括芯片底座(31)、探测芯片(32)、放大器芯
+片(33)、热沉(34)和封帽(35)，具体的：...之间通过金丝焊接连接。
+...
+8.所 述 权 利 要 求1所 述 的 光 接 收 器 件 结 构 ， 其 特 征 在 于 ， 所 述 芯 片 底 座(31)、 热 沉(34)和 封
+帽(35)按照TO56的规格制作。
+Description:
+技术领域
+[0001]本实用新型涉及光器件技术领域，尤其涉及一种光接收器件结构。
+...
+[0036]本实用新型所提出的光接收器件的封装结构适用于背景技术中所提到的TO56，具体的：
+所述芯片底座31、热沉34和封帽35按照TO56的规格制作。
+[0037]以上所述仅为本实用新型的较佳实施例而已，并不用以限制本实用新型，凡在本实用新型
+的精神和原则之内，所作的任何修改、等同替换、改进等，均应包含在本实用新型的保护范围之
+内。
+File Wrapper:
+第一次审查意见通知书
+本申请涉及一种光电接受器。经审查，现提出如下审查意见。
+...
+1.权利要求1请求保护一种光电接收器，对比文件1（CN207366793U）公开了一 种光接收器结
+构，并具体公开了以下 技术特征（参见说明书5-11段，图3-5）： 本实用新型提供一种光接收
+器件结构（相当于“光电接收器”），结构中包括芯片底座31、探测芯片32（相当于“光电转换
+元件”）、放大器芯片33、热沉34（相当于“固定支架”）和封帽35（底座31和封帽35相当于“壳
+体”），具体的：...
+...
+基于上述理由，本申请的独立权利要求以及从属权利要求均不具备创造性。同时，说明书中也没
+有可以被授予专利权的实质性内容，因而本申请不具备被授予专利权的前景。...
+...
+Table 6: An example of synthetic data in Chinese:
+texts highlighted with a blue background indicate claims from the Patent under Examination; texts
+highlighted with a green background represent the claims and description of the Public Patent; and
+texts highlighted with a yellow background denote examination comments from the File Wrapper.
+
+[PAGE 19]
+Related Descriptions from File Wrapper:
+...
+Claims 1-5 and 7 are rejected under 35 U.S.C. 102(a)(1) as being anticipated by Lee (US
+2014/0078104 A1).
+Instant Claim 1: An electronic device comprising: a display layer; a sensor layer on the
+display layer, (“The display device includes a display panel LDP (fig 1), a signal controller 100, a
+gate driver 200, a data driver 300, and a touch panel.” (Lee, paragraph 104) The display device,
+display panel LDP, and touch panel of Lee correspond to the electronic device, display layer,
+and sensor layer of the claim, respectively.) and comprising: a plurality of electrodes comprising
+a first electrode, and a second electrode adjacent to the first electrode;
+...
+Paragraph-level text pairs:
+Claim 1 from Patent under Examnation(PN:US 2023/0333692 A1):
+1. An electronic device comprising: a display layer; a sensor layer on the display layer, and
+comprising: a plurality of electrodes comprising a first electrode, and a second electrode adjacent
+to the first electrode; and a plurality of crossing electrodes; and a driving circuit electrically
+connected to the sensor layer, and configured to control an operation of the sensor layer, wherein
+the sensor layer is configured to operate in a first touch mode to sense a first input signal based on
+a capacitance change, and a second touch mode to sense a second input signal of an input device
+configured to discharge a magnetic field, and wherein the driving circuit is configured to sense
+coordinates of the input device based on a signal profile, the signal profile being measured based
+on a first current having a first current direction formed in the first electrode by the input device,
+and a second current having a second current direction opposite to the first current direction
+formed in the second electrode by the input device.
+Description para 104 texts from Public Patent(PN:US 2014/0078104 A1 , author:
+Lee):
+[0104]The display device includes a display panel LDP, a signal controller 100, a gate driver 200,
+a data driver 300, and a touch panel. The touch panel includes a plurality of scan lines TL1 to
+TLi (“i” is any whole number greater than 1), a plurality of source lines RL1 to RLj (“j” is any
+whole number greater than 1), a first driver 400, a second driver 500, and a touch sensor 600.
+The signal controller 100, the gate driver 200, and the data driver 300 control the display panel
+LDP to generate an image. The first driver 400 and the second driver 500 control the touch
+panel, and the touch sensor 600 calculates coordinate information of input positions.
+Sentence-level text pairs:
+Sentence from Patent under Examnation(PN:US 2023/0333692 A1):
+An electronic device comprising: a display layer; a sensor layer on the display layer
+Sentence from Public Patent(PN:PN:US 2014/0078104 A1):
+The display device includes a display panel LDP, a signal controller 100, a gate driver 200, a
+data driver 300, and a touch panel.
+Table 7: An example of a English X-file text pair generation process:
+texts highlighted with a blue background indicate the paragraphs in the file wrapper that are relevant
+to the patent comparison; texts highlighted with a green background represent the text pairs of the
+technically closest passages extracted from the patent under examnation and the public patent, respectively; and texts highlighted with a yellow background denote sentence-level text pairs extracted
+from the above text pairs of the technically closest passages.
+X-file text pairs are parsed into multiple levels, e.g. paragraph-leve text pairs, sentence-level text pairs,
+etc. These text pairs can be used as training corpus for the model with additional information.
+
+[PAGE 20]
+Related Descriptions from File Wrapper:
+...
+1.权利要求1请求保护一种光电接收器，对比文件1（CN207366793U）公开了一 种光接收器结
+构，并具体公开了以下技术特征（参见说明书5-11段，图3-5）：
+本实用新型提供一种光接收器件结构（相当于“光电接收器”），结构中包括芯片底座31、探测
+芯片32（相当于“光电转换元件”）、放大器芯片33、热沉34（相当于“固定支架”）和封帽35（底
+座31和封帽35相当于“壳体”），具体的：
+优选的，放大器芯片33具体为跨阻放大器（相当于“跨阻放大器”）。
+所述热沉34位于所述底座上（相当于“固定支架固定连接壳体”），热沉34靠近芯片底座31中心的
+一侧固定所述探测芯片32（公开了“固定支架承载部，所述光电转换元件固定于承载部”），其
+中，所述探测芯片32的收光面与封帽35上的窗口在一直线上；
+...
+从图5中可以看出，探测芯片32位于放大器芯片33的上方（相当于“光电转换元件在所述安装面上
+的正投影位于所述跨阻放大器在所述安装面的正投影内”）。
+...
+Paragraph-level text pairs:
+Claim 1 from Patent under Examnation(PN:CN111865430A):
+1.一种光电接收器，其特征在于，所述光电接收器包括壳体、跨阻放大器、固定支架和光电转换
+元件，所述壳体设有安装面，所述跨阻放大器固定于所述安装面上，所述固定支架固定连接所述
+壳体，所述固定支架设有背离所述跨阻放大器的承载部，所述光电转换元件固定于所述承载部，
+以使所述光电转换元件在所述安装面上的正投影位于所述跨阻放大器在所述安装面的正投影内。
+Description para 5-11 texts from Public Patent(PN:CN207366793U):
+[0005]本实用新型提供一种光接收器件结构，结构中包括芯片底座31、探测芯片32、放大器芯
+片33、热沉34和封帽35，具体的：
+[0006]所述热沉34位于所述底座上，热沉34靠近芯片底座31中心的一侧固定所述探测芯片32，其
+中，所述探测芯片32的收光面与封帽35上的窗口在一直线上；
+[0007]所述放大器芯片33固定在所述底座上，所述放大器芯片33、芯片底座31上的管脚以及探测
+芯片32之间通过金丝焊接连接。
+[0008]优选的，所述探测芯片32的收光面与封帽35上的窗口在一直线上，具体为：
+[0009]所述封帽35中心的窗口上设置有透镜351，所述透镜351的焦点与所述探测芯片32的收光点
+重合。
+[0010]优选的，所述探测芯片32固定在所述热沉34上，且所述放大器芯片33固定在所述芯片底
+座31上后，探测芯片32的管脚与所述放大器芯片33的管脚相距预设距离；其中，所述预设距离
+为500um～1000um。
+[0011]优选的，放大器芯片33具体为跨阻放大器。
+Sentence-level text pairs:
+Sentence from Patent under Examnation(PN:CN111865430A):
+所述固定支架设有背离所述跨阻放大器的承载部，所述光电转换元件固定于所述承载部
+Sentence from Public Patent(PN:CN207366793U):
+热沉34靠近芯片底座31中心的一侧固定所述探测芯片32
+Table 8: An example of a Chinese X-file text pair generation process:
+texts highlighted with a blue background indicate the paragraphs in the file wrapper that are relevant
+to the patent comparison; texts highlighted with a green background represent the text pairs of the
+technically closest passages extracted from the patent under examnation and the public patent, respectively; and texts highlighted with a yellow background denote sentence-level text pairs extracted
+from the above text pairs of the technically closest passages.
+X-file text pairs are parsed into multiple levels, e.g. paragraph-leve text pairs, sentence-level text pairs,
+etc. These text pairs can be used as training corpus for the model with additional information.
+
+[PAGE 21]
+Sentence-level text pairs:
+Sentence from Patent under Examnation(PN:US 2023/0333692 A1): An electronic
+device comprising: a display layer; a sensor layer on the display layer.
+Sentence from Public Patent(PN:PN:US 2014/0078104 A1): The display device includes
+a display panel LDP, a signal controller 100, a gate driver 200, a data driver 300, and a touch
+panel.
+Sample of Synthetic Training Data:
+human:
+Here are two patents, compare these two patents and extract the sentence pairs from each which
+is technically closest in presentation.
+Here is the claims and description from Patent US 2023/0333692 A1:
+- - (Insert the text of the claims and specification of the patent US 2023/0333692 A1) - Here is the claims and description from Patent US 2014/0078104 A1:
+- - (Insert the text of the claims and specification of the patent US 2014/0078104 A1) - gpt:
+Here are the technically closest sentence pairs in these two patents ：
+1.
+An electronic device comprising: a display layer; a sensor layer on the display layer （from US
+2023/0333692 A1），
+The display device includes a display panel LDP, a signal controller 100, a gate driver 200, a data
+driver 300, and a touch panel （from US 2014/0078104 A1 ）；
+2.
+- - (Insert the other sentence pairs from these two patents) - -
+...
+Table 9: An example of synthetic training data in English consisting of X-file sentence pairs (extract
+through File Wrapper and original patent text) and original patent text:
+texts highlighted with a blue background represent the sentence-text pairs in the file wrapper that are
+relevant to the patent comparison;
+and texts highlighted with a green background represent the training corpus consisting of sentence-text
+pairs, original texts of relevant patents, and designed contexts.
+
+[TABLE page=21 index=1]
+Columns: Sentence-level text pairs:
+Row 1: Sentence-level text pairs:: Sentence from Patent under Examnation(PN:US 2023/0333692 A1): An electronic
+Row 2: Sentence-level text pairs:: device comprising: a display layer; a sensor layer on the display layer.
+Row 3: Sentence-level text pairs:: Sentence from Public Patent(PN:PN:US 2014/0078104 A1): The display device includes
+Row 4: Sentence-level text pairs:: a display panel LDP, a signal controller 100, a gate driver 200, a data driver 300, and a touch
+Row 5: Sentence-level text pairs:: panel.
+Row 6: Sentence-level text pairs:: Sample of Synthetic Training Data:
+Row 7: Sentence-level text pairs:: human:
+Row 8: Sentence-level text pairs:: Here are two patents, compare these two patents and extract the sentence pairs from each which
+Row 9: Sentence-level text pairs:: is technically closest in presentation.
+Row 10: Sentence-level text pairs:: Here is the claims and description from Patent US 2023/0333692 A1:
+Row 11: Sentence-level text pairs:: - - (Insert the text of the claims and specification of the patent US 2023/0333692 A1) - Row 12: Sentence-level text pairs:: Here is the claims and description from Patent US 2014/0078104 A1:
+Row 13: Sentence-level text pairs:: - - (Insert the text of the claims and specification of the patent US 2014/0078104 A1) - Row 14: Sentence-level text pairs:: gpt:
+Row 15: Sentence-level text pairs:: Here are the technically closest sentence pairs in these two patents:
+Row 16: Sentence-level text pairs:: 1.
+Row 17: Sentence-level text pairs:: An electronic device comprising: a display layer; a sensor layer on the display layer(from US
+Row 18: Sentence-level text pairs:: 2023/0333692 A1),
+Row 19: Sentence-level text pairs:: The display device includes a display panel LDP, a signal controller 100, a gate driver 200, a data
+Row 20: Sentence-level text pairs:: driver 300, and a touch panel (from US 2014/0078104 A1);
+Row 21: Sentence-level text pairs:: 2.
+Row 22: Sentence-level text pairs:: - - (Insert the other sentence pairs from these two patents) - Row 23: Sentence-level text pairs:: ...
+[/TABLE]
+
+[PAGE 22]
+B Performance of LLMs on C-Eval and MMLU
+ac counta nt
+adv anced_ ma them ati cs
+la w
+le ga l_ pr ofes si ona l
+lo gi c
+ma o_ zedong _tho ug ht
+ma rxi smmetro lo gy _eng ineermi ddl e_s ch oo l_ bio lo gymi ddl e_s ch oo l_ ch em is trymi ddl e_s ch oo l_ geog raph ymi ddl e_s ch oo l_ his torymi ddl e_s ch oo l_ mathem ati csmi ddl e_s ch oo l_ phys icsmi ddl e_s ch oo l_ pol iti csmo dern_chi nese_ his toryoper ati ng_ sy stemphysicianplant_protectionprobability_and_statisticsprof essional_tour_guidespo rts _s ciencetax_accountantteacher_qualificationurban_and_rural_plannerideo lo gi ca l_ and_m or al _cul tiv ati on
+high_school_politicshigh_school_physicscomputer_architecture
+ar t_s tudiesbasic_medicinebusiness_administrationchinese_lan guage_and_liter ature
+civil_servantclinic al_medicinecollege_chemistrycollege_economicscollege_physicscollege_programmingcomputer_networkhigh_school_mathematicsdiscrete_mathematicseducat ion _sc ienceelectrical_engineer
+environ mental_impact_assessment_engineer
+fire_engineerhigh_school_biologyhigh_school_chemist ryhigh_school_chinesehigh_school_geographyhigh_school_historyve terina ry_ medi cine
+GPT-3.5-turboPatentGPT-0.5PatentGPT-1.0-DensePatentGPT-1.0-MoE
+Figure 8: Performance of PatentGPT models and ChatGPT-3.5-turbo on C-Eval.
+010203040506070809010 0
+abs tra ct_a lg ebrahigh_school_statisticshigh_school_world_history
+human_aginghuman_sexualityinte rnati ona l_ la wjurisprudencelo gi ca l_ fal la ciesma chin e_ lea rningma na gementma rketingmedi cal _g eneticsmi scel la neousmo ral _di sp utesmo ral _s cenari osnutrit ionphilosophyprehistory
+prof essional_accountingprof essional_lawprof essional_medicineprof essional_psychologypublic_relat ion sse curity _s tudiesso ci ol og yus_for eign_polic yvi ro lo gy
+high_school_us_historyhigh_school_psychology
+ana tom y
+high_school_physicsas tro nom ybusiness_ethicsclinic al_knowledgecollege_biologycollege_chemistrycollege_computer_sciencecollege_mathematicscollege_medicinecollege_physicscomputer_securitycon c eptual_physicseconometricselectrical_engineeringelementary_mathematics
+formal_logicgl oba l_ fac tshigh_school_biologyhigh_school_chemist ryhigh_school_computer_sciencehigh_school_european_historyhigh_school_geography
+high_school_government_and_politicshigh_school_macroeconomicshigh_school_mathematicshigh_school_microeconomics
+wo rl d_ rel ig io ns
+GPT-3.5-turboPatentGPT-0.5PatentGPT-1.0-DensePatentGPT-1.0-MoE
+Figure 9: Performance of PatentGPT models and ChatGPT-3.5-turbo on MMLU.
+
+[TABLE page=22 index=1]
+Columns: a b | s h | t ig h | Unnamed: 0 | r | ig | l_a h | Unnamed: 1 | c _ h | Unnamed: 2 | t | _ sc _ | Unnamed: 3 | Unnamed: 4 | a s | Unnamed: 5 | h | l ch | Unnamed: 6 | g o | Unnamed: 7 | e ol o | Unnamed: 8 | Unnamed: 9 | b | o | _ | ra l_ | s | Unnamed: 10 | ta | w | Unnamed: 11 | t o | Unnamed: 12 | i | is rl | Unnamed: 13 | ti | cs d | _.1 | h h | Unnamed: 14 | i u | Unnamed: 15 | s.1 | t m | Unnamed: 16 | o h | ry a u | Unnamed: 17 | Unnamed: 18 | n_ m | Unnamed: 19 | Unnamed: 20 | a a | Unnamed: 21 | ig n i | Unnamed: 22 | i _ n | Unnamed: 23 | cen | s te | Unnamed: 24 | g ex | r.1 | Unnamed: 25 | n | u | at | a | l | io | i.1 | ty | n.1 | a j u | Unnamed: 26 | Unnamed: 27 | l r | Unnamed: 28 | _.2 | is | la | p | w lo | r.2 | u g | Unnamed: 29 | Unnamed: 30 | d ic | Unnamed: 31 | e m a | Unnamed: 32 | n l_ | Unnamed: 33 | ac | Unnamed: 34 | f | a.1 | h.1 | Unnamed: 35 | ll | in | a.2 | ci e | Unnamed: 36 | _.3 | es | l.1 | ea | Unnamed: 37 | r m | n a | Unnamed: 38 | in n | Unnamed: 39 | a.3 | g | g.1 | Unnamed: 40 | em | e m m | nt | a e | Unnamed: 41 | r d | Unnamed: 42 | Unnamed: 43 | k ic | Unnamed: 44 | e | ti a | Unnamed: 45 | sn | Unnamed: 46 | g g | e m | Unnamed: 47 | n.2 | i.2 | et sc | Unnamed: 48 | e.1 | Unnamed: 49 | cs | sl m | la o | Unnamed: 50 | n.3 | ra | eo | l_ | us m | d | o.1 | i.3 | Unnamed: 51 | sp r | Unnamed: 52 | al | u.1 | n_ | t s | es.1 | c | e.2 | Unnamed: 53 | n.4 | a.4 | r.3 | Unnamed: 54 | Unnamed: 55 | os u | Unnamed: 56 | tr | i.4 | ti ph p | so r | Unnamed: 57 | n i o | Unnamed: 58 | lo | fe | Unnamed: 59 | s.2 | ss | lo.1 | p pr io | hy | e n | Unnamed: 60 | h a | Unnamed: 61 | Unnamed: 62 | i l_ | Unnamed: 63 | s.3 | to ac | Unnamed: 64 | sry p c | r p | Unnamed: 65 | o o | ro | Unnamed: 66 | un f | Unnamed: 67 | es.2 | fe.1 | ti p si | Unnamed: 68 | s.4 | n ro si | Unnamed: 69 | o.2 | Unnamed: 70 | g na | o.3 | Unnamed: 71 | fe.2 | n.5 | Unnamed: 72 | ss.1 | l a | Unnamed: 73 | _.4 | l_.1 | io.1 | Unnamed: 74 | a.5 | m | w n | Unnamed: 75 | hoe a | Unnamed: 76 | Unnamed: 77 | d lil | ic _p | is.1 | Unnamed: 78 | ne pu | y | c.1 | b.1 | Unnamed: 79 | Unnamed: 80 | Unnamed: 81 | Unnamed: 82 | loc | _.5 | se | gy r | ela c | Unnamed: 83 | Unnamed: 84 | u.2 | tio r | Unnamed: 85 | i.5 | ty.1 | n.6 | _.6 | s.5 | Unnamed: 86 | Unnamed: 87 | t.1 | Unnamed: 88 | u d u | is.2 | Unnamed: 89 | s.6 | e _ | Unnamed: 90 | s oc f | Unnamed: 91 | o.4 | Unnamed: 92 | io.2 | re | lo.2 | ig.1 | gy hi | n.7 | g.2 | _.7 | h.2 | Unnamed: 93 | p.1 | _s | ol | ic h | Unnamed: 94 | h ig | cy | Unnamed: 95 | vi o | h_ | Unnamed: 96 | ro o | Unnamed: 97 | l_.2 | sc | lo.3 | us | h.3 | gy | _ho | Unnamed: 98 | o.5 | Unnamed: 99 | i l_.1 | Unnamed: 100 | tos | p.2 | s.7 | Unnamed: 101 | ry y | c.2 | h h.1 | Unnamed: 102 | o ig | Unnamed: 103 | lo.4 | h.4 | Unnamed: 104 | gy _ | a s.1 | na | c.3 | Unnamed: 105 | h.5 | to | Unnamed: 106 | o.6 | ol.1 | m.1 | _.8 | y.1 | onp | Unnamed: 107 | h y | s as | i.6 | c tr | b.2 | Unnamed: 108 | u.3 | Unnamed: 109 | Unnamed: 110 | s.8 | incl | o.7 | in.1 | m e | Unnamed: 111 | s i | Unnamed: 112 | y c s | Unnamed: 113 | Unnamed: 114 | _ a | Unnamed: 115 | Unnamed: 116 | e l_ | Unnamed: 117 | th | kn | i.7 | cs c | o.8 | o.9 | w.1 | Unnamed: 118 | lle | lco | Unnamed: 119 | e cge | d lle | o.10 | Unnamed: 120 | ge ll | _b | Unnamed: 121 | e g | Unnamed: 122 | ge | e.3 | Unnamed: 123 | i.8 | o _c | Unnamed: 124 | l _ | Unnamed: 125 | o.11 | o.12 | c.4 | g h | m.2 | Unnamed: 126 | y.2 | e.4 | m pu co | Unnamed: 127 | Unnamed: 128 | l.2 | is t | le | Unnamed: 129 | er | t.2 | ge.1 | ry | em_ | sc _m | Unnamed: 130 | i.9 | e.5 | mat | n c | ce h ol | Unnamed: 131 | Unnamed: 132 | l.3 | eg | Unnamed: 133 | Unnamed: 134 | a e.1 | ti _ | Unnamed: 135 | cs.1 | Unnamed: 136 | c o | Unnamed: 137 | e.6 | d ll | Unnamed: 138 | ic e c | Unnamed: 139 | ge om | Unnamed: 140 | i.10 | n.8 | se_ | e p | Unnamed: 141 | p.3 | h u | Unnamed: 142 | y te co | Unnamed: 143 | si n r | Unnamed: 144 | Unnamed: 145 | _.9 | cs ce | Unnamed: 146 | Unnamed: 147 | pt | Unnamed: 148 | Unnamed: 149 | c u u | Unnamed: 150 | r al | Unnamed: 151 | i.11 | ty _p | e.7 | le.1 | Unnamed: 152 | h e | ct | co | y e | r.4 | s l | n.9 | i em | i.12 | Unnamed: 153 | Unnamed: 154 | o ca | cs.2 | Unnamed: 155 | m.3 | Unnamed: 156 | l_ e | Unnamed: 157 | n.10 | e.8 | tr en | ta.1 | Unnamed: 158 | i g r | Unnamed: 159 | Unnamed: 160 | c.5 | in y | Unnamed: 161 | s.9 | _m | Unnamed: 162 | e.9 | e.10 | r a | Unnamed: 163 | i t | ng | Unnamed: 164 | he | m.4 | Unnamed: 165 | f.1 | a o | ti r | Unnamed: 166 | m.5 | c.6 | a.6 | Unnamed: 167 | Unnamed: 168 | l_ hi | lo g g | Unnamed: 169 | l.4 | o h h | g.3 | Unnamed: 170 | ba _ h igh | Unnamed: 171 | Unnamed: 172 | ic | sc i | Unnamed: 173 | gh | Unnamed: 174 | l.5 | _ ho _ | Unnamed: 175 | Unnamed: 176 | fa _ s | Unnamed: 177 | Unnamed: 178 | s chc | ol.2 | h.6 | c ch | Unnamed: 179 | t hi h | Unnamed: 180 | _b o | Unnamed: 181 | Unnamed: 182 | g.4 | o o.1 | Unnamed: 183 | Unnamed: 184 | Unnamed: 185 | i l ol _s | Unnamed: 186 | Unnamed: 187 | Unnamed: 188 | o _ | Unnamed: 189 | l co _ | Unnamed: 190 | Unnamed: 191 | c.7 | o.13 | c.8 | gy h | he.1 | m.6 | Unnamed: 192 | oo | m p | Unnamed: 193 | u l | Unnamed: 194 | sch | Unnamed: 195 | is _ t | eu | er.1 | Unnamed: 196 | t h | ry oo | i.13 | r.5 | _.10 | Unnamed: 197 | gh.1 | s o | Unnamed: 198 | Unnamed: 199 | l_.3 | c pe | Unnamed: 200 | _.11 | ie gg | Unnamed: 201 | sc.1 | n an o | Unnamed: 202 | ce hve igh | Unnamed: 203 | Unnamed: 204 | _h o | Unnamed: 205 | rn | o.14 | Unnamed: 206 | h.7 | i l_.2 | st | _s.1 | m.7 | Unnamed: 207 | o ge | Unnamed: 208 | en ch | Unnamed: 209 | ry.1 | og | t_sco | Unnamed: 210 | Unnamed: 211 | r o | a h | ap l | Unnamed: 212 | n _m i | Unnamed: 213 | Unnamed: 214 | Unnamed: 215 | hyd | Unnamed: 216 | h.8 | _p h | a_ | i.14 | Unnamed: 217 | Unnamed: 218 | c.9 | Unnamed: 219 | gh.2 | o r | Unnamed: 220 | li o h | _.12 | Unnamed: 221 | Unnamed: 222 | ti ec o | Unnamed: 223 | Unnamed: 224 | s.10 | Unnamed: 225 | c o.1 | Unnamed: 226 | on | s l_ | Unnamed: 227 | o.15 | Unnamed: 228 | o m | Unnamed: 229 | o.16 | m l_ | Unnamed: 230 | a.7 | t.3 | i m | Unnamed: 231 | c he | Unnamed: 232 | s.11 | ic.1 | Unnamed: 233 | Unnamed: 234 | m r | a o.1 | Unnamed: 235 | ti e | Unnamed: 236 | c.10 | c w | o.17 | s.12 | Unnamed: 237 | Unnamed: 238 | n o | r.6 | o.18 | Unnamed: 239 | m ld | Unnamed: 240 | i _ | cre | Unnamed: 241 | Unnamed: 242 | s.13 | l.6 | i.15 | Unnamed: 243 | gi | Unnamed: 244 | ons
+Row 1: a b: | s h: | t ig h: | Unnamed: 0: | r: | ig: | l_a h: | Unnamed: 1: | c _ h: | Unnamed: 2: | t: | _ sc _: | Unnamed: 3: | Unnamed: 4: | a s: | Unnamed: 5: | h: | l ch: | Unnamed: 6: | g o: | Unnamed: 7: | e ol o: | Unnamed: 8: | Unnamed: 9: | b: | o: | _: | ra l_: | s: | Unnamed: 10: | ta: | w: | Unnamed: 11: | t o: | Unnamed: 12: | i: | is rl: | Unnamed: 13: | ti: | cs d: | _.1: | h h: | Unnamed: 14: | i u: | Unnamed: 15: | s.1: | t m: | Unnamed: 16: | o h: | ry a u: | Unnamed: 17: | Unnamed: 18: | n_ m: | Unnamed: 19: | Unnamed: 20: | a a: | Unnamed: 21: | ig n i: | Unnamed: 22: | i _ n: | Unnamed: 23: | cen: | s te: | Unnamed: 24: | g ex: | r.1: | Unnamed: 25: | n: | u: | at: | a: | l: | io: | i.1: | ty: | n.1: | a j u: | Unnamed: 26: | Unnamed: 27: | l r: | Unnamed: 28: | _.2: | is: | la: | p: | w lo: | r.2: | u g: | Unnamed: 29: | Unnamed: 30: | d ic: | Unnamed: 31: | e m a: | Unnamed: 32: | n l_: | Unnamed: 33: | ac: | Unnamed: 34: | f: | a.1: | h.1: | Unnamed: 35: | ll: | in: | a.2: | ci e: | Unnamed: 36: | _.3: | es: | l.1: | ea: | Unnamed: 37: | r m: | n a: | Unnamed: 38: | in n: | Unnamed: 39: | a.3: | g: | g.1: | Unnamed: 40: | em: | e m m: | nt: | a e: | Unnamed: 41: | r d: | Unnamed: 42: | Unnamed: 43: | k ic: | Unnamed: 44: | e: | ti a: | Unnamed: 45: | sn: | Unnamed: 46: | g g: | e m: | Unnamed: 47: | n.2: | i.2: | et sc: | Unnamed: 48: | e.1: | Unnamed: 49: | cs: | sl m: | la o: | Unnamed: 50: | n.3: | ra: | eo: | l_: | us m: | d: | o.1: | i.3: | Unnamed: 51: | sp r: | Unnamed: 52: | al: | u.1: | n_: | t s: | es.1: | c: | e.2: | Unnamed: 53: | n.4: | a.4: | r.3: | Unnamed: 54: | Unnamed: 55: | os u: | Unnamed: 56: | tr: | i.4: | ti ph p: | so r: | Unnamed: 57: | n i o: | Unnamed: 58: | lo: | fe: | Unnamed: 59: | s.2: | ss: | lo.1: | p pr io: | hy: | e n: | Unnamed: 60: | h a: | Unnamed: 61: | Unnamed: 62: | i l_: | Unnamed: 63: | s.3: | to ac: | Unnamed: 64: | sry p c: | r p: | Unnamed: 65: | o o: | ro: | Unnamed: 66: | un f: | Unnamed: 67: | es.2: | fe.1: | ti p si: | Unnamed: 68: | s.4: | n ro si: | Unnamed: 69: | o.2: | Unnamed: 70: | g na: | o.3: | Unnamed: 71: | fe.2: | n.5: | Unnamed: 72: | ss.1: | l a: | Unnamed: 73: | _.4: | l_.1: | io.1: | Unnamed: 74: | a.5: | m: | w n: | Unnamed: 75: | hoe a: | Unnamed: 76: | Unnamed: 77: | d lil: | ic _p: | is.1: | Unnamed: 78: | ne pu: | y: | c.1: | b.1: | Unnamed: 79: | Unnamed: 80: | Unnamed: 81: | Unnamed: 82: | loc: | _.5: | se: | gy r: | ela c: | Unnamed: 83: | Unnamed: 84: | u.2: | tio r: | Unnamed: 85: | i.5: | ty.1: | n.6: | _.6: | s.5: | Unnamed: 86: | Unnamed: 87: | t.1: | Unnamed: 88: | u d u: | is.2: | Unnamed: 89: | s.6: | e _: | Unnamed: 90: | s oc f: | Unnamed: 91: | o.4: | Unnamed: 92: | io.2: | re: | lo.2: | ig.1: | gy hi: | n.7: | g.2: | _.7: | h.2: | Unnamed: 93: | p.1: | _s: | ol: | ic h: | Unnamed: 94: | h ig: | cy: | Unnamed: 95: | vi o: | h_: | Unnamed: 96: | ro o: | Unnamed: 97: | l_.2: | sc: | lo.3: | us: | h.3: | gy: | _ho: | Unnamed: 98: | o.5: | Unnamed: 99: | i l_.1: | Unnamed: 100: | tos: | p.2: | s.7: | Unnamed: 101: | ry y: | c.2: | h h.1: | Unnamed: 102: | o ig: | Unnamed: 103: | lo.4: | h.4: | Unnamed: 104: | gy _: | a s.1: | na: | c.3: | Unnamed: 105: | h.5: | to: | Unnamed: 106: | o.6: | ol.1: | m.1: | _.8: | y.1: | onp: | Unnamed: 107: | h y: | s as: | i.6: | c tr: | b.2: | Unnamed: 108: | u.3: | Unnamed: 109: | Unnamed: 110: | s.8: | incl: | o.7: | in.1: | m e: | Unnamed: 111: | s i: | Unnamed: 112: | y c s: | Unnamed: 113: | Unnamed: 114: | _ a: | Unnamed: 115: | Unnamed: 116: | e l_: | Unnamed: 117: | th: | kn: | i.7: | cs c: | o.8: | o.9: | w.1: | Unnamed: 118: | lle: | lco: | Unnamed: 119: | e cge: | d lle: | o.10: | Unnamed: 120: | ge ll: | _b: | Unnamed: 121: | e g: | Unnamed: 122: | ge: | e.3: | Unnamed: 123: | i.8: | o _c: | Unnamed: 124: | l _: | Unnamed: 125: | o.11: | o.12: | c.4: | g h: | m.2: | Unnamed: 126: | y.2: | e.4: | m pu co: | Unnamed: 127: | Unnamed: 128: | l.2: | is t: | le: | Unnamed: 129: | er: | t.2: | ge.1: | ry: | em_: | sc _m: | Unnamed: 130: | i.9: | e.5: | mat: | n c: | ce h ol: | Unnamed: 131: | Unnamed: 132: | l.3: | eg: | Unnamed: 133: | Unnamed: 134: | a e.1: | ti _: | Unnamed: 135: | cs.1: | Unnamed: 136: | c o: | Unnamed: 137: | e.6: | d ll: | Unnamed: 138: | ic e c: | Unnamed: 139: | ge om: | Unnamed: 140: | i.10: | n.8: | se_: | e p: | Unnamed: 141: | p.3: | h u: | Unnamed: 142: | y te co: | Unnamed: 143: | si n r: | Unnamed: 144: | Unnamed: 145: | _.9: | cs ce: | Unnamed: 146: | Unnamed: 147: | pt: | Unnamed: 148: | Unnamed: 149: | c u u: | Unnamed: 150: | r al: | Unnamed: 151: | i.11: | ty _p: | e.7: | le.1: | Unnamed: 152: | h e: | ct: | co: | y e: | r.4: | s l: | n.9: | i em: | i.12: | Unnamed: 153: | Unnamed: 154: | o ca: | cs.2: | Unnamed: 155: | m.3: | Unnamed: 156: | l_ e: | Unnamed: 157: | n.10: | e.8: | tr en: | ta.1: | Unnamed: 158: | i g r: | Unnamed: 159: | Unnamed: 160: | c.5: | in y: | Unnamed: 161: | s.9: | _m: | Unnamed: 162: | e.9: | e.10: | r a: | Unnamed: 163: | i t: | ng: | Unnamed: 164: | he: | m.4: | Unnamed: 165: | f.1: | a o: | ti r: | Unnamed: 166: | m.5: | c.6: | a.6: | Unnamed: 167: | Unnamed: 168: | l_ hi: | lo g g: | Unnamed: 169: | l.4: | o h h: | g.3: | Unnamed: 170: | ba _ h igh: | Unnamed: 171: | Unnamed: 172: | ic: | sc i: | Unnamed: 173: | gh: | Unnamed: 174: | l.5: | _ ho _: | Unnamed: 175: | Unnamed: 176: | fa _ s: | Unnamed: 177: | Unnamed: 178: | s chc: | ol.2: | h.6: | c ch: | Unnamed: 179: | t hi h: | Unnamed: 180: | _b o: | Unnamed: 181: | Unnamed: 182: | g.4: | o o.1: | Unnamed: 183: | Unnamed: 184: | Unnamed: 185: | i l ol _s: | Unnamed: 186: | Unnamed: 187: | Unnamed: 188: | o _: | Unnamed: 189: | l co _: hi | Unnamed: 190: | Unnamed: 191: | c.7: | o.13: | c.8: | gy h: | he.1: gh | m.6: | Unnamed: 192: | oo: | m p: _ | Unnamed: 193: | u l: | Unnamed: 194: | sch: | Unnamed: 195: | is _ t: | eu: | er.1: | Unnamed: 196: | t h: | ry oo: | i.13: | r.5: | _.10: | Unnamed: 197: | gh.1: | s o: | Unnamed: 198: | Unnamed: 199: | l_.3: | c pe: | Unnamed: 200: | _.11: | ie gg: | Unnamed: 201: | sc.1: | n an o: | Unnamed: 202: | ce hve igh: | Unnamed: 203: | Unnamed: 204: | _h o: | Unnamed: 205: | rn: | o.14: | Unnamed: 206: | h.7: | i l_.2: | st: | _s.1: | m.7: | Unnamed: 207: | o ge: | Unnamed: 208: | en ch: | Unnamed: 209: | ry.1: | og: | t_sco: | Unnamed: 210: | Unnamed: 211: | r o: | a h: | ap l: | Unnamed: 212: | n _m i: | Unnamed: 213: | Unnamed: 214: | Unnamed: 215: | hyd: | Unnamed: 216: | h.8: | _p h: | a_: | i.14: | Unnamed: 217: | Unnamed: 218: | c.9: | Unnamed: 219: | gh.2: | o r: | Unnamed: 220: | li o h: | _.12: | Unnamed: 221: | Unnamed: 222: | ti ec o: | Unnamed: 223: | Unnamed: 224: | s.10: | Unnamed: 225: | c o.1: | Unnamed: 226: | on: | s l_: | Unnamed: 227: | o.15: | Unnamed: 228: | o m: | Unnamed: 229: | o.16: | m l_: | Unnamed: 230: | a.7: | t.3: | i m: | Unnamed: 231: | c he: | Unnamed: 232: | s.11: | ic.1: | Unnamed: 233: | Unnamed: 234: | m r: | a o.1: | Unnamed: 235: | ti e: | Unnamed: 236: | c.10: | c w: | o.17: | s.12: | Unnamed: 237: | Unnamed: 238: | n o: | r.6: | o.18: | Unnamed: 239: | m ld: | Unnamed: 240: | i _: | cre: | Unnamed: 241: | Unnamed: 242: | s.13: | l.6: | i.15: | Unnamed: 243: | gi: | Unnamed: 244: | ons:
+[/TABLE]

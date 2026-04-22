@@ -1,0 +1,797 @@
+[PAGE 1]
+ADAPTING GPT, GPT-2 AND BERT LANGUAGE MODELS FOR SPEECH RECOGNITION
+Xianrui Zheng, Chao Zhang, Philip C. Woodland
+Cambridge University Engineering Dept., Trumpington St., Cambridge, CB2 1PZ U.K.
+{xz396, cz277, pcw }@eng.cam.ac.uk
+ABSTRACT
+Language models (LMs) pre-trained on massive amounts of text, in
+particular bidirectional encoder representations from Transformers
+(BERT), generative pre-training (GPT), and GPT-2, have become a
+key technology for many natural language processing tasks. In this
+paper, we present results using ﬁne-tuned GPT, GPT-2, and their
+combination for automatic speech recognition (ASR). Unlike unidirectional LM GPT and GPT-2, BERT is bidirectional whose direct
+product of the output probabilities is no longer a valid language prior
+probability. A conversion method is proposed to compute the correct language prior probability based on bidirectional LM outputs
+in a mathematically exact way. Experimental results on the widely
+used AMI and Switchboard ASR tasks showed that the combination
+of the ﬁne-tuned GPT and GPT-2 outperformed the combination of
+three neural LMs with different architectures trained from scratch on
+the in-domain text by up to a 12% relative word error rate reduction
+(WERR). Furthermore, on the AMI corpus, the proposed conversion
+for language prior probabilities enables BERT to obtain an extra 3%
+relative WERR, and the combination of BERT, GPT and GPT-2 results in further improvements.
+Index Terms— Bidirectional LM, GPT, GPT-2, BERT
+1. INTRODUCTION
+Language models (LMs) incorporate linguistic knowledge as the
+prior probabilities of word sequences, and are crucial for state-ofthe-art automatic speech recognition (ASR) systems. LMs provide
+a way of leveraging additional text data in ASR [1]. Traditional
+n-gram LMs often suffer from data sparsity and are therefore restricted to use only a small number of previous words ( n ⩽ 5) (i.e.
+context) when estimating the prior probability of the next word in
+a sentences. A solution is to build LMs with neural network (NN)
+models that can more reliably estimate sentence prior probabilities
+using longer contexts given a certain amount of text training data.
+Alternatively, additional out-of-domain data can be leveraged to
+improve LM training with limited in-domain data via LM adaptation
+and transfer learning [2–8].
+The feed-forward NN (FNN) was the ﬁrst NN structure widely
+studied for language modelling, and can be seen as an NN-based
+n-gram LM [9–12]. Later, recurrent neural network (RNN) models
+and the long short-term memory (LSTM) variant, which can make
+predictions based on the full history, were applied to language modelling for ASR [13–17].
+Using an attention-mechanism is an alternative to RNNs for sequence processing [18, 19]. Transformers, a widely used attentionbased sequence encoder-decoder model structure, were ﬁrst proposed for machine translation [20]. The Transformer decoder can
+be used to build unidirectional LMs for ASR (referred to as Transformer LMs in this paper) [21]. The generative pre-training (GPT)
+model used the Transformer decoder structure to build an unidirectional LM. The parameters of GPT were ﬁrst pre-trained on very
+large general text corpora and released to the public [22]. When
+applied to a speciﬁc downstream natural language processing (NLP)
+task, GPT is often ﬁne-tuned on a small amount of in-domain data.
+This process allows the transfer of linguistic knowledge learned
+in pre-training to a task with a small amount of task-speciﬁc data.
+In contrast to GPT, the bidirectional encoder representation from
+Transformers (BERT) model uses the Transformer encoder structure
+to build a pre-trained bidirectional LM, which leverages both forward and backward context rather than only previous words when
+computing probabilities [23]. The success of these models has led
+to the study of many other types of pre-trained LM [24–32].
+Despite the wide-spread application of GPT and BERT in NLP
+and machine learning, there are only a very limited number of studies
+on their use in ASR [5–8]. In this paper, we present ASR results obtained using GPT and GPT-2 that are ﬁne-tuned on in-domain data.
+The WERs obtained by combining the ﬁne-tuned GPT and GPT-2
+LMs outperformed the combination of an FNN LM, an LSTM LM,
+and a Transformer LM trained only on in-domain data. Meanwhile,
+unlike the unidirectional LMs, simply multiplying the BERT output
+probabilities over all words in a sentence does not result in a valid
+sentence prior probability. A novel method is proposed in this paper
+that can convert the output probabilities of a bidirectional LM into
+exact sentence prior probabilities. This method is applied to BERT
+in our experiments, and is compared to a baseline method developed
+for the same purpose [6, 33].
+This paper is organised as follows. Section 2 reviews Transformer, GPT, GPT-2 and BERT. Section 3 presents our methods for
+LM combination and bidirectional LM output probability conversion. The experimental setup for the language model training and
+speech recognition experiments on the widely used AMI and Switchboard corpora are given in Sec. 4 and the experimental results are in
+Sec. 5. Finally, conclusions are presented in Sec. 6.
+2. TRANSFORMER-BASED LMS
+This section reviews the Transformer model structure, which is used
+by GPT, GPT-2, BERT, and the Transformer LM.
+2.1. Multi-head attention for Transformer
+The Transformer model structure proposed in [20] is shown in Fig. 1,
+MultiHead(Q, K, V) = Concat(head1,..., headh)WO
+headi = Attention(QWQ
+i, KWK
+i, VWV
+i ),
+Attention(Q, K, V) = softmax(QKT/
+√
+dk)V
+where K, Q, and V refer to the queries, keys, and values of the attention mechanism; MultiHead(·) and Concat(·) refers to multi-head
+To appear in Proc. ASRU2021, December 13-17, 2021, Cartagena, Colombia © IEEE 2021
+arXiv:2108.07789v2 [cs.CL] 1 Oct 2021
+
+[PAGE 2]
+attention and concatenation respectively; h is the number of heads,
+WO
+i ∈ Rdmodel×dmodel is a weight matrix of the i th head, and WQ
+i ,
+WK
+i and WV
+i have the same dimensions dmodel×dk, where dmodel
+is the size of input embeddings and dk = dmodel/h. Attention (·) is
+termed scaled dot-product attention since it weights the values based
+on the dot-product of keys and queries.
+The difference between Multi-Head Attention and Masked
+Multi-Head Attention is that the former allows the model to see the
+future context while the later does not, which are therefore used in
+the encoder and decoder structures respectively. The Feed Forward
+component consists of two fully-connected (FC) layers with a ReLU
+function in between. The Output component converts the output
+from the ﬁnal Transformer decoder block into probability distributions using an FC layer with a softmax function. A positional
+encoding is added to each input embedding to include the order
+information of the input sequence.
+Layer Norm
+Layer Norm
+Feed Forward
+Multi-Head Attention
++
++
++Input Positional Encoding
+Layer Norm
+Layer Norm
+Feed Forward
+Multi-Head Attention
++
++
+Output
++Output Positional Encoding
+Layer Norm
+Masked Multi-Head Attention
++
+×N
+×N
+Fig. 1. Transformer model structure with N encoder blocks (on the
+left) andN decoder blocks (on the right).
+2.2. GPT
+GPT uses the Transformer decoder structure (shown in the right part
+of Fig. 1) [22]. Since the decoder structure is used alone without
+an encoder, the Multi-Head Attention and Layer Norm (layer normalisation [34]) components that are connected to the encoder are
+removed (in the middle of the right part of Fig. 1). The pre-trained
+GPT model has 12 Transformer blocks with dmodel =768 and 110M
+parameters. The positional encodings are learnt jointly during pretraining.
+Regarding GPT, its input is a token sequence w{i:i+n} and its
+output is the probability distributions for the next tokensw{i+1:i+n+1}.
+Tokenisation uses the byte pair encoding (BPE) with 40,000 subword units [35]. The maximum token sequence length is 512. GPT
+is pre-trained on the BooksCorpus dataset [36] for 100 epochs,
+which consists of one billion words from unpublished books covering many topics.
+2.3. GPT-2
+GPT-2 is the successor to GPT, which also uses the Transformer decoder structure [29]. In contrast to GPT, GPT-2 uses 50,257 BPE
+tokens and places the Layer Norm before the Masked Multi-Head
+component. An additional Layer Norm is added after the ﬁnal block.
+The maximum sequence length is increased from 512 to 1024. The
+mini-batch size during pre-training is increased from 64 to 512. Four
+pre-trained GPT-2 models with different numbers of decoder blocks
+are available. The largest one has 48 blocks with dmodel = 1600 ,
+resulting in a total number of 1.5 billion model parameters.
+The training dataset for GPT-2 is also different to that for GPT.
+By gathering outbound links from Reddit with more than three
+karma, the resulting training dataset has about ten billion words.
+2.4. BERT
+Unlike GPT, GPT-2, and Transformer LM, which use the Transformer decoder structure, BERT uses the Transformer encoder structure (see the left part of Fig. 1) [23]. Two FC output layers with
+a Layer Norm component in between are placed after the ﬁnal encoder block. The estimation of the output probability of each token relies not only on the previous tokens but also on the future
+ones, and BERT is therefore a bidirectional LM. Two versions of uncased BERT are available. The small one has 12 encoder blocks with
+dmodel = 768 and the number of parameters is roughly the same as
+GPT, while the large one has 24 encoder blocks withdmodel = 1024
+and 336M parameters.
+Two tasks are used to pre-train BERT. In the ﬁrst masked LM
+task, 15% of the tokens are replaced by either the symbol [MASK]
+or a random token. If tokeni in a sequence is chosen to be replaced,
+it will have an 80% probability of being replaced by[MASK], a 10%
+probability of being replaced by a random token and a 10% probability of remaining unchanged. The goal is to predict the original token.
+The second task is to predict if a sentence follows another sentence.
+BERT also uses the BooksCorpus dataset for pre-training.
+3. METHODOLOGY
+3.1. Combining unidirectional LMs
+For all unidirectional LMs, the training objective is to minimise the
+log perplexity (PPL) in Eqn. (1):
+log2 PPL =− 1
+T log2P (w1:T )
+=− 1
+T
+∑T
+t=1
+log2P (wt|w1:t−1), (1)
+wherew1:T is a word sequence withT tokens. To combine multiple
+LMs for n-best rescoring for ASR, the Covariance Matrix Adaptation Evolution Strategy (CMA-ES) [37] can be used. CMA-ES is
+used here to optimise a set of LM score scaling factors λk (λk ⩾
+0,∀k) that minimise the development set WER. It samples sets of
+
+[TABLE page=2 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Output | Unnamed: 2 | resulting in a total number of 1.5 billion model parameters.
+Row 1: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: The training dataset for GPT-2 is also different to that for GPT.
+Row 2: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: By gathering outbound links from Reddit with more than three
+Row 3: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: karma, the resulting training dataset has about ten billion words.
+Row 4: Unnamed: 0: | Unnamed: 1: | Output: Layer Norm | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.:
+Row 5: Unnamed: 0: | Unnamed: 1: | Output: + | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: 2.4. BERT
+Row 6: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: Unlike GPT, GPT-2, and Transformer LM, which use the TransRow 7: Unnamed: 0: | Unnamed: 1: | Output: Feed Forward | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.:
+Row 8: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: former decoder structure, BERT uses the Transformer encoder strucRow 9: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: ture (see the left part of Fig. 1) [23]. Two FC output layers with
+Row 10: Unnamed: 0: | Unnamed: 1: | Output: Layer Norm | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: a Layer Norm component in between are placed after the final enRow 11: Unnamed: 0: | Unnamed: 1: Layer Norm | Output: + | Unnamed: 2: × N | resulting in a total number of 1.5 billion model parameters.: coder block. ken relies not The estimation of only on the previous the output probability of each tokens but also on the futuretoRow 12: Unnamed: 0: | Unnamed: 1: + | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: ones, and BERT is therefore a bidirectional LM. Two versions of unRow 13: Unnamed: 0: | Unnamed: 1: | Output: Multi-Head | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: cased BERT are available. The small one has 12 encoder blocks with
+Row 14: Unnamed: 0: | Unnamed: 1: Feed Forward | Output: Attention | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: dmodel = 768 and the number of parameters is roughly the same as
+Row 15: Unnamed: 0: × N | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: GPT, while the large one has 24 encoder blocks with dmodel = 1024
+Row 16: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: and 336M parameters.
+Row 17: Unnamed: 0: | Unnamed: 1: Layer Norm | Output: Layer Norm | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: Two tasks are used to pre-train BERT. In the first masked LM
+Row 18: Unnamed: 0: | Unnamed: 1: + | Output: + | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: task, 15% of the tokens are replaced by either the symbol [MASK]
+Row 19: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: or a random token. If token i in a sequence is chosen to be replaced,
+Row 20: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: it will have an 80% probability of being replaced by [MASK], a 10%
+Row 21: Unnamed: 0: | Unnamed: 1: Multi-Head | Output: Masked Multi- | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.:
+Row 22: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: probability of being replaced by a random token and a 10% probabilRow 23: Unnamed: 0: | Unnamed: 1: Attention | Output: Head Attention | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.:
+Row 24: Unnamed: 0: | Unnamed: 1: | Output: | Unnamed: 2: | resulting in a total number of 1.5 billion model parameters.: ity of remaining unchanged. The goal is to predict the original token.
+[/TABLE]
+
+[TABLE page=2 index=2]
+Columns: on the dot-product of keys and queries. | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | which consists of one billion words from unpublished books coverRow 1: on the dot-product of keys and queries.: The difference between Multi-Head Attention | Unnamed: 0: and | Unnamed: 1: Masked | Unnamed: 2: | which consists of one billion words from unpublished books cover-: ing many topics.
+Row 2: on the dot-product of keys and queries.: Multi-Head Attention is that the former allows the model to see the | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | which consists of one billion words from unpublished books cover-:
+Row 3: on the dot-product of keys and queries.: future context while the later does not, which are therefore used in | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | which consists of one billion words from unpublished books cover-:
+Row 4: on the dot-product of keys and queries.: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | which consists of one billion words from unpublished books cover-: 2.3. GPT-2
+Row 5: on the dot-product of keys and queries.: the encoder and decoder structures respectively. The Feed Forward | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | which consists of one billion words from unpublished books cover-:
+Row 6: on the dot-product of keys and queries.: component consists of two fully-connected (FC) layers with a ReLU | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | which consists of one billion words from unpublished books cover-: GPT-2 is the successor to GPT, which also uses the Transformer deRow 7: on the dot-product of keys and queries.: function in between. The Output component converts | Unnamed: 0: the | Unnamed: 1: output | Unnamed: 2: | which consists of one billion words from unpublished books cover-: coder structure [29]. In contrast to GPT, GPT-2 uses 50,257 BPE
+Row 8: on the dot-product of keys and queries.: from the final Transformer decoder block into probability | Unnamed: 0: | Unnamed: 1: distri- | Unnamed: 2: | which consists of one billion words from unpublished books cover-: tokens and places the Layer Norm before the Masked Multi-Head
+Row 9: on the dot-product of keys and queries.: butions using an FC layer with a softmax function. | Unnamed: 0: A positional | Unnamed: 1: | Unnamed: 2: | which consists of one billion words from unpublished books cover-: component. An additional Layer Norm is added after the final block.
+Row 10: on the dot-product of keys and queries.: encoding is added to each input embedding to include | Unnamed: 0: the | Unnamed: 1: order | Unnamed: 2: | which consists of one billion words from unpublished books cover-: The maximum sequence length is increased from 512 to 1024. The
+Row 11: on the dot-product of keys and queries.: information of the input sequence. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | which consists of one billion words from unpublished books cover-: mini-batch size during pre-training is increased from 64 to 512. Four
+[/TABLE]
+
+[PAGE 3]
+scaling factors from a normal distribution in each iteration and updates the mean and covariance function based on the WER obtained.
+The total score of combiningK LMs of a hypothesis is computed by
+AMScore +
+∑K
+k=1
+λk logP (k)(w1:T ), (2)
+whereP (k)(w1:T ) is the probability estimated by the k th LM and
+AMScore is the acoustic model score.
+3.2. Converting bidirectional LM output probabilities
+In ASR, the sentence prior probability P (w1:T ) is often calculated
+using the chain rule of probability by
+P (w1:T ) =P (w1)
+∏T
+t=2
+P (wt|w1:t−1), (3)
+whereP (wt|w1:t−1) requires only the previous tokens to predict the
+current token and can thus be obtained using a unidirectional LM.
+Consequently, P (wt|w1:t−1) is often obtained by multiplying the
+output probabilities of all tokens in the sequence that are produced
+by an unidirectional LM. For a bidirectional LM where both the previous and future tokens are taken into account, this procedure results
+in
+Λ =P (w1|w2:T )P (w2|w1,w 3:T )...P (wT|w1:T−1). (4)
+Although Λ̸= P (w1:T ), Λ is sometimes directly used to replace
+P (w1:T ) in decoding [5, 6, 38], which we refer to as the modiﬁed
+masked LM (MMLM). It was found in [33] that the MMLM output
+distributions are overly-sharp, and hence should be smoothed either
+by interpolating with the output distributions from other LMs or by
+using temperature softmax with a temperature factorα (α< 1):
+TempSoftmax(z)|i = exp(αzi)/
+∑
+j
+exp(αzj), (5)
+where z is the bidirectional LM logit vector. It is assumed in [33]
+thatP (w1:T ) = Λ/Z whereZ is a common normalisation constant
+calculated over all possible word sequences and [39] learns similar
+normalisation terms with noise contrastive estimation. In contrast,
+[40] approximates the exact sequence probability using a forward
+LM, a completion bidirectional LM, and a backward LM.
+Next, the conversion betweenΛ andP (w1:T ) for a bidirectional
+LM is discussed. Based on the deﬁnition of conditional probability,
+P (w1:T ) can be calculated as
+P (w1:T ) =P (w1|w2:T )P (w2:T )
+P (w1:T ) =P (w2|w1,w 3:T )P (w1,w 3:T )
+...
+P (w1:T ) =P (wT|w1:T−1)P (w1:T−1). (6)
+Multiplying all items in Eqn. (6) together yields
+P (w1:T ) = [ΛP (w2:T )P (w1,w 3:T )...P (w1:T−1)]
+T. (7)
+Each term P (w1:t−1,w t+1:T ) is the prior probability obtained by
+applying Eqn. (7) again over a token string obtained by removing the
+t th token from w1:T . Therefore, Eqn. (7) provides a recursive procedure that converts the bidirectional LM output probabilities into
+the exact sentence prior probability without using other LMs. This
+approach to ﬁnding the exact sentence prior probability from a bidirectional LM is presented for the ﬁrst time to the best of the authors’
+knowledge. A link between unidirectional and bidirectional LMs can
+be found by equating the right hand sides of Eqn. (3) and Eqn. (7)
+(since both equalP (w1:T )). In this paper,w1:T for the bidirectional
+model refers to the words in the current sentence and words in other
+sentences can be given as extra contextC, i.e. all probabilities in this
+section can be further conditioned on C. We omit this extra context
+C for simplicity.
+Rather than applying Eqn. (7) with T 2 terms when generating
+P (w1:T ), a more efﬁcient calculation procedure is shown in Fig. 2,
+which avoids processing repeated token strings by following a speciﬁc order of calculation. Although this reduces the amount of computation to 0.5T 2 + 1.5T− 1, it is still computationally impractical
+when T is large. To apply the conversion in practice, we propose
+an approximation to trade-off between the cost and the context used
+in the bidirectional LM, which selects M (1⩽ M ⩽ T ) items in
+Eqn. (6) instead of all of them. An example with M =1 is depicted
+as the red path in Fig. 2, which is equivalent to using the bidirectional
+LM as an unidirectional LM when no tokens from neighbouring sentences are used as extra context. When extra context is provided, the
+prediction for the target token is conditioned on the tokens on the
+right and the extra context.
+P(w2|w3,4)
+P(w2|w1,3,4)
+P(w1|w2,3,4)
+P(w1|w2,4)
+P(w4)
+P(w3|w1,2,4)
+P(w4|w1,2,3)
+P(w3|w1,2)
+P(w1|w3,4)
+P(w3|w4)
+P(w2|w4)
+P(w2|w1)
+P(w1)
+Fig. 2. An example of the efﬁcient calculation procedure ofP (w1:4)
+for a bidirectional LM presented in the form of a ﬁnite state acceptor.
+Words to the left within the current sentence are masked in the red
+path, while words to the right within the current sentence are masked
+in the blue path.
+4. EXPERIMENTAL SETUP
+4.1. Data
+The training set in AMI corpus has 911k word tokens, the dev set
+(ADev) has 108K and the eval set (AEval) has 102K. A 13K word
+vocabulary was used for NN LMs trained from scratch on AMI.
+Further experiments used the combined training sets from Switchboard and Fisher transcripts (SWB+Fisher), which has a total of 27M
+words with 30K words in the vocabulary, and are evaluated separately on the SWB and CallHome (CH) parts of the SWB evaluation
+set eval2000.
+4.2. Acoustic model and 100-best list
+All WERs were obtained using the factorised time-delayed neural
+network [41] acoustic model with residual connections [42], which
+
+[PAGE 4]
+Model ADev AEval SWB CH
+4-gram 19.9 20.2 8.6 17.0
+FNN LM 19.4 19.5 7.9 15.8
+LSTM LM 18.2 17.9 6.7 13.7
+Transformer LM 18.4 18.4 6.6 13.7
+F⊕ L⊕ T 17.9 17.7 6.5 13.5
+Table 1 . %WER on AMI (ADev and AEval) and on eval2000
+(SWB and CH) with different word level LMs trained from scratch
+to rescore the 100-best lists. F ⊕ L⊕ T is the combination of the
+FNN, LSTM and Transformer LMs.
+was trained using the lattice-free maximum mutual information criterion [43] following Kaldi recipes [44]. Neither data augmentation nor speaker adaptation was used for AMI experiments while the
+acoustic model for SWB uses i-vector speaker adaptation and speed
+perturbation1. A statistical 4-gram model was used to produce the
+most likely decoding hypotheses for each test utterance represented
+by a lattice. The 100-best lists were then extracted for rescoring by
+the various LMs under investigation.
+4.3. LM Training Procedures
+All LMs trained from scratch used word tokens and optimised by
+stochastic gradient descent using just the in-domain training data.
+The pre-trained LMs, GPT, GPT-2 and BERT, were ﬁne-tuned using
+the Adam optimiser [47] with only 3 epochs on the in-domain text
+data. All NN LMs were implemented using PyTorch [48] and the
+pre-trained models were obtained from [49].
+5. EXPERIMENTAL RESULTS
+In our experiments with LMs trained from scratch on only in-domain
+data, the contexts input to the FNN LM and Transformer LM are 5
+words and 72 words on the left respectively, which minimise their
+perplexities on ADev. Feeding more context words as input to these
+two models leads to an increase in perplexity on ADev. A rescored 1best list was cached during the rescoring process for FNN and Transformer LMs so that they can have enough context by using words
+from the previous sentences. For the LSTM LM, the hidden vector
+of the last word of the rescored best hypothesis is used for rescoring
+the next sentence n-best hypotheses as if giving LSTM LM unlimited context. The same word embedding size of 256 is used for these
+three LMs. We compared our AMI LMs with different depths and
+sizes, and found for the best-performing models, the FNN, LSTM,
+and Transformer LMs have 1 FC layer, 1 LSTM layer, and 8 decoder blocks correspondingly. For our experiments on SWB+Fisher,
+we used 2 FC layers, 2 LSTM layers, and 24 decoder blocks for the
+FNN LM, LSTM LM, and Transformer LM respectively.
+Table 1 shows the results rescoring the100-best list using a combination of three different in-domain NN LMs. The best single indomain NN LM on AMI (LSTM) is 2.3% absolute WER lower than
+that of the 4-gram on AEval, and the combination of the three NN
+LMs gives an extra 0.2% absolute reduction on AEval. The Transformer LM gives the best WER on SWB and CH, giving 2.0% and
+3.3% absolute reductions on SWB and CH respectively. The combi1The Kaldi pipelines for AMI and SWB are from [45] and [46] respectively.
+20 40 60 80 100 120 140 160 180
+Context Length
+26.0
+28.0
+30.0
+32.0
+34.0
+36.0
+38.0Perplexity
+ADev
+AEval
+Fig. 3 . Preplexity on AMI (ADev and AEval) for GPT ﬁne-tuned
+with different context lengths. The context length is the number of
+tokens the model can see for giving an output.
+20 40 60 80 100 120 140 160 180
+Context Length
+16.0
+16.2
+16.4
+16.6
+16.8
+17.0
+17.2WER (%)
+ADev
+AEval
+Fig. 4. %WER on AMI (ADev and AEval) of GPT ﬁne-tuned with
+different context lengths.
+nation of three NN LMs further reduces the WER by 0.1% and 0.2%
+absolute over the Transformer LM on SWB and CH respectively.
+5.1. GPT and GPT-2
+The same context length is used for both GPT and GPT-2, and a
+1-best list is also cached to serve as context during rescoring. To decide the length of context, we ﬁne-tune GPT with different context
+lengths ranging from 20 to 180 tokens. Since GPT was pre-trained
+on much larger dataset, we believe it can exploit more context than
+the Transformer LM trained from scratch. Fig. 3 shows that the perplexity of the ﬁne-tuned GPT drops as the context length increases
+and the context length of 180 gives the lowest perplexity on both
+ADev and AEval. A similar trend can be found for GPT WERs with
+different context lengths in Fig. 4. The cost is that the time required
+for rescoring GPT is more than the total time for rescoring the three
+NN LMs trained from scratch.
+Without ﬁne-tuning, all GPT-2 models shown in Table 2 give
+lower WERs than F⊕ L⊕ T on AEval. The pre-trained 24-block
+GPT-2 outperforms F⊕ L⊕ T by 1.1% absolute WER on AEval.
+After ﬁne-tuning, the 24-block GPT-2 gives a 2.0% absolute WER
+
+[TABLE page=4 index=1]
+Columns: Model | ADev | AEval | SWB | CH | 38.0 | ADev.1
+Row 1: Model: 4-gram | ADev: 19.9 | AEval: 20.2 | SWB: 8.6 | CH: 17.0 | 38.0: | ADev.1:
+Row 2: Model: | ADev: | AEval: | SWB: | CH: | 38.0: 36.0 | ADev.1: AEval
+Row 3: Model: FNN LM | ADev: 19.4 | AEval: 19.5 | SWB: 7.9 | CH: 15.8 | 38.0: | ADev.1:
+Row 4: Model: LSTM LM | ADev: 18.2 | AEval: 17.9 | SWB: 6.7 | CH: 13.7 | 38.0: 34.0 | ADev.1:
+Row 5: Model: Transformer LM | ADev: 18.4 | AEval: 18.4 | SWB: 6.6 | CH: 13.7 | 38.0: | ADev.1:
+Row 6: Model: | ADev: | AEval: | SWB: | CH: | 38.0: 32.0 | ADev.1:
+Row 7: Model: F ⊕ L ⊕ T | ADev: 17.9 | AEval: 17.7 | SWB: 6.5 | CH: 13.5 | 38.0: | ADev.1:
+[/TABLE]
+
+[PAGE 5]
+Model FT ADev AEval SWB CH
+F⊕ L⊕ T - 17.9 17.7 6.5 13.5
+GPT × 19.2 18.9 - -√ 16.5 16.0 6.3 13.1
+GPT-2 × 17.7 17.3 - -
+(12 blocks) √ 16.4 16.0 - GPT-2 × 17.1 16.6 - -
+(24 blocks) √ 16.2 15.7 6.2 12.8
+GPT⊕ GPT-2 √ 16.0 15.6 6.1 12.7
+Table 2. %WER on AMI (ADev and AEval) and oneval2000 (SWB
+and CH) with GPT/GPT-2. “FT” indicates if the pre-trained model
+is ﬁne-tuned on in-domain data. F⊕ L⊕ T is from Table 1, which
+is trained on in-domain data only. The last line combines GPT with
+the 24-block GPT-2.
+reduction over F⊕ L⊕ T on AEval. Both GPT and the 24-block
+GPT-2 are adapted to SWB+Fisher and evaluated on eval2000, the
+ﬁne-tuned GPT outperforms F⊕ L⊕ T by 0.2% and 0.4% absolute WER on SWB and CH respectively. GPT-2 further reduces the
+WERs by 0.1% and 0.3% absolute on SWB and CH respectively.
+Next, the complementarity of GPT and GPT-2 are investigated
+by linearly interpolating the scores derived from the 24-block GPT-2
+and GPT. The resulting WERs decreased by 0.2% absolute on ADev
+and 0.1% absolute on AEval, compared to the WER using the ﬁnetuned 24-block GPT-2 only. Combining the ﬁne-tuned GPT and 24block GPT-2 also showed an extra 0.1% absolute WER reduction on
+SWB and CH over a single 24-block GPT-2, reaching WERs of 6.1%
+and 12.7%2, which gives 2.5% and 4.3% absolute WER reductions
+over 4-grams on SWB and CH. We found that combining the indomain only word-level NN LMs with the ﬁne-tuned GPT and GPT2 could not achieve a better WER.
+5.2. BERT
+BERT takes much longer to train than uni-directional models since
+every word needs to be masked once and fed into the model with
+left and right context. The experiments using BERT start without
+using context from other sentences, which is the same as the work
+in [6]. Instead of prepending [CLS] and appending [SEP] to each
+sentence as in [5], we only append a period to the end of each sentence since there is no punctuation in the nbest list. We found that
+adding [CLS] and [SEP] to each sentence during ﬁne-tuning did
+not improve the rescoring result. Since we will later allow the model
+to use the context from neighbouring sentences, having these two
+special tokens for every sentence reduces the number of tokens from
+transcriptions under the same context length.
+Similar to the MMLM, our proposed method in Section 3.2 also
+replaces the word we want to predict by the special token [MASK],
+while the attention mask is used to control the context. Table 3 compares our proposed method with MMLM without letting the model
+see any tokens outside the current sentence. To match the computation needed for MMLM, we use the simplest case of our method by
+settingM = 1, where the attention mask allows BERT to see only
+2These WERs on SWB and CH eval2000 were, at the time that this paper was submitted, lower than the best result in https://github.com/
+syhw/wer_are_we (6.8%/14.4% on SWB/CH) when a single acoustic
+model is used and trained on the Switchboard 300 hour set only [50].
+Method α FT ADev AEval
+MMLM
+1 × 23.3 23.2
+1 √ 18.8 18.9
+0.7 √ 18.1 18.1
+Ours (M = 1)
+1 × 25.8 26.0
+1 √ 18.3 18.2
+0.7 √ 18.2 17.9
+Ours (M = 2) 0.7 √ 18.0 17.7
+Table 3. %WER on AMI (ADev and AEval) with the 12-block uncased BERT using different methods to calculate the sentence probability without further context beyond the current sentence. “FT”
+indicates if the pre-trained model is ﬁne-tuned on in-domain data.
+“Ours” applies Eqn. (7) with different values of M.
+the future tokens in the current sentence. Our method with M = 2
+computes both the red path and the blue path in Fig 2. When there
+is no ﬁne-tuning, the performance is better using MMLM. This is
+expected since the MMLM method is better aligned to the original
+Masked LM pre-training task. Compared to MMLM, our methods
+gives lower WERs after ﬁne-tuning, showing a 0.7% absolute WER
+reduction on AEval when using M = 1. We also set α = 0.7 (as
+in [33]) for decoding BERT using the MMLM method and this gives
+a 0.8% absolute WER reduction on AEval after ﬁne-tuning, compared to the MMLM result with α = 1 . Our method also beneﬁts
+from applying smaller α. Compared to MMLM with α = 0.7, settingM = 1 withα = 0.7 gives a 0.2% absolute WER reduction
+on AEval, and M = 2 withα = 0.7 gives a further 0.2% absolute
+reduction.
+Unlike GPT, GPT-2 and the NN LMs trained from scratch,
+which only use context from previous sentences, the context for
+BERT can come from both previous and future sentences. A
+rescored 1-best list is cached to serve as the left context. Since
+the future hypotheses cannot be rescored before the current hypothesis, the right context of the current hypothesis uses the 1-best
+hypotheses from the original 100-best list. For our method with
+M = 1, Table 4 shows that having 50 tokens on the left gives 0.7%
+and 0.6% absolute WER reductions on ADev and AEval respectively. Increasing the length of the left context to 100 does not give
+further WER reductions. However, using 50 tokens on the left and
+20 on the right outperforms using 100 tokens on the left without
+context on the right, yielding a 0.3% absolute WER reduction on
+both ADev and AEval, which is the best result withM = 1.
+Compared to the best result using MMLM, which is when both
+sides have 100 tokens, our method with M = 1 gives a 0.3% absolute WER reduction on ADev and 0.5% reduction on AEval. Applying the best setup for our method with M = 1 onM = 2 achieves
+another 0.2% and 0.1% absolute WER reduction on ADev and AEval respectively. The second line for our method with M = 2 in
+Table 4 shows that if we improve the quality of the right context
+by using the reference transcriptions instead of the 1-best hypotheses from the original 100-best list, the absolute WERs on ADev and
+AEval can be reduced by 0.2%. Future work could investigate approaches to improve the quality of the right context without using
+the reference. Since our method with M = 2 using the highlighted
+setup in Table 4 gives the best result among all methods for ﬁnetuning BERT, it is then combined with the GPT and the 24-block
+GPT-2. This combination gives 0.1% absolute WER reductions on
+both ADev and AEval compared to the combination of GPT and
+
+[TABLE page=5 index=1]
+Columns: Model | FT | ADev | AEval | SWB | CH | Unnamed: 0 | Method α | FT ADev | AEval.1
+Row 1: Model: F ⊕ L ⊕ T | FT: - | ADev: 17.9 | AEval: 17.7 | SWB: 6.5 | CH: 13.5 | Unnamed: 0: | Method α: 1 | FT ADev: 23.2√× 23.3 | AEval.1:
+Row 2: Model: | FT: | ADev: | AEval: | SWB: | CH: | Unnamed: 0: | Method α: MMLM 1 | FT ADev: 18.8 | AEval.1: 18.9
+Row 3: Model: | FT: × | ADev: 19.2 | AEval: 18.9 | SWB: - | CH: - | Unnamed: 0: | Method α: | FT ADev: √ | AEval.1:
+Row 4: Model: GPT | FT: √ | ADev: | AEval: | SWB: | CH: | Unnamed: 0: | Method α: 0.7 | FT ADev: 18.1 | AEval.1: 18.1
+Row 5: Model: | FT: | ADev: 16.5 | AEval: 16.0 | SWB: 6.3 | CH: 13.1 | Unnamed: 0: | Method α: | FT ADev: | AEval.1:
+Row 6: Model: | FT: | ADev: | AEval: | SWB: | CH: | Unnamed: 0: | Method α: 1 | FT ADev: × 25.8 | AEval.1: 26.0
+Row 7: Model: GPT-2 | FT: × | ADev: 17.7 | AEval: 17.3 | SWB: - | CH: - | Unnamed: 0: | Method α: | FT ADev: √ | AEval.1:
+Row 8: Model: | FT: √ | ADev: | AEval: | SWB: | CH: | Unnamed: 0: | Method α: Ours (M = 1) 1 | FT ADev: 18.3 | AEval.1: 18.2
+Row 9: Model: (12 blocks) | FT: | ADev: 16.4 | AEval: 16.0 | SWB: - | CH: - | Unnamed: 0: | Method α: | FT ADev: √ | AEval.1:
+Row 10: Model: | FT: | ADev: | AEval: | SWB: | CH: | Unnamed: 0: | Method α: 0.7 | FT ADev: 18.2 | AEval.1: 17.9
+Row 11: Model: GPT-2 | FT: × | ADev: 17.1 | AEval: 16.6 | SWB: - | CH: - | Unnamed: 0: | Method α: | FT ADev: √ | AEval.1:
+Row 12: Model: | FT: √ | ADev: | AEval: | SWB: | CH: | Unnamed: 0: | Method α: Ours (M = 2) 0.7 | FT ADev: 18.0 | AEval.1: 17.7
+Row 13: Model: (24 blocks) | FT: | ADev: 16.2 | AEval: 15.7 | SWB: 6.2 | CH: 12.8 | Unnamed: 0: | Method α: | FT ADev: | AEval.1:
+Row 14: Model: | FT: √ | ADev: | AEval: | SWB: | CH: | Unnamed: 0: | Method α: | FT ADev: | AEval.1:
+Row 15: Model: GPT ⊕ GPT-2 | FT: | ADev: 16.0 | AEval: 15.6 | SWB: 6.1 | CH: 12.7 | Unnamed: 0: Table 3. | Method α: %WER on AMI (ADev and AEval) with the 12-block un- | FT ADev: | AEval.1:
+[/TABLE]
+
+[TABLE page=5 index=2]
+Columns: 2 These WERs on SWB and CH eval2000 were, at the time that this pa- | Unnamed: 0 | setup in Table 4 gives the best | result among all methods for fineRow 1: 2 These WERs on SWB and CH eval2000 were, at the time that this pa-: per was submitted, lower than the best result in the GPT and the 24-blockhttps://github.com/ | Unnamed: 0: | setup in Table 4 gives the best: tuning BERT, it is then combined with | result among all methods for fine-:
+Row 2: 2 These WERs on SWB and CH eval2000 were, at the time that this pa-: syhw/wer_are_we (6.8%/14.4% on SWB/CH) | Unnamed: 0: when a single acoustic | setup in Table 4 gives the best: GPT-2. This combination gives 0.1% absolute WER reductions on | result among all methods for fine-:
+[/TABLE]
+
+[PAGE 6]
+Method LC RC ADev AEval
+MMLM
+0 0 18.1 18.1
+50 0 17.7 17.8
+100 0 17.6 17.6
+50 20 17.5 17.6
+100 100 17.5 17.5
+Ours (M = 1)
+0 0 18.2 17.9
+50 0 17.5 17.3
+100 0 17.5 17.3
+50 20 17.2 17.0
+50 50 17.3 17.1
+100 50 17.2 17.1
+100 100 17.2 17.1
+Ours (M = 2)
+0 0 18.0 17.7
+50 20 17.0 16.9
+50 20† 16.8 16.7
+GPT⊕ GPT-2⊕ BERT 15.9 15.5
+Table 4. %WER on AMI (ADev and AEval) with the ﬁne-tuned 12block uncased BERT using different methods to calculate the sentence probability with context. “LC” and “RC” indicates context
+length on the left and right respectively. α is set to 0.7 for rescoing
+using BERT models. 20† means 20 future tokens from the reference.
+The last line combines GPT, 24-block GPT-2 and BERT model using
+the highlighted setup of our method withM = 2.
+GPT-2 only, showing that bidirectional LMs are complementary to
+unidirectional LMs.
+6. CONCLUSIONS
+This paper investigates the use of both unidirectional and bidirectional NN LMs with different model architectures and training
+strategies for ASR with speech recognition experiments on both the
+widely used AMI and Switchboard corpora. Regarding unidirectional LMs, it was shown that ﬁne-tuning the pre-trained GPT and
+GPT-2 LMs on small and medium sized in-domain datasets outperformed the combination of FNN LM, LSTM LM, and Transformer
+LM that are all trained from scratch with only in-domain data. The
+WERs can be further reduced by combining the ﬁne-tuned GPT
+and GPT-2. Compared to the 4-gram baseline, combining GPT and
+GPT-2 gives 4.6% absolute reductions in WER on the AMI eval
+set and 2.5%/4.3% on the Switchboard/Call Home portions of the
+eval2000 data. Hence, rather than building new NN LMs with taskspeciﬁc data for ASR, it can be better and perhaps faster to ﬁne-tune
+the existing unidirectional LMs that have been pre-trained on huge
+amounts of out-of-domain data. However, these large pre-trained
+models require much longer rescoring time, so it is worth considering some optimisation methods during inference. Regarding
+bidirectional LMs, a conversion method is proposed that can compute the exact sentence prior probabilities required by ASR based
+on the output proabilities produced by a bidirectional LM, such
+as BERT. The lowest WERs were achieved by further combining
+ﬁne-tuned GPT, GPT-2, and BERT together.
+7. REFERENCES
+[1] F. Jelinek, “Statistical methods for speech recognition,” MIT
+press, 1997.
+[2] R. Iyer, M. Ostendorf, and H. Gish, “Using out-of-domain
+data to improve in-domain language models,” IEEE Signal
+Processing Letters, vol. 4, no. 8, 1997.
+[3] S. R. Gangireddy, P. Swietojanski, P. Bell, and S. Renals, “Unsupervised adaptation of recurrent neural network language
+models,” in Proc. Interspeech, 2016.
+[4] M. Ma, M. Nirschl, F. Biadsy, and S. Kumar, “Approaches
+for neural-network language model adaptation,” in Proc. Interspeech, 2017.
+[5] J. Salazar, D. Liang, T. Q. Nguyen, and K. Kirchhoff, “Masked
+language model scoring,” in Proc. ACL, 2020.
+[6] J. Shin, Y . Lee, and K. Jung, “Effective sentence scoring
+method using BERT for speech recognition,” in Proc. ACML,
+2019.
+[7] S.-H. Chiu and B. Chen, “Innovative BERT-based reranking
+language models for speech recognition,” in Proc. SLT, 2021.
+[8] K. Li, Z. Liu, T. He, H. Huang, F. Peng, D. Povey, and S. Khudanpur, “An empirical study of transformer-based neural language model adaptation,” in Proc. ICASSP, 2020.
+[9] Y . Bengio, R. Ducharme, P. Vincent, and C. Jauvin, “A neural
+probabilistic language model,” Journal of machine learning
+research, 2003.
+[10] H. Schwenk, “Continuous space language models,” Computer
+Speech & Language, vol. 21, no. 3, 2007.
+[11] J. Park, X. Liu, M. Gales, and P. Woodland, “Improved neural
+network based language modelling and adaptation,” in Proc.
+Interspeech, 2010.
+[12] H.-S. Le, I. Oparin, A. Allauzen, J.-L. Gauvain, and F. Yvon,
+“Structured output layer neural network language models for
+speech recognition,” IEEE Transactions on Audio, Speech, and
+Language Processing, vol. 21, no. 1, 2013.
+[13] T. Mikolov, M. Karaﬁat, L. Burget, J. Cernocky, and S. Khudanpur, “Recurrent neural network based language model,” in
+Proc. Interspeech, 2010.
+[14] T. Mikolov, S. Kombrink, L. Burget, J. ˇCernock´y, and S. Khudanpur, “Extensions of recurrent neural network language
+model,” in Proc. ICASSP, 2011.
+[15] M. Sundermeyer, R. Schluter, and H. Ney, “LSTM neural networks for language modeling,” in Proc. Interspeech, 2012.
+[16] S. Merity, N. S. Keskar, and R. Socher, “Regularizing and
+optimizing LSTM language models,”arXiv:1708.02182, 2017.
+[17] M. Sundermeyer, I. Oparin, J.-L. Gauvain, B. Freiberg,
+R. Schl¨uter, and H. Ney, “Comparison of feedforward and recurrent neural network language models,” in Proc. ICASSP,
+2013.
+[18] A. Graves, G. Wayne, and I. Danihelka, “Neural turing machines,” arXiv:1410.5401, 2014.
+[19] D. Bahdanau, K. Cho, and Y . Bengio, “Neural machine translation by jointly learning to align and translate,” inProc. ICLR,
+2015.
+
+[TABLE page=6 index=1]
+Columns: Method LC | Unnamed: 0 | RC | ADev | AEval | Unnamed: 1 | Unnamed: 2 | 7. REFERENCES | Unnamed: 3
+Row 1: Method LC: 0 | Unnamed: 0: | RC: 0 | ADev: 18.1 | AEval: 18.1 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 2: Method LC: | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: [1] | Unnamed: 2: F. Jelinek, | 7. REFERENCES: “Statistical methods for speech recognition,” | Unnamed: 3: MIT
+Row 3: Method LC: 50 | Unnamed: 0: | RC: 0 | ADev: 17.7 | AEval: 17.8 | Unnamed: 1: | Unnamed: 2: press, 1997. | 7. REFERENCES: | Unnamed: 3:
+Row 4: Method LC: MMLM | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 5: Method LC: 100 | Unnamed: 0: | RC: 0 | ADev: 17.6 | AEval: 17.6 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 6: Method LC: | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: [2] | Unnamed: 2: R. Iyer, M. | 7. REFERENCES: Ostendorf, and H. Gish, | Unnamed: 3: “Using out-of-domain
+Row 7: Method LC: 50 | Unnamed: 0: | RC: 20 | ADev: 17.5 | AEval: 17.6 | Unnamed: 1: | Unnamed: 2: data to improve | 7. REFERENCES: in-domain language | Unnamed: 3: models,” IEEE Signal
+Row 8: Method LC: 100 | Unnamed: 0: | RC: 100 | ADev: 17.5 | AEval: 17.5 | Unnamed: 1: | Unnamed: 2: Processing Letters, vol. 4, no. 8, 1997. | 7. REFERENCES: | Unnamed: 3:
+Row 9: Method LC: 0 | Unnamed: 0: | RC: 0 | ADev: 18.2 | AEval: 17.9 | Unnamed: 1: [3] | Unnamed: 2: S. R. Gangireddy, P. Swietojanski, P. Bell, and S. Renals, “Un- | 7. REFERENCES: | Unnamed: 3:
+Row 10: Method LC: | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: | Unnamed: 2: supervised | 7. REFERENCES: adaptation of recurrent neural | Unnamed: 3: network language
+Row 11: Method LC: 50 | Unnamed: 0: | RC: 0 | ADev: 17.5 | AEval: 17.3 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 12: Method LC: | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: | Unnamed: 2: models,” in Proc. Interspeech, 2016. | 7. REFERENCES: | Unnamed: 3:
+Row 13: Method LC: 100 | Unnamed: 0: | RC: 0 | ADev: 17.5 | AEval: 17.3 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 14: Method LC: Ours (M = 1) | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: [4] | Unnamed: 2: M. Ma, M. Nirschl, | 7. REFERENCES: F. Biadsy, and S. Kumar, | Unnamed: 3: “Approaches
+Row 15: Method LC: 50 | Unnamed: 0: | RC: 20 | ADev: 17.2 | AEval: 17.0 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 16: Method LC: | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: | Unnamed: 2: for neural-network language model adaptation,” | 7. REFERENCES: | Unnamed: 3: in Proc. InRow 17: Method LC: 50 | Unnamed: 0: | RC: 50 | ADev: 17.3 | AEval: 17.1 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 18: Method LC: | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: | Unnamed: 2: terspeech, 2017. | 7. REFERENCES: | Unnamed: 3:
+Row 19: Method LC: 100 | Unnamed: 0: | RC: 50 | ADev: 17.2 | AEval: 17.1 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 20: Method LC: 100 | Unnamed: 0: | RC: 100 | ADev: 17.2 | AEval: 17.1 | Unnamed: 1: [5] | Unnamed: 2: J. Salazar, D. Liang, T. Q. Nguyen, and K. Kirchhoff, “Masked | 7. REFERENCES: | Unnamed: 3:
+Row 21: Method LC: | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: | Unnamed: 2: language model scoring,” | 7. REFERENCES: in Proc. ACL, 2020. | Unnamed: 3:
+Row 22: Method LC: 0 | Unnamed: 0: | RC: 0 | ADev: 18.0 | AEval: 17.7 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 23: Method LC: Ours (M = 2) | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: [6] | Unnamed: 2: J. Shin, Y. | 7. REFERENCES: Lee, and K. Jung, “Effective | Unnamed: 3: sentence scoring
+Row 24: Method LC: 50 | Unnamed: 0: | RC: 20 | ADev: 17.0 | AEval: 16.9 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 25: Method LC: | Unnamed: 0: | RC: † | ADev: | AEval: | Unnamed: 1: | Unnamed: 2: method using BERT for speech recognition,” | 7. REFERENCES: | Unnamed: 3: in Proc. ACML,
+Row 26: Method LC: 50 | Unnamed: 0: | RC: 20 | ADev: 16.8 | AEval: 16.7 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 27: Method LC: | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: | Unnamed: 2: 2019. | 7. REFERENCES: | Unnamed: 3:
+Row 28: Method LC: GPT ⊕ GPT-2 ⊕ BERT | Unnamed: 0: | RC: | ADev: 15.9 | AEval: 15.5 | Unnamed: 1: | Unnamed: 2: | 7. REFERENCES: | Unnamed: 3:
+Row 29: Method LC: | Unnamed: 0: | RC: | ADev: | AEval: | Unnamed: 1: [7] | Unnamed: 2: S.-H. Chiu and B. Chen, | 7. REFERENCES: “Innovative BERT-based reranking | Unnamed: 3:
+[/TABLE]
+
+[PAGE 7]
+[20] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones,
+A. N. Gomez, L. Kaiser, and I. Polosukhin, “Attention is all
+you need,” in Proc. NIPS, 2017.
+[21] K. Irie, A. Zeyer, R. Schl ¨uter, and H. Ney, “Language modeling with deep transformers,” in Proc. Interspeech, 2019.
+[22] A. Radford, K. Narasimhan, T. Salimans, and I. Sutskever,
+“Improving language understanding by generative pretraining,” OpenAI Blog, 2018.
+[23] J. Devlin, M.-W. Chang, K. Lee, and K. Toutanova, “BERT:
+Pre-training of deep bidirectional transformers for language
+understanding,” arXiv:1810.04805, 2019.
+[24] J. Howard and S. Ruder, “Universal language model ﬁnetuning for text classiﬁcation,” inProc. ACL, 2018.
+[25] Y . Liu, M. Ott, N. Goyal, J. Du, M. Joshi, D. Chen,
+O. Levy, M. Lewis, L. Zettlemoyer, and V . Stoyanov,
+“RoBERTa: A robustly optimized BERT pretraining approach,” arXiv:1907.11692, 2019.
+[26] Z. Dai, Z. Yang, Y . Yang, J. Carbonell, Q. V . Le, and
+R. Salakhutdinov, “Transformer-XL: Attentive language models beyond a ﬁxed-length context,” inProc. ACL, 2019.
+[27] M. E. Peters, M. Neumann, M. Iyyer, M. Gardner, C. Clark,
+K. Lee, and L. Zettlemoyer, “Deep contextualized word representations,” in Proc. NAACL, 2018.
+[28] Z. Yang, Z. Dai, Y . Yang, J. Carbonell, R. Salakhutdinov, and
+Q. V . Le, “XLNet: Generalized autoregressive pretraining for
+language understanding,” in Proc. NIPS, 2020.
+[29] A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, and
+I. Sutskever, “Language models are unsupervised multitask
+learners,” OpenAI Blog, 2019.
+[30] Z. Lan, M. Chen, S. Goodman, K. Gimpel, P. Sharma, and
+R. Soricut, “ALBERT: A lite BERT for self-supervised learning of language representations,” in Proc. ICLR, 2020.
+[31] C. Raffel, N. Shazeer, A. Roberts, K. Lee, S. Narang,
+M. Matena, Y . Zhou, W. Li, and P. J. Liu, “Exploring the limits of transfer learning with a uniﬁed text-to-text transformer,”
+Journal of machine learning research, 2020.
+[32] T. B. Brown, B. Mann, N. Ryder, M. Subbiah, J. Kaplan,
+P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell,
+S. Agarwal, A. Herbert-V oss, G. Krueger, T. Henighan,
+R. Child, A. Ramesh, D. M. Ziegler, J. Wu, C. Winter,
+C. Hesse, M. Chen, E. Sigler, M. Litwin, S. Gray, B. Chess,
+J. Clark, C. Berner, S. McCandlish, A. Radford, I. Sutskever,
+and D. Amodei, “Language models are few-shot learners,” in
+Proc. NIPS, 2020.
+[33] X. Chen, A. Ragni, X. Liu, and M. Gales, “Investigating bidirectional recurrent neural network language models for speech
+recognition,” in Proc. Interspeech, 2017.
+[34] J. L. Ba, J. R. Kiros, and G. E. Hinton, “Layer normalization,”
+in Proc. NIPS, 2016.
+[35] R. Sennrich, B. Haddow, and A. Birch, “Neural machine translation of rare words with subword units,” in Proc. ACL, 2016.
+[36] Y . Zhu, R. Kiros, R. Zemel, R. Salakhutdinov, R. Urtasun,
+A. Torralba, and S. Fidler, “Aligning books and movies: Towards story-like visual explanations by watching movies and
+reading books,” in Proc. ICCV, 2015.
+[37] N. Hansen and A. Ostermeier, “Completely derandomized
+self-adaptation in evolution strategies,” Evolutionary Computation, vol. 9, no. 2, 2001.
+[38] E. Arisoy, A. Sethy, B. Ramabhadran, and S. Chen, “Bidirectional recurrent neural network language models for automatic
+speech recognition,” in Proc. ICASSP, 2015.
+[39] T. He, Y . Zhang, J. Droppo, and K. Yu, “On training bidirectional neural network language model with noise contrastive estimation,” in Proc. ISCSLP, 2016.
+[40] K. Irie, Z. Lei, L. Deng, R. Schl ¨uter, and H. Ney, “Investigation on estimation of sentence probability by combining forward, backward and bi-directional LSTM-RNNs,” in Proc. Interspeech, 2018.
+[41] D. Povey, G. Cheng, Y . Wang, K. Li, H. Xu, M. Yarmohammadi, and S. Khudanpur, “Semi-orthogonal low-rank matrix
+factorization for deep neural networks,” in Proc. Interspeech,
+2018.
+[42] F. Kreyssig, C. Zhang, and P. Woodland, “Improved TDNNs
+using deep kernels and frequency dependent grid-RNNs,” in
+Proc. ICASSP, 2018.
+[43] D. Povey, V . Peddinti, D. Galvez, P. Ghahremani, V . Manohar,
+X. Na, Y . Wang, and S. Khudanpur, “Purely sequence-trained
+neural networks for ASR based on lattice-free MMI,” in Proc.
+Interspeech, 2016.
+[44] D. Povey, A. Ghoshal, G. Boulianne, L. Burget, O. Glembek,
+N. Goel, M. Hannemann, P. Motlıc /caron.ts1ek, Y . Qian, P. Schwarz,
+J. Silovsky, G. Stemmer, and K. Vesely, “The Kaldi speech
+recognition toolkit,” in Proc. ASRU, 2011.
+[45] P. Manakul, M. Gales, and L. Wang, “Abstractive spoken document summarization using hierarchical model with multi-stage
+attention diversity optimization,” in Proc. Interspeech, 2020.
+[46] Q. Li, C. Zhang, and P. C. Woodland, “Combining framesynchronous and label-synchronous systems for speech recognition,” arXiv preprint arXiv:2107.00764, 2021.
+[47] D. P. Kingma and J. Ba, “Adam: A method for stochastic optimization,” in Proc. ICLR, 2015.
+[48] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury,
+G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga,
+A. Desmaison, A. Kopf, E. Yang, Z. DeVito, M. Raison, A. Tejani, S. Chilamkurthy, B. Steiner, L. Fang, J. Bai, and S. Chintala, “PyTorch: An imperative style, high-performance deep
+learning library,” in Advances in Neural Information Processing Systems , H. Wallach, H. Larochelle, A. Beygelzimer,
+F. dAlch´e-Buc, E. Fox, and R. Garnett, Eds., 2019, vol. 32.
+[49] T. Wolf, L. Debut, V . Sanh, J. Chaumond, C. Delangue,
+A. Moi, P. Cistac, T. Rault, R. Louf, M. Funtowicz, J. Davison, S. Shleifer, P. von Platen, C. Ma, Y . Jernite, J. Plu, C. Xu,
+T. L. Scao, S. Gugger, M. Drame, Q. Lhoest, and A. M. Rush,
+“Transformers: State-of-the-art natural language processing,”
+in Proc. EMNLP, 2020.
+[50] W. Wang, G. Wang, A. Bhatnagar, Y . Zhou, C. Xiong, and
+R. Socher, “An investigation of phone-based subword units for
+end-to-end speech recognition,” in Proc. Interspeech, 2020.
+
+[TABLE page=7 index=1]
+Columns: [20] | A. Vaswani, | N. | Shazeer, | N..1 | Parmar, | J. | Uszkoreit, L. | Jones, | Unnamed: 0 | Unnamed: 1 | [37] | N. Hansen | and | A. | Ostermeier, | “Completely derandomized
+Row 1: [20]: | A. Vaswani,: A. N. Gomez, L. Kaiser, and I. Polosukhin, | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: “Attention is all | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: self-adaptation in evolution strategies,” | and: | A.: | Ostermeier,: | “Completely derandomized: Evolutionary CompuRow 2: [20]: | A. Vaswani,: you need,” in Proc. NIPS, 2017. | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: tation, vol. 9, no. 2, 2001. | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 3: [20]: [21] | A. Vaswani,: K. Irie, A. Zeyer, R. Schlüter, and H. Ney, | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: “Language model- | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [38] | N. Hansen: E. Arisoy, A. Sethy, B. Ramabhadran, and S. Chen, | and: | A.: | Ostermeier,: | “Completely derandomized: “BidirecRow 4: [20]: | A. Vaswani,: ing with deep transformers,” | N.: | Shazeer,: | N..1: in Proc. Interspeech, 2019. | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: tional recurrent neural network language models for automatic | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 5: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: speech recognition,” | and: | A.: | Ostermeier,: in Proc. ICASSP, 2015. | “Completely derandomized:
+Row 6: [20]: [22] | A. Vaswani,: A. Radford, | N.: K. | Shazeer,: Narasimhan, | N..1: | Parmar,: T. Salimans, | J.: | Uszkoreit, L.: and I. Sutskever, | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 7: [20]: | A. Vaswani,: “Improving | N.: language | Shazeer,: understanding | N..1: | Parmar,: | J.: | Uszkoreit, L.: by generative | Jones,: pre- | Unnamed: 0: | Unnamed: 1: | [37]: [39] | N. Hansen: T. He, Y. Zhang, | and: | A.: J. | Ostermeier,: Droppo, and | “Completely derandomized: K. Yu, “On training biRow 8: [20]: | A. Vaswani,: training,” OpenAI Blog, 2018. | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: directional | and: neural | A.: network | Ostermeier,: language | “Completely derandomized: model with noise conRow 9: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: trastive estimation,” | and: | A.: | Ostermeier,: in Proc. ISCSLP, 2016. | “Completely derandomized:
+Row 10: [20]: [23] | A. Vaswani,: J. Devlin, M.-W. Chang, K. Lee, and K. Toutanova, | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: “BERT: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 11: [20]: | A. Vaswani,: Pre-training | N.: of deep | Shazeer,: bidirectional | N..1: | Parmar,: transformers | J.: | Uszkoreit, L.: for language | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [40] | N. Hansen: K. Irie, Z. Lei, L. Deng, R. Schlüter, and H. Ney, | and: | A.: | Ostermeier,: | “Completely derandomized: “InvestigaRow 12: [20]: | A. Vaswani,: understanding,” arXiv:1810.04805, 2019. | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: tion on estimation of sentence probability by combining for- | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 13: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: ward, backward and bi-directional LSTM-RNNs,” in Proc. In- | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 14: [20]: [24] | A. Vaswani,: J. Howard and | N.: | Shazeer,: S. Ruder, | N..1: “Universal | Parmar,: | J.: language | Uszkoreit, L.: model | Jones,: fine- | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: terspeech, 2018. | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 15: [20]: | A. Vaswani,: tuning for text classification,” | N.: | Shazeer,: | N..1: | Parmar,: in Proc. ACL, 2018. | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 16: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [41] | N. Hansen: D. Povey, G. Cheng, Y. Wang, K. Li, H. Xu, M. Yarmoham- | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 17: [20]: [25] | A. Vaswani,: Y. Liu, M. | N.: Ott, | Shazeer,: N. Goyal, | N..1: | Parmar,: J. Du, | J.: M. | Uszkoreit, L.: Joshi, D. | Jones,: Chen, | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: madi, and S. Khudanpur, | and: | A.: | Ostermeier,: “Semi-orthogonal low-rank matrix | “Completely derandomized:
+Row 18: [20]: | A. Vaswani,: O. Levy, M. | N.: Lewis, | Shazeer,: L. | N..1: Zettlemoyer, | Parmar,: | J.: | Uszkoreit, L.: and V. Stoyanov, | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: factorization for deep neural networks,” | and: | A.: | Ostermeier,: | “Completely derandomized: in Proc. Interspeech,
+Row 19: [20]: | A. Vaswani,: “RoBERTa: | N.: A | Shazeer,: robustly | N..1: optimized | Parmar,: | J.: BERT | Uszkoreit, L.: pretraining | Jones,: ap- | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: 2018. | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 20: [20]: | A. Vaswani,: proach,” arXiv:1907.11692, 2019. | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 21: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [42] | N. Hansen: F. Kreyssig, C. Zhang, and P. Woodland, | and: | A.: | Ostermeier,: | “Completely derandomized: “Improved TDNNs
+Row 22: [20]: [26] | A. Vaswani,: Z. Dai, Z. | N.: Yang, | Shazeer,: Y. Yang, | N..1: | Parmar,: J. Carbonell, | J.: | Uszkoreit, L.: Q. V. Le, | Jones,: and | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: using deep kernels and frequency dependent grid-RNNs,” | and: | A.: | Ostermeier,: | “Completely derandomized: in
+Row 23: [20]: | A. Vaswani,: R. Salakhutdinov, “Transformer-XL: Attentive language mod- | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: Proc. ICASSP, 2018. | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 24: [20]: | A. Vaswani,: els beyond a fixed-length context,” | N.: | Shazeer,: | N..1: | Parmar,: in Proc. ACL, 2019. | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 25: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [43] | N. Hansen: D. Povey, V. Peddinti, D. Galvez, P. Ghahremani, V. Manohar, | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 26: [20]: [27] | A. Vaswani,: M. E. Peters, M. Neumann, M. Iyyer, M. Gardner, C. Clark, | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: X. Na, Y. Wang, and S. Khudanpur, | and: | A.: | Ostermeier,: | “Completely derandomized: “Purely sequence-trained
+Row 27: [20]: | A. Vaswani,: K. Lee, and L. Zettlemoyer, “Deep contextualized word repre- | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: neural networks for ASR based on lattice-free MMI,” | and: | A.: | Ostermeier,: | “Completely derandomized: in Proc.
+Row 28: [20]: | A. Vaswani,: sentations,” in Proc. NAACL, 2018. | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: Interspeech, 2016. | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 29: [20]: [28] | A. Vaswani,: Z. Yang, Z. Dai, Y. Yang, J. Carbonell, R. Salakhutdinov, and | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [44] | N. Hansen: D. Povey, A. Ghoshal, G. Boulianne, L. Burget, O. Glembek, | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 30: [20]: | A. Vaswani,: Q. V. Le, “XLNet: Generalized autoregressive pretraining for | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: N. Goel, M. Hannemann, P. Motlıcˇek, Y. Qian, P. Schwarz, | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 31: [20]: | A. Vaswani,: language understanding,” | N.: | Shazeer,: | N..1: in Proc. NIPS, 2020. | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: J. Silovsky, | and: G. Stemmer, | A.: | Ostermeier,: and K. Vesely, | “Completely derandomized: “The Kaldi speech
+Row 32: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: recognition toolkit,” | and: | A.: | Ostermeier,: in Proc. ASRU, 2011. | “Completely derandomized:
+Row 33: [20]: [29] | A. Vaswani,: A. Radford, | N.: J. | Shazeer,: Wu, R. | N..1: Child, | Parmar,: D. Luan, | J.: | Uszkoreit, L.: D. Amodei, | Jones,: and | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 34: [20]: | A. Vaswani,: I. Sutskever, | N.: “Language | Shazeer,: | N..1: models | Parmar,: are | J.: unsupervised | Uszkoreit, L.: multitask | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [45] | N. Hansen: P. Manakul, M. Gales, and L. Wang, “Abstractive spoken docu- | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 35: [20]: | A. Vaswani,: learners,” OpenAI Blog, 2019. | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: ment summarization using hierarchical model with multi-stage | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 36: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: attention diversity optimization,” | and: | A.: | Ostermeier,: | “Completely derandomized: in Proc. Interspeech, 2020.
+Row 37: [20]: [30] | A. Vaswani,: Z. Lan, M. Chen, | N.: | Shazeer,: S. Goodman, | N..1: | Parmar,: K. Gimpel, | J.: | Uszkoreit, L.: P. Sharma, | Jones,: and | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 38: [20]: | A. Vaswani,: R. Soricut, “ALBERT: A lite BERT for self-supervised learn- | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [46] | N. Hansen: Q. Li, C. Zhang, | and: | A.: and | Ostermeier,: P. C. Woodland, | “Completely derandomized: “Combining frameRow 39: [20]: | A. Vaswani,: ing of language representations,” | N.: | Shazeer,: | N..1: | Parmar,: in Proc. ICLR, 2020. | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: synchronous and label-synchronous systems for speech recog- | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 40: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: nition,” arXiv preprint arXiv:2107.00764, 2021. | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 41: [20]: [31] | A. Vaswani,: C. Raffel, N. | N.: Shazeer, | Shazeer,: | N..1: A. | Parmar,: Roberts, | J.: K. | Uszkoreit, L.: Lee, S. Narang, | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 42: [20]: | A. Vaswani,: M. Matena, Y. Zhou, W. Li, and P. J. Liu, | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: “Exploring the lim- | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [47] | N. Hansen: D. P. Kingma and J. Ba, “Adam: A method for stochastic opti- | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 43: [20]: | A. Vaswani,: its of transfer learning with a unified text-to-text transformer,” | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: mization,” in Proc. ICLR, 2015. | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 44: [20]: | A. Vaswani,: Journal of machine learning research, 2020. | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [48] | N. Hansen: A. Paszke, | and: S. | A.: Gross, | Ostermeier,: F. Massa, | “Completely derandomized: A. Lerer, J. Bradbury,
+Row 45: [20]: [32] | A. Vaswani,: T. B. Brown, | N.: B. | Shazeer,: Mann, | N..1: N. | Parmar,: Ryder, M. | J.: | Uszkoreit, L.: Subbiah, J. Kaplan, | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: G. Chanan, | and: T. | A.: Killeen, | Ostermeier,: Z. Lin, | “Completely derandomized: N. Gimelshein, L. Antiga,
+Row 46: [20]: | A. Vaswani,: P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: A. Desmaison, A. Kopf, E. Yang, Z. DeVito, M. Raison, A. Te- | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 47: [20]: | A. Vaswani,: S. Agarwal, | N.: A. | Shazeer,: Herbert-Voss, | N..1: | Parmar,: G. Krueger, | J.: | Uszkoreit, L.: T. Henighan, | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: jani, S. Chilamkurthy, B. Steiner, L. Fang, J. Bai, and S. Chin- | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 48: [20]: | A. Vaswani,: R. Child, A. | N.: Ramesh, | Shazeer,: D. | N..1: M. | Parmar,: Ziegler, | J.: | Uszkoreit, L.: J. Wu, C. Winter, | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: tala, “PyTorch: | and: | A.: An imperative style, high-performance deep | Ostermeier,: | “Completely derandomized:
+Row 49: [20]: | A. Vaswani,: C. Hesse, M. Chen, E. Sigler, M. Litwin, S. Gray, B. Chess, | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: learning library,” | and: | A.: | Ostermeier,: in Advances | “Completely derandomized: in Neural Information ProRow 50: [20]: | A. Vaswani,: J. Clark, C. Berner, S. McCandlish, A. Radford, I. Sutskever, | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: cessing Systems, H. Wallach, H. Larochelle, A. Beygelzimer, | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 51: [20]: | A. Vaswani,: and D. Amodei, | N.: | Shazeer,: “Language models are few-shot learners,” | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: in | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: F. dAlché-Buc, E. Fox, and R. Garnett, Eds., 2019, vol. 32. | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 52: [20]: | A. Vaswani,: Proc. NIPS, 2020. | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [49] | N. Hansen: T. Wolf, L. | and: Debut, | A.: | Ostermeier,: V. Sanh, | “Completely derandomized: J. Chaumond, C. Delangue,
+Row 53: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: A. Moi, P. Cistac, T. Rault, R. Louf, M. Funtowicz, | and: | A.: | Ostermeier,: | “Completely derandomized: J. DaviRow 54: [20]: [33] | A. Vaswani,: X. Chen, A. Ragni, X. Liu, and M. Gales, | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: “Investigating bidi- | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 55: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: son, S. Shleifer, P. von Platen, C. Ma, Y. Jernite, J. Plu, C. Xu, | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 56: [20]: | A. Vaswani,: rectional recurrent neural network language models for speech | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 57: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: T. L. Scao, S. Gugger, M. Drame, Q. Lhoest, and A. M. Rush, | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 58: [20]: | A. Vaswani,: recognition,” | N.: in Proc. Interspeech, 2017. | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 59: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: “Transformers: | and: | A.: State-of-the-art natural language processing,” | Ostermeier,: | “Completely derandomized:
+Row 60: [20]: [34] | A. Vaswani,: J. L. Ba, J. R. Kiros, and G. E. Hinton, “Layer normalization,” | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: in Proc. EMNLP, 2020. | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 61: [20]: | A. Vaswani,: in Proc. NIPS, 2016. | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: | and: | A.: | Ostermeier,: | “Completely derandomized:
+Row 62: [20]: | A. Vaswani,: | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: [50] | N. Hansen: W. Wang, G. | and: Wang, | A.: | Ostermeier,: A. Bhatnagar, | “Completely derandomized: Y. Zhou, C. Xiong, and
+Row 63: [20]: [35] | A. Vaswani,: R. Sennrich, B. Haddow, and A. Birch, “Neural machine trans- | N.: | Shazeer,: | N..1: | Parmar,: | J.: | Uszkoreit, L.: | Jones,: | Unnamed: 0: | Unnamed: 1: | [37]: | N. Hansen: R. Socher, “An investigation of phone-based subword units for | and: | A.: | Ostermeier,: | “Completely derandomized:
+[/TABLE]

@@ -1,0 +1,1299 @@
+[PAGE 1]
+arXiv:2506.22518v1 [cs.CL] 26 Jun 2025
+Weak-to-Strong GraphRAG: Aligning Weak Retrievers with Large
+Language Models for Graph-based Retrieval Augmented
+Generation
+Deyu Zou∗† Yongqiang Chen∗† Mufei Li‡ Siqi Miao‡ Chenxi Liu§
+Bo Han§ James Cheng⋄† Pan Li⋄‡
+† The Chinese University of Hong Kong
+‡ Georgia Institute of Technology
+§ Hong Kong Baptist University
+Abstract
+Graph-based retrieval-augmented generation (RAG) enables large language models (LLMs) to ground responses
+with structured external knowledge from up-to-date knowledge graphs (KGs) and reduce hallucinations. However,
+LLMs often rely on a weak retriever in graph-based RAG: I) Due to the lack of ground truth, the retriever is often
+trained on weak supervision, which often introduces spurious signals to the LLMs. II) Due to the abstraction of
+graph data, the retrieved knowledge is often presented in unorganized forms. To mitigate the issue, we present
+Refined Graph-based RAG (ReG) to align weak retrievers to LLMs for graph-based RAG. Specifically, ReG
+incorporates LLM feedback to get rid of spurious signals and improve the quality of the supervision. Meanwhile,
+ReG introduces a structure-aware reorganization module to refactor the retrieval results into logically coherent
+evidence chains. Experiments on prominent benchmarks demonstrate that ReG significantly and consistently
+brings improvements across different LLM backbones by up to 10%. The improved supervision quality enables
+ReG to match the state-of-the-art performance with 5% training data and to transfer to out-of-distribution KGs.
+Notably, when adopted to reasoning-based LLMs, ReG reduces the reasoning token cost by up to 30% and
+improves the performance by up to 4%.
+1 Introduction
+Large language models (LLMs) have achieved remarkable success and continue to advance (Bang et al., 2023;
+Raiaan et al., 2024; Yang et al., 2024). In particular, long-context LLMs (Liu et al., 2025; Huang et al., 2023; Zhao
+et al., 2023) extend context windows to millions of tokens (Team et al., 2024), and large reasoning models (LRMs)
+like OpenAI o3 (OpenAI, 2025) and DeepSeek R1 (Guo et al., 2025a) further push the frontier on extremely
+complex tasks. However, even frontier LLMs fall short in processing extremely lengthy or noisy input contexts:
+long-context LLMs often fail to effectively extract the useful information from the long context (Hsieh et al., 2024;
+Liu et al., 2024c), while LRMs tend to incur excessive reasoning costs on irrelevant or redundant content (Chen
+et al., 2024c; Sui et al., 2025; Feng et al., 2025). Therefore, it is essential to retrieve the desired information for
+LLMs, especially when handling complicated multi-hop reasoning tasks (Han et al., 2024).
+Retrieval-augmented generation (RAG) has emerged as a powerful paradigm for enhancing LLMs (Borgeaud et al.,
+2022; Gao et al., 2023; Chen et al., 2024a; Fan et al., 2024). By retrieving query-relevant information from external
+knowledge sources, RAG reduces LLM hallucinations (Ji et al., 2023; Huang et al., 2025; Liu et al., 2024b) and
+improves the factuality (Dhingra et al., 2022; Kasai et al., 2023) and specificity (Li et al., 2023a) of LLM responses.
+Recently, graph-based RAG has extended text-based RAG to further enhance retrieval effectiveness in capturing
+the interconnections between facts. By retrieving from graph-structured textual and document-level knowledge
+in a knowledge graph (KG), graph-based RAG provides more structure-aware, interpretable, and compositional
+∗/⋄Equal first-author / senior contribution.
+
+[PAGE 2]
+Canon EOS
+5D Mark II
+Nikon Coolpix
+Compact Flash
+Opticalviewfinder_type digital_cameras
+22.0
+sensor_resolution
+3.9
+burst_capability
+weight 170.0
+Are there any digital cameras that use the same viewfinder as Canon EOS 5D Mark II and weigh less than 522.0?
+LLM-accepted
+LLM-filtered
+1.1 Candidate
+Construction
+1.2 LLM-refined
+Supervision Signal
+1.3 Retriever
+Optimization
+2.1 Raw Retrieval
+viewf
+Optical ,
+, Optical ,
+,
+viewf, digit
+Canon Optical
+digit
+Nikon170.0
+weight
+2.2
+Structure3.Generation
+Nikon
+Frozen
+Trainable
+Step 1
+Step 3
+Step 2
+Canon
+Canon
+/ /
+Aware
+Reorganize
+Figure 1: Overall framework ofReG. Given a KGG with a query-answer pair(q, a), ReG first constructs a candidate
+path pool P to cover diverse candidate reasoning paths. Then, ReG uses LLM to select high-qualitybG+ for training
+retrievers. During inference, retrieved items are reorganized into logic-consistent chains to better align with the
+needs for LLM reasoning.
+information compared to text-based retrieval, particularly effective for handling complex multi-hop reasoning
+tasks (Chein & Mugnier, 2008; Robinson et al., 2015; Edge et al., 2024; Peng et al., 2024; Han et al., 2024).
+Despite its promise, graph-based RAG relies on weak retrievers that are often misaligned with LLMs: (I) Weak
+supervision. Unlike text-based RAG, there is no general-purpose retriever tailored for structural information (Luo
+et al., 2025b), and the ground truth for graph-based RAG is typically unavailable. Consequently, graph-based
+retrievers often require training on specific datasets withheuristic-based weak supervision signals (Zhang et al.,
+2022; Luo et al., 2023). However, such supervision often misses key supporting evidence or includes spurious
+connections unrelated to the underlying reasoning logic. This issue becomes particularly pronounced for multi-hop
+KG queries, where errors or omissions in key intermediate reasoning steps in the supervision will severely degrade
+retriever performance. (II) Representation misalignment. The raw retrieved subgraph is often returned as an
+unstructured set of triples or entities (Mavromatis & Karypis, 2024; Li et al., 2024a), lacking logical coherence
+and contextual order. However, LLMs are sensitive to the structure and ordering of input (Chen et al., 2024b; Guo
+et al., 2025c), and such disorganized representations can hinder LLM reasoning and suppress the utility of correctly
+retrieved facts, which further increases the complexity of graph-based RAG. These dual issues create a fundamental
+misalignment between the capabilities of graph retrievers and the reasoning needs of LLMs, raising a critical and
+challenging research question:
+How can one effectively align weak graph retrievers with LLMs in graph-based RAG?
+To tackle this core challenge of aligning graph retrievers with LLMs, we present Refined Graph-based RAG (ReG).
+It first incorporates the rich knowledge of LLMs to refine and align the weak supervision in graph-based RAG.
+Essentially, we show that graph-based RAG can be formulated as a black-box combinatorial search over the KG G:
+given a query q, the goal is to identify a minimal sufficient subgraphbG∗ ⊆ G for an LLM to answerq correctly. Here,
+the LLM serves as a black-box evaluator that assesses the utility of retrieved subgraphs. Under this formulation, we
+show that solving the original black-box optimization problem is computationally intractable and thus not feasible
+under realistic LLM usage budgets. Therefore, ReG incorporates the LLMs in a simple yet effective way: using
+LLMs to select better reasoning chains among the candidate chains extracted from KG. The resulting improved
+supervision signal improves the identification of the optimal subgraph in a cost-efficient manner. Moreover, to
+further align the retrieval results with LLMs, ReG reorganizes the retrieved content into logic-preserving chains,
+which is simple but significantly mitigates distraction and inefficiency during LLM reasoning.
+Extensive experiments demonstrate that ReG achieves state-of-the-art results on prominent multi-hop knowledge
+graph question answering (KGQA) benchmarks. Notably, it yields retrievers with stronger zero-shot generalizability
+to out-of-distribution (OOD) KGs, mitigating the weakness of lacking foundation models in graph-based RAG.
+The improved supervision enables ReG to match the state-of-the-art performance with 5% training data. ReG also
+brings measurable gains while reducing token costs by up to 30% when paired with the frontier LRMs. These
+
+[PAGE 3]
+results highlight the effectiveness, data-efficiency, and versatility ofReG as a generally applicable framework that
+enhances reasoning quality even when used with the most capable frontier LLMs.
+2 Preliminaries and Related Works
+Preliminaries. In this work, we focus on knowledge graph question answering (KGQA), a central task in
+graph-based RAG: Given a natural language query q and a KG G, the LLM answers the query by reasoning over
+the retrieved subgraphbG ⊆ G , which ideally captures all critical supporting evidence while minimizing distracting
+noise. A knowledge graph is a structured representation of factual knowledge, typically formulated as a collection
+of triples G = {(h, r, t) | h, t ∈ E , r ∈ R}, where E and R denote the sets of entities and relations, respectively.
+Each triple τ = (h, r, t) represents a directed relation r from head entity h to tail entity t. Given the query q, we
+denote by Eq ⊆ E the set of query entities extracted from q, and by Aq ⊆ E the corresponding set of answer
+entities. A reasoning path is defined as an ordered sequence of connected triples P = (τ1, . . . , τk), where each
+τi = (hi, ri, ti) ∈ G satisfies ti = hi+1 for all 1 ≤ i < k .
+Graph-based Retrieval. Prior work has explored retrieving from existing KGs like WikiData (Vrande ˇci´c &
+Krötzsch, 2014) or Freebase (Bollacker et al., 2008), or augmenting text corpora with graph overlays (Edge
+et al., 2024; Gutiérrez et al., 2024; Guo et al., 2024) to improve relevance modeling during retrieval. Due to
+the lack of an oracle in graph-based RAG, it often relies on heuristic priors or weak supervisions to guide the
+retrieval, which can be broadly categorized as: Training-free methods typically adopt graph-based heuristics (e.g.,
+personalized PageRank) (Gutiérrez et al., 2024, 2025) or LLM-guided stepwise exploration over the graph (Gu
+et al., 2022; Sun et al., 2023; Xiong et al., 2024). However, graph algorithms often underperform as they struggle
+to combine semantic and structural information (Luo et al., 2025b), while LLM-guided traversal suffers from
+high computational cost and is prone to local decision biases (Luo et al., 2025a). Training-based methods train
+parametric retrievers to recognize critical substructures (Li et al., 2024a; Mavromatis & Karypis, 2024; He et al.,
+2024). However, the training supervision is typically derived from noisy proxies such as query-answer shortest
+paths (Zhang et al., 2022; Luo et al., 2023), which may omit critical intermediate evidence or introduce spurious
+connections unrelated to the reasoning logic (Li et al., 2024a). Differently, we aim to bridge the gap by integrating
+the rich knowledge of LLMs to improve the quality of weak supervision for retriever training.
+RAG with LLM Feedback. Recent efforts in text-based RAG have explored using LLM feedback to directly
+optimize the retriever capability. Shi et al. (2023) aligns retriever output distributions with the perplexity-reducing
+behavior of LMs. Li et al. (2024b) iteratively tunes the LLM generator and retriever by aligning data preferences
+between both modules. Han et al. (2025) train an intermediary module by collecting preference data from both the
+LLM and the retriever to enhance RAG performance. While effective for document-level retrieval, in graph-based
+RAG, the combinatorial explosion of subgraph candidates and their intricate dependencies pose unique challenges,
+making direct adaptation of these methods non-trivial.
+RAG with Post-retrieval Refinement. In addition, to compensate for retrieval noise, prior work has also explored
+various post-hoc refinement strategies, including re-ranking retrieved contents (Jin et al., 2024), filtering irrelevant
+spans (Chen et al., 2025; Wang et al., 2023b; Guo et al., 2025b), or fine-tuning LLMs to tolerate noisy input (Yoran
+et al., 2023; Yu et al., 2024; Zhang et al., 2024; Jin et al., 2024). While these methods improve robustness, they
+largely assume the initial retrieval output to be fixed. Consequently, they hardly recover critical evidence missing
+from the initial retrieval stage, nor improve the capability of the upstream retriever itself.
+3 Drawbacks of Weak Retrievers in Graph-based RAG
+3.1 Graph-based RAG as Black-box Combinatorial Optimization
+We begin with a formal description of the problem to understand the influence of weak retrievers. Essentially, the
+graph-based RAG can be considered as a black-box combinatorial optimization problem. Given the query q for a
+KG G with N triples, let s(·, q) : G 7→ [0, 1] be an unknown scoring function assigning relevance scores to items
+τ ∈ G , where s(τ, q) > 0 indicates τ is relevant to q. The retriever aims to find the underlying unknown oracle
+set bG∗ ⊆ G , defined asbG∗ := {τ ∈ G | s(τ, q) > 0}, and assumed to be sparse, i.e., |bG∗| ∼ O (1) ≪ |G| , which
+enables LLMs to answer the question correctly. Hence, LLMs can be considered as the black-box evaluator of the
+retrieved information (i.e., a subgraph bG of the KG).
+
+[PAGE 4]
+Definition 3.1 (Black-box LLM evaluator) A black-box reward function r(·, q) : 2G 7→ R evaluates how well a
+subset bG ⊆ G aligns with the oracle setbG∗ by the following properties:
+i) Aggregation. The reward aggregates relevance scoress(τ, q) > 0 for relevant items τ ∈ (bG ∩ bG∗) and penalties
+δ(τ, q) ≥ 0 for noisy items τ ∈ (bG\bG∗) via a black-box function f. Formally,
+r(bG, q) := f
+
+{s(τ, q) | t ∈ (bG ∩ bG∗)}, {δ(τ, q) | τ ∈ (bG\bG∗)}
+
+, (1)
+where δ quantifies the LLM evaluator’s robustness to noise:δ(τ, q) = 0 means full robustness, while δ(τ, q) > 0
+imposes a penalty on r(bG, q).
+ii) Exactness. For any bG ⊂ G , the reward reaches its maximum if and only if bG = bG∗. For uniform scores
+s(·, q) = s0 > 0 and δ(·, q) = δ0 > 0, a plausible instantiation of r would be:
+r(bG, q) := |bG ∩ bG∗|s0 − |bG\bG∗|δ0
+|bG∗|s0
+∈ [− δ0
+s0
+, 1] (2)
+Nevertheless, due to the lack of the oracle setbG∗, existing methods resort to weak supervision signalsbGw derived
+from some heuristics, such as query-answer ( q-a) shortest paths (Zhang et al., 2022; Luo et al., 2023). While
+easy to extract, this approximation introduces a fundamental mismatch between bG∗ and bGw, undermining retriever
+training in two key ways: (I) Incompleteness (bG∗ \bGw ̸= ∅). The shortest-path supervision often omits essential
+reasoning components required to justify an answer. (II) Spurious inclusion (bGw \bG∗ ̸= ∅). Conversely, shortest
+paths may include semantically irrelevant or misleading information. The examples of these two cases can be
+seen in Appendix D.1. Together, these issues underscore the need for more faithful supervision signals that better
+approximate bG∗.
+3.2 Computational Challenge in Iteratively Refined Graph-based RAG
+To cope with the weak supervision, it is necessary to refine the retrieved contents iteratively. In other words, the
+retriever needs to maximize r under a strict budget of LLM evaluations C ≪ |G| :
+max r(bG, q), s.t., bG ∈ {bG(i)}T
+i=0, T ≤ C (3)
+where {bG(i)}T
+i=0 is a sequence of subsets refined iteratively, initialized frombG(0) = ⊘ and updated via bG(i+1) =
+ALG
+n
+bG(j), r(bG(j), q)
+oi
+j=0
+
+, and ALG(·) denotes a certain iterative graph-based RAG algorithm. However, as
+shown in the following proposition, solving for Eq. 3 is intractable.
+Proposition 3.1 For any algorithm interacting with r(·, q) in Eq. 2 and G, after T rounds, achieving
+P
+
+∃i ∈ [T ] : r
+
+bG(i), q
+
+= 1
+
+≥ 1 − ε (4)
+with ε ∈ (0, 1) requires
+T ≥ Ω
+(1 − ε)N
+log N
+
+. (5)
+Additionally, if |bG(i)|, i ∈ [T ] is fixed as a constant, then T ≥ Ω((1 − ε)N).
+See Appendix B.1 for the proof. In practice, since N is large, identifying the bG∗ is essentially computationally
+intractable, which motivates us to consider more cost-efficient approaches.
+3.3 Representation Challenge in Retrieved Knowledge
+Beyond the two key properties of r(·, q) in Definition 3.1, LLMs are also sensitive not only to which facts are
+retrieved but also to how they are presented. Specifically, empirical studies indicate that LLMs perform best with
+logically coherent and contextually organized fact sequences (Chen et al., 2024b; Guo et al., 2025c), but suffer from
+
+[PAGE 5]
+fragmented or disordered inputs due to their inherent position bias and reasoning constraints (Xiao et al., 2023; Jin
+et al., 2024; Yang et al., 2025). However, graph-based retrievers are typically designed to be permutation-invariant
+for τ ∈ G and output unstructured sets of retrieval units (e.g., triples (Li et al., 2024a) or entities (Mavromatis &
+Karypis, 2024)). As LLM evaluators r(·, q) exhibit strong sensitivity to structure and ordering, consequently, even
+a retrieved setbG with high coverage ofbG∗ may yield underspecified rewardsif the retrieved contents are poorly
+organized or misaligned with the LLM’s reasoning preferences. Misaligned representation of retrieved information
+even exacerbates the complexity of identifyingbG∗ in the established optimization problem, and motivates the need
+for structure-aware alignment in graph-based RAG.
+4 Weak-to-Strong Graph-based Retriever Alignment
+To align the weak retrievers to LLMs, we present Refined Graph-based RAG (ReG), which strengthens the weak
+supervision and aligns the retrieved knowledge to the favorite forms of LLMs.
+4.1 Refining Supervision Signals with LLMs
+(a)
+100 200 300 400 500
+Avg. of Retrieved Triples
+50Avg. of Evidence Chains
+CWQ
+WebQSP (b)
+Figure 2: Scaling trends of: (a) Psp size versus the number
+of q-a pairs, and (b) the number of generated reasoning
+chains versus retrieved triples.
+To bridge the gap betweenbG∗ andbGw in a cost-efficient
+way, we first construct a candidate path poolP, to cover
+diverse reasoning patterns, and then leverages LLMs
+to identify high-quality supervision signals from the
+candidates.
+Multi-Faceted Candidate Generation. Since shortest
+paths provide high-recall coverage (Li et al., 2024a),
+we construct P based on Psp, where each P ∈ P sp denotes a q-a shortest path. To capture reasoning signals
+that shortest paths may overlook (Gu et al., 2021), we
+incorporate two auxiliary subsets:
+• Pq: Query-centric neighborhoods, i.e., one-hop neighbors around each query entity, enabling LLMs to incorporate
+the direct properties of the query entities into their reasoning.
+• Pa: Answer-centric neighborhoods, which enable comparisons across answer candidates based on numeric or
+categorical attributes.
+Essentially, each candidate in Pq and Pa can be considered as a single-step reasoning path. The final candidate
+pool is: P := Psp ∪ Pa ∪ Pa, providing a multi-faceted pool for LLM-guided refinement.
+As shown in Fig. 2a, Psp can grow superlinearly with the number of q-a pairs due to the redundancy in the
+candidate pool, which brings additional computational overhead. To optimize efficiency, we compress P via
+structural merging to reduce redundancy. Details are given in Appendix D.2.
+LLM-Guided Candidate Refinement. We leverage an LLM to identify plausible reasoning chains from the
+candidate pool P. Each candidate path P ∈ P is textualized as a directed chain-of-entities that preserves logical flow
+for LLM reasoning. Using in-context learning (ICL) (Brown et al., 2020) with explanation-based demonstrations,
+we prompt the LLM to identify a subset of candidates bP + ⊆ P that provides sufficient and logically coherent
+evidence for answering the query. The detailed prompt can be found in Appendix F. Then, we extract the triples
+from bP + as refined supervision signalsbG+.
+Table 1: Compression Effectiveness of
+the complexity control step.
+GrailQA Dataset Gu et al. (2021)# Avg # Max
+Raw Candidates 275.16 98602
++ Complexity Control 13.54 137
+Compression Ratio ∼5% ∼0.14%
+Theoretical Discussion. Essentially, the LLM-refined supervision signalsbG+ provide a more accurate and semantically aligned approximation
+to bG∗ than weak heuristics bGw. Empirically, as validated in experiments
+(Sec. 5), the refined supervision demonstrates higher quality when applied to stronger training targets for the retriever.
+Meanwhile, ReG can overcome the computational bottleneck of the
+black-box optimization: as shown in Table 1, our structural merging yields substantial compression (down to 5% of
+the original candidate size on average), which is tractable for LLMs with standard reasoning capabilities under a
+constant order complexity O(1), despite the large |G|.
+
+[PAGE 6]
+Table 2: Question-answering performance on WebQSP-sub and CWQ-sub. Best results are in bold. Avg. Rank
+reports the average rank of the evaluated methods across the four evaluation metrics. Best results are in bold.
+Webqsp-Sub CWQ-sub
+Macro-F1 Micro-F1 Hit Hit@1 Avg.Rank Macro-F1 Micro-F1 Hit Hit@1 Avg.Rank
+G-Retriever 54.13 23.84 74.52 67.56 11 - - - - -RoG-Joint 72.01 47.7 88.9 82.62 9 58.61 52.12 66.22 61.17 9.25RoG-Sep 67.94 43.1 84.03 77.61 10 57.69 52.83 64.64 60.64 9.75SubgraphRAG (GPT-4o-mini) 78.46 57.08 92.43 88.01 5.25 62.18 56.86 72.82 66.57 8SubgraphRAG (GPT-4o) 79.4 58.91 92.43 87.75 4.25 66.48 61.3 75.14 69.42 6.25
+ReG@Triple (GPT-4o-mini) 78.91 59.4394.36 88.2 3 67.99 64.91 75.53 71.38 3.75ReG@Triple (GPT-4o) 80.08 57.88 93.14 88.97 2.5 68.91 67.5 77.81 72.23 1.5
+ReG@Entity (GPT-4o-mini) 77.84 57.03 93.78 86.79 5.75 66.74 62.63 75.95 70.65 4.5ReG@Entity (GPT-4o) 79.03 56.92 92.5 88.77 4.5 69.62 66.35 76.16 73.14 1.5
+ReG@Path (GPT-4o-mini) 78.44 60.55 91.4 85.76 6 65.01 61.77 73.24 66.92 6.75ReG@Path (GPT-4o) 79.48 62.23 90.96 86.14 4.5 68.4 65.99 75.28 71.07 3.75
+Retriever Training. With the refined supervision, we can boost the retriever across different architectures (e.g.,
+MLP, GNNs, or LLMs) and retrieval units (e.g., triple, entity, or path):
+max
+θ
+E(q,A,G)∼D
+h
+Pθ(bG+ | q, G)
+i
+, where bG+ := SIGNAL REFINER (q, Aq, G, LLM) (6)
+where Pθ denotes the retriever distribution parameterized by θ, and SIGNAL REFINER represents LLM-based refiner.
+See Appendix D.3 for instantiations of Eq. 6 across various retrieval granularities.
+4.2 Structure-Aware Post-retrieval Reorganization
+queue
+push
+pop
+[valid1]
+[valid2]
+output
+Figure 3: Illustration of BFS-guided
+chain expansion.
+To bridge the representation gap between retrieval and reasoning
+(Sec. 3.3), ReG also transforms the retrieved triples bG into a list of
+coherent evidence chains. Essentially, as the KG is originally organized
+in a logically coherent form, we align the retrieved results following the
+order in the KG.
+Chain Expansion. Specifically, we perform BFS-guided chain expansion over bG, which starts from query-anchored triples, defined as
+bGsrc := {(h, r, t) ∈ bG | h ∈ E q ∨ t ∈ E q}, and traverses through the
+left subgraph bGtgt := bG \ bGsrc. Each chain is incrementally extended
+by appending entity-linked triples, where a new triple (hk+1, rk+1, tk+1) can be appended only if its head entity
+hk+1 matches the tail tk of the last triple in the current chain. Alternatively, one could also apply other expansion
+methods, such as beam search.
+Structure-Aware Scalability Control. To further reduce redundancy and enhance semantic clarity, we introduce
+an additional structure-aware merging step that merges structurally related paths to improve scalability. As shown in
+Fig. 2b, the number of the evidence chains produced through the two-step process grows approximately sub-linearly
+with the number of retrieved triples, indicating that our structure-aware reorganization strategy maintains tractable
+complexity. The chain expansion can be applied to various input units (e.g., triple and entity levels). More details
+of the aforementioned stages can be found in Appendix D.4.
+After the two steps, The query q and reorganized retrieved evidence chains are integrated into a structured prompt
+template with in-context demonstrations ( c.f., Appendix F), guiding the LLM to generate factually grounded
+answers.
+5 Experiments
+5.1 Experimental Setup
+We conduct comprehensive empirical studies to examine the effectiveness, efficiency, generalizability, and transferability of ReG in addressing the key challenges in graph-based RAG (Sec. 3). Specifically, we aim to address
+the following research questions: ( RQ1) How effective is ReG in handling complex multi-hop reasoning tasks
+
+[TABLE page=6 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Webqsp-Sub | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | CWQ-sub | Unnamed: 5 | Unnamed: 6
+Row 1: Unnamed: 0: | Unnamed: 1: Macro-F1 | Webqsp-Sub: Micro-F1 Hit | Unnamed: 2: Hit@1 | Unnamed: 3: Avg.Rank | Unnamed: 4: Macro-F1 | CWQ-sub: Micro-F1 Hit | Unnamed: 5: Hit@1 | Unnamed: 6: Avg.Rank
+Row 2: Unnamed: 0: G-Retriever | Unnamed: 1: 54.13 | Webqsp-Sub: 23.84 74.52 | Unnamed: 2: 67.56 | Unnamed: 3: 11 | Unnamed: 4: - | CWQ-sub: - - | Unnamed: 5: - | Unnamed: 6: Row 3: Unnamed: 0: RoG-Joint | Unnamed: 1: 72.01 | Webqsp-Sub: 47.7 88.9 | Unnamed: 2: 82.62 | Unnamed: 3: 9 | Unnamed: 4: 58.61 | CWQ-sub: 52.12 66.22 | Unnamed: 5: 61.17 | Unnamed: 6: 9.25
+Row 4: Unnamed: 0: RoG-Sep | Unnamed: 1: 67.94 | Webqsp-Sub: 43.1 84.03 | Unnamed: 2: 77.61 | Unnamed: 3: 10 | Unnamed: 4: 57.69 | CWQ-sub: 52.83 64.64 | Unnamed: 5: 60.64 | Unnamed: 6: 9.75
+Row 5: Unnamed: 0: SubgraphRAG (GPT-4o-mini) | Unnamed: 1: 78.46 | Webqsp-Sub: 57.08 92.43 | Unnamed: 2: 88.01 | Unnamed: 3: 5.25 | Unnamed: 4: 62.18 | CWQ-sub: 56.86 72.82 | Unnamed: 5: 66.57 | Unnamed: 6: 8
+Row 6: Unnamed: 0: SubgraphRAG (GPT-4o) | Unnamed: 1: 79.4 | Webqsp-Sub: 58.91 92.43 | Unnamed: 2: 87.75 | Unnamed: 3: 4.25 | Unnamed: 4: 66.48 | CWQ-sub: 61.3 75.14 | Unnamed: 5: 69.42 | Unnamed: 6: 6.25
+Row 7: Unnamed: 0: ReG@Triple (GPT-4o-mini) | Unnamed: 1: 78.91 | Webqsp-Sub: 59.43 94.36 | Unnamed: 2: 88.2 | Unnamed: 3: 3 | Unnamed: 4: 67.99 | CWQ-sub: 64.91 75.53 | Unnamed: 5: 71.38 | Unnamed: 6: 3.75
+Row 8: Unnamed: 0: ReG@Triple (GPT-4o) | Unnamed: 1: 80.08 | Webqsp-Sub: 57.88 93.14 | Unnamed: 2: 88.97 | Unnamed: 3: 2.5 | Unnamed: 4: 68.91 | CWQ-sub: 67.5 77.81 | Unnamed: 5: 72.23 | Unnamed: 6: 1.5
+Row 9: Unnamed: 0: ReG@Entity (GPT-4o-mini) | Unnamed: 1: 77.84 | Webqsp-Sub: 57.03 93.78 | Unnamed: 2: 86.79 | Unnamed: 3: 5.75 | Unnamed: 4: 66.74 | CWQ-sub: 62.63 75.95 | Unnamed: 5: 70.65 | Unnamed: 6: 4.5
+Row 10: Unnamed: 0: ReG@Entity (GPT-4o) | Unnamed: 1: 79.03 | Webqsp-Sub: 56.92 92.5 | Unnamed: 2: 88.77 | Unnamed: 3: 4.5 | Unnamed: 4: 69.62 | CWQ-sub: 66.35 76.16 | Unnamed: 5: 73.14 | Unnamed: 6: 1.5
+Row 11: Unnamed: 0: ReG@Path (GPT-4o-mini) | Unnamed: 1: 78.44 | Webqsp-Sub: 60.55 91.4 | Unnamed: 2: 85.76 | Unnamed: 3: 6 | Unnamed: 4: 65.01 | CWQ-sub: 61.77 73.24 | Unnamed: 5: 66.92 | Unnamed: 6: 6.75
+Row 12: Unnamed: 0: ReG@Path (GPT-4o) | Unnamed: 1: 79.48 | Webqsp-Sub: 62.23 90.96 | Unnamed: 2: 86.14 | Unnamed: 3: 4.5 | Unnamed: 4: 68.4 | CWQ-sub: 65.99 75.28 | Unnamed: 5: 71.07 | Unnamed: 6: 3.75
+[/TABLE]
+
+[PAGE 7]
+across various retrieval methods? (RQ2) If ReG indeed improves the supervision quality, can it also enhance data
+efficiency? (RQ3) What is the contribution of each design component to the overall performance? ( RQ4) Can
+ReG also enhance state-of-the-art large reasoning models (LRMs)? (RQ5) Are LLM-refined signals transferable
+across different backbone LLMs? (RQ6) Do LLM-refined signals enable better out-of-distribution generalization
+in zero-shot settings?
+Datasets. We adopt three prominent and challenging KGQA datasets that necessitate multi-hop reasoning –
+WebQSP (Yih et al., 2016), CWQ (Talmor & Berant, 2018), and GrailQA (Gu et al., 2021). All datasets utilize
+Freebase (Bollacker et al., 2008) as the underlying KG. For WebQSP and CWQ, we follow Li et al. (2024a) and
+establish WebQSP-sub and CWQ-sub, where we remove samples whose answer entities are absent from the KG, to
+better evaluate the capability of LLM reasoners to produce factually consistent answers grounded in the external
+knowledge sources. The details of the evaluated datasets are given in the Appendix C.1.
+Baselines. We mainly compare against several widely used graph-based RAG methods, including UniKGQA (Jiang
+et al., 2022), KD-CoT (Wang et al., 2023a), EtD (Liu et al., 2024a), StructGPT (Jiang et al., 2023), ToG (Sun et al.,
+2023), RoG (Luo et al., 2023), G-Retriever (He et al., 2024), SubgraphRAG (Li et al., 2024a), GNN-RAG (Mavromatis & Karypis, 2024), and GraphRAG-FI (Guo et al., 2025b). More details are given in Appendix C.2.
+Metrics. Besides the commonly reported Macro-F1 and Hit, we also include Micro-F1 to account for the imbalance
+in the number of answers across samples and Hit@1 for a more inclusive evaluation.
+Table 3: Question-answering performance on WebQSP and CWQ. Best results are in bold.
+WebQSP CWQ
+Macro-F1 Hit Macro-F1 Hit
+UniKGQA 72.2 - 49.0 -KD-CoT 52.5 68.6 - 55.7ToG (GPT-4) - 82.6 - 67.6StructGPT - 74.69 - -G-Retriever 53.41 73.46 - -RoG 70.26 86.67 54.63 61.94EtD - 82.5 - 62.0GNN-RAG 71.3 85.7 59.4 66.8GraphRAG-FI 75.98 91.89 60.34 71.12SubgraphRAG (Llama3.1-8B) 70.57 86.61 47.16 56.98SubgraphRAG (GPT-4o-mini) 77.67 91.22 55.41 64.97SubgraphRAG (GPT-4o) 78.24 90.91 59.42 67.49
+ReG@Triple
+ReG(Llama3.1-8B) 69.91 87.39 51.24 65.02ReG(GPT-4o-mini) 77.98 92.87 60.55 67.66ReG(GPT-4o) 78.76 91.4 62.34 71.51
+ReG@Entity
+ReG(Llama3.1-8B) 65.59 86.0 49.73 61.8ReG(GPT-4o-mini) 76.78 92.26 58.13 66.24ReG(GPT-4o) 77.88 90.97 62.58 68.91
+ReG@Path
+ReG(Llama3.1-8B) 70.88 84.71 49.58 59.9ReG(GPT-4o-mini) 77.18 89.8 56.58 64.84ReG(GPT-4o) 78.4 89.56 60.79 67.23
+Implementation Details. (I) Retrieval. We primarily use
+GPT-4o-mini and LLaMA-3.1-8B as backbone LLMs for
+supervision refinement, and select the retriever that achieves
+the best validation performance for the downstream stage. As
+ReG is agnostic to both retriever architectures and retrieval
+units, we instantiate it with three representative settings: (1)
+triple-level retrieval with an MLP-based retriever; (2) entitylevel retrieval with a GNN-based retriever; and (3) path-level
+retrieval with an LLM-based retriever. We refer to these variants as ReG@Triple, ReG@Entity, and ReG@Path, respectively. (II) Reasoning. We perform zero-shot reasoning with
+different LLMs without any fine-tuning, including LLaMA3-8B, GPT-4o-mini, GPT-4o, QwQ-32B, and DeepSeek-R1,
+with temperature set to 0 and random seed fixed to 42 for reproducibility. More details of the implementations are given
+in Appendix E.
+5.2 Main Results on WebQSP and CWQ
+Overall Performance (RQ1). Tables 3 and 2 report evaluation results for ReG across three retrieval levels, i.e., Triple,
+Entity, and Path, paired with downstream reasoners of varying strength, including LLaMA-3-8B, GPT-4o-mini, and
+GPT-4o. ReG achieves state-of-the-art (SOTA) performance
+across all evaluated datasets, with all 12 metrics outperforming existing baselines when used with GPT-4o-mini
+or more advanced GPT-4o. Notably, ReG requires no finetuning of LLMs and invokes only one single reasoning
+call per query. Moreover, different retrieval levels of ReG excel on different metrics and datasets, reflecting its
+flexibility in accommodating varied reasoning demands and evaluation goals. For instance, the Path-level variant
+improves Micro-F1 by 5.6% on WebQSP-Sub, while both the Triple and Entity levels perform strongly on CWQ
+(e.g., ↑10.1% Micro-F1 on CWQ-Sub). Also, ReG scales gracefully with LLM capabilities, maintaining consistent
+performance gains from LLaMA-3-8B to GPT-4o, especially for CWQ & CWQ-Sub datasets which requires deeper
+reasoning hops and handling multiple reasoning chains from different query entities.
+Data Efficiency in Low-Resource Settings (RQ2). To further verify that ReG indeed refines the weak supervision,
+we examine the performance of ReG under the low-resource setting, where only a small fraction of the full training
+dataset is available. As shown in Fig. 4a, we vary the proportion of training data from 80% down to 5%, comparing
+ReG@Triple with SubgraphRAG (Li et al., 2024a), which is a state-of-the-art Triple-level baseline. We observe
+
+[TABLE page=7 index=1]
+Columns: the best validation performance for the downstream stage. As | Unnamed: 0 | WebQSP | Unnamed: 1 | CWQ | Unnamed: 2
+Row 1: the best validation performance for the downstream stage. As: ReG is agnostic to both retriever architectures and retrieval | Unnamed: 0: | WebQSP: Macro-F1 Hit | Unnamed: 1: | CWQ: Macro-F1 | Unnamed: 2: Hit
+Row 2: the best validation performance for the downstream stage. As: units, we instantiate it with three representative settings: (1) | Unnamed: 0: UniKGQA | WebQSP: 72.2 - | Unnamed: 1: | CWQ: 49.0 | Unnamed: 2: Row 3: the best validation performance for the downstream stage. As: | Unnamed: 0: KD-CoT | WebQSP: 52.5 68.6 | Unnamed: 1: | CWQ: - | Unnamed: 2: 55.7
+Row 4: the best validation performance for the downstream stage. As: triple-level retrieval with an MLP-based retriever; (2) entity- | Unnamed: 0: ToG (GPT-4) | WebQSP: - 82.6 | Unnamed: 1: | CWQ: - | Unnamed: 2: 67.6
+Row 5: the best validation performance for the downstream stage. As: level retrieval with a GNN-based retriever; and (3) path-level | Unnamed: 0: StructGPT | WebQSP: - 74.69 | Unnamed: 1: | CWQ: - | Unnamed: 2: Row 6: the best validation performance for the downstream stage. As: | Unnamed: 0: G-Retriever | WebQSP: 53.41 73.46 | Unnamed: 1: | CWQ: - | Unnamed: 2: Row 7: the best validation performance for the downstream stage. As: retrieval with an LLM-based retriever. We refer to these vari- | Unnamed: 0: RoG | WebQSP: 70.26 86.67 | Unnamed: 1: | CWQ: 54.63 | Unnamed: 2: 61.94
+Row 8: the best validation performance for the downstream stage. As: ants as ReG@Triple, ReG@Entity, and ReG@Path, respec- | Unnamed: 0: EtD | WebQSP: - 82.5 | Unnamed: 1: | CWQ: - | Unnamed: 2: 62.0
+Row 9: the best validation performance for the downstream stage. As: | Unnamed: 0: GNN-RAG | WebQSP: 71.3 85.7 | Unnamed: 1: | CWQ: 59.4 | Unnamed: 2: 66.8
+Row 10: the best validation performance for the downstream stage. As: tively. (II) Reasoning. We perform zero-shot reasoning with | Unnamed: 0: GraphRAG-FI | WebQSP: 75.98 91.89 | Unnamed: 1: | CWQ: 60.34 | Unnamed: 2: 71.12
+Row 11: the best validation performance for the downstream stage. As: different LLMs without any fine-tuning, including LLaMA- | Unnamed: 0: SubgraphRAG (Llama3.1-8B) | WebQSP: 70.57 86.61 | Unnamed: 1: | CWQ: 47.16 | Unnamed: 2: 56.98
+Row 12: the best validation performance for the downstream stage. As: | Unnamed: 0: SubgraphRAG (GPT-4o-mini) | WebQSP: 77.67 91.22 | Unnamed: 1: | CWQ: 55.41 | Unnamed: 2: 64.97
+Row 13: the best validation performance for the downstream stage. As: 3-8B, GPT-4o-mini, GPT-4o, QwQ-32B, and DeepSeek-R1, | Unnamed: 0: SubgraphRAG (GPT-4o) | WebQSP: 78.24 90.91 | Unnamed: 1: | CWQ: 59.42 | Unnamed: 2: 67.49
+Row 14: the best validation performance for the downstream stage. As: with temperature set to 0 and random seed fixed to 42 for re- | Unnamed: 0: | WebQSP: | Unnamed: 1: | CWQ: | Unnamed: 2:
+Row 15: the best validation performance for the downstream stage. As: | Unnamed: 0: ReG@Triple | WebQSP: | Unnamed: 1: | CWQ: | Unnamed: 2:
+Row 16: the best validation performance for the downstream stage. As: producibility. More details of the implementations are given | Unnamed: 0: ReG (Llama3.1-8B) | WebQSP: 69.91 87.39 | Unnamed: 1: | CWQ: 51.24 | Unnamed: 2: 65.02
+Row 17: the best validation performance for the downstream stage. As: in Appendix E. | Unnamed: 0: ReG (GPT-4o-mini) | WebQSP: 77.98 92.87 | Unnamed: 1: | CWQ: 60.55 | Unnamed: 2: 67.66
+Row 18: the best validation performance for the downstream stage. As: | Unnamed: 0: ReG (GPT-4o) | WebQSP: 78.76 91.4 | Unnamed: 1: | CWQ: 62.34 | Unnamed: 2: 71.51
+Row 19: the best validation performance for the downstream stage. As: | Unnamed: 0: ReG@Entity | WebQSP: | Unnamed: 1: | CWQ: | Unnamed: 2:
+Row 20: the best validation performance for the downstream stage. As: 5.2 Main Results on WebQSP and CWQ | Unnamed: 0: ReG (Llama3.1-8B) | WebQSP: 65.59 86.0 | Unnamed: 1: | CWQ: 49.73 | Unnamed: 2: 61.8
+Row 21: the best validation performance for the downstream stage. As: | Unnamed: 0: ReG (GPT-4o-mini) | WebQSP: 76.78 92.26 | Unnamed: 1: | CWQ: 58.13 | Unnamed: 2: 66.24
+Row 22: the best validation performance for the downstream stage. As: Overall Performance (RQ1). Tables 3 and 2 report evalu- | Unnamed: 0: ReG (GPT-4o) | WebQSP: 77.88 90.97 | Unnamed: 1: | CWQ: 62.58 | Unnamed: 2: 68.91
+Row 23: the best validation performance for the downstream stage. As: ation results for ReG across three retrieval levels, i.e., Triple, | Unnamed: 0: | WebQSP: ReG@Path | Unnamed: 1: | CWQ: | Unnamed: 2:
+Row 24: the best validation performance for the downstream stage. As: Entity, and Path, paired with downstream reasoners of vary- | Unnamed: 0: ReG (Llama3.1-8B) | WebQSP: 70.88 84.71 | Unnamed: 1: | CWQ: 49.58 | Unnamed: 2: 59.9
+Row 25: the best validation performance for the downstream stage. As: ing strength, including LLaMA-3-8B, GPT-4o-mini, and | Unnamed: 0: ReG (GPT-4o-mini) | WebQSP: 77.18 89.8 | Unnamed: 1: | CWQ: 56.58 | Unnamed: 2: 64.84
+Row 26: the best validation performance for the downstream stage. As: | Unnamed: 0: ReG (GPT-4o) | WebQSP: 78.4 89.56 | Unnamed: 1: | CWQ: 60.79 | Unnamed: 2: 67.23
+[/TABLE]
+
+[PAGE 8]
+0.050.200.400.600.80
+66Macro-F1
+ReG@Triple
+SubgraphRAG
+0.050.200.400.600.80
+74Hit
+ReG@Triple
+SubgraphRAG
+(a) Macro-F1/Hit – Training ratio (80%-5%)
+100 200 300 400 500
+68Macro-F1
+ReG@Triple
+SubgraphRAG
+100 200 300 400 500
+74Hit
+ReG@Triple
+SubgraphRAG (b) Macro-F1/Hit – Number of triples
+Figure 4: Performance comparison (Macro-F1 and Hit) between ReG@Triple and SubgraphRAG on CWQ-Sub:
+(a) versus training set ratio and (b) versus number of retrieved triples. Evaluated using GPT-4o-mini with identical
+retriever/reasoner configurations for fair comparison.
+that ReG with only 5% training data achieves better performance than the baseline counterpart with 80% training
+data. Moreover, SubgraphRAG suffers more performance degradation as training data decreases, whereas ReG
+maintains more stable and stronger results. The robustness of ReG stems from the high-quality supervision signals
+refined via LLMs, which remove noise and spurious signals and provide better guidance to the retriever.
+Moreover, since ReG requires LLM calls on only a small subset of the training dataset to yield a retriever that
+matches or outperforms fully supervised baselines, the overall computational cost associated with LLM refinement
+remains low. This underscores the data efficiency of our method and makes it practical for real-world deployment
+under limited supervision and computational budgets.
+Scalability with Retrieval Volume. It has been observed that the RAG performance may plateau or even degrade
+as retrieval volume increases (Li et al., 2024a), due to the adverse effects of irrelevant content (Wu et al., 2024)
+and the “lost-in-the-middle” phenomenon (Liu et al., 2024c). As shown in Fig. 4b, SubgraphRAG exhibits limited
+ability to benefit from increasing retrieval content, even when equipped with strong GPT4o-mini. In contrast,
+ReG@Triple not only consistently outperforms SubgraphRAG but also shows more substantial performance gains
+as retrieval size increases, suggesting that ReG retrieved more accurate and semantically aligned information for
+LLM reasoning.
+5.3 Ablation Study (RQ3)
+Effects of Individual Modeules. We ablate the two key components of ReG: S(I) – LLM-refined supervision
+signals, and S(II) – structure-aware reorganization. Specifically, we consider two variants: one merely removes
+S(I), denoted as “w/o S(I)”; and the other removes both S(I) and S(II), denoted as “w/o S(I) & S(II)”, to assess their
+individual and joint impacts across the three evaluated retrieval levels. Note that we do not evaluate “w/o S(I) &
+S(II)” for the Path level as it takes reasoning paths as retrieval units.
+As shown in Table 4, removing either component consistently degrades performance across all settings. The full
+model, which combines both S(I) and S(II) achieves the best results, highlighting the complementary roles of
+S(I) and S(II): LLM-refined supervision improves retriever training quality, while structure-aware reorganization
+enhances the logical coherence of retrieved evidence. This is consistent with our discussion in Sec. 3 on the benefits
+of tackling both challenges.
+Triple Entity Path50
+80Macro-F1
+(a) Multi-Entity (53.31%)
+Triple Entity Path50
+80Macro-F1
+w/o S(I)+S(II)
+w/o S(I)
+ours (b) Multi-Hop (71.55%)
+Figure 5: Ablations across three retrieval levels over
+multi-hop and multi-entity queries on the CWQ-Sub
+dataset.Note that there are some overlapped samples between the two query types. ReG consistently brings improvements with mutually beneficial componentsS(I) and
+S(II).
+Multi-Hop & Multi-Entity QA. Fig. 5 reports ablation results on two challenging question types: multihop questions, where answers lie multiple hops away
+from the query entities, and multi-entity questions,
+which require reasoning over multiple query anchors.
+ReG shows notable gains on both types, indicating its
+strength in handling deep and compositional reasoning.
+The LLM-refined supervision proves especially effective for entity- and path-level retrieval, while structureaware reorganization alone yields substantial improvements, particularly in multi-entity settings where aligning disparate reasoning chains is critical.
+
+[TABLE page=8 index=1]
+Columns: Multi-Hop & Multi-Entity QA. Fig. 5 reports abla- | 80 | 80.1 | Unnamed: 0
+Row 1: Multi-Hop & Multi-Entity QA. Fig. 5 reports abla-: | 80: | 80.1: | Unnamed: 0: w/o S(I)
+Row 2: Multi-Hop & Multi-Entity QA. Fig. 5 reports abla-: tion results on two challenging question types: multi- | 80: 75.0 | 80.1: 75.0 | Unnamed: 0: w/o S(I)
+Row 3: Multi-Hop & Multi-Entity QA. Fig. 5 reports abla-: | 80: | 80.1: | Unnamed: 0: ours
+Row 4: Multi-Hop & Multi-Entity QA. Fig. 5 reports abla-: hop questions, where answers lie multiple hops away | 80: 70.0 | 80.1: 70.0 | Unnamed: 0:
+[/TABLE]
+
+[PAGE 9]
+Table 4: Ablation studies across triple, entity, and path levels on CWQ-Sub, under GPT4o-mini inference. S(I) and
+S(II) represent the two stages introduced in Sec. 4.1 and 4.2, respectively.
+Triple Entity Path
+Macro-F1 Micro-F1 Hit Hit@1 Macro-F1 Micro-F1 Hit Hit@1 Macro-F1 Micro-F1 Hit Hit@1
+ReGw/o S(I) & S(II) 61.8 58.51 70.26 65.03 55.75 45.42 70.26 61.73 - - - ReGw/o S(I) 65.95 60.38 76.11 70.05 61.12 58.99 69.84 63.73 59.81 58.06 67.73 61.45
+ReG 67.99 64.91 75.53 71.38 66.74 62.63 75.95 70.65 65.01 61.77 73.24 66.92
+Table 5: QA performance of ReG@Triple under QwQ-32B inference. See additional results on DeepSeek-R1 in
+Appendix G.
+WebQSP-Sub CWQ-Sub GrailQA
+Macro-F1 Hit Avg.Tokens Macro-F1 Hit Avg.Tokens Macro-F1 Hit Avg.Tokens
+ReGw/o S(I) & S(II) 77.65 95.1 923.03 65.41 81.48 1351.14 78.73 89.85 886.13
+ReGw/o S(I) 76.51 94.55 702.82 66.38 80.2 971.2 81.26 90.3 710.4
+ReG 77.58 94.52 612.51 68.6 82.02 923.63 82.19 91.31 704.9
+5.4 Effectiveness on State-of-the-Art Large Reasoning Models (RQ4)
+Following the advancement of LLMs, large reasoning models (LRMs) have gained huge success with significantly
+better capabilities in reasoning over the context (Guo et al., 2025a). To better understand the capabilities of LRMs
+in multi-hop reasoning and the effectiveness of ReG when paired with state-of-the-art large reasoning models, we
+apply ReG to QwQ-32B and DeepSeek-R1.
+Supervision Quality still Matters for LRMs. As shown in Table 5, when paired with LRMs, retrievers trained
+with LLM-refined supervision signals still improve the performance by a noticeable margin. The improvements
+with more accurate and aligned retrievers reaffirm that the retrieval quality remains a crucial factor for highly
+capable LRMs.
+ReG Improves Reasoning Efficiency. Recently, it has been observed that LRMs often suffer from theoverthinking
+problem (Chen et al., 2024c; Sui et al., 2025), which produces unnecessarily verbose reasoning traces with limited
+performance gains, ultimately degrading inference efficiency. To assess whether ReG alleviates this issue, we
+further examine the average reasoning tokens (Avg.Tokens) under different ablations.
+As shown in Table 5, applying our structure-aware reorganization module leads to a substantial reduction in output
+length across all datasets. When further combined with refined supervision signals, the number of reasoning tokens
+can be reduced even further, accompanied by performance gains on various metrics, especially for datasets which
+require complex reasoning patterns. Together, these results suggest that ReG can improve both reasoning efficiency
+and quality, even when used with highly capable LRMs, indicating its potential as a broadly applicable enhancement
+to existing QA pipelines.
+5.5 Transferability Analysis of LLM-Refined Signals (RQ5)
+Table 6: Question-answering performance on WebQSP and CWQ when training retrievers over supervision signals refined by different LLMs, denoted
+as bG+
+gpt and bG+
+llama.
+ReG@Triple WebQSP CWQ
+Macro-F1 Hit Macro-F1 Hit
+bGw 76.62 92.14 57.55 64.91
+bG+gpt 77.03 92.32 60.55 67.66
+bG+
+llama 77.98 92.87 60.11 67.35
+bG+gpt ∩bG+
+llama 77.51 92.75 59.38 66.47
+bG+gpt ∪bG+
+llama 77.03 92.63 60.19 67.53
+When refining weak supervision signals, different LLMs
+may introduce distinct biases. To study the robustness and
+transferability of the refined signals, we ablate signals refined by GPT-4o-mini (bG+
+gpt), LLaMA-3–8B (bG+
+llama), their
+intersection (bG+
+gpt ∩ bG+
+llama), and their union ( bG+
+gpt ∪ bG+
+llama),
+and evaluate QA performance via GPT-4o-mini inference,
+comparing them with the weak supervision signals (bGw).
+As shown in Table 6, we observe that the refined signals by
+different LLMs generically bring improvements compared
+to the original weak supervision bGw. Besides, the overall
+benefit of LLM refinement is more pronounced on CWQ than
+WebQSP. It is due to the more complex and compositional
+reasoning patterns in CWQ, which introduce more noise into
+
+[PAGE 10]
+Table 7: Retriever generalizability to out-of-distribution (OOD) KGs and reasoning patterns. A → B denotes
+training retrievers on the training set A and evaluating on dataset B.
+GrailQA→GrailQA-ZeroShot CWQ →GrailQA-ZeroShot
+Macro-F1 Micro-F1 Hit Hit@1 Macro-F1 Micro-F1 Hit Hit@1
+ReGw/o S(I) & S(II) 75.59 44.02 84.02 81.67 67.29 35.16 76.1 73.79
+ReGw/o S(I) 80.73 50.13 87.06 84.35 71.07 40.74 78.48 75.88
+ReG 82.26 51.51 88.34 86.25 75.15 45.01 81.63 79.58
+weak heuristics-based supervision signals and increase the need for effective signal refinement. Interestingly, neither
+the union nor the intersection of signals yields superior performance, indicating the need for more sophisticated
+strategies of collaborative refinement in the future.
+5.6 Out-of-Distribution Generalization in Zero-shot Settings (RQ6)
+We evaluate the out-of-distribution (OOD) generalization ability of retrievers trained with ReG under zero-shot
+settings. Specifically, we adopt the GrailQA dataset, which is explicitly designed to assess generalization to
+unseen schema items and domains. We first conduct few-shot training on the GrailQA-Train set and evaluate on
+GrailQA-Dev-Zeroshot subset. We then assess cross-dataset generalization by training on 20% of CWQ-Train data
+and testing on the zero-shot subset.
+As shown in Table 7, across both settings, retrievers trained with refined supervision consistently outperform those
+trained with weak proxy signals. These results suggest that LLM-refined supervision produces retrievers with
+stronger OOD generalization capabilities. This aligns with our earlier analysis in Sec. 3.1, which highlights two
+key limitations of heuristic-based supervision: (1) it often includes spurious paths which reach the correct answer
+but cannot reflect the actual reasoning logic required to answer the query, and (2) it may omit critical supporting
+information that explains why an answer is correct. In contrast, our LLM-guided refinement method results in more
+semantically faithful supervision and therefore yields stronger zero-shot generalization of retrievers.
+6 Conclusions
+In this work, we systematically studied the drawbacks of the weak retrievers in graph-based RAG. We showed
+that graph-based RAG can be formulated as a black-box combinatorial optimization problem. While resolving
+the original problem is computationally expensive due to the weak supervision and misaligned presentation of
+the retrieved results, we introduced ReG to align the weak retrievers to LLMs. ReG first refines weak supervision
+signals from diverse candidate subgraphs guided by LLMs, and then structurally reorganizes retrieval outputs
+to better match the preferences of LLM reasoning. Extensive experiments across datasets, retriever types, and
+reasoning LLMs demonstrated that ReG consistently improves both retrieval accuracy, data efficiency, reasoning
+efficiency, and OOD generalizability, even when paired with state-of-the-art reasoning LLMs.
+
+[TABLE page=10 index=1]
+Columns: Unnamed: 0 | GrailQA→ GrailQA-ZeroShot | CWQ→ GrailQA-ZeroShot
+Row 1: Unnamed: 0: | GrailQA→ GrailQA-ZeroShot: Macro-F1 Micro-F1 Hit Hit@1 | CWQ→ GrailQA-ZeroShot: Macro-F1 Micro-F1 Hit Hit@1
+Row 2: Unnamed: 0: ReG w/o S(I) & S(II) | GrailQA→ GrailQA-ZeroShot: 75.59 44.02 84.02 81.67 | CWQ→ GrailQA-ZeroShot: 67.29 35.16 76.1 73.79
+Row 3: Unnamed: 0: ReG w/o S(I) | GrailQA→ GrailQA-ZeroShot: 80.73 50.13 87.06 84.35 | CWQ→ GrailQA-ZeroShot: 71.07 40.74 78.48 75.88
+Row 4: Unnamed: 0: ReG | GrailQA→ GrailQA-ZeroShot: 82.26 51.51 88.34 86.25 | CWQ→ GrailQA-ZeroShot: 75.15 45.01 81.63 79.58
+[/TABLE]
+
+[PAGE 11]
+References
+Bang, Y ., Cahyawijaya, S., Lee, N., Dai, W., Su, D., Wilie, B., Lovenia, H., Ji, Z., Yu, T., Chung, W., et al. A
+multitask, multilingual, multimodal evaluation of chatgpt on reasoning, hallucination, and interactivity. arXiv
+preprint arXiv:2302.04023, 2023.
+Bollacker, K., Evans, C., Paritosh, P., Sturge, T., and Taylor, J. Freebase: a collaboratively created graph database
+for structuring human knowledge. In Proceedings of the 2008 ACM SIGMOD international conference on
+Management of data, pp. 1247–1250, 2008.
+Borgeaud, S., Mensch, A., Hoffmann, J., Cai, T., Rutherford, E., Millican, K., Van Den Driessche, G. B., Lespiau,
+J.-B., Damoc, B., Clark, A., et al. Improving language models by retrieving from trillions of tokens. In
+International conference on machine learning, pp. 2206–2240. PMLR, 2022.
+Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G.,
+Askell, A., et al. Language models are few-shot learners. Advances in neural information processing systems,
+33:1877–1901, 2020.
+Chein, M. and Mugnier, M.-L. Graph-based knowledge representation: computational foundations of conceptual
+graphs. Springer Science & Business Media, 2008.
+Chen, B., Guo, Z., Yang, Z., Chen, Y ., Chen, J., Liu, Z., Shi, C., and Yang, C. Pathrag: Pruning graph-based
+retrieval augmented generation with relational paths. arXiv preprint arXiv:2502.14902, 2025.
+Chen, J., Lin, H., Han, X., and Sun, L. Benchmarking large language models in retrieval-augmented generation. In
+Proceedings of the AAAI Conference on Artificial Intelligence, pp. 17754–17762, 2024a.
+Chen, X., Chi, R. A., Wang, X., and Zhou, D. Premise order matters in reasoning with large language models.
+arXiv preprint arXiv:2402.08939, 2024b.
+Chen, X., Xu, J., Liang, T., He, Z., Pang, J., Yu, D., Song, L., Liu, Q., Zhou, M., Zhang, Z., et al. Do not think that
+much for 2+ 3=? on the overthinking of o1-like llms. arXiv preprint arXiv:2412.21187, 2024c.
+Corso, G., Cavalleri, L., Beaini, D., Liò, P., and Veliˇckovi´c, P. Principal neighbourhood aggregation for graph nets.
+Advances in neural information processing systems, 33:13260–13271, 2020.
+Dhingra, B., Cole, J. R., Eisenschlos, J. M., Gillick, D., Eisenstein, J., and Cohen, W. W. Time-aware language
+models as temporal knowledge bases.Transactions of the Association for Computational Linguistics, 10:257–273,
+2022.
+Edge, D., Trinh, H., Cheng, N., Bradley, J., Chao, A., Mody, A., Truitt, S., Metropolitansky, D., Ness, R. O.,
+and Larson, J. From local to global: A graph rag approach to query-focused summarization. arXiv preprint
+arXiv:2404.16130, 2024.
+Fan, W., Ding, Y ., Ning, L., Wang, S., Li, H., Yin, D., Chua, T.-S., and Li, Q. A survey on rag meeting llms:
+Towards retrieval-augmented large language models. In Proceedings of the 30th ACM SIGKDD Conference on
+Knowledge Discovery and Data Mining, pp. 6491–6501, 2024.
+Feng, S., Fang, G., Ma, X., and Wang, X. Efficient reasoning models: A survey. arXiv preprint arXiv:2504.10903,
+2025.
+Gao, Y ., Xiong, Y ., Gao, X., Jia, K., Pan, J., Bi, Y ., Dai, Y ., Sun, J., Wang, H., and Wang, H. Retrieval-augmented
+generation for large language models: A survey. arXiv preprint arXiv:2312.10997, 2, 2023.
+Gu, Y ., Kase, S., Vanni, M., Sadler, B., Liang, P., Yan, X., and Su, Y . Beyond iid: three levels of generalization for
+question answering on knowledge bases. In Proceedings of the Web Conference 2021, pp. 3477–3488, 2021.
+Gu, Y ., Deng, X., and Su, Y . Don’t generate, discriminate: A proposal for grounding language models to real-world
+environments. arXiv preprint arXiv:2212.09736, 2022.
+Guo, D., Yang, D., Zhang, H., Song, J., Zhang, R., Xu, R., Zhu, Q., Ma, S., Wang, P., Bi, X., et al. Deepseek-r1:
+Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948, 2025a.
+
+[PAGE 12]
+Guo, K., Shomer, H., Zeng, S., Han, H., Wang, Y ., and Tang, J. Empowering graphrag with knowledge filtering and
+integration. arXiv preprint arXiv:2503.13804, 2025b.
+Guo, T., Zhu, H., Zhang, R., Jiao, J., Mei, S., Jordan, M. I., and Russell, S. How do llms perform two-hop reasoning
+in context? arXiv preprint arXiv:2502.13913, 2025c.
+Guo, Z., Xia, L., Yu, Y ., Ao, T., and Huang, C. Lightrag: Simple and fast retrieval-augmented generation.arXiv
+preprint arXiv:2410.05779, 2024.
+Gutiérrez, B. J., Shu, Y ., Gu, Y ., Yasunaga, M., and Su, Y . Hipporag: Neurobiologically inspired long-term memory
+for large language models. In The Thirty-eighth Annual Conference on Neural Information Processing Systems,
+2024.
+Gutiérrez, B. J., Shu, Y ., Qi, W., Zhou, S., and Su, Y . From rag to memory: Non-parametric continual learning for
+large language models. arXiv preprint arXiv:2502.14802, 2025.
+Han, H., Wang, Y ., Shomer, H., Guo, K., Ding, J., Lei, Y ., Halappanavar, M., Rossi, R. A., Mukherjee, S., Tang, X.,
+et al. Retrieval-augmented generation with graphs (graphrag). arXiv preprint arXiv:2501.00309, 2024.
+Han, W., Fang, M., Li, Y ., and Pechenizkiy, M. GasketRAG: Systematic alignment of large language models with
+retrievers, 2025. URL https://openreview.net/forum?id=TqLY7QoELU.
+He, X., Tian, Y ., Sun, Y ., Chawla, N., Laurent, T., LeCun, Y ., Bresson, X., and Hooi, B. G-retriever: Retrievalaugmented generation for textual graph understanding and question answering. Advances in Neural Information
+Processing Systems, 37:132876–132907, 2024.
+Hsieh, C.-P., Sun, S., Kriman, S., Acharya, S., Rekesh, D., Jia, F., Zhang, Y ., and Ginsburg, B. Ruler: What’s the
+real context size of your long-context language models?, 2024. URL https://arxiv. org/abs/2404.06654, 2024.
+Hu, E. J., Shen, Y ., Wallis, P., Allen-Zhu, Z., Li, Y ., Wang, S., Wang, L., Chen, W., et al. Lora: Low-rank adaptation
+of large language models. ICLR, 1(2):3, 2022.
+Huang, L., Yu, W., Ma, W., Zhong, W., Feng, Z., Wang, H., Chen, Q., Peng, W., Feng, X., Qin, B., et al. A
+survey on hallucination in large language models: Principles, taxonomy, challenges, and open questions. ACM
+Transactions on Information Systems, 43(2):1–55, 2025.
+Huang, Y ., Xu, J., Lai, J., Jiang, Z., Chen, T., Li, Z., Yao, Y ., Ma, X., Yang, L., Chen, H., et al. Advancing
+transformer architecture in long-context large language models: A comprehensive survey. arXiv preprint
+arXiv:2311.12351, 2023.
+Ji, Z., Lee, N., Frieske, R., Yu, T., Su, D., Xu, Y ., Ishii, E., Bang, Y . J., Madotto, A., and Fung, P. Survey of
+hallucination in natural language generation. ACM computing surveys, 55(12):1–38, 2023.
+Jiang, J., Zhou, K., Zhao, W. X., and Wen, J.-R. Unikgqa: Unified retrieval and reasoning for solving multi-hop
+question answering over knowledge graph. arXiv preprint arXiv:2212.00959, 2022.
+Jiang, J., Zhou, K., Dong, Z., Ye, K., Zhao, W. X., and Wen, J.-R. Structgpt: A general framework for large
+language model to reason over structured data. arXiv preprint arXiv:2305.09645, 2023.
+Jin, B., Yoon, J., Han, J., and Arik, S. O. Long-context llms meet rag: Overcoming challenges for long inputs in
+rag. arXiv preprint arXiv:2410.05983, 2024.
+Kasai, J., Sakaguchi, K., Le Bras, R., Asai, A., Yu, X., Radev, D., Smith, N. A., Choi, Y ., Inui, K., et al. Realtime
+qa: What’s the answer right now? Advances in neural information processing systems, 36:49025–49043, 2023.
+Li, M., Miao, S., and Li, P. Simple is effective: The roles of graphs and large language models in knowledge-graphbased retrieval-augmented generation. arXiv preprint arXiv:2410.20724, 2024a.
+Li, X., Chan, S., Zhu, X., Pei, Y ., Ma, Z., Liu, X., and Shah, S. Are chatgpt and gpt-4 general-purpose solvers for
+financial text analytics? a study on several typical tasks. arXiv preprint arXiv:2305.05862, 2023a.
+Li, X., Mei, S., Liu, Z., Yan, Y ., Wang, S., Yu, S., Zeng, Z., Chen, H., Yu, G., Liu, Z., et al. Rag-ddr: Optimizing
+retrieval-augmented generation using differentiable data rewards. arXiv preprint arXiv:2410.13509, 2024b.
+
+[PAGE 13]
+Li, Z., Zhang, X., Zhang, Y ., Long, D., Xie, P., and Zhang, M. Towards general text embeddings with multi-stage
+contrastive learning. arXiv preprint arXiv:2308.03281, 2023b.
+Liu, G., Zhang, Y ., Li, Y ., and Yao, Q. Explore then determine: A gnn-llm synergy framework for reasoning over
+knowledge graph. arXiv preprint arXiv:2406.01145, 2024a.
+Liu, H., Xue, W., Chen, Y ., Chen, D., Zhao, X., Wang, K., Hou, L., Li, R., and Peng, W. A survey on hallucination
+in large vision-language models. arXiv preprint arXiv:2402.00253, 2024b.
+Liu, J., Zhu, D., Bai, Z., He, Y ., Liao, H., Que, H., Wang, Z., Zhang, C., Zhang, G., Zhang, J., et al. A comprehensive
+survey on long context language modeling. arXiv preprint arXiv:2503.17407, 2025.
+Liu, N. F., Lin, K., Hewitt, J., Paranjape, A., Bevilacqua, M., Petroni, F., and Liang, P. Lost in the middle: How
+language models use long contexts. Transactions of the Association for Computational Linguistics, 12:157–173,
+2024c.
+Luo, H., Guo, Y ., Lin, Q., Wu, X., Mu, X., Liu, W., Song, M., Zhu, Y ., Tuan, L. A., et al. Kbqa-o1: Agentic
+knowledge base question answering with monte carlo tree search. arXiv preprint arXiv:2501.18922, 2025a.
+Luo, L., Li, Y .-F., Haffari, G., and Pan, S. Reasoning on graphs: Faithful and interpretable large language model
+reasoning. arXiv preprint arXiv:2310.01061, 2023.
+Luo, L., Zhao, Z., Haffari, G., Phung, D., Gong, C., and Pan, S. Gfm-rag: Graph foundation model for retrieval
+augmented generation. arXiv preprint arXiv:2502.01113, 2025b.
+Mavromatis, C. and Karypis, G. Gnn-rag: Graph neural retrieval for large language model reasoning.arXiv preprint
+arXiv:2405.20139, 2024.
+Muennighoff, N., Tazi, N., Magne, L., and Reimers, N. Mteb: Massive text embedding benchmark. arXiv preprint
+arXiv:2210.07316, 2022.
+OpenAI. Openai o3-mini. https://openai.com/index/openai-o3-mini/, January 2025. [Online].
+Peng, B., Zhu, Y ., Liu, Y ., Bo, X., Shi, H., Hong, C., Zhang, Y ., and Tang, S. Graph retrieval-augmented generation:
+A survey. arXiv preprint arXiv:2408.08921, 2024.
+Raiaan, M. A. K., Mukta, M. S. H., Fatema, K., Fahad, N. M., Sakib, S., Mim, M. M. J., Ahmad, J., Ali, M. E.,
+and Azam, S. A review on large language models: Architectures, applications, taxonomies, open issues and
+challenges. IEEE access, 12:26839–26874, 2024.
+Robinson, I., Webber, J., and Eifrem, E. Graph databases: new opportunities for connected data. " O’Reilly Media,
+Inc.", 2015.
+Shi, W., Min, S., Yasunaga, M., Seo, M., James, R., Lewis, M., Zettlemoyer, L., and Yih, W.-t. Replug: Retrievalaugmented black-box language models. arXiv preprint arXiv:2301.12652, 2023.
+Sui, Y ., Chuang, Y .-N., Wang, G., Zhang, J., Zhang, T., Yuan, J., Liu, H., Wen, A., Chen, H., Hu, X., et al. Stop
+overthinking: A survey on efficient reasoning for large language models. arXiv preprint arXiv:2503.16419, 2025.
+Sun, J., Xu, C., Tang, L., Wang, S., Lin, C., Gong, Y ., Ni, L. M., Shum, H.-Y ., and Guo, J. Think-on-graph: Deep
+and responsible reasoning of large language model on knowledge graph. arXiv preprint arXiv:2307.07697, 2023.
+Talmor, A. and Berant, J. The web as a knowledge-base for answering complex questions. arXiv preprint
+arXiv:1803.06643, 2018.
+Team, G., Georgiev, P., Lei, V . I., Burnell, R., Bai, L., Gulati, A., Tanzer, G., Vincent, D., Pan, Z., Wang, S.,
+et al. Gemini 1.5: Unlocking multimodal understanding across millions of tokens of context. arXiv preprint
+arXiv:2403.05530, 2024.
+Vrandeˇci´c, D. and Krötzsch, M. Wikidata: a free collaborative knowledgebase. Communications of the ACM, 57
+(10):78–85, 2014.
+
+[PAGE 14]
+Wang, K., Duan, F., Wang, S., Li, P., Xian, Y ., Yin, C., Rong, W., and Xiong, Z. Knowledge-driven cot: Exploring
+faithful reasoning in llms for knowledge-intensive question answering. arXiv preprint arXiv:2308.13259, 2023a.
+Wang, Z., Araki, J., Jiang, Z., Parvez, M. R., and Neubig, G. Learning to filter context for retrieval-augmented
+generation. arXiv preprint arXiv:2311.08377, 2023b.
+Wu, S., Xie, J., Chen, J., Zhu, T., Zhang, K., and Xiao, Y . How easily do irrelevant inputs skew the responses of
+large language models? arXiv preprint arXiv:2404.03302, 2024.
+Xiao, G., Tian, Y ., Chen, B., Han, S., and Lewis, M. Efficient streaming language models with attention sinks.
+arXiv preprint arXiv:2309.17453, 2023.
+Xiong, G., Bao, J., and Zhao, W. Interactive-kbqa: Multi-turn interactions for knowledge base question answering
+with large language models. arXiv preprint arXiv:2402.15131, 2024.
+Yang, J., Jin, H., Tang, R., Han, X., Feng, Q., Jiang, H., Zhong, S., Yin, B., and Hu, X. Harnessing the power of
+llms in practice: A survey on chatgpt and beyond. ACM Transactions on Knowledge Discovery from Data, 18(6):
+1–32, 2024.
+Yang, X., Chen, T., and Chen, B. Ape: Faster and longer context-augmented generation via adaptive parallel
+encoding. arXiv preprint arXiv:2502.05431, 2025.
+Yih, W.-t., Richardson, M., Meek, C., Chang, M.-W., and Suh, J. The value of semantic parse labeling for knowledge
+base question answering. In Proceedings of the 54th Annual Meeting of the Association for Computational
+Linguistics (Volume 2: Short Papers), pp. 201–206, 2016.
+Yoran, O., Wolfson, T., Ram, O., and Berant, J. Making retrieval-augmented language models robust to irrelevant
+context. arXiv preprint arXiv:2310.01558, 2023.
+Yu, Y ., Ping, W., Liu, Z., Wang, B., You, J., Zhang, C., Shoeybi, M., and Catanzaro, B. Rankrag: Unifying context
+ranking with retrieval-augmented generation in llms. Advances in Neural Information Processing Systems, 37:
+121156–121184, 2024.
+Zhang, J., Zhang, X., Yu, J., Tang, J., Tang, J., Li, C., and Chen, H. Subgraph retrieval enhanced model for
+multi-hop knowledge base question answering. arXiv preprint arXiv:2202.13296, 2022.
+Zhang, T., Patil, S. G., Jain, N., Shen, S., Zaharia, M., Stoica, I., and Gonzalez, J. E. Raft: Adapting language
+model to domain specific rag. arXiv preprint arXiv:2403.10131, 2024.
+Zhao, L., Feng, X., Feng, X., Zhong, W., Xu, D., Yang, Q., Liu, H., Qin, B., and Liu, T. Length extrapolation of
+transformers: A survey from the perspective of positional encoding. arXiv preprint arXiv:2312.17044, 2023.
+
+[PAGE 15]
+A Notation Summary
+Table 8: Notations used in this work.
+Symbol Description
+G := {(h, r, t) | h, t ∈ E , r ∈ R} Original knowledge graph (KG), a set of triples (h, r, t)
+Eq Set of query entities extracted from question q
+Aq Set of answer entities associated with question q
+P := (τ1, . . . , τL) Length-L reasoning path where each τi = (hi, ri, ti) ∈ G
+rP = (r1, . . . , rL) Relation path corresponding to reasoning path P
+bG Retrieved subgraph from the KG (used for inference)
+bGsrc := {(h, r, t) ∈ bG | h ∈ E q ∨ t ∈ E q} Query-anchored triples in the retrieved subgraph bG
+bGw Weak supervision signals, i.e., a noisy subgraph used for training
+bG∗ Oracle subgraph (ideal set of supporting facts for answering q)
+P := {Pi}|P|
+i=1 Candidate path pool used for refinement
+bP + LLM-refined candidate paths selected from P
+bG+ LLM-refined supervision subgraph derived from bP +
+B Complementary Details of Formulations
+B.1 Proof of Proposition 3.1
+proof. Let bG∗ ∈ H denotes the ground-truth hypothesis, where the hypothesis space satisfies |H| = 2 N . Let
+r(1:T ) := (r(1), · · · , r(T )) denote the sequence of observed responses collected over T rounds of interaction. From
+Fano’s inequality,
+H(bG∗|r(1:T )) ≤ O(1) + ε log |H| (7)
+From definitions of mutual information,
+I(bG∗; r(1:T )) = H(bG∗) − H(bG∗|r(1:T )), (8)
+where H(bG∗) = log |H|, then we have,
+I(bG∗; r(1:T )) ≥ (1 − ε) log|H| − O(1) (9)
+From chain rules of mutual information,
+I(bG∗; r(1:T )) =
+TX
+t=1
+I(bG∗; r(t)|r(<t)) (10)
+Recall Eq. 2, since the r(·, q) depends on the number of correctly selected ( ∼ O (1)) and incorrectly selected
+(∼ O(N)) items, the total number of possible reward values is at mostO(N). Therefore, for the t-th term, we have,
+I(bG∗; r(t)|r(<t)) ≤ H(r(t)|r(<t)) ≤ H(r(t)) ≤ log |R| ≤ O (log N), (11)
+where R := {r(S, q) | S ⊆ G} . THe first inequality holds via the property of mutual information. Hence,
+I(bG∗; r(1:T )) ≤ T O(log N) (12)
+From Eq. 12 and 9, we have,
+T ≥ Ω
+(1 − ε)N
+log N
+
+(13)
+If we fix the size |bG(i)| in each round i ∈ [T ], then |R| ≤ |bG∗| and hence |R| ∼ O (1), and thus T ≥ Ω((1 − ε)N)
+
+[PAGE 16]
+B.2 A Specific Version
+Proposition 3.1 provides a general lower bound on the number of queries T for any algorithm interacting with the
+black-box evaluator. We now analyze a specific iterative algorithm: Slightly different from Eq. 2, here we define
+the reward of a subset S ⊂ G as,
+r(S, q) := |S ∩ bG∗|s0 − |S\bG∗|δ0
+|S|s0
+∈ [− δ0
+s0
+, 1], (14)
+We define r0 := r(G, q), i.e., the reward on the universe set G, and let r0 > 0. In each round of evaluation
+i ∈ {0, · · · , T − 1}, a set S (i) of size S ≪ N is drawn uniformly at random from G and returned to the candidate
+pool after the round. Let the identified set bG(i), initialized with bG(0) = ⊘, evolves via the following rule:
+bG(i+1) ← bG(i) ∪ S (i), if r(S (i), q) > τ, (15)
+where the threshold τ ∈ (p, 1) is a constant. Proposition B.1 characterizes the sample complexity of recovering
+sparse high-relevance sets for the above algorithmic procedure.
+Proposition B.1 Guided by r(·, q) in Eq. 14 and rule 15, after T rounds, achieving
+P(bG∗ ⊂ bG(T )) ≥ 1 − ε (16)
+with ε ∈ (0, 1) requires
+T = Ω
+
+e2τ 2S N
+S log 1
+ε
+
+. (17)
+Specifically, stricter thresholds (higher τ) exponentially increase the required rounds, as only subsets S (i) with
+higher signal-to-noise ratio meet the acceptance criterion r(S (i), q) > τ , and thus guarantees improvement in the
+Jaccard similarity between the final identified setbG(T ) and bG∗.
+proof. We start by deriving P(t /∈ bG(T )) for a specific oracle item t ∈ bG∗. We have,
+P(t /∈ bG(T )) =
+T −1Y
+i=0
+P(t /∈ bG(i+1)|t /∈ bG(i)) (18)
+Now we focus on P(t /∈ bG(i+1)|t /∈ bG(i)) for i ∈ {0, . . . , T − 1},
+P(t /∈ bG(i+1)|t /∈ bG(i)) (19)
+= P(t /∈ bG(i+1)|t /∈ bG(i), t ∈ S (i))P(t ∈ S (i)) + P(t /∈ bG(i+1)|t /∈ bG(i), t /∈ S (i))P(t /∈ S (i)) (20)
+For i-th round, a subset S (i) of size S is drawn at random from G without replacement. Therefore, we have
+P(t ∈ S (i)) = S
+N and P(t /∈ S (i)) = 1 − S
+N . Also, it’s easy to see P(t /∈ bG(i+1)|t /∈ bG(i), t /∈ S (i)) = 1 , and
+P(t /∈ bG(i+1)|t /∈ bG(i), t ∈ S (i)) = P(r(S (i), q) ≤ τ |t ∈ S (i)).
+Define K := |bG∗|. Let r.v. KS be |S (i) ∩ bG∗|, we know KS ∼ Hypergeometric(N, K, S). Via Eq. 14, we have
+KSs0 − (S − KS)δ0 ≤ Sτ s0, and,
+KS ≤ S τ s0 + δ0
+s0 + δ0
+≜ Sθ, (21)
+where θ := τ s0+δ0
+s0+δ0
+. Therefore,
+P(r(S (i), q) ≤ τ |t ∈ S (i)) = P(KS ≤ Sθ|t ∈ S (i)) ≤ P(KS ≤ Sθ), (22)
+and thus, we have,
+P(t /∈ bG(i+1)|t /∈ bG(i)) ≤ 1 − (1 − P(KS ≤ Sθ)) S
+N ≜ 1 − p0
+S
+N , (23)
+
+[PAGE 17]
+where p0 := P(KS ≥ Sθ). Now, Eq. 23 → Eq. 18, we have,
+P(t /∈ bG(T )) ≤
+
+1 − p0
+S
+N
+T
+(24)
+Applying the union bound over all K target items gives
+P(bG∗ ̸⊂ bG(T )) = P
+
+[
+t∈ bG∗
+t /∈ bG(T )
+
+ ≤
+X
+t∈ bG∗
+P(t /∈ bG(T )) ≤ K
+
+1 − p0
+S
+N
+T
+≤ K exp {− p0ST
+N } (25)
+To guarantee that this probability is at most ε, it suffices that
+K exp {− p0ST
+N } ≤ ε, (26)
+which is equivalent to
+T ≥ N
+p0S log K
+ε (27)
+Now, let us again focus on p0. Define p := E[KS] = K
+N . Firstly, we solve θ − p.
+θ − p = τ s0 + δ0
+s0 + δ0
+− p = τ s0 − (ps0 − (1 − p)δ0)
+s0 + δ0
+= τ s0 − r0
+s0 + δ0
+(28)
+which holds via the definition of r0 = r(G, q) = Ks0−(N −K)δ0
+N := ps0 − (1 − p)δ0. Also, it’s clear to see
+r0 < ps 0 < τ s0 and thus θ > p . Given that r0 > 0, we have δ0 < p
+1−p s0. Therefore, we have,
+θ − p > τ s0 − ps0
+s0 + p
+1−p s0
+= (1 − p)(τ − p) (29)
+Via Hoeffding-type concentration inequality for Hypergeometric(N, K, S) tails, we have
+p0 = P(KS ≥ Sθ) ≤ exp {−2S(θ − p)2}, (30)
+and thus,
+T ≥ e2S(θ−p)2 N
+S log K
+ε ≥ e2S(1−p)2(τ −p)2 N
+S log K
+ε (31)
+Considering K ∼ O(1) and p ∼ O(1/N), we have
+T = Ω
+
+e2τ 2S N
+S log 1
+ε
+
+(32)
+C Details of Datasets and Baselines
+C.1 Dataset Details
+WebQSP (Yih et al., 2016) is an enriched version of the WebQuestions dataset, containing 4,737 questions
+annotated with semantic parses. The questions require up to 2-hop reasoning over the KG.
+CWQ (Talmor & Berant, 2018) builds on WebQSP by extending questions with additional constraints or entity
+chains to form more complex multi-hop queries, totaling 34,689 questions with reasoning depths up to 4 hops.
+Notably, over 50% of WebQSP test questions (or their variants) appearing in CWQ’s training set, and vice versa (Li
+et al., 2024a).
+GrailQA (Gu et al., 2021) is a large-scale dataset designed to evaluate generalization in KGQA across i.i.d.,
+compositional, and zero-shot settings. It features a wide range of logical forms and multi-hop questions. We focus
+on the zero-shot subset, which requires reasoning over unseen schemas and relation compositions, making it ideal
+for assessing retriever generalization to out-of-distribution knowledge and reasoning patterns.
+
+[PAGE 18]
+C.2 Baseline Details
+UniKGQA (Jiang et al., 2022) unifies retrieval and reasoning for multi-hop QA over the KGs by integrating both
+stages in model architecture and parameter learning, tightly relating the retrieval and reasoning processes.
+KD-CoT (Wang et al., 2023a) enhances Chain-of-Thought reasoning in the LLMs for knowledge-intensive QA
+by verifying and refining intermediate steps through structured interaction with external knowledge, to reduce
+hallucinations and improve performance over standard CoT methods.
+EtD (Liu et al., 2024a) is a two-stage framework for KGQA that combines lightweight GNN-based exploration
+with knowledge-enhanced prompting for LLM-based determination, enabling faithful reasoning over the KGs.
+StructGPT (Jiang et al., 2023) introduces an Iterative Reading-then-Reasoning framework that equips the LLMs
+with specialized interfaces to iteratively gather evidence from structured data and perform focused reasoning.
+ToG (Sun et al., 2023) introduces a training-free “LLM ⊗ KG” paradigm where an LLM agent iteratively explores
+related entities and relations on KGs via beam search to discover promising reasoning paths and perform traceable
+reasoning.
+RoG (Luo et al., 2023) proposes a planning-retrieval-reasoning framework which first generates relation paths
+grounded by KGs as faithful plans. These plans are then used to retrieve valid reasoning paths from the KGs for
+LLMs to conduct faithful reasoning.
+G-Retriever (He et al., 2024) perform RAG over textual graphs by formulating the task as a Prize-Collecting
+Steiner Tree optimization problem. It supports fine-tuning to enhance graph understanding via soft prompting.
+SubgraphRAG (Li et al., 2024a) integrates a lightweight multilayer perceptron with a parallel triple-scoring
+mechanism for efficient and flexible subgraph retrieval while encoding directional structural distances to enhance
+retrieval effectiveness on capturing structural connections over KGs.
+GNN-RAG (Mavromatis & Karypis, 2024) combines GNNs with the language capabilities of LLMs in a RAG
+framework by retrieving candidate answers via GNN-based KG retrieval and guiding LLM inference using
+verbalized KG reasoning paths.
+GraphRAG-FI (Guo et al., 2025b) improves graph-based RAG by introducing a two-stage filtering mechanism
+and a logits-based selection strategy to reduce noise in retrieved information and balance external knowledge with
+LLMs’ intrinsic reasoning.
+D Methodology Details
+D.1 Examples of the Gap between the Oracle and Weak Supervision Signals
+Existing retrievers are typically trained on query-answer (q-a) shortest paths as proxy supervisions (Zhang et al.,
+2022; Luo et al., 2023). While easy to extract, these proxy signals face two intrinsic limitations:
+(I) Spurious inclusion ( bGw \ bG∗ ̸= ∅). Shortest paths may contain relations that are semantically irrelevant to the query demand. For instance, consider the question “Which countries border Spain”, the path of
+“Spain
+currency-used
+− − − − − − − − − − →Euro
+country-used
+− − − − − − − − − →Portugal” fails to capture the spatial relation of interest ( i.e.,
+bordering), and thus provides misleading supervision.
+(II) Incompleteness ( bG∗ \ bGw ̸= ∅). Some queries require additional structural information beyond q-a
+shortest paths. For aggregation-type queries such as “how many distilled spirits are associated with tequilla”, the correct answer is a numeric value derived from enumerating outgoing edges of the query entity. For
+comparison-type queries such as “Rocket engines with LOX oxidizer and chamber pressure < 79.0”, the q-a
+shortest path “Liquid oxygen
+rocket_engines
+− − − − − − − − − − →Rocketdyne F-1 ” provides a reasonable connection, but
+lacks critical evidence for the numerical constraint, which is captured by the answer-centric neighborhoods:
+“Rocketdyne F-1
+chamber_pressure
+− − − − − − − − − − − − →70.0”, enabling LLMs to perform necessary numerical filtering over
+candidate entity properties.
+
+[PAGE 19]
+D.2 Path Merging in LLM-Refinement
+To preserve tractability and maintain minimal LLM usage overhead, we apply a structural merging step to compress
+the candidate path pool P into a compact set, while retaining structural diversity and logical coverage.
+(I) Answer Merging. Only one representative answer a∗ ∈ A q is selected from Aq, as correct answers typically
+share the same underlying reasoning path.
+(II) Relation-Chain Merging. Paths sharing the identical relation path are merged into a unified candidate,
+removing redundancy without losing logical diversity. Here, the relation path of a pathP := (τ1, . . . , τL) is defined
+as the ordered sequence of relations (r1, . . . , rk) extracted from each triple τi = (hi, ri, ti) ∈ P in the path.
+D.3 Instantiation of Retriever-Training Objectives
+Eq. 6 gives a general-purpose MLE-based training objective which is model-agnostic and accommodates a wide
+range of retrieval units, including Triple, Entity, and Path. Here we give detailed instantiations of Eq. 6 across the
+three levels as follows.
+ReG@Triple. Triples encapsulate atomic semantic relations between concepts and avoids the combinatorial
+explosion of subgraph enumeration. We formulate retriever training as binary classification over individual triples
+τ ∈ G , where each triple serves as a basic retrieval unit. A triple is labeled as positive if τ ∈ bG+, representing
+its semantic relevance to the query q. Each triple is encoded in context: its representation zτ := zτ(τ, G, q)
+incorporates both the local graph neighborhood and the query embedding, enabling the retriever to make relevance
+judgments that are both structure-aware and query-aware. The retriever is optimized to maximize:
+max
+θ
+E(q,Aq,G, bG+)∼D
+
+X
+τ ∈G+
+log pθ (τ | zτ) +
+X
+τ ∈G\G +
+log (1 − pθ (τ | zτ))
+
+ , (33)
+where pθ denotes the retriever, and zτ := zτ(τ, G, q) denotes the contextualized representation of the triple τ.
+ReG@Entity. The entity-level retriever similarly treats individual entities e ∈ E as basic retrieval units. Entities
+that appear in bG+ are labeled as relevant, forming the positive set bE + := E(bG+). Each entity is encoded with a
+contextualized representation ze := ze(e, G, q) derived from its surrounding subgraph and the query. The model is
+trained to distinguish relevant entities from irrelevant ones via a binary cross-entropy loss:
+max
+θ
+E(q,Aq,G, bG+)∼D
+
+X
+e∈ bE +
+log pθ(e | ze) +
+X
+e∈E\ bE +
+log(1 − pθ(e | ze))
+
+ . (34)
+ReG@Path. Following Luo et al. (2023), we fine-tune a language model to serve as a planning module that
+generates plausible relation paths given a query q. These relation paths act as high-level logical sketches, which
+describes the reasoning patterns needed to traverse the KG and arrive at the correct answer. Once generated, these
+paths are grounded to the KG by matching them against actual sequences of triples, yielding reasoning paths
+that lead to candidate answers. To train this planner, we use the relation paths extracted from each LLM-refined
+reasoning path P ∈ bP + as supervision signals. The training objective maximizes the likelihood of generating the
+correct relation path given the query:
+max
+θ
+E(q,Aq,G, bP +)∼D
+
+ X
+P ∈ bP +
+log pLLM
+θ (r(P ) | q)
+
+ , (35)
+where r(P ) denotes the relation path of the reasoning path P (see definition in Sec. D.2).
+D.4 Details of Two-Step Structure-aware Reorganization
+D.4.1 BFS-based Evidence Chain Expansion
+We provide the full procedure of the BFS-based path expansion described in Sec. 4.2. Algorithm 1 expands each
+query-anchored triple τ ∈ bGsrc by iteratively growing coherent paths through entity-matching across triples inbGtgt.
+
+[PAGE 20]
+Algorithm 1 BFS-Based Reasoning Chain Expansion
+Require: Retrieved triple setbG, query entities Eq, max length L
+Ensure: Set of reasoning chains P
+1: bGsrc ← {(h, r, t) ∈ bG | h ∈ E q} ▷ Query-anchored triples
+2: bGtgt ← bG \ bGsrc ▷ Non-query triples
+3: P ← ∅ , Q ← Queue(bGsrc), T vis ← ∅ ▷ Initialize paths and queue
+4: while Q is not empty do
+5: P ← Q.dequeue() ▷ Current path (τ1, ..., τk)
+6: if P /∈ P then
+7: P ← P ∪ { P }
+8: (hk, rk, tk) ← τk ▷ Last triple in path
+9: (h1, r1, t1) ← τ1 ▷ First triple in path
+10: end if
+11: if |P | ≥ L then continue
+12: end if
+13: for each τ ′ = (h′, r′, t′) ∈ bGtgt do
+14: if tk == h′ and (h1, t′) /∈ T vis then ▷ Head-tail matching
+15: P ′ ← P ⊕ τ ′ ▷ Path extension
+16: Q.enqueue(P ′)
+17: T vis ← T vis ∪ {(h1, t′)} ▷ Mark query-target pair (h1, t′) as visited
+18: end if
+19: end for
+20: end while
+21: return P
+It’s noteworthy that, for simplicity, the algorithm below only describes one expansion direction,i.e., extending the
+chain left-to-right, such that the query entity always appears as the head entity of the first triple. In practice, we
+perform bidirectional expansion: we also consider chains where the query entity serves as the tail of the final triple,
+expanding right-to-left accordingly.
+While alternative heuristics such as beam search exist, we prefer BFS as its length limit L directly corresponds
+to the number of reasoning hops, offering a more interpretable and semantically grounded control than its less
+meaningful counterparts such as the beam width k in the beam search.
+D.4.2 Structure-aware Merging
+To further reduce redundancy and enhance semantic clarity, we merge structurally related paths using two operations:
+† Multi-answer merging. Paths P1, · · · , Pk are merged into a unified path if 1) rooted at the same query entity
+e ∈ E q, 2) sharing the same relation path (r1, · · · , r|P1|), but 3) ending in different target entities. This handles
+scenarios where a single reasoning logic yields multiple valid answers and reduce the complexity of reasoning
+paths.
+† Multi-entity merging. After multi-answer merging, for multi-entity queries, i.e., |Eq| > 1, paths P1 and P2 with
+distinct sources src(P1) ̸= src(P2) ∈ E q but overlapping targets tgt(P1) ∩ tgt(P2) ̸= ∅ are merged as
+follows: 1) Spatial Reordering. P1 and P2 are placed consecutively in the evidence sequence to reinforce their
+logical coherence; 2) Target Refinement. The new shared target set is set as tgt(P1) ∩ tgt(P2). While we
+describe pairwise merging here, the operation naturally generalizes to n-entity queries.
+For the scalability of the proposed pipeline, as shown in Fig. 2b, the number of generated chains grows approximately
+sub-linearly with the number of retrieved triples, indicating that our structure-aware re-organization strategy
+maintains tractable complexity even under larger retrieval budgets.
+After the two steps, The query q and reorganized retrieved evidence chains are integrated into a structured prompt
+template with in-context demonstrations ( c.f., Appendix F), guiding the LLM to generate factually grounded
+answers.
+
+[PAGE 21]
+E Details of Experimental Implementation
+We adopt gte-large-en-v1.5 (Li et al., 2023b) as the frozen text encoder for query and triple representation.
+This 434M model achieves a strong trade-off between efficiency and retrieval quality on English corpora, as
+validated by the Massive Text Embedding Benchmark (MTEB) leaderboard (Muennighoff et al., 2022). In our
+main experiments, we evaluate three retrieval levels, ReG@Triple, ReG@Entity and ReG@Path. We introduce the
+detailed implementations as follows.
+ReG@Triple. We adopt the objective defined in Eq. 33. For the retriever architecture, we follow (Li et al., 2024a),
+leveraging Directional Distance Encoding (DDE) to capture structural relationships in the KG. The encoded features
+are passed to a lightweight MLP for binary classification over individual triples. We rank all triplesτ ∈ G by the
+retriever-output score pθ(τ) which quantifies its relevance to the query q, and the top-K triples are selected to form
+the retrieved subgraph bG for downstream LLM reasoning. We set K = 500 for GPT-4o and GPT-4o-mini, and
+K = 200 for LLaMA-3.1-8B, considering its relatively limited reasoning capacity.
+ReG@Entity. We follow Eq. 34 as the training objective. The retriever is implemented as a GNN, specifically, a
+PNA (Principal Neighborhood Aggregation) network (Corso et al., 2020), which strengthens the expressive power
+of message passing by leveraging a rich combination of aggregators and degree-aware scalers. The retriever outputs
+a score pθ(e) for each entity e ∈ E . To maintain consistency with the ReG@Triple pipeline, we convert entity
+scores into triple scores by s(τ) := pθ(h) + pθ(t) for each τ = (h, r, t) ∈ G . Top-K triples are then selected for
+LLM inference. A known limitation of this setup is that it ignores relation information, especially when multiple
+relations exist between a pair of entities. To mitigate this, we increase K by 200 compared to the triple-level
+retriever and merge multiple parallel relations into a unified triple, e.g., (h, r1, t); (h, r2, t) → (h, r1 ⊕ r2, t).
+ReG@Path. We follow Eq. 35 for supervision. Building on Luo et al. (2023), we fine-tune LLaMA-2-7B as
+a planning module to generate plausible relation paths given a query q. These predicted relation paths are then
+mapped onto the KG using beam search to retrieve grounded reasoning paths. We use a beam width of k = 20 for
+GPT-4o and GPT-4o-mini, andk = 10 for LLaMA3.1-8B to reflect their respective capacities.
+Other details. Retriever training for the ReG@Triple and ReG@Entity variants, which adopt lightweight MLP
+and GNN (PNA) architectures respectively, is conducted on an RTX 4090 GPU. Both retrievers are trained for a
+fixed number of 80 epochs, and we select the checkpoint with the highest retrieval recall on the validation set for
+downstream evaluation. The LLM-based retriever used in ReG@Path relies on LLaMA-2-7B and is trained on two
+NVIDIA RTX A6000 GPUs using LoRA (Hu et al., 2022) finetuning procedure on 8 epochs.
+For the BFS-based chain expansion used in structure-aware reorganization, the maximum expansion length L
+reflects the depth of reasoning allowed. We configure L based on dataset characteristics: for the CWQ dataset,
+which requires complex multi-hop reasoning, we do not impose any upper limit on L; for all other datasets, we set
+L = 2 to balance path coverage and computational efficiency.
+F Prompt Templates
+Here we provide detailed prompt templates used in both the LLM-guided supervision refinement stage (c.f., Fig. 6)
+and the downstream QA stage (c.f., Fig. 7). For both stages, we integrate a set of paths into the prompt. Specifically,
+for a L-length path P := (τ1, · · · , τL) where τi := (hi, ri, ti) denotes triples, we format it as a directional evidence
+chain of entities and their connecting relations, i.e., h1 → [r1] → t1 → [r2] → t2 · · · → tL following a natural
+left-to-right progression for fluent LLM reasoning.
+For downstream QA prompts, our experiments show that the explanation component in the ICL example is optional
+for stronger LLMs. Particularly, we omit the explanation part in ICL when using GPT-4o and reasoning-focused
+LLMs, i.e., QwQ-32B and DeepSeek-R1, for downstream QA.
+G Additional Experimental Results
+We provide additional evaluations of QA performance of ReG@Triple under DeepSeek-R1 inference in Table 9.
+
+[PAGE 22]
+Input Prompts for LLM-guided Refinement
+System:
+Given a question, an answer, and reasoning paths, select relevant paths for answering the question based on these criteria:
+1. Relations in the selected path semantically align with certain question keywords;
+2. Reject paths that contain only irrelevant details or demonstrate logical inconsistencies with question requirements.
+Return all selected paths prefixed with ‘ans:’, one per line.
+User: // ICL example
+Paths:
+Path 0.
+boeing company → [spaceflight.rocket_manufacturer.rockets_manufactured] → saturn v rocket → [spaceflight.rocket.manufacturer] → North
+American Aviation
+Path 1.
+boeing company → [business.business_operation.industry] → Aerospace → [business.industry.companies] → North American Aviation
+Path 2.
+Little Joe → [spaceflight.rocket.manufacturer] → North American Aviation
+Path 3.
+North American Aviation → [aviation.aircraft_manufacturer.aircraft_models_made] → North American XB-70A
+Path 4.
+saturn v rocket → [spaceflight.rocket.height_meters] → 110.6
+Path 5.
+saturn v rocket → [spaceflight.rocket.country_of_origin] → United States of America
+Path 6.
+saturn v rocket → [spaceflight.rocket.mass] → 3038500.0
+Path 7.
+Aerospace → [business.industry.companies] → North American Aviation
+Question:
+What rocket manufacturer produced Little Joe and also collaborated with Boeing on making a rocket with mass over 2.916e+06?
+Answer(s):
+North American Aviation
+Assistant: // ICL example
+To identify the relevant reasoning paths, we need to focus on relationships that:
+1) Confirm the manufacturer produced Little Joe, 2) Show collaboration with Boeing on a rocket, and 3) Provide information about the rocket mass.
+Path 0 is valid because it establishes collaboration with Boeing (via Saturn V) and confirms North American Aviation as the manufacturer.
+Path 2 is valid because it directly proves North American Aviation produced Little Joe.
+Path 6 is valid because it provides information about the rocket mass (3,038,500 - 2.916e+06).
+For irrelevant paths, Path 1/7 link Boeing and North American Aviation via Aerospace, which is indirect (no collaboration on making a rocket).
+Path 3 discusses aircraft models, which is irrelevant to rockets.
+Path 4/5 Describe background info of Saturn V (irrelevant to its mass).
+Therefore, the relevant paths are:
+ans: Path 0
+ans: Path 2
+ans: Path 6
+User: // Sample to infer
+Paths:
+. . .
+Question:
+. . .
+Answers(s):
+. . .
+Figure 6: Detailed prompt for LLM-based refinement used in our experiments.
+Table 9: QA performance of ReG@Triple under DeepSeek-R1 inference.
+WebQSP-Sub CWQ-Sub
+Macro-F1 Micro-F1 Hit Hit@1 Avg.Tokens Macro-F1 Micro-F1 Hit Hit@1 Avg.Tokens
+w/o S(I) & S(II) 78.18 56.23 96.41 89.22 660.36 66.78 53.42 84.38 73.07 1026.53
+w/o S(I) 79.82 58.88 94.23 88.77 527.62 67.6 53.18 82.51 73.63 837.85
+ReG 80.32 59.13 93.71 87.68 531.92 69.87 53.67 84.22 74.44 799.119
+
+[TABLE page=22 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | WebQSP-Sub | Unnamed: 2 | Unnamed: 3 | CWQ-Sub | Unnamed: 4 | Unnamed: 5
+Row 1: Unnamed: 0: | Unnamed: 1: Macro-F1 | WebQSP-Sub: Micro-F1 Hit Hit@1 | Unnamed: 2: Avg.Tokens | Unnamed: 3: Macro-F1 | CWQ-Sub: Micro-F1 Hit | Unnamed: 4: Hit@1 | Unnamed: 5: Avg.Tokens
+Row 2: Unnamed: 0: w/o S(I) & S(II) | Unnamed: 1: 78.18 | WebQSP-Sub: 56.23 96.41 89.22 | Unnamed: 2: 660.36 | Unnamed: 3: 66.78 | CWQ-Sub: 53.42 84.38 | Unnamed: 4: 73.07 | Unnamed: 5: 1026.53
+Row 3: Unnamed: 0: w/o S(I) | Unnamed: 1: 79.82 | WebQSP-Sub: 58.88 94.23 88.77 | Unnamed: 2: 527.62 | Unnamed: 3: 67.6 | CWQ-Sub: 53.18 82.51 | Unnamed: 4: 73.63 | Unnamed: 5: 837.85
+Row 4: Unnamed: 0: ReG | Unnamed: 1: 80.32 | WebQSP-Sub: 59.13 93.71 87.68 | Unnamed: 2: 531.92 | Unnamed: 3: 69.87 | CWQ-Sub: 53.67 84.22 | Unnamed: 4: 74.44 | Unnamed: 5: 799.119
+[/TABLE]
+
+[PAGE 23]
+Input Prompts for Downstream QA
+System:
+Answer the question using evidence chains from a knowledge graph. Return formatted answers, each on a new line and prefixed with ‘ans:’.
+User: // ICL example
+Evidence Chains:
+Chain 1.
+Lou Seal → [sports.mascot.team] → San Francisco Giants → [sports.sports_team.championships] → 2012 World Series; 2014 World Series; 2010
+World Series
+Question:
+What year did the team with mascot named Lou Seal win the World Series?
+Assistant: // ICL example. Here the detailed explanation of the final answer(s) is optional.
+To find the year the team with mascot named Lou Seal won the World Series, we need to find the team with mascot named Lou Seal and then find the
+year they won the World Series.
+From Chain 1, we can see that Lou Seal is the mascot of the San Francisco Giants, and that San Francisco Giants won the 2010, 2012, and 2014 World
+Series.
+So, the team with mascot named Lou Seal (San Francisco Giants) won the World Series in 2010, 2012, and 2014.
+Therefore, the formatted answers are:
+ans: 2010 World Series
+ans: 2012 World Series
+ans: 2014 World Series
+User: // Sample to infer
+Evidence Chains:
+. . .
+Question:
+. . .
+Figure 7: Detailed prompt for downstream QA used in our experiments.
+H Future Work
+Our pipeline is designed around the KGQA task and assumes the availability of entity-relation structured knowledge.
+Its generalization to other tasks or data modalities (e.g., vision-language) remains to be explored. The LLM-refined
+supervision signals may be not exactly the oracle one, and we primarily evaluate the effectiveness of such a
+LLM-refinement strategy using automatic metrics on QA performance, lack of human evaluations due to the high
+cost. For the formulation part, incorporating LLM’s inherent sensitivity to structure and position bias mentioned in
+Sec. 3.3 to the reward definition in Sec. 3.1 remains a future work.

@@ -1,0 +1,1369 @@
+[PAGE 1]
+Preprint.
+FROMEVIDENCE TOTRAJECTORY: ABDUCTIVEREASONINGPATHSYNTHESIS FORTRAININGRETRIEVALAUGMENTEDGENERATIONAGENTS
+Muzhi Li1, Jinhu Qi1, Yihong Wu2, Minghao Zhao1, Liheng Ma3,4, Yifan Li1,
+Xinyu Wang3, Yingxue Zhang5, Ho-fung Leung∗, Irwin King 1
+1 The Chinese University of Hong Kong, Sha Tin, NT, Hong Kong
+2 Universit´e de Montr´eal, Montr´eal, Queb´ec, Canada
+3 McGill University, Montr´eal, Queb´ec, Canada
+4 Mila - Queb´ec AI Institute, Montr´eal, Queb´ec, Canada
+5 Huawei Noah’s Ark Lab, Montr´eal, Queb´ec, Canada
+{mzli,jhqi25,mhzhao25,yfli24,king}@cse.cuhk.edu.hk
+yihong.wu@umontreal.ca,{liheng.ma,xinyu.wang5}@mail.mcgill.ca
+yingxue.zhang@huawei.com, ho-fung.leung@outlook.com
+ABSTRACT
+Retrieval-augmented generation agents development is hindered by the lack of
+process-level supervision to effectively guide agentic capabilities like task decomposition, retriever invocation, and stepwise decision-making. While reinforcement learning offers a potential solution, it suffers from sparse rewards and the
+limited reasoning capabilities of large language models (LLMs). Meanwhile, existing data synthesis methods only produce chain-of-thought rationales and fail
+to model environmental interactions. In this paper, we proposeEviPath, an
+evidence-anchored reasoning path synthesis paradigm for RAG agent development. EviPath comprises: (i) Abductive Subtask Planning, which decomposes the
+problem into sub-questions and iteratively plans an optimal solution path based
+on the dependencies between them; (ii) Faithful Sub-question Answering, which
+uses supporting evidence to construct a proxy environment to generate reasoning
+thoughts and answers for each sub-question; and (iii) Conversational Fine-Tuning,
+which formats the complete agent-environment interaction trajectory into a dialogue format suitable for Supervised Fine-Tuning. EviPath allows LLMs to learn
+complex reasoning and tool-use capabilities directly from synthesized data. Extensive experiments on widely-used question-answering benchmarks show that an
+8B parameter model trained with EviPath-synthesized data significantly and consistently outperforms state-of-the-art baselines witha double-digit absolute EM
+gain of 14.7%in open-domain question answering.
+1 INTRODUCTION
+Retrieval-augmented generation (RAG) agents, powered by large language models (LLMs) (Guo
+et al., 2025), can autonomously gather external knowledge and answer complex, multi-hop questions. Compared to vanilla RAG systems (Lewis et al., 2020), RAG agents minimize the need for
+human intervention, and adapt readily to downstream applications like math problem solving (Zhu
+et al., 2025), code generation (Zhang et al., 2023), and financial analysis (Wang et al., 2025c).
+Despite their promise, RAG agents are hard to develop sinceground truth reasoning trajectories
+are unavailable. Mainstream multi-hop question answering datasets Yang et al. (2018); Ho et al.
+(2020); Trivedi et al. (2022) provide final answers and supporting facts, while lacking step-wise
+supervision that is crucial to equip LLMs with agentic behaviors like question decomposition, search
+query reformulation, and plan refinement. As a result, existing RAG agents (Li et al., 2025; Xu et al.,
+2025) still fail to deliver reliable performance.
+∗Independent Researcher.
+arXiv:2509.23071v1 [cs.CL] 27 Sep 2025
+
+[PAGE 2]
+Preprint.
+Gold Answer: Fort Smith
+𝑟 𝐴1 = 𝑟 𝐴2 = 𝑟 𝐴3 = −𝟏
+No usable trajectory.
+Where was the prime minister
+of Canada born in?
+Reinforcement Learning
+𝐴1 : Mark Carney was
+born in Montreal, QC.
+𝐴2 : Justin Trudeau was
+born in Ottawa, ON.
+𝐴3 : I don't have the
+information.
+Trajectory
+Exploration
+Rewarding
+Question
+Where was the prime minister
+of Canada born in?
+Question
+Supporting
+Facts
+[1] Mark Carney is the current prime
+minister of Canada.
+[2] He is also the leader of Liberty Party.
+[3] Carney was born in Fort Smith, NWT.
+Reasoning Path Synthesis Open-domain Question Answering
+Which state is the college attended
+by Steve Jobs located in?
+Question
+Supp. Facts
+Not Available
+Knowledge
+Graph
+Textual
+Corpus
+Retriever
+Toolbox
+CoT Data
+EviPath
+RAG Agent
+Fine-tuned
+LLM
+<think> Lets think step-by-step, [1] says
+Carney is the PM of Canada, [3] says
+Carney was born in Fort Smith, so …
+Sorry, I cannot answer this question
+since I do not have the knowledge.
+Plan: 1. Search for the PM of Canada
+2. Find the birthplace of that PM
+Search(“Who is the PM of Canada?”)
+Search(“Which college did S. Jobs …?”)
+Accd. to the KG, S. Jobs attended Reed
+College… Reed College is located in the
+Oregon State.
+Figure 1: The limitations of reinforcement learning- or data synthesis-based approaches in training
+RAG agents to answer open-domain questions.
+One approach to train RAG agents without process supervision is reinforcement learning (RL) (Shao
+et al., 2024), which optimizes the decision-making process based on outcome-based rewards. Nevertheless, these methods have notable limitations. First, reward signals are often sparse and delayed,
+making it difficult to assign credit to individual decisions. In addition, RAG agents contain various non-differentiable components like retrievers and databases, which makes end-to-end gradient
+backpropagation infeasible. Most critically, the effectiveness of RL relies heavily on the intrinsic
+reasoning capabilities of the model.Without sufficient prior knowledge, the LLM may fail to discover correct actions that lead to a positive reward, rendering trajectory exploration ineffective.
+Another line of work (Bai et al., 2024; Yang et al., 2025) mitigates data scarcity by synthesizing
+reasoning paths, which leverage LLMs to generate chain-of-thought (CoT) rationales that link questions to answers using the supporting evidence. However, existing data synthesis approaches cannot
+be adapted to agent training. First, the generated paths often function as post-hoc explanations of
+predefined answers, rather than a genuine, step-by-step problem-solving process. More importantly,
+simple CoT training does not endow RAG agents with the core agentic capability to interact with
+external environments, severely limiting their effectiveness in answering open-domain questions.
+Considering the aforementioned limitations, we proposeEviPath, anEvidence-anchored reasoningpathsynthesis framework based onabductive reasoning.EviPathproceeds in three stages
+that align with the Planner-Executor architecture (Li et al., 2025) of RAG agents: Firstly, the(i)
+Abductive Subtask Planningstage applies abductive reasoning on the final answer and supporting
+evidence to reverse-engineer an optimal, dependency-aware reasoning plan, and then simulates the
+agent’s iterative execution process to generate thoughts and retrieval queries that form the planner’s
+reasoning path. Secondly, the(ii) Faithful Sub-question Answeringstage operates in a simulated
+environment to bypass retrieval errors, where it identifies the exact evidence for each sub-question
+to synthesize grounded thoughts and derive an intermediate answer. Finally, the(iii) Conversational
+Fine-tuningstage packages the complete reasoning paths from previous steps into a user-assistant
+dialogue format for supervised fine-tuning (SFT). Extensive experiments on widely used QA benchmarks show that an 8B-RAG agent fine-tuned with EviPath trajectories significantly outperforms
+state-of-the-art baselines, achievinga double-digit absolute EM gain of 14.7%. Our contributions
+can be summarized in the following four aspects:
+• We are the first to formulate the synthesis of reasoning paths for RAG agents as anabductive reasoning problem. This novel perspective provides a structured approach for generating interactive,
+goal-oriented reasoning trajectories.
+• Building on this formulation, we proposeEviPath: a novel framework that synthesizes reasoning
+paths to solve the dual challenges of data scarcity and reliance on complex reinforcement learning,
+establishing a data-centric paradigm for RAG agent development.
+• We construct265kgolden reasoning paths from multi-hop QA benchmarks, specifically designed
+to enhance agentic skills like high-level planning, retriever use, and context-aware reasoning.
+• We conduct extensive experiments on three widely used multi-hop QA datasets. The results show
+that RAG agents trained on EviPath-synthesized data significantly and consistently outperform all
+state-of-the-art retrieval-augmented generation agents.
+
+[PAGE 3]
+Preprint.
+2 RELATEDWORKS
+2.1 RAG AGENTS FORQA
+RAG agents enhance LLMs with external evidence to mitigate hallucinations in knowledge-intensive
+QA (Achiam et al., 2023; Cheng et al., 2024; Huang et al., 2025). The paradigm has evolved from
+simple “retrieve-then-read” pipelines (Lewis et al., 2020; Gao et al., 2023) to sophisticated workflows that interleave reasoning, tool use, and reflection (Yao et al., 2023; Trivedi et al., 2023; Asai
+et al., 2024; Shao et al., 2023). Recent works scale agentic QA through learned monologues (Yang
+et al., 2024), and modular designs that separate planning from execution (Li et al., 2025; Xu et al.,
+2025; Jiang et al., 2025a). Some efforts also leverage reinforcement learning to optimize policies of
+retrieval and reasoning (Jin et al., 2025; Song et al., 2025a; Wu et al., 2025). Orthogonal advances
+strengthen the retrieval side, including query reformulation (Chan et al., 2024; Mao et al., 2024),
+end-to-end multi-hop retrieval (Zhang et al., 2024a), and knowledge graph integration (Luo et al.,
+2025; Wang et al., 2025a; Hao et al., 2025). Despite making great progress, state-of-the-art methods
+seldom expose fine-grained process supervision that our work introduces to precisely guide LLMs
+in performing agentic operations like question decomposition, retrieval invocations, and reasoning.
+2.2 REASONINGPATHSYNTHESIS
+Data synthesis is common for enhancing the reasoning capabilities of LLMs (Wang et al., 2023;
+Xiong et al., 2024; Bai et al., 2024). Early methods leverage LLMs for direct generation of reasoning paths (Yu et al., 2023; Wang et al., 2023), but these were often ungrounded and prone to
+hallucination. To improve faithfulness, subsequent works have synthesized training data for longcontext reasoning by incorporating citations to ground truth evidence (Yang et al., 2025; Bai et al.,
+2024) or by concatenating long training sequences from existing contexts (Xiong et al., 2024; Gao
+et al., 2025; An et al., 2024). However, these approaches primarily generate reasoning chains over
+static, predefined contexts, failing to guide the training of RAG agents that necessitate extensive
+environment interactions. For detailed analysis of related works, please refer to Appendix A.
+3 PROBLEMFORMULATION
+3.1 ANSWERINGQUESTIONS WITHRAG AGENTS
+Memory Planner
+Executor
+Retrieval-augmented Generation Agent
+State
+Update
+Plan
+Update
+Read
+State
+Next
+Step
+Question
+Answer
+Knowledge
+Graph
+Textual
+Corpus
+Web
+Retriever
+Search
+Engine
+Action:
+Retrieval
+Contexts
+EnvironmentObservation
+Figure 2: The architecture of RAG agents.
+In this paper, we develop RAG agents to
+address the multi-hop question answering
+(MHQA) task in an open-domain setting. The
+core challenge of MHQA lies in aggregating
+evidence from diverse sources and conducting
+multi-step reasoning to derive the final answer.
+To address this, RAG agents (Figure 2) decouple the complex reasoning process into a hierarchical, two-level framework, which consists of
+aPlannerfor high-level strategic planning and
+anExecutorfor low-level sub-task execution.
+The overall process is as follows: given a complex questionq, the high-levelPlannerfirst formulates a planPby decomposingqinto a sequence of atomic, solvable sub-questions. Subsequently,
+the plan is executed in an iterative fashion. At each reasoning stepi, thePlannerdetermines the
+specific set of sub-questionsQ i to be resolved in the current step based on the progress made so far.
+Then, the low-levelExecutortakes charge of each sub-questionq j ∈Q i, interacts with an external
+knowledge baseKto retrieve relevant contextC j, and derives an answera j for that sub-question.
+This process continues until all sub-questions are addressed. Finally, thePlannersynthesizes the
+intermediate results into a final answera. Formally, the collaborative workflow can be expressed as:
+
+[TABLE page=3 index=1]
+Columns: et al., 2024; Shao et al., 2023). Recent works scale agentic QA through learned monologues (Yang
+Row 1: et al., 2024; Shao et al., 2023). Recent works scale agentic QA through learned monologues (Yang: et al., 2024), and modular designs that separate planning from execution (Li et al., 2025; Xu et al.,
+Row 2: et al., 2024; Shao et al., 2023). Recent works scale agentic QA through learned monologues (Yang: 2025; Jiang et al., 2025a). Some efforts also leverage reinforcement learning to optimize policies of
+Row 3: et al., 2024; Shao et al., 2023). Recent works scale agentic QA through learned monologues (Yang: retrieval and reasoning (Jin et al., 2025; Song et al., 2025a; Wu et al., 2025). Orthogonal advances
+[/TABLE]
+
+[PAGE 4]
+Preprint.
+For each sub-question 𝑞𝑖 in Plan 𝒫:
+Supporting Evidence:
+[1] Steve Jobs was the co-founder of Apple Inc.
+[2] In 1972, Steve Jobs enrolled at Reed College.
+[3] Apple Inc.'s headquarters, Apple Park, is located
+in Cupertino, California.
+[4] Reed College is a private liberal arts college
+located in Portland, Oregon.
+Apple Inc.
+Steve
+Jobs
+[1]
+[2]Which college does that
+co-founder enrolled in?
+Reed
+College
+[3]
+Who is the co-founder of Apple
+Inc. with last name “Jobs”?
+Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering Stage 3: Conversational Fine-tuning
+Question
+Which state is the college attended by
+the co-founder of Apple whose last
+name is Jobs located in? Ans: Oregon
+Which state is the college located in?Oregon
+Encoder
+Supp. Facts ෠ℱ
+Answer 𝑎𝑖
+𝜙
+cos(· | ·)
+filter
+෡𝐹𝑖
+(ii) Sub-question-level Evidence Identification
+Golden evidence of 𝑞𝑖
+(i) Intermediate Answer Derivation
+Golden
+Evidence
+Sub-question 𝑞𝑖
+෠ℱ
+LLM Intermediate
+Answer 𝑎𝑖
+𝑅𝑖
+(𝑠)
+(iii) Reasoning Thoughts Generation
+Sub-question 𝑞𝑖
+LLM Reasoning
+Thoughts
+Interm.
+answer 𝑎𝑖
+Sub-Q.
+Evid. ෠ℱ𝑖
+Planner Prompts
+Iteration 1:
+To solve this question, …
+1. Identify the co-founder
+of Apple with l. n. Jobs.
+2. Find the college this cofounder attended.
+3. Identify the state which
+the college is located in.
+<think> First, … </think>
+<action>
+Search (“Which co-founder
+of Apple has l.n. ‘Jobs’?”)
+</action>
+Observation:
+The c.f. w/ … is Steve Jobs.
+---------------------------------Iteration 2: …
+---------------------------------The last Iteration:
+Now, I have all necessary
+information for …
+<answer> Oregon </answer>
+Executor Prompts
+Sub-question 1:
+Which co-founder of Apple
+has last name “Jobs”?
+Supporting facts:
+[1] Steve Jobs was the cofounder of Apple Inc.
+[2] In 1972, Steve Jobs
+enrolled at Reed College.
+[3] Apple Inc.’s headquarter
+is located in Cupertino, CA.
+[4] Reed College is ...
+<think> The question asks …,
+[1] says …</think>
+<select> [1] </select>
+<answer> The co-founder...
+is Steve Jobs. </answer>
+---------------------------------Sub-question 2: …
+---------------------------------The last sub-question:
+<answer> Reed college is
+located in Oregon </answer>
+Figure 3: The end-to-end workflow of the proposed EviPath framework.
+P(a|q,I,K) =P(P|q,I)·
+|P|Y
+i=1
+P Qi,Ri |Q <i, a<i, q,P
+| {z }
+Planner
+· Y
+qj∈Qi
+P(Cj|qj,K)·P(a j,R(s)
+j |qj,Cj),
+| {z }
+Executor
+(1)
+whereIdenotes the instruction prompts,|P|denotes the number of reasoning steps,a <i contains
+the answer of all sub-questions prior to thei-th reasoning step;R i denotes the reasoning thoughts
+made ini-th planning step,R (s)
+j denotes the thoughts for answering sub-questionq j.
+3.2 REASONINGPATHSYNTHESIS AS ANABDUCTIVEREASONINGTASK
+We consider an MHQA dataset to consist of training problems in the form ofd train = (q, a,F, ˆF),
+whereqis the question,ais the answer,Frepresents the pool of supporting facts with distractors,
+and ˆF, the set of golden evidence. We argue thatreasoning path synthesisconstitutes anabductive
+reasoning(Josephson & Josephson, 1996) task, which aims to infer a trajectoryT q→a that best
+derives how the observed outcome (answer)afollows from the premise (question)qunder the
+constraints and evidential support provided by ˆF⊊F. Formally, we have the objective function:
+Tq→a = (P,{R i}|P|
+i=1,{Q i}|P|
+i=1,{A i}|P|
+i=1,{R (s)
+j }N
+j=1) =f LLM(q∧a| ˆF,F),(2)
+whereA i ={a j|qj ∈Q i}is the set of answers to the sub-questions in stepi,N= P
+i |Qi|is
+the total number of sub-questions to be resolved,f LLM denotes the LLM. The abductive reasoning
+process favors optimal trajectories that are minimally sufficient with respect to ˆFwhile remaining
+consistent with the premise-outcome pair(q, a).
+4 METHOD
+In this section, we present EviPath (Figure 3), a reasoning-path synthesis framework aligned with
+the planner–executor architecture of RAG agents. The pipeline comprises two phases:(i) Abductive
+Subtask Planning (ASP)and(ii) Faithful Sub-question Answering (ESA), each of which corresponds
+to the Planner and Executor modules, respectively. We then leverage these complete reasoning path
+to develop and refine RAG agents via(iii) conversational fine-tuning (CFT).
+4.1 ABDUCTIVESUBTASKPLANNING(PLANNER-SIDEREASONINGPATHSYNTHESIS)
+4.1.1 TASKDECOMPOSITION
+To solve a complex questionq, the RAG agent first decomposes it into a planPwith a set of subquestions{q 1, q2,· · ·, q n}. The quality of this initial plan is crucial, as it constrains the search space
+
+[TABLE page=4 index=1]
+Columns: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering | Stage 3: Conversational Fine-tuning
+Row 1: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Which state is the college attended by For each sub-question qi in Plan P: | Stage 3: Conversational Fine-tuning: Planner Prompts Executor Prompts
+Row 2: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: the co-founder of Apple whose last (i) Intermediate Answer Derivation | Stage 3: Conversational Fine-tuning: Iteration 1: Sub-question 1:
+Row 3: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Question name is Jobs located in? Ans: Oregon | Stage 3: Conversational Fine-tuning: To solve this question, ... Which co-founder of Apple
+Row 4: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Sub-question qi | Stage 3: Conversational Fine-tuning: 1. Identify the co-founder has last name “Jobs”?
+Row 5: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Who is the co-founder of Apple | Stage 3: Conversational Fine-tuning:
+Row 6: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Golden | Stage 3: Conversational Fine-tuning: of Apple with l. n. Jobs. Supporting facts:
+Row 7: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Inc. with last name “Jobs”? ෠ Intermediate | Stage 3: Conversational Fine-tuning:
+Row 8: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Steve Evidence F LLM | Stage 3: Conversational Fine-tuning: 2. Find the college this co- [1] Steve Jobs was the coRow 9: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Answer a | Stage 3: Conversational Fine-tuning:
+Row 10: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Jobs i | Stage 3: Conversational Fine-tuning: founder attended. founder of Apple Inc.
+Row 11: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Apple Inc. [1] | Stage 3: Conversational Fine-tuning: 3. Identify the state which [2] In 1972, Steve Jobs
+Row 12: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: (ii) Sub-question-level Evidence Identification | Stage 3: Conversational Fine-tuning:
+Row 13: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Which college does that | Stage 3: Conversational Fine-tuning: the college is located in. enrolled at Reed College.
+Row 14: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Answer aico-founder enrolled in? [2] | Stage 3: Conversational Fine-tuning: <think> First, ... </think> [3] Apple Inc.’s headquarter
+Row 15: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: φ | Stage 3: Conversational Fine-tuning: <action> is located in Cupertino, CA.
+Row 16: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: [3] [4] Reed College is ...Reed Encoder cos(· | ·) filter | Stage 3: Conversational Fine-tuning: Search (“Which co-founder
+Row 17: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: <think> The question asks ..., College F෡ i | Stage 3: Conversational Fine-tuning: of Apple has l.n. ‘Jobs’?”)
+Row 18: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Oregon Which state is the college located in? Supp. Facts F෠ Golden evidence of qi | Stage 3: Conversational Fine-tuning: </action> Observation: [1] says ...</think><select> [1] </select>
+Row 19: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: Supporting Evidence: (iii) Reasoning Thoughts Generation | Stage 3: Conversational Fine-tuning: The c.f. w/ ... is Steve Jobs. <answer> The co-founder...
+Row 20: Stage 1: Abductive Subtask Planning Stage 2: Faithful Sub-question Answering: [1] Steve Jobs was the co-founder of Apple Inc. ----------------------------------[2] In 1972, Steve Jobs enrolled at Reed College. Sub-question qi ----------------------------------(s) | Stage 3: Conversational Fine-tuning: ---------------------------------- Iteration 2: ... is Steve Jobs. </answer>Sub-question 2: ...
+[/TABLE]
+
+[PAGE 5]
+Preprint.
+and improves overall accuracy and efficiency of reasoning. However, despite having strong semantic understanding capabilities, LLMs often fail to generate coherent multi-step plans without direct
+supervision. This challenge is compounded by the fact that mainstream QA datasets offer the final
+answera, supporting factsF, and a golden evidence subset ˆF, but lack golden question decomposition for LLM fine-tuning. To bridge the aforementioned supervision gap, EviPath introduces
+abductive reasoningto reverse-engineer a latent reasoning graph by analyzing the ground-truth answer and the dependencies between different pieces of evidence with an LLM. The reasoning graph
+is then linearized into a concrete sequence of sub-questions, creating a “golden” plan that serves an
+explicit supervision signal. Formally, the task decomposition process can be expressed as:
+P={q 1, q2,· · ·, q n}=
+n
+fTD(q<i, q, a, ˆF)
+on
+i=1
+.(3)
+It should be noted that sub-questions in the initial plan may be under-specified. These incomplete
+questions will be dynamically grounded and refined during plan execution, as answers from preceding steps provide the necessary context (e.g., entities, constraints) for subsequent sub-questions.
+4.1.2 ITERATIVEEXPLORATION
+Upon obtaining the initial plan, EviPath generates the solution by iteratively simulating an agent’s
+task problem-solving process. Each iteration consists of two primary steps:thinkandaction.
+Think.In this step, the planner of a RAG agent reviews answers to sub-questions resolved in
+preceding iterationsA i−1 and identifies the set of remaining sub-questions that are both solvable and
+essential to pursue in the current iteration. It then generates its internal monologue, or “thoughts”
+Ri, enclosed within<think>and</think>tags. These thoughts detail: (i) the instantiation of
+previously underspecified variables, (ii) a prioritized set of sub-goals for the current step, and (iii)
+the resulting updates to the previous plan, and the dependencies among sub-questions. To maintain
+alignment with the target of the original question, the thought generation process is conditioned on
+the current agent state,s i =
+
+P,{R j}i−1
+j=1,{Q j}i−1
+j=1,{A j}i−1
+j=1
+
+, along with the final answera, and
+golden evidence set ˆF. This step is formulated as:
+Ri =f think(si, a, ˆF).(4)
+Action.In this step, the planner translates the priorized sub-goal(s) from its thought into concrete, executable retrieval queriesQ i. Specifically, the retrieval intent is explicitly rendered within
+<action>and</action>tags. Each retrieval query is written as a complete sub-question
+qj ∈Q i that can be executed independently. Similarly, letm i to be the number of sub-questions
+needs to be solved in thei-th step, we have the objective function:
+Qi ={q 1, q2,· · ·, q mi }=
+
+faction(Ri, si, a, ˆF)
+mi
+j=1.(5)
+4.2 FAITHFULSUB-QUESTIONANSWERING(EXECUTOR-SIDEREASONINGPATHSYN.)
+After the planning step generates a sub-questionq i, we synthesize the corresponding reasoning path
+for the executor. This involves generating a chain-of-thoughtsR (s)
+i that processes the sub-question
+and its retrieved context to yield an intermediate answera i.
+The challenge of real-time retrieval.In practice, the executor of a RAG agent retrieves the
+relevant context of the sub-question from an external knowledge base. However, existing dense
+or sparse retrievers often fail to secure the necessary golden evidence. The imperfect retrieval is
+particularly problematic since mainstream MHQA datasets do not provide intermediate answers at
+the sub-question level. Without such granular supervision, any disruption to the evidence chain
+prevents the LLM from assembling a coherent reasoning path and ultimately leading to incorrect or
+unfaithful answers.
+Robust trajectory synthesis in a simulated environment.To circumvent the aforementioned
+challenge, EviPath forgoes real-time retrieval and instead constructs a simulated environment for
+robust data synthesis. By utilizing the complete set of supporting factsFas a stable, local knowledge
+
+[PAGE 6]
+Preprint.
+base, we ensure all necessary golden evidence for each sub-question is readily accessible, creating
+an ideal setting for generating high-fidelity reasoning paths.
+Within this simulated environment, we synthesize the reasoning path for each sub-questionq i
+through a three-step procedure:
+(i) First, we provide the LLM with the sub-questionq i and the complete golden evidence set ˆF
+toderive the intermediate answer,a i.
+(ii) Then, weidentify the golden evidence set ˆFi for the current sub-questionq i. Specifically,
+we employ a sentence transformer to encode the complete answer sentence and every piece
+of golden evidence in ˆF. All evidence having a cosine similarity to the answer that is higher
+than a thresholdτwill be included in ˆFi. 1
+(iii) Finally, following the abductive reasoning paradigm, we task the LLM togenerate a chainof-thoughtsR (s)
+i that begins with sub-questionq i, identifies the set of key evidence ˆFi from
+the noisy supporting factsF, and culminates in the answera i. Considering that real-world retrieval results also contain substantial noise, leveragingFrather than ˆFas the pseudo retrieval
+context can better equip LLMs with better in-context reasoning ability.
+Formally, the data synthesis process for answering sub-questions can be formulated as follows:
+ai =f QA(qi, ˆF), ˆFi ={ζ∈ ˆF |cos(ϕ(ζ), ϕ(a i))> τ},R (s)
+i =f (s)
+think(qi, ai, ˆFi,F),(6)
+whereϕ(·)denotes the embedding encoded by sentence transformerϕ.
+The reasoning path synthesis process continues until the final answerais reached. At this final step,
+the LLM refrains from issuing further<action>tags and concludes the trajectory by extracting
+the answer and wrapping it in<answer>and</answer>tags.
+4.3 DATAFORMATTING ANDCONVERSATIONALFINE-TUNING
+We generated265kprocess-supervised reasoning trajectories using theLLaMA3.1-70Bmodel
+with few-shot demonstrations on the 2WikiMultihopQA (Ho et al., 2020), HotpotQA (Yang et al.,
+2018), and MuSiQue (Trivedi et al., 2022) training sets. Each trajectory was then formatted to
+align with a RAG agent’s architecture, yielding multi-turnPlanner Promptsfor training complex
+high-level planning capabilities, and single-turnExecutor Promptsfor training faithful, evidencegrounded sub-question answering.
+The data from both prompt types are aggregated together in a unified supervised fine-tuning (SFT)
+process. Formally, the LLM is optimized by maximizing the following joint objective function:
+JSFT(θ) =E (q,a,F)∼D train
+h
+πθ(P |q,I p)·
+|P|−1Y
+i=1
+πθ(Qi,R i | P, Q <i, a<i, q,I p)
+·
+ |Qi|Y
+j=1
+πθ(aj,R (s)
+j |q j,F,I e)
+
+·π θ
+
+a,R |P| | P, Q <|P|−1 , a<|P|−1 , q, a,I p
+i
+,(7)
+whereD train denotes the training dataset,π θ is the policy of the backbone LLM with trainable parametersθ,I p andI e are instruction prompts for the planner and the executor, respectively. Detailed
+prompts for reasoning path synthesis and question answering are listed in Appendix F and G.
+5 EXPERIMENTS
+5.1 DATASETS, BASELINES ANDEVALUATIONMETRICS
+We conduct our main experiments on three multi-hop QA datasets, including text-based benchmarks
+HotpotQA (Yang et al., 2018) and MuSiQue (Trivedi et al., 2022) and knowledge graph-based question answering (KBQA) benchmark 2WikiMultihopQA (2Wiki) (Ho et al., 2020). We compare our
+proposed method EviPath with a comprehensive set of24baseline methods. We examine the performance of EviPath and all baseline methods with Exact Match (EM) and F1 scores. Details of
+datasets, baseline methods, and evaluation metrics are provided in Appendix B, C, and D.
+1If none of the evidence satisfies the condition, we pick the one with the highest cosine similarity.
+
+[PAGE 7]
+Preprint.
+Method Backbone HotpotQA MuSiQue 2WikiMQA Average
+EM F1 EM F1 EM F1 EM F1
+CoT∗ GPT-4o 29.4 48.9 17.0 28.9 41.8 53.6 29.4 43.8
+RAG∗ GPT-4o 47.2 63.6 17.4 30.1 45.8 57.1 36.8 50.3
+DecomP∗ GPT-4o 52.2 65.6 27.8 42.3 62.2 73.3 47.4 60.4
+RAFT Llama3.1-8B 41.0 51.6 13.8 24.0 39.4 45.8 31.4 40.5
+RaFe GPT4o-mini 40.6 55.4 12.4 25.3 36.2 39.3 29.7 40.0
+Iter-RetGen Instruct-GPT 45.1 60.4 26.1 42.0 50.2 65.3 40.5 55.9
+HippoRAG GPT3.5 45.7 59.2 21.9 33.3 47.7 62.7 38.4 51.7
+IRCoT GPT3 49.3 60.7 26.5 36.5 57.7 68.0 44.5 55.1
+RQ-RAG GPT4o-mini 46.4 59.4 - - 50.2 58.8 - ReSP Llama3-8B 47.2 - - - 38.3 - - IterDRAG Gemini 1.5 38.4 49.8 22.6 35.0 44.3 54.6 35.1 46.5
+EfficientRAG Llama3-8B 50.6 57.9 16.4 21.2 44.2 51.6 37.1 43.6
+RAG Agents
+Search-o1 QwQ 32B 45.2 57.3 16.6 28.2 58.0 71.4 39.9 52.3
+RAG-Gym Llama3.1-8B 44.1 56.8 - - 50.2 57.9 - Search-R1 Qwen2.5-7B 43.3 - 19.6 - 38.2 - 33.7 R1-Searcher Qwen2.5-7B - 60.4 - 35.7 - 62.8 - 53.0
+Collab-RAG Llama3.1-8B 53.0 65.6 26.4 42.4 63.2 74.6 47.5 60.9
+RAG-Star GPT4o-mini 46.0 60.0 22.2 30.7 38.0 46.8 35.4 45.8
+Mujica-MyGO Qwen2.5-7B 41.5 53.8 26.1 35.9 77.6 84.2 48.4 58.0
+Concurrent Works
+R1-Searcher++ Qwen2.5-7B - 59.0 - 33.8 - 61.2 - 51.3
+DynaSearcher Qwen2.5-7B 52.0 66.1 26.5 38.7 61.9 72.0 46.8 58.9
+KG-o1 Llama3.1-8B 43.4 60.2 - - 55.0 68.6 - ESA-KGR Qwen2.5-7B 36.8 47.3 10.5 18.0 49.5 58.1 32.3 41.1
+Graph-R1 Qwen2.5-7B - 62.7 - 46.2 - 65.0 - 58.0
+Ablation Experimental Results ofEviPath
+- w/ pretrained LLM Llama3.1-8B 19.5 30.8 6.2 14.7 57.6 62.3 27.8 35.9
+- w/ pretrained LLM Llama3.1-70B 31.0 44.9 13.1 23.4 84.6 87.7 42.9 52.0
+- w/o planner fine-tuning Llama3.1-8B 41.6 54.3 27.6 37.7 45.2 50.4 38.1 47.5
+- w/o executor fine-tuning Llama3.1-8B 48.9 61.8 31.2 41.9 86.1 91.6 55.4 65.1
+- w/o supporting facts Llama3.1-8B 51.8 65.0 34.0 44.3 91.1 93.4 59.0 67.6
+EviPath (full)
+Qwen2.5-7B 51.3 64.0 40.2 50.0 92.0 94.361.2 69.4
+Llama3.2-1B 39.4 50.6 29.7 37.9 76.7 79.0 48.6 55.8
+Llama3.2-3B 48.6 60.7 39.9 48.8 90.4 92.9 59.6 67.4
+Llama3.1-8B53.8 66.4 44.3 54.691.3 93.6 63.1 71.5
+Table 1: Experiment results multi-hop question answering benchmark datasets. The performance
+of vanilla CoT, RAG, and DecomP (with ∗) are referred from Xu et al. (2025). Results for other
+baselines are taken from original research papers.
+5.2 IMPLEMENTATION
+We examine the effectiveness of our proposed method by fine-tuning four instruction-tuned LLMs
+with different scales:Qwen2.5-7B,LLaMA 3.2-1B,LLaMA 3.2-3B, andLLaMA 3.1-8B.
+During evaluation, we adopt the “open-domain” setting, where the agent is required to retrieve relevant information from the external environment, while disregarding the supporting facts provided
+with dev. set questions.
+We adoptbge-large-en-v1.5as the retriever in all of our experiments. More details are in
+Appendix E.
+5.3 MAINRESULTS
+The experiment results in Table 1 demonstrate that EviPath is a simple yet effective scheme for
+synthesizing reasoning trajectories for training RAG agents. Despite relying solely on SFT, our 8B
+model trained on EviPath-synthesized trajectories significantly outperforms all baselines, including those leveraging large-scale LLMs (e.g. GPT-4o) or complex RL algorithms (e.g. GRPO),
+achieving an average absolute EM gain of14.7%. The substantial improvement reaffirms per7
+
+[TABLE page=7 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | HotpotQA | MuSiQue | 2WikiMQA | Average
+Row 1: Unnamed: 0: Method Backbone | Unnamed: 1: | HotpotQA: | MuSiQue: | 2WikiMQA: | Average:
+Row 2: Unnamed: 0: | Unnamed: 1: | HotpotQA: EM F1 | MuSiQue: EM F1 | 2WikiMQA: EM F1 | Average: EM F1
+Row 3: Unnamed: 0: ∗CoT GPT-4o | Unnamed: 1: | HotpotQA: 29.4 48.9 | MuSiQue: 17.0 28.9 | 2WikiMQA: 41.8 53.6 | Average: 29.4 43.8
+Row 4: Unnamed: 0: ∗RAG GPT-4o | Unnamed: 1: | HotpotQA: 47.2 63.6 | MuSiQue: 17.4 30.1 | 2WikiMQA: 45.8 57.1 | Average: 36.8 50.3
+Row 5: Unnamed: 0: ∗DecomP GPT-4o | Unnamed: 1: | HotpotQA: 52.2 65.6 | MuSiQue: 27.8 42.3 | 2WikiMQA: 62.2 73.3 | Average: 47.4 60.4
+Row 6: Unnamed: 0: RAFT Llama3.1-8B | Unnamed: 1: | HotpotQA: 41.0 51.6 | MuSiQue: 13.8 24.0 | 2WikiMQA: 39.4 45.8 | Average: 31.4 40.5
+Row 7: Unnamed: 0: RaFe GPT4o-mini | Unnamed: 1: | HotpotQA: 40.6 55.4 | MuSiQue: 12.4 25.3 | 2WikiMQA: 36.2 39.3 | Average: 29.7 40.0
+Row 8: Unnamed: 0: Iter-RetGen Instruct-GPT | Unnamed: 1: | HotpotQA: 45.1 60.4 | MuSiQue: 26.1 42.0 | 2WikiMQA: 50.2 65.3 | Average: 40.5 55.9
+Row 9: Unnamed: 0: HippoRAG GPT3.5 | Unnamed: 1: | HotpotQA: 45.7 59.2 | MuSiQue: 21.9 33.3 | 2WikiMQA: 47.7 62.7 | Average: 38.4 51.7
+Row 10: Unnamed: 0: IRCoT GPT3 | Unnamed: 1: | HotpotQA: 49.3 60.7 | MuSiQue: 26.5 36.5 | 2WikiMQA: 57.7 68.0 | Average: 44.5 55.1
+Row 11: Unnamed: 0: RQ-RAG GPT4o-mini | Unnamed: 1: | HotpotQA: 46.4 59.4 | MuSiQue: - - | 2WikiMQA: 50.2 58.8 | Average: - Row 12: Unnamed: 0: ReSP Llama3-8B | Unnamed: 1: | HotpotQA: 47.2 - | MuSiQue: - - | 2WikiMQA: 38.3 - | Average: - Row 13: Unnamed: 0: IterDRAG Gemini 1.5 | Unnamed: 1: | HotpotQA: 38.4 49.8 | MuSiQue: 22.6 35.0 | 2WikiMQA: 44.3 54.6 | Average: 35.1 46.5
+Row 14: Unnamed: 0: EfficientRAG Llama3-8B | Unnamed: 1: | HotpotQA: 50.6 57.9 | MuSiQue: 16.4 21.2 | 2WikiMQA: 44.2 51.6 | Average: 37.1 43.6
+Row 15: Unnamed: 0: RAG Agents | Unnamed: 1: | HotpotQA: | MuSiQue: | 2WikiMQA: | Average:
+Row 16: Unnamed: 0: Search-o1 QwQ 32B | Unnamed: 1: | HotpotQA: 45.2 57.3 | MuSiQue: 16.6 28.2 | 2WikiMQA: 58.0 71.4 | Average: 39.9 52.3
+Row 17: Unnamed: 0: RAG-Gym Llama3.1-8B | Unnamed: 1: | HotpotQA: 44.1 56.8 | MuSiQue: - - | 2WikiMQA: 50.2 57.9 | Average: - Row 18: Unnamed: 0: Search-R1 Qwen2.5-7B | Unnamed: 1: | HotpotQA: 43.3 - | MuSiQue: 19.6 - | 2WikiMQA: 38.2 - | Average: 33.7 Row 19: Unnamed: 0: R1-Searcher Qwen2.5-7B | Unnamed: 1: | HotpotQA: - 60.4 | MuSiQue: - 35.7 | 2WikiMQA: - 62.8 | Average: - 53.0
+Row 20: Unnamed: 0: Collab-RAG Llama3.1-8B | Unnamed: 1: | HotpotQA: 53.0 65.6 | MuSiQue: 26.4 42.4 | 2WikiMQA: 63.2 74.6 | Average: 47.5 60.9
+Row 21: Unnamed: 0: RAG-Star GPT4o-mini | Unnamed: 1: | HotpotQA: 46.0 60.0 | MuSiQue: 22.2 30.7 | 2WikiMQA: 38.0 46.8 | Average: 35.4 45.8
+Row 22: Unnamed: 0: Mujica-MyGO Qwen2.5-7B | Unnamed: 1: | HotpotQA: 41.5 53.8 | MuSiQue: 26.1 35.9 | 2WikiMQA: 77.6 84.2 | Average: 48.4 58.0
+Row 23: Unnamed: 0: Concurrent Works | Unnamed: 1: | HotpotQA: | MuSiQue: | 2WikiMQA: | Average:
+Row 24: Unnamed: 0: R1-Searcher++ Qwen2.5-7B | Unnamed: 1: | HotpotQA: - 59.0 | MuSiQue: - 33.8 | 2WikiMQA: - 61.2 | Average: - 51.3
+Row 25: Unnamed: 0: DynaSearcher Qwen2.5-7B | Unnamed: 1: | HotpotQA: 52.0 66.1 | MuSiQue: 26.5 38.7 | 2WikiMQA: 61.9 72.0 | Average: 46.8 58.9
+Row 26: Unnamed: 0: KG-o1 Llama3.1-8B | Unnamed: 1: | HotpotQA: 43.4 60.2 | MuSiQue: - - | 2WikiMQA: 55.0 68.6 | Average: - Row 27: Unnamed: 0: ESA-KGR Qwen2.5-7B | Unnamed: 1: | HotpotQA: 36.8 47.3 | MuSiQue: 10.5 18.0 | 2WikiMQA: 49.5 58.1 | Average: 32.3 41.1
+Row 28: Unnamed: 0: Graph-R1 Qwen2.5-7B | Unnamed: 1: | HotpotQA: - 62.7 | MuSiQue: - 46.2 | 2WikiMQA: - 65.0 | Average: - 58.0
+Row 29: Unnamed: 0: Ablation Experimental Results of EviPath | Unnamed: 1: | HotpotQA: | MuSiQue: | 2WikiMQA: | Average:
+Row 30: Unnamed: 0: - w/ pretrained LLM Llama3.1-8B | Unnamed: 1: | HotpotQA: 19.5 30.8 | MuSiQue: 6.2 14.7 | 2WikiMQA: 57.6 62.3 | Average: 27.8 35.9
+Row 31: Unnamed: 0: - w/ pretrained LLM Llama3.1-70B | Unnamed: 1: | HotpotQA: 31.0 44.9 | MuSiQue: 13.1 23.4 | 2WikiMQA: 84.6 87.7 | Average: 42.9 52.0
+Row 32: Unnamed: 0: - w/o planner fine-tuning Llama3.1-8B | Unnamed: 1: | HotpotQA: 41.6 54.3 | MuSiQue: 27.6 37.7 | 2WikiMQA: 45.2 50.4 | Average: 38.1 47.5
+Row 33: Unnamed: 0: - w/o executor fine-tuning Llama3.1-8B | Unnamed: 1: | HotpotQA: 48.9 61.8 | MuSiQue: 31.2 41.9 | 2WikiMQA: 86.1 91.6 | Average: 55.4 65.1
+Row 34: Unnamed: 0: - w/o supporting facts Llama3.1-8B | Unnamed: 1: | HotpotQA: 51.8 65.0 | MuSiQue: 34.0 44.3 | 2WikiMQA: 91.1 93.4 | Average: 59.0 67.6
+Row 35: Unnamed: 0: Qwen2.5-7B | Unnamed: 1: | HotpotQA: 51.3 64.0 | MuSiQue: 40.2 50.0 | 2WikiMQA: 92.0 94.3 | Average: 61.2 69.4
+Row 36: Unnamed: 0: Llama3.2-1B | Unnamed: 1: | HotpotQA: 39.4 50.6 | MuSiQue: 29.7 37.9 | 2WikiMQA: 76.7 79.0 | Average: 48.6 55.8
+Row 37: Unnamed: 0: EviPath (full) | Unnamed: 1: | HotpotQA: | MuSiQue: | 2WikiMQA: | Average:
+Row 38: Unnamed: 0: Llama3.2-3B | Unnamed: 1: | HotpotQA: 48.6 60.7 | MuSiQue: 39.9 48.8 | 2WikiMQA: 90.4 92.9 | Average: 59.6 67.4
+Row 39: Unnamed: 0: Llama3.1-8B | Unnamed: 1: | HotpotQA: 53.8 66.4 | MuSiQue: 44.3 54.6 | 2WikiMQA: 91.3 93.6 | Average: 63.1 71.5
+[/TABLE]
+
+[PAGE 8]
+Preprint.
+Datasets: (Training - Eval.) HotpotQA - MuSiQue MuSiQue - HotpotQA 2WikiMQA - QALD10
+Method Backbone EM F1 EM F1 EM F1
+Search-R1 Qwen2.5-3B - 5.03 - 19.8 - Graph-R1 Qwen2.5-3B - 33.1 - 49.8 - EviPath (Ours)Llama3.2-3B 30.2 39.2 34.6 44.8 40.1 45.4
+Mujica-MyGO Qwen2.5-7B 26.1 35.9 - - 39.949.7
+EviPath (Ours)Llama3.1-8B 35.9 46.3 38.8 50.1 43.948.6
+Table 2: Experimental results in out-of-domain settings.
+Method Data Synthesis
+LLM
+RAG Agent
+Backbone
+HotpotQA MuSiQue 2WikiMQA Average
+EM F1 EM F1 EM F1 EM F1
+EviPath (Ours)Llama3.1-8B Llama3.1-8B 50.9 63.5 39.1 49.0 86.1 90.3 58.7 67.6
+EviPath (Ours)Llama3.1-70B Llama3.1-8B53.8 66.4 44.3 54.6 91.3 93.6 63.1 71.5
+Table 3: Question answering performance of RAG agents trained with reasoning paths synthesized
+by different LLMs.
+sistent data limitations in RAG agent training and highlights the importance of introducing precise, evidence-anchored reasoning paths. Our EviPath-trained agents exhibit a clear scaling effect,
+with larger backbone LLMs consistently improving QA performance.More importantly, our results demonstrate that the process-supervised trajectories can offset model sizes, enabling smaller
+LLMs to overcome their limited reasoning capabilities.Specifically, RAG agents equipped with
+1B and 3BLLaMA 3.2models trained on EviPath data achieve state-of-the-art performance on the
+2WikiMQA and MuSiQue datasets and substantially surpass all baseline models.
+EviPath excels on both text-based and knowledge-based multi-hop QA. Its strong performance on
+2WikiMQA highlights its ability to leverage knowledge graphs, whose structured nature helps capture the logical dependencies between sub-questions. Unlike other KG-based baselines (e.g., GraphR1, KG-o1), EviPath’s evidence-anchored process supervision compels RAG agents to remain faithful to the graph structure, and hence, encourages the selection of optimal reasoning paths.
+The performance gain on the HotpotQA dataset is relatively modest, which can be attributed to its
+lower complexity. Since HotpotQA only consists two-hop questions, it demands less on the inherent
+reasoning capabilities of LLMs, thus narrowing the gap among all methods.
+The performance gain on the HotpotQA dataset is relatively modest, which can be attributed to
+its lower complexity. Since HotpotQA only consists two-hop questions, it demands less on the
+inherent reasoning capabilities of LLMs, thus narrowing the gap among all methods. In contrast,
+EviPath’s advantage is pronounced on the more complex MuSiQue dataset with various types of 2to-4 hops questions, especially over policy gradient optimization-based baselines (e.g. Search-R1).
+This highlights a key limitation of RL: without a foundational ability to solve a problem, an agent
+cannot acquire the positive rewards needed for self-improvement.To sum, our findings suggest that
+the primary bottleneck in training powerful question answering agents may not be the learning
+algorithm or model scale, but the availability of high-quality, process-level supervision signal.
+5.4 ABLATIONSTUDIES
+We examine the effectiveness of the proposed EviPath pipeline in different settings by answering
+the following research questions (RQs).
+RQ1: Does the use of question-specific supporting evidence improve the quality of synthesized
+reasoning paths?We evaluated the necessity of supporting evidence by reconfiguring our data synthesis pipeline to use only question–answer pairs, compelling the LLM to retrieve relevant contexts
+from an external knowledge base and construct a complete reasoning path. As detailed in Table 1,
+the exclusion of supporting evidence resulted in performance degradation for our 8B LLM-based
+RAG agent across all three datasets. This performance drop is attributable to the loss of the implicit reasoning path implied in supporting evidence, which typically constrains the model’s search
+space and ensures faithful derivations. In its absence, the model is vulnerable to two failure modes:
+
+[TABLE page=8 index=1]
+Columns: Datasets: (Training - Eval.) | HotpotQA - MuSiQue | MuSiQue - HotpotQA | 2WikiMQA - QALD10
+Row 1: Datasets: (Training - Eval.): Method Backbone | HotpotQA - MuSiQue: EM F1 | MuSiQue - HotpotQA: EM F1 | 2WikiMQA - QALD10: EM F1
+Row 2: Datasets: (Training - Eval.): Search-R1 Qwen2.5-3B | HotpotQA - MuSiQue: - 5.03 | MuSiQue - HotpotQA: - 19.8 | 2WikiMQA - QALD10: - Row 3: Datasets: (Training - Eval.): Graph-R1 Qwen2.5-3B | HotpotQA - MuSiQue: - 33.1 | MuSiQue - HotpotQA: - 49.8 | 2WikiMQA - QALD10: - Row 4: Datasets: (Training - Eval.): EviPath (Ours) Llama3.2-3B | HotpotQA - MuSiQue: 30.2 39.2 | MuSiQue - HotpotQA: 34.6 44.8 | 2WikiMQA - QALD10: 40.1 45.4
+Row 5: Datasets: (Training - Eval.): Mujica-MyGO Qwen2.5-7B | HotpotQA - MuSiQue: 26.1 35.9 | MuSiQue - HotpotQA: - - | 2WikiMQA - QALD10: 39.9 49.7
+Row 6: Datasets: (Training - Eval.): EviPath (Ours) Llama3.1-8B | HotpotQA - MuSiQue: 35.9 46.3 | MuSiQue - HotpotQA: 38.8 50.1 | 2WikiMQA - QALD10: 43.9 48.6
+[/TABLE]
+
+[PAGE 9]
+Preprint.
+/uni00000015/uni00000013/uni00000013/uni00000019/uni00000013/uni00000013/uni00000014/uni00000013/uni00000013/uni00000013/uni00000014/uni00000017/uni00000013/uni00000013/uni00000014/uni0000001b/uni00000013/uni00000013
+/uni00000036/uni00000057/uni00000048/uni00000053/uni00000056
+/uni00000017/uni00000013
+/uni00000017/uni00000018
+/uni00000018/uni00000013
+/uni00000018/uni00000018
+/uni00000019/uni00000013
+/uni00000019/uni00000018
+/uni0000001a/uni00000013/uni00000036/uni00000046/uni00000052/uni00000055/uni00000048
+/uni0000000b/uni00000044/uni0000000c/uni00000003/uni0000002b/uni00000052/uni00000057/uni00000053/uni00000052/uni00000057/uni00000034/uni00000024
+/uni00000028/uni00000030
+/uni00000029/uni00000014
+/uni00000015/uni00000013/uni00000013/uni00000019/uni00000013/uni00000013/uni00000014/uni00000013/uni00000013/uni00000013/uni00000014/uni00000017/uni00000013/uni00000013/uni00000014/uni0000001b/uni00000013/uni00000013
+/uni00000036/uni00000057/uni00000048/uni00000053/uni00000056
+/uni00000016/uni00000015
+/uni00000016/uni00000019
+/uni00000017/uni00000013
+/uni00000017/uni00000017
+/uni00000017/uni0000001b
+/uni00000018/uni00000015
+/uni00000018/uni00000019/uni00000036/uni00000046/uni00000052/uni00000055/uni00000048
+/uni0000000b/uni00000045/uni0000000c/uni00000003/uni00000030/uni00000058/uni00000036/uni0000004c/uni00000034/uni00000058/uni00000048
+/uni00000028/uni00000030
+/uni00000029/uni00000014
+/uni00000015/uni00000013/uni00000013/uni00000019/uni00000013/uni00000013/uni00000014/uni00000013/uni00000013/uni00000013/uni00000014/uni00000017/uni00000013/uni00000013/uni00000014/uni0000001b/uni00000013/uni00000013
+/uni00000036/uni00000057/uni00000048/uni00000053/uni00000056
+/uni0000001b/uni00000017
+/uni0000001b/uni00000019
+/uni0000001b/uni0000001b
+/uni0000001c/uni00000013
+/uni0000001c/uni00000015
+/uni0000001c/uni00000017/uni00000036/uni00000046/uni00000052/uni00000055/uni00000048
+/uni0000000b/uni00000046/uni0000000c/uni00000003/uni00000015/uni0000003a/uni0000004c/uni0000004e/uni0000004c/uni00000030/uni00000034/uni00000024
+/uni00000028/uni00000030
+/uni00000029/uni00000014
+/uni00000015/uni00000013/uni00000013/uni00000019/uni00000013/uni00000013/uni00000014/uni00000013/uni00000013/uni00000013/uni00000014/uni00000017/uni00000013/uni00000013/uni00000014/uni0000001b/uni00000013/uni00000013
+/uni00000036/uni00000057/uni00000048/uni00000053/uni00000056
+/uni00000018/uni00000017
+/uni00000018/uni0000001a
+/uni00000019/uni00000013
+/uni00000019/uni00000016
+/uni00000019/uni00000019
+/uni00000019/uni0000001c/uni00000036/uni00000046/uni00000052/uni00000055/uni00000048
+/uni0000000b/uni00000047/uni0000000c/uni00000003/uni00000024/uni00000059/uni00000048/uni00000055/uni00000044/uni0000004a/uni00000048
+/uni00000028/uni00000030
+/uni00000029/uni00000014
+Figure 5: Step-wise EM/F1 score on three open-domain QA datasets based on Qwen 2.5-7B model.
+(1) imperfect retrieval, where the inability to find “golden” evidence leads to plausible but incorrect reasoning, and (2) inherent limitations in the LLM’s ability to reason about complex questions
+without explicit guidance. The latter issue is particularly acute on MuSiQue, which demands the
+composition of multiple facts and thus exhibits the most severe degradation.
+RQ2: Which core capability of LLMs is the primary limitation for building RAG agents?
+To identify the primary limitation of LLMs in RAG agents, we trained two specialized models: a
+planner for high-level planning and an executor for sub-question answering. As shown in Table 1,
+replacing either specialized model with a pre-trained LLM degrades performance. Notably, this
+degradation is far more pronounced when replacing the planner. This result indicates that the primary bottleneck of LLM is not semantic understanding but long-horizon planning and reasoning,
+which reaffirms the critical need for high-quality reasoning trajectories in RAG agent development.
+RQ3: Can RAG agents trained on EviPath-synthesized reasoning paths generalize to out-ofdomain scenarios?We evaluate out-of-domain (OOD) generalization using cross-dataset transfer from HotpotQA to MuSiQue and vice versa (for textual QA), as well as from 2Wiki-KG to
+QALD-10 (for KBQA). 2 As shown in Table 2, models fine-tuned on EviPath-synthesized trajectories achieve comparable or superior transferability to state-of-the-art methods optimized with
+GRPO (Shao et al., 2024). Most notably, a model fine-tuned exclusively on 2-hop questions from
+HotpotQA shows remarkable generalization: it not only surpasses OOD baselines on MuSiQue
+(which features more complex 3–4 hop questions) but also outperforms all in-domain baselines
+trained directly on the training subset of MuSiQue.
+RQ4: To what extent does imperfect retrieval affect the end-to-end QA performance?
+HotpotQA MuSiQue 2WikiMQA0
+32.7
+21.6
+47.8
+51.0
+24.8
+55.6
+15.6
+6.2
+23.3
+59.4
+31.3
+55.8
+65.4
+60.5
+68.0
+63.1
+51.0
+75.3
+66.4
+53.4
+93.6
+77.5
+70.7
+LongAlpaca
+LongAlign
+LongReward
+SeaLong
+LongFaith
+CARE
+EviPath (open domain)
+EviPath (distractor)
+Figure 4: End-to-end QA performance (in F1)
+with LLaMA-3.1-8B model under the distractor setting (N/A for KBQA).
+To isolate the impact of retrieval accuracy on endto-end QA performance, we also evaluate EviPathtrained RAG agents in the distractor setting, where
+we use the 20 supporting facts (paragraphs) provided with each test sample to simulate the retrieval results. From Figure 4 we observe that
+when the golden evidence is guaranteed to be included in the retrieval results, the performance
+ceiling rises substantially, underscoring the need
+for developing more advanced retrieval methods.
+In addition, the distractor setting allows us to make
+a direct comparison between EviPath and state-ofthe-art reasoning path synthesis baselines, namely
+LongAlphaca (Chen et al., 2024), LongAlign (Bai
+et al., 2024), LongReward (Zhang et al., 2025a),
+SeaLong (Li et al., 2024), LongFaith (Yang et al., 2025), and CARE (Wang et al., 2025b). The
+double-digit gains demonstrate that while agentic RAG systems are not explicitly designed for the
+distractor setting, they still outperform non-agentic LLMs in long-context reasoning.
+RQ5: How does the capacity of reasoning path generator affect the quality of synthetic reasoning paths and the final question answering performance?To investigate the impact of the underlying LLM’s capacity on the quality of EviPath synthesized trajectories, we generated a new set
+of training data using the Llama-3.1-8B model. From Table 3 we conclude that RAG agents trained
+on reasoning paths synthesized by the 70B Llama model yield better QA performance. However, an
+2QALD-10 does not have a training set.
+
+[TABLE page=9 index=1]
+Columns: 6050 40 | 88 | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5
+Row 1: 6050 40: EM | 88: EM | Unnamed: 0: EM | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: EM
+Row 2: 6050 40: 45 36 | 88: 86 | Unnamed: 0: 57 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5:
+Row 3: 6050 40: F1 | 88: F1 | Unnamed: 0: F1 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: F1
+Row 4: 6050 40: 40 54200 600 1000 1400 1800 32 | 88: 84 200 600 1000 1400 1800 | Unnamed: 0: 200 600 1000 1400 1800 | Unnamed: 1: 200.0 | Unnamed: 2: 600.0 | Unnamed: 3: 1000.0 | Unnamed: 4: 1400.0 | Unnamed: 5: 1800
+[/TABLE]
+
+[PAGE 10]
+Preprint.
+Method Data Synthesis
+LLM
+Data Synthesis
+Mode
+RAG Agent
+Backbone
+HotpotQA 2WikiMQA
+EM F1 EM F1
+Evipath N/A N/A Llama3.1-8B (pt.) 19.5 30.8 57.6 62.3
+Evipath Llama3.1-8B (pt.) Deductive Llama3.1-8B (ft.) 39.7 51.2 80.3 85.7
+Evipath Llama3.1-8B (pt.) Abductive Llama3.1-8B (ft.)50.9 63.5 86.1 90.3
+Table 4: Performance comparison between deductive and abductive reasoning path synthesis. Here,
+“pt.” and “ft.” stand for pre-trained and fine-tuned models, respectively.
+Method Deployment Backbone HotpotQA MuSiQue 2WikiMQA Average
+EM F1 EM F1 EM F1 EM F1
+EviPath Multiple LLMs 2×Llama3.1-8B 53.3 65.9 43.6 53.4 90.2 92.6 62.4 70.6
+EviPath Single LLM Llama3.1-8B53.8 66.4 44.3 54.6 91.3 93.6 62.8 71.3
+Table 5: Question answering performance comparison between different LLM deployment settings.
+8B model is already sufficient to synthesize high-quality reasoning paths that allow a RAG agent to
+attain state-of-the-art performance, demonstrating the robustness of the EviPath paradigm.
+RQ6: How does increasing training data gradually improve QA performance?Figure 5
+shows that model performance scales with the volume of training data during the early stages of
+the SFT process, but the gains exhibit diminishing returns. Moreover, on large datasets like HotpotQA and 2Wiki, training for 2,000 steps (approx. 20,000 examples) achieves performance within
+approximately 1% of that from training on the full dataset. This represents a significant efficiency
+advantage over policy gradient optimization, as it avoids the need for repetitive rollout exploration.
+RQ7: To what extent does abductive reasoning improve the quality of synthetic reasoning
+paths?To isolate the benefit of abductive reasoning, we re-synthesize the reasoning paths using a
+deductive, self-generation approach. In this setup, a Llama-3.1-8B model-based RAG agent is instructed to answer training questions without access to ground-truth answers or supporting facts. The
+results in Table 4 show that SFT offers limited improvement when it primarily reinforces skills and
+knowledge that the LLM already possesses. In contrast, our abductive approach reverse-engineers
+paths from answers and supporting facts, which effectively lowers the dependency on model priors,
+unlocking a significantly higher performance ceiling.
+RQ8: Does deploying the Planner and the Executor modules of a RAG agent to two specialized LLMs outperform the same RAG agent supported by one single LLM?The planner and
+executor modules address distinct aspects of the question answering task. To compare deployment
+strategies, we trained both a single LLM on all data and two specialized LLM on partitioned data.
+As shown in Table 5, the performance difference between the single-LLM and dual-LLM setups is
+modest. The slight advantage of the single-LLM setup suggests a positive transfer learning effect,
+where training on both planning and in-context reasoning tasks is mutually beneficial. This indicates
+that the key to unlocking the potential of small-scale LLMs is not specialization, but the quality of
+the training data.
+6 CONCLUSION
+In this paper, we introduced EviPath, a novel framework that uniquely applies abductive reasoning to
+reverse-engineer complete, evidence-anchored reasoning paths that include explicit task decomposition, retriever use, reasoning thoughts, and intermediate answers. EviPath overcomes the fundamental limitations of outcome-rewarded RL and static CoT trajectory synthesis methods, establishing an
+efficient, data-centric paradigm for RAG agent development. Experiments on commonly adopted
+open-domain QA benchmarks demonstrate that EviPath-synthesized data significantly boosts indomain accuracy and out-of-domain generalization of RAG agents. In the future, we plan to investigate the integration of process-supervised signals with policy gradient optimization methods and
+explore the potential of extending our data synthesis paradigm to other agentic tasks.
+
+[TABLE page=10 index=1]
+Columns: Unnamed: 0 | Data Synthesis | Data Synthesis.1 | RAG Agent | HotpotQA | 2WikiMQA
+Row 1: Unnamed: 0: Method | Data Synthesis: | Data Synthesis.1: | RAG Agent: | HotpotQA: | 2WikiMQA:
+Row 2: Unnamed: 0: | Data Synthesis: LLM | Data Synthesis.1: Mode | RAG Agent: Backbone | HotpotQA: EM F1 | 2WikiMQA: EM F1
+[/TABLE]
+
+[PAGE 11]
+Preprint.
+ETHICSSTATEMENT
+To the best of our knowledge, this work does not involve any discrimination, social bias, or private
+data. All reasoning paths are constructed from open-source datasets and knowledge bases, namely
+Wikidata and Wikipedia.
+REFERENCES
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical
+report.arXiv preprint arXiv:2303.08774, 2023.
+Shengnan An, Zexiong Ma, Zeqi Lin, Nanning Zheng, Jian-Guang Lou, and Weizhu Chen. Make
+your llm fully utilize the context.Advances in Neural Information Processing Systems, 37:62160–
+62188, 2024.
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and Hannaneh Hajishirzi. Self-RAG: Learning
+to retrieve, generate, and critique through self-reflection. InThe Twelfth International Conference on Learning Representations, 2024. URLhttps://openreview.net/forum?id=
+hSyW5go0v8.
+Yushi Bai, Xin Lv, Jiajie Zhang, Yuze He, Ji Qi, Lei Hou, Jie Tang, Yuxiao Dong, and Juanzi
+Li. LongAlign: A recipe for long context alignment of large language models. In Yaser AlOnaizan, Mohit Bansal, and Yun-Nung Chen (eds.),Findings of the Association for Computational Linguistics: EMNLP 2024, pp. 1376–1395, Miami, Florida, USA, November 2024.
+Association for Computational Linguistics. doi: 10.18653/v1/2024.findings-emnlp.74. URL
+https://aclanthology.org/2024.findings-emnlp.74/.
+Chi-Min Chan, Chunpu Xu, Ruibin Yuan, Hongyin Luo, Wei Xue, Yike Guo, and Jie Fu. RQ-RAG:
+Learning to refine queries for retrieval augmented generation. InFirst Conference on Language
+Modeling, 2024. URLhttps://openreview.net/forum?id=tzE7VqsaJ4.
+Yukang Chen, Shengju Qian, Haotian Tang, Xin Lai, Zhijian Liu, Song Han, and Jiaya Jia. LongloRA: Efficient fine-tuning of long-context large language models. InThe Twelfth International
+Conference on Learning Representations, 2024. URLhttps://openreview.net/forum?
+id=6PmJoRfdaK.
+Jeffrey Cheng, Marc Marone, Orion Weller, Dawn Lawrie, Daniel Khashabi, and Benjamin
+Van Durme. Dated data: Tracing knowledge cutoffs in large language models.arXiv preprint
+arXiv:2403.12958, 2024.
+Tianyu Gao, Alexander Wettig, Howard Yen, and Danqi Chen. How to train long-context language models (effectively). In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar (eds.),Proceedings of the 63rd Annual Meeting of the Association for
+Computational Linguistics (Volume 1: Long Papers), pp. 7376–7399, Vienna, Austria, July 2025.
+Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.
+acl-long.366. URLhttps://aclanthology.org/2025.acl-long.366/.
+Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, Haofen
+Wang, and Haofen Wang. Retrieval-augmented generation for large language models: A survey.
+arXiv preprint arXiv:2312.10997, 2, 2023.
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu,
+Shirong Ma, Peiyi Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms
+via reinforcement learning.arXiv preprint arXiv:2501.12948, 2025.
+Bernal Jim´enez Guti´errez, Yiheng Shu, Yu Gu, Michihiro Yasunaga, and Yu Su. Hipporag: Neurobiologically inspired long-term memory for large language models. InThe Thirty-eighth Annual
+Conference on Neural Information Processing Systems, 2024.
+Chuzhan Hao, Wenfeng Feng, Yuewei Zhang, and Hao Wang. Dynasearcher: Dynamic knowledge
+graph augmented search agent via multi-reward reinforcement learning, 2025. URLhttps:
+//arxiv.org/abs/2507.17365.
+
+[PAGE 12]
+Preprint.
+Xanh Ho, Anh-Khoa Duong Nguyen, Saku Sugawara, and Akiko Aizawa. Constructing a multihop QA dataset for comprehensive evaluation of reasoning steps. In Donia Scott, Nuria Bel,
+and Chengqing Zong (eds.),Proceedings of the 28th International Conference on Computational
+Linguistics, pp. 6609–6625, Barcelona, Spain (Online), December 2020. International Committee on Computational Linguistics. doi: 10.18653/v1/2020.coling-main.580. URLhttps:
+//aclanthology.org/2020.coling-main.580/.
+Lei Huang, Weijiang Yu, Weitao Ma, Weihong Zhong, Zhangyin Feng, Haotian Wang, Qianglong
+Chen, Weihua Peng, Xiaocheng Feng, Bing Qin, and Ting Liu. A survey on hallucination in large
+language models: Principles, taxonomy, challenges, and open questions.ACM Trans. Inf. Syst.,
+43(2), January 2025. ISSN 1046-8188. doi: 10.1145/3703155. URLhttps://doi.org/
+10.1145/3703155.
+Jinhao Jiang, Jiayi Chen, Junyi Li, Ruiyang Ren, Shijie Wang, Xin Zhao, Yang Song, and Tao
+Zhang. RAG-star: Enhancing deliberative reasoning with retrieval augmented verification and
+refinement. In Luis Chiruzzo, Alan Ritter, and Lu Wang (eds.),Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers), pp. 7064–7074, Albuquerque,
+New Mexico, April 2025a. Association for Computational Linguistics. ISBN 979-8-89176-1896. URLhttps://aclanthology.org/2025.naacl-long.361/.
+Zhouyu Jiang, Mengshu Sun, Lei Liang, and Zhiqiang Zhang. Retrieve, summarize, plan: Advancing multi-hop question answering with an iterative approach, 2025b. URLhttps://arxiv.
+org/abs/2407.13101.
+Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and
+Jiawei Han. Search-r1: Training llms to reason and leverage search engines with reinforcement
+learning, 2025. URLhttps://arxiv.org/abs/2503.09516.
+John R Josephson and Susan G Josephson.Abductive inference: Computation, philosophy, technology. Cambridge University Press, 1996.
+Tushar Khot, Harsh Trivedi, Matthew Finlayson, Yao Fu, Kyle Richardson, Peter Clark, and
+Ashish Sabharwal. Decomposed prompting: A modular approach for solving complex tasks.
+InThe Eleventh International Conference on Learning Representations, 2023. URLhttps:
+//openreview.net/forum?id=_nGgzQjzaRy.
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal,
+Heinrich K ¨uttler, Mike Lewis, Wen-tau Yih, Tim Rockt ¨aschel, Sebastian Riedel, and Douwe
+Kiela. Retrieval-augmented generation for knowledge-intensive nlp tasks. InProceedings of the
+34th International Conference on Neural Information Processing Systems, NIPS ’20, Red Hook,
+NY , USA, 2020. Curran Associates Inc. ISBN 9781713829546.
+Xiaoxi Li, Guanting Dong, Jiajie Jin, Yuyao Zhang, Yujia Zhou, Yutao Zhu, Peitian Zhang, and
+Zhicheng Dou. Search-o1: Agentic search-enhanced large reasoning models, 2025. URL
+https://arxiv.org/abs/2501.05366.
+Yanyang Li, Shuo Liang, Michael Lyu, and Liwei Wang. Making long-context language models better multi-hop reasoners. In Lun-Wei Ku, Andre Martins, and Vivek Srikumar (eds.),Proceedings
+of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long
+Papers), pp. 2462–2475, Bangkok, Thailand, August 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.acl-long.135. URLhttps://aclanthology.org/2024.
+acl-long.135/.
+Haoran Luo, Haihong E, Guanting Chen, Qika Lin, Yikai Guo, Fangzhi Xu, Zemin Kuang, Meina
+Song, Xiaobao Wu, Yifan Zhu, and Luu Anh Tuan. Graph-r1: Towards agentic graphrag framework via end-to-end reinforcement learning, 2025. URLhttps://arxiv.org/abs/2507.
+21892.
+Shengyu Mao, Yong Jiang, Boli Chen, Xiao Li, Peng Wang, Xinyu Wang, Pengjun Xie, Fei Huang,
+Huajun Chen, and Ningyu Zhang. RaFe: Ranking feedback improves query rewriting for RAG.
+In Yaser Al-Onaizan, Mohit Bansal, and Yun-Nung Chen (eds.),Findings of the Association for
+
+[PAGE 13]
+Preprint.
+Computational Linguistics: EMNLP 2024, pp. 884–901, Miami, Florida, USA, November 2024.
+Association for Computational Linguistics. doi: 10.18653/v1/2024.findings-emnlp.49. URL
+https://aclanthology.org/2024.findings-emnlp.49/.
+Timo Schick, Jane Dwivedi-Yu, Roberto Dess `ı, Roberta Raileanu, Maria Lomeli, Eric Hambro,
+Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. Toolformer: Language models can
+teach themselves to use tools.Advances in Neural Information Processing Systems, 36:68539–
+68551, 2023.
+Zhihong Shao, Yeyun Gong, Yelong Shen, Minlie Huang, Nan Duan, and Weizhu Chen. Enhancing retrieval-augmented large language models with iterative retrieval-generation synergy.
+In Houda Bouamor, Juan Pino, and Kalika Bali (eds.),Findings of the Association for Computational Linguistics: EMNLP 2023, pp. 9248–9274, Singapore, December 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.findings-emnlp.620. URLhttps:
+//aclanthology.org/2023.findings-emnlp.620/.
+Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang,
+Mingchuan Zhang, YK Li, Y Wu, et al. Deepseekmath: Pushing the limits of mathematical
+reasoning in open language models.arXiv preprint arXiv:2402.03300, 2024.
+Huatong Song, Jinhao Jiang, Yingqian Min, Jie Chen, Zhipeng Chen, Wayne Xin Zhao, Lei Fang,
+and Ji-Rong Wen. R1-searcher: Incentivizing the search capability in llms via reinforcement
+learning, 2025a. URLhttps://arxiv.org/abs/2503.05592.
+Huatong Song, Jinhao Jiang, Wenqing Tian, Zhipeng Chen, Yuhuan Wu, Jiahao Zhao, Yingqian
+Min, Wayne Xin Zhao, Lei Fang, and Ji-Rong Wen. R1-searcher++: Incentivizing the dynamic
+knowledge acquisition of llms via reinforcement learning, 2025b. URLhttps://arxiv.
+org/abs/2505.17005.
+Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. MuSiQue: Multihop questions via single-hop question composition.Transactions of the Association for Computational Linguistics, 2022.
+Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot, and Ashish Sabharwal. Interleaving retrieval with chain-of-thought reasoning for knowledge-intensive multi-step questions. In Anna
+Rogers, Jordan Boyd-Graber, and Naoaki Okazaki (eds.),Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pp. 10014–10037,
+Toronto, Canada, July 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.
+acl-long.557. URLhttps://aclanthology.org/2023.acl-long.557/.
+Ricardo Usbeck, Xi Yan, Aleksandr Perevalov, Longquan Jiang, Julius Schulz, Angelie Kraft,
+Cedric M ¨oller, Junbo Huang, Jan Reineke, Axel-Cyrille Ngonga Ngomo, Muhammad Saleem,
+and Andreas Both. Qald-10 – the 10th challenge on question answering over linked data: Shifting from dbpedia to wikidata as a kg for kgqa.Semantic Web, 15(6):2193–2207, 2024. doi:
+10.3233/SW-233471. URLhttps://journals.sagepub.com/doi/abs/10.3233/
+SW-233471.
+Denny Vrandeˇci´c and Markus Kr ¨otzsch. Wikidata: A free collaborative knowledgebase.Commun.
+ACM, 57(10):78–85, sep 2014. ISSN 0001-0782. doi: 10.1145/2629489. URLhttps://doi.
+org/10.1145/2629489.
+Jinyuan Wang, Junlong Li, and Hai Zhao. Self-prompted chain-of-thought on large language models for open-domain multi-hop reasoning. In Houda Bouamor, Juan Pino, and Kalika Bali (eds.),
+Findings of the Association for Computational Linguistics: EMNLP 2023, pp. 2717–2731, Singapore, December 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.
+findings-emnlp.179. URLhttps://aclanthology.org/2023.findings-emnlp.
+179/.
+Nan Wang, Yongqi Fan, yansha zhu, ZongYu Wang, Xuezhi Cao, Xinyan He, Haiyun Jiang, Tong
+Ruan, and Jingping Liu. Kg-o1: Enhancing multi-hop question answering in large language
+models via knowledge graph integration, 2025a. URLhttps://arxiv.org/abs/2508.
+15790.
+
+[PAGE 14]
+Preprint.
+Suyuchen Wang, Jinlin Wang, Xinyu Wang, Shiqi Li, Xiangru Tang, Sirui Hong, Xiao-Wen Chang,
+Chenglin Wu, and Bang Liu. Improving context fidelity via native retrieval-augmented reasoning. InICML 2025 Workshop on Long-Context Foundation Models, 2025b. URLhttps:
+//openreview.net/forum?id=qTsU1QLOph.
+Xinyu Wang, Jijun Chi, Zhenghan Tai, Tung Sum Thomas Kwok, Muzhi Li, Zhuhong Li, Hailin
+He, Yuchen Hua, Peng Lu, Suyuchen Wang, Yihong Wu, Jerry Huang, Jingrui Tian, Fengran
+Mo, Yufei Cui, and Ling Zhou. Finsage: A multi-aspect rag system for financial filings question
+answering, 2025c. URLhttps://arxiv.org/abs/2504.14493.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed H. Chi,
+Quoc V . Le, and Denny Zhou. Chain-of-thought prompting elicits reasoning in large language
+models. InProceedings of the 36th International Conference on Neural Information Processing
+Systems, NIPS ’22, Red Hook, NY , USA, 2022. Curran Associates Inc. ISBN 9781713871088.
+Yihong Wu, Liheng Ma, Muzhi Li, Jiaming Zhou, Jianye Hao, Ho fung Leung, Irwin King, Yingxue
+Zhang, and Jian-Yun Nie. Reinforcing question answering agents with minimalist policy gradient
+optimization, 2025. URLhttps://arxiv.org/abs/2505.17086.
+Guangzhi Xiong, Qiao Jin, Xiao Wang, Yin Fang, Haolin Liu, Yifan Yang, Fangyuan Chen, Zhixing
+Song, Dengyu Wang, Minjia Zhang, Zhiyong Lu, and Aidong Zhang. Rag-gym: Optimizing
+reasoning and search agents with process supervision, 2025. URLhttps://arxiv.org/
+abs/2502.13957.
+Wenhan Xiong, Jingyu Liu, Igor Molybog, Hejia Zhang, Prajjwal Bhargava, Rui Hou, Louis Martin, Rashi Rungta, Karthik Abinav Sankararaman, Barlas Oguz, Madian Khabsa, Han Fang,
+Yashar Mehdad, Sharan Narang, Kshitiz Malik, Angela Fan, Shruti Bhosale, Sergey Edunov,
+Mike Lewis, Sinong Wang, and Hao Ma. Effective long-context scaling of foundation models. In Kevin Duh, Helena Gomez, and Steven Bethard (eds.),Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human
+Language Technologies (Volume 1: Long Papers), pp. 4643–4663, Mexico City, Mexico, June
+2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.naacl-long.260. URL
+https://aclanthology.org/2024.naacl-long.260/.
+Ran Xu, Wenqi Shi, Yuchen Zhuang, Yue Yu, Joyce C. Ho, Haoyu Wang, and Carl Yang. Collabrag: Boosting retrieval-augmented generation for complex question answering via white-box and
+black-box llm collaboration, 2025. URLhttps://arxiv.org/abs/2504.04915.
+Cehao Yang, Xueyuan Lin, Chengjin Xu, Xuhui Jiang, Shengjie Ma, Aofan Liu, Hui Xiong, and
+Jian Guo. Longfaith: Enhancing long-context reasoning in llms with faithful synthetic data.
+arXiv preprint arXiv:2502.12583, 2025.
+Diji Yang, Jinmeng Rao, Kezhen Chen, Xiaoyuan Guo, Yawen Zhang, Jie Yang, and Yi Zhang.
+Im-rag: Multi-round retrieval-augmented generation through learning inner monologues. In
+Proceedings of the 47th International ACM SIGIR Conference on Research and Development
+in Information Retrieval, SIGIR ’24, pp. 730–740, New York, NY , USA, 2024. Association
+for Computing Machinery. ISBN 9798400704314. doi: 10.1145/3626772.3657760. URL
+https://doi.org/10.1145/3626772.3657760.
+Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William W Cohen, Ruslan Salakhutdinov,
+and Christopher D Manning. Hotpotqa: A dataset for diverse, explainable multi-hop question
+answering.arXiv preprint arXiv:1809.09600, 2018.
+Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan
+Cao. React: Synergizing reasoning and acting in language models. InThe Eleventh International
+Conference on Learning Representations, 2023. URLhttps://openreview.net/forum?
+id=WE_vluYUL-X.
+Wenhao Yu, Dan Iter, Shuohang Wang, Yichong Xu, Mingxuan Ju, Soumya Sanyal, Chenguang
+Zhu, Michael Zeng, and Meng Jiang. Generate rather than retrieve: Large language models are
+strong context generators, 2023. URLhttps://arxiv.org/abs/2209.10063.
+
+[PAGE 15]
+Preprint.
+Zhenrui Yue, Honglei Zhuang, Aijun Bai, Kai Hui, Rolf Jagerman, Hansi Zeng, Zhen Qin, Dong
+Wang, Xuanhui Wang, and Michael Bendersky. Inference scaling for long-context retrieval augmented generation, 2025. URLhttps://arxiv.org/abs/2410.04343.
+Jiahao Zhang, Haiyang Zhang, Dongmei Zhang, Liu Yong, and Shen Huang. End-to-end beam retrieval for multi-hop question answering. In Kevin Duh, Helena Gomez, and Steven Bethard
+(eds.),Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers),
+pp. 1718–1731, Mexico City, Mexico, June 2024a. Association for Computational Linguistics. doi: 10.18653/v1/2024.naacl-long.96. URLhttps://aclanthology.org/2024.
+naacl-long.96/.
+Jiajie Zhang, Zhongni Hou, Xin Lv, Shulin Cao, Zhenyu Hou, Yilin Niu, Lei Hou, Yuxiao Dong,
+Ling Feng, and Juanzi Li. LongReward: Improving long-context large language models with AI
+feedback. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar
+(eds.),Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics
+(Volume 1: Long Papers), pp. 3718–3739, Vienna, Austria, July 2025a. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.187. URL
+https://aclanthology.org/2025.acl-long.187/.
+Kexin Zhang, Junlan Chen, Daifeng Li, Yuxuan Zhang, Yangyang Feng, Bowen Deng, and Weixu
+Chen. Two-way evidence self-alignment based dual-gated reasoning enhancement, 2025b. URL
+https://arxiv.org/abs/2505.16806.
+Tianjun Zhang, Shishir G Patil, Naman Jain, Sheng Shen, Matei Zaharia, Ion Stoica, and Joseph E.
+Gonzalez. RAFT: Adapting language model to domain specific RAG. InFirst Conference on Language Modeling, 2024b. URLhttps://openreview.net/forum?id=rzQGHXNReU.
+Xiangyu Zhang, Yu Zhou, Guang Yang, and Taolue Chen. Syntax-aware retrieval augmented code
+generation. In Houda Bouamor, Juan Pino, and Kalika Bali (eds.),Findings of the Association for Computational Linguistics: EMNLP 2023, pp. 1291–1302, Singapore, December 2023.
+Association for Computational Linguistics. doi: 10.18653/v1/2023.findings-emnlp.90. URL
+https://aclanthology.org/2023.findings-emnlp.90/.
+Yaowei Zheng, Richong Zhang, Junhao Zhang, Yanhan Ye, Zheyan Luo, Zhangchi Feng, and
+Yongqiang Ma. Llamafactory: Unified efficient fine-tuning of 100+ language models. InProceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume
+3: System Demonstrations), Bangkok, Thailand, 2024. Association for Computational Linguistics. URLhttp://arxiv.org/abs/2403.13372.
+Jiachen Zhu, Congmin Zheng, Jianghao Lin, Kounianhua Du, Ying Wen, Yong Yu, Jun Wang,
+and Weinan Zhang. Retrieval-augmented process reward model for generalizable mathematical
+reasoning. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pilehvar
+(eds.),Findings of the Association for Computational Linguistics: ACL 2025, pp. 8453–8468,
+Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-2565. doi: 10.18653/v1/2025.findings-acl.444. URLhttps://aclanthology.org/2025.
+findings-acl.444/.
+Ziyuan Zhuang, Zhiyang Zhang, Sitao Cheng, Fangkai Yang, Jia Liu, Shujian Huang, Qingwei
+Lin, Saravan Rajmohan, Dongmei Zhang, and Qi Zhang. EfficientRAG: Efficient retriever for
+multi-hop question answering. In Yaser Al-Onaizan, Mohit Bansal, and Yun-Nung Chen (eds.),
+Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing,
+pp. 3392–3411, Miami, Florida, USA, November 2024. Association for Computational Linguistics. doi: 10.18653/v1/2024.emnlp-main.199. URLhttps://aclanthology.org/2024.
+emnlp-main.199/.
+
+[PAGE 16]
+Preprint.
+A EXTENDEDRELATEDWORKS
+A.1 RAG AGENTS FORQA
+RAG agents couple large language models (LLMs) with iterative search to solve knowledgeintensive question answering (QA). While modern LLMs exhibit strong reasoning capabilities, they
+still suffer from knowledge hallucinations, motivating the use of external evidence via retrieval
+(Achiam et al., 2023; Cheng et al., 2024; Huang et al., 2025; Gao et al., 2023). Two integration
+patterns dominate: (i)pipeline RAG, which retrieves once (or in a few rounds) and feeds the concatenated passages to the LLMs (Lewis et al., 2020; Gao et al., 2023), and (ii)tool-augmented
+retrieval, where the model plans, calls tools, and verifies in a closed loop. The former is simple yet
+often under-recovers multi-hop evidence, a common failure mode in open-domain QA benchmarks
+such as HotpotQA (Yang et al., 2018), 2WikiMultiHopQA (Ho et al., 2020), and MuSiQue (Trivedi
+et al., 2022). The latter explicitly interleaves reasoning with retrieval and tool use: ReAct (Yao
+et al., 2023) and IRCoT (Trivedi et al., 2023) guide iterative search with chain-of-thought reasoning; Schick et al. (2023) imparts API/tool usage via supervised fine-tuning; SelfRAG (Asai
+et al., 2024) and Iter-RetGen (Shao et al., 2023) include reflection into the RAG synergy. Recent
+approaches further scale agentic QA through learned inner monologues and process signals, IMRAG introduces mid-step rewards for multi-round search (Yang et al., 2024), RAG-Gym provides a
+process-supervised environment for optimizing search agents (Xiong et al., 2025), Collab-RAG coordinates white-/black-box LLMs for complex QA (Xu et al., 2025), while RAG-Star augments treestyle deliberation with retrieval-aware verification (Jiang et al., 2025a). In parallel, Search-o1 (Li
+et al., 2025) decomposes the high-level planning and low-level in-document reasoning into different
+modules. Recently, Search-R1 (Jin et al., 2025), R1-searcher Song et al. (2025a), and MujicaMyGO (Wu et al., 2025) propose leveraging policy gradient optimization approaches to improve
+the reasoning capability of QA agents. Orthogonal advances strengthen the retrieval side, including
+query reformulation for RAG system (Chan et al., 2024; Mao et al., 2024) and end-to-end multi-hop
+retrievers that maintain passage hypotheses across hops (Zhang et al., 2024a). Graph-R1 (Luo et al.,
+2025), KG-o1 (Wang et al., 2025a) and DynaSearcher (Hao et al., 2025) further utilize knowledge
+graphs to improve the precision and relevance of retrieved contexts. Collectively, agentic RAG for
+QA has progressed from one-shot “retrieve-and-read” to interactive planning, tool-use, and verification. However, existing state-of-the-art approaches still rely on outcome rewards (Song et al.,
+2025a; Wu et al., 2025; Hao et al., 2025) or prompt-level heuristics (Li et al., 2025) and seldom exposeevidence-anchored, stepwisetrajectories that align question decomposition, tool invocations,
+and intermediate verification precisely with the training signal our work targets.
+A.2 REASONINGPATHSYNTHESIS
+Enhancing the reasoning capabilities of LLMs has garnered significant attention, driving the development of data synthesis methods (Wang et al., 2023; Xiong et al., 2024; Bai et al., 2024; Yang
+et al., 2025). Earlier approaches like GENREAD (Yu et al., 2023) and SP-CoT (Wang et al., 2023)
+focus on replacing retrieval with model-generated retrieval, but the synthesized reasoning paths are
+not grounded in evidence and thus remain vulnerable to hallucination. More recent works line in
+improving the long-context processing capabilities of LLMs by constructing continued pretraining
+data Xiong et al. (2024); Gao et al. (2025), concatenating context segments into long training sequences to address the lost-in-the-middle problem (An et al., 2024), or generating step-wise CoT
+trajectories to answer complex, multi-hop questions (Bai et al., 2024). In order to make the reasoning trajectories faithful and grounded, LongFaith (Yang et al., 2025) proposes to include reasoning
+thoughts with chains of golden evidence citations, which effectively alleviates hallucinations and
+achieves desirable results. Nevertheless, these approaches focus on generating the chain-of-thought
+reasoning steps based on the fixed contexts, failing to guide the training of RAG agents that necessitate environment interactions.
+B DATASETSTATISTICS
+We conduct our main experiments on three multi-hop QA datasets, including text-based benchmarks HotpotQA (Yang et al., 2018) and MuSiQue (Trivedi et al., 2022), and KBQA benchmark
+2WikiMultihopQA (Ho et al., 2020). In our ablation studies, we also include another KBQA dataset
+
+[TABLE page=16 index=1]
+Columns: query reformulation for RAG system (Chan et al., 2024; Mao et al., 2024) and end-to-end multi-hop
+Row 1: query reformulation for RAG system (Chan et al., 2024; Mao et al., 2024) and end-to-end multi-hop: retrievers that maintain passage hypotheses across hops (Zhang et al., 2024a). Graph-R1 (Luo et al.
+Row 2: query reformulation for RAG system (Chan et al., 2024; Mao et al., 2024) and end-to-end multi-hop: 2025), KG-o1 (Wang et al., 2025a) and DynaSearcher (Hao et al., 2025) further utilize knowledge
+[/TABLE]
+
+[PAGE 17]
+Preprint.
+Datasets #Train #Dev #Test #Hops Corpus
+HotpotQA 90447 7405 7405 2 Text
+MuSiQue 19938 2417 2459 2-4 Text
+2WikiMultihopQA 167454 12576 12576 2-5 Text and KG
+QALD-10 - 394 - 1-2 KG
+Table 6: Statistics of Datasets
+QALD-10 (Usbeck et al., 2024) for out-of-domain evaluation. Table 6 shows the detailed statistics
+for all four datasets.
+C BASELINES
+We compare our proposed method EviPath with a comprehensive set of24baseline methods, including vanilla CoT (Wei et al., 2022), and RAG (Lewis et al., 2020), iterative RAG pipelines such as
+DecomP (Khot et al., 2023), RAFT (Zhang et al., 2024b), RaFe (Mao et al., 2024), Iter-RetGen (Shao
+et al., 2023), HippoRAG (Guti´errez et al., 2024), IRCoT Trivedi et al. (2023), RQ-RAG (Chan et al.,
+2024), ReSP (Jiang et al., 2025b), IterDRAG (Yue et al., 2025) and EfficientRAG (Zhuang et al.,
+2024), RAG agents such as Search-o1 (Li et al., 2025), RAG-Gym Xiong et al. (2025), Search-R1 (Li
+et al., 2025), Collab-RAG (Xu et al., 2025), RAG-Star Jiang et al. (2025a), R1-Searcher (Song et al.,
+2025a), Mujica-MyGO (Wu et al., 2025) and concurrent works such as R1-Searcher++ (Song et al.,
+2025b), DynaSearcher (Hao et al., 2025), KG-o1 (Wang et al., 2025a), ESA-KGR (Zhang et al.,
+2025b), and Graph-R1 (Luo et al., 2025).
+D EVALUATIONMETRICS
+We examine the performance of EviPath and all baseline methods using the Exact Match (EM) ratio
+and token-level F1 scores. EM measures the fraction of predicted answersˆythat are identical to
+ground truth answersyafter normalization. For a development setD dev, the EM ratio is calculated
+as:
+EM=
+|Ddev|X
+i=1
+1(norm(ˆyi) =norm(y i)),(8)
+where1(·)is the indicator function. The norm(·)function lowercases text and removes articles,
+punctuation, and leading/trailing spaces. Similarly, we can calculate the F1 ratio as follows:
+F1 =
+|Ddev|X
+i=1
+2·p i ·r i
+pi +r i
+,(9)
+wherep i = |T(norm( ˆyi))∩T(norm(y i))|
+|T(norm( ˆyi))| ,
+ri = |T(norm( ˆyi))∩T(norm(y i))|
+|T(norm(y i))| .
+Here,p i andr i denote the token-level precision and token-level recall for thei-th development set
+question, respectively.T(·)denotes the tokenization process.
+E IMPLEMENTATIONDETAILS
+We examine the effectiveness of our proposed method by fine-tuning four instruction-tuned LLMs
+with different scales:Qwen2.5-7B,LLaMA 3.2-1B,LLaMA 3.2-3B, andLLaMA 3.1-8B.
+During evaluation, we adopt the “open-domain” setting, where the agent is required to retrieve
+relevant information from the external environment. For the HotpotQA dataset, we adopt the official Wikipedia dump associated to the dataset as our retrieval corpus. For MuSiQue, we form
+
+[TABLE page=17 index=1]
+Columns: ing vanilla CoT (Wei et al., 2022), and RAG (Lewis et al., 2020), iterative RAG pipelines such as
+Row 1: ing vanilla CoT (Wei et al., 2022), and RAG (Lewis et al., 2020), iterative RAG pipelines such as: DecomP (Khot et al., 2023), RAFT (Zhang et al., 2024b), RaFe (Mao et al., 2024), Iter-RetGen (Shao
+Row 2: ing vanilla CoT (Wei et al., 2022), and RAG (Lewis et al., 2020), iterative RAG pipelines such as: et al., 2023), HippoRAG (Gutiérrez et al., 2024), IRCoT Trivedi et al. (2023), RQ-RAG (Chan et al.,
+Row 3: ing vanilla CoT (Wei et al., 2022), and RAG (Lewis et al., 2020), iterative RAG pipelines such as: 2024), ReSP (Jiang et al., 2025b), IterDRAG (Yue et al., 2025) and EfficientRAG (Zhuang et al.,
+Row 4: ing vanilla CoT (Wei et al., 2022), and RAG (Lewis et al., 2020), iterative RAG pipelines such as: 2024), RAG agents such as Search-o1 (Li et al., 2025), RAG-Gym Xiong et al. (2025), Search-R1 (Li
+[/TABLE]
+
+[TABLE page=17 index=2]
+Columns: DecomP (Khot et al., 2023), RAFT (Zhang et al., 2024b), RaFe (Mao et al., 2024), Iter-RetGen (Shao
+Row 1: DecomP (Khot et al., 2023), RAFT (Zhang et al., 2024b), RaFe (Mao et al., 2024), Iter-RetGen (Shao: et al., 2023), HippoRAG (Gutiérrez et al., 2024), IRCoT Trivedi et al. (2023), RQ-RAG (Chan et al.
+Row 2: DecomP (Khot et al., 2023), RAFT (Zhang et al., 2024b), RaFe (Mao et al., 2024), Iter-RetGen (Shao: 2024), ReSP (Jiang et al., 2025b), IterDRAG (Yue et al., 2025) and EfficientRAG (Zhuang et al.
+Row 3: DecomP (Khot et al., 2023), RAFT (Zhang et al., 2024b), RaFe (Mao et al., 2024), Iter-RetGen (Shao: 2024), RAG agents such as Search-o1 (Li et al., 2025), RAG-Gym Xiong et al. (2025), Search-R1 (L
+Row 4: DecomP (Khot et al., 2023), RAFT (Zhang et al., 2024b), RaFe (Mao et al., 2024), Iter-RetGen (Shao: et al., 2025), Collab-RAG (Xu et al., 2025), RAG-Star Jiang et al. (2025a), R1-Searcher (Song et al.
+Row 5: DecomP (Khot et al., 2023), RAFT (Zhang et al., 2024b), RaFe (Mao et al., 2024), Iter-RetGen (Shao: 2025a), Mujica-MyGO (Wu et al., 2025) and concurrent works such as R1-Searcher++ (Song et al.
+Row 6: DecomP (Khot et al., 2023), RAFT (Zhang et al., 2024b), RaFe (Mao et al., 2024), Iter-RetGen (Shao: 2025b), DynaSearcher (Hao et al., 2025), KG-o1 (Wang et al., 2025a), ESA-KGR (Zhang et al.
+[/TABLE]
+
+[TABLE page=17 index=3]
+Columns: et al., 2025), Collab-RAG (Xu et al., 2025), RAG-Star Jiang et al. (2025a), R1-Searcher (Song et al.
+Row 1: et al., 2025), Collab-RAG (Xu et al., 2025), RAG-Star Jiang et al. (2025a), R1-Searcher (Song et al.: 2025a), Mujica-MyGO (Wu et al., 2025) and concurrent works such as R1-Searcher++ (Song et al.
+Row 2: et al., 2025), Collab-RAG (Xu et al., 2025), RAG-Star Jiang et al. (2025a), R1-Searcher (Song et al.: 2025b), DynaSearcher (Hao et al., 2025), KG-o1 (Wang et al., 2025a), ESA-KGR (Zhang et al.
+Row 3: et al., 2025), Collab-RAG (Xu et al., 2025), RAG-Star Jiang et al. (2025a), R1-Searcher (Song et al.: 2025b), and Graph-R1 (Luo et al., 2025).
+[/TABLE]
+
+[TABLE page=17 index=4]
+Columns: Datasets | #Train | #Dev | #Test | #Hops | Corpus
+Row 1: Datasets: HotpotQA | #Train: 90447 | #Dev: 7405 | #Test: 7405 | #Hops: 2 | Corpus: Text
+Row 2: Datasets: MuSiQue | #Train: 19938 | #Dev: 2417 | #Test: 2459 | #Hops: 2-4 | Corpus: Text
+Row 3: Datasets: 2WikiMultihopQA | #Train: 167454 | #Dev: 12576 | #Test: 12576 | #Hops: 2-5 | Corpus: Text and KG
+Row 4: Datasets: QALD-10 | #Train: - | #Dev: 394 | #Test: - | #Hops: 1-2 | Corpus: KG
+[/TABLE]
+
+[PAGE 18]
+Preprint.
+a large retrieval corpus by aggregating all supporting passages associated with each question following the convention of baseline methods (Trivedi et al., 2023). As for 2Wiki and QALD10, we utilize the official APIs provided by Wikidata (Vrande ˇci´c & Kr ¨otzsch, 2014). We adopt
+bge-large-en-v1.5as the retriever in all of our experiments.
+All of our experiments are conducted on 4 GPUs, each equipped with 80GB VRAM. We leverage
+the vLLM framework for accelerated inference during reasoning-path synthesis, using a tensorparallel size of4. We train all backbone LLMs with full-parameter fine-tuning using LLaMAFactory (Zheng et al., 2024). Specific hyperparameters are detailed in Table 7.
+Hyperparameters Settings
+Thresholdτ0.9
+SFT learning rate 2e-6
+Per-device batch size 2
+Gradient accumulation step 8
+# Epochs2
+Warmup ratio0.1
+Table 7: Hyperparameter settings.
+
+[PAGE 19]
+Preprint.
+F PROMPTTEMPLATES OFDATASYNTHESIS
+Table 8: Data synthesis prompt template for the planner module
+## System Prompts ##
+Your task is to provide a reasoning path to answer a complex question.
+You will be given a question, the answer of the question, and supporting evidence to obtain the
+answer.
+You need to:
+1. Make a plan about how to answer this question by decompose it into multiple steps.
+2. Solve the problem in a step-by-step manner.
+Put your thoughts between<think>and</think>tags.
+You can use theSearch(entity, "question")function to get information.
+Extract candidate entity from the intermediate subquestions with[X].
+Label the final answer with<answer> *** </answer>.
+## User ##
+Question: Which film has the director born earlier, Ek Paheli or When Father Was Away On
+Business?
+Answer: Ek Paheli
+Supporting evidences:
+(Ek Paheli, director, Naresh Kumar)
+(When Father Was Away on Business, director, Emir Kusturica)
+(Naresh Kumar (tennis), date of birth, 22 December 1928)
+(Emir Kusturica, date of birth, 24 November 1954)
+Question: Which film has the director born earlier, Ek Paheli or When Father Was Away On
+Business? Candidate: [0] Ek Paheli, [1] When Father Was Away On Business
+Answer: Ek Paheli
+## Assistant ##
+<think>
+To solve this problem, I need to:
+1. Find the director of film Ek Paheli.
+2. Find the director of film When Father Was Away On Business.
+3. Figure out the date of birth of the director of Ek Paheli.
+4. Figure out the date of birth of the director of When Father Was Away On Business.
+5. Compare their dates of birth to determine which director was born earlier.
+</think>
+<action>
+Search([0], ”Who is the director of Ek Paheli?”)
+Search([1], ”Who is the director of When Father Was Away On Business?”)
+</action>
+## User ##
+Observation:
+The director of Ek Paheli is Naresh Kumar. Candidate: [2] Naresh Kumar
+The director of When Father Was Away On Business is Emir Kusturica. Candidate: [3] Emir
+Kusturica
+## Assistant ##
+<think>
+Now that I have the directors of both films, I need to find their dates of birth.
+</think>
+<action>
+Search([2], ”What is the date of birth of Naresh Kumar?”)
+Search([3], ”What is the date of birth of Emir Kusturica?”)
+</action>
+Continued on next page...
+
+[PAGE 20]
+Preprint.
+Table 8: Data synthesis prompt template for the Planner module (continued)
+## User ##
+Observation:
+Naresh Kumar was born on 22 December 1928.
+Emir Kusturica was born on 24 November 1954.
+## Assistant ##
+<think>
+Now that I have the birth dates of the two directors. Since Naresh Kumar was born earlier than
+Emir Kusturica, the director of Ek Paheli was born earlier.
+</think
+<answer> Ek Paheli </answer>
+Table 9: Data synthesis prompt template for the Executor module
+## System Prompts ##
+Your task is to provide reasoning path to answer a question based on some supporting evidence.
+Note that there are some disturbance terms within the supporting evidence.
+You will be given a question, the answer of the question, and the index of golden supporting evidence
+to obtain the answer.
+You need to:
+1. Identify the requested information and summarize the information provided in the golden evidence.
+Please put your thoughts between<think>and</think>tags. Please do NOT consider other
+supporting evidence other than the golden evidence.
+2. Identify the index of the ground truth supporting evidence. Put the index between<select>
+and</select>tags.
+3. Summarize the answer with one sentence. Put the answer between<answer>and</answer>
+tags.
+## User ##
+Question: Who is the mother of Xawery˙Zuławski?
+Supporting evidence:
+[0] (Xawery ˙Zuławski, mother, Małgorzata Braunek)
+[1] (Xawery ˙Zuławski, father, Andrzej˙Zuławski)
+[2] (Xawery ˙Zuławski, family, Q63532193)
+[3] (Xawery ˙Zuławski, family name, Q56541485)
+[4] (Xawery ˙Zuławski, spouse, Maria Strzelecka)
+[5] (Xawery ˙Zuławski, date of birth, 1971-12-22T00:00:00Z)
+[6] (Xawery ˙Zuławski, sibling, Vincent Zulawski)
+[7] (Xawery ˙Zuławski, place of birth, Warsaw)
+[8] (Andrzej ˙Zuławski, child, Xawery˙Zuławski)
+[9] (Małgorzata Braunek, child, Xawery˙Zuławski)
+Answer: Małgorzata Braunek
+Golden evidence: [0] (Xawery˙Zuławski, mother, Małgorzata Braunek)
+## Assistant ##
+<think>The question asks me to find the mother of Xawery ˙Zuławski. [0] says Xawery
+˙Zuławski’s mother Małgorzata Braunek.</think>
+<select>[0]</select>
+<answer>The mother of Xawery˙Zuławski is Małgorzata Braunek.</answer>
+
+[PAGE 21]
+Preprint.
+G PROMPTTEMPLATES OFRAG AGENTTRAINING
+Table 10: Planner Prompt Template for text-based multi-hop question answering
+## System Prompts ##
+Your task is to provide a reasoning path to answer a complex question.
+You will be given a question and the answer of the question.
+You need to:
+1. Make a plan about how to answer this question by decompose it into multiple steps.
+2. Solve the problem in a step-by-step manner.
+Put your thoughts between<think>and</think>tags.
+You can use theSearch("question")function to get information from supporting evidence.
+Please note the the content within the Search function should be a question (interrogative sentence).
+When issuing a search query, please refrain from using pronouns like “this”, “these”, etc., and use
+the full entity names instead.
+Label the final answer within<answer>***</answer>.
+## User ##
+Question: When was the institute that owned The Collegian founded?
+## Assistant ##
+<think>
+To solve this problem, I need to:
+1. Find the institute that owned The Collegian.
+2. Figure out when the institute that owns The Collegian was founded.
+Now I need to search the information about The Collegian first.
+</think>
+<action> Search("Which institute owns The Collegian?") </action>
+## User ##
+Obs: The Collegian is owned by Houston Baptist University.
+## Assistant ##
+<think>
+Now that I have the owner of The Collegian, I need to figure out when Houston Baptist University
+was founded.
+</think>
+<action> Search("When was Houston Baptist University founded?")
+</action>
+## User ##
+Obs: Houston Baptist University was founded in 1960.
+## Assistant ##
+<think>
+OK. Now I have all the necessary information to answer the question. The question asking when the
+institute that owned The Collegian was founded.
+</think>
+<answer> 1960 </answer>
+
+[PAGE 22]
+Preprint.
+Table 11: Executor Prompt Template for Text-based Multi-hop Question Answering
+## System Prompts ##
+Your task is to answer a question based on some supporting evidence.
+Note that there are some disturbance terms within the supporting evidence.
+You will be given a question and a list of supporting evidence.
+You need to:
+1. Identify the requested information from the question. Review all supporting evidence, summarize
+the information provided in evidences that support answering the question. Please put your thoughts
+between<think>and</think>tags.
+2. Identify the index of the golden supporting evidence. Put the index between<select>and
+</select>tags. If multiple supporting evidence contain the answer, select all of them. If there
+are no evidence matches, respond with ”No relevant information found.” and do not output any other
+contents.
+3. Summarize the answer with one complete declarative sentence. Put the answer between
+<answer>and</answer>tags.
+Please use the following template:
+<think> ... </think>
+<select> [X] </select>
+<answer> The complete answer sentence. </answer>
+## User ##
+Question: When was magazine LaIsha founded?
+Supporting evidences:
+[0] LaIsha: La´Isha (also known as ”For the Woman”) is an Israeli magazine for girls and boys.
+[1] LaIsha: It has been published on weekly basis since 1947, and is owned by Yedioth Ahronoth
+media group.
+[2] Glamour (magazine): Glamour is a women’s magazine published by Cond´e Nast Publications.
+[3] Glamour (magazine): Founded in 1939 and first published in April 1939 in the United States, it
+was originally called ”Glamour of Hollywood”
+[4] Salt to the Sea: Salt to the Sea is a 2016 historical fiction young adult novel by Ruta Sepetys.
+[5] Salt to the Sea: It tells the story of four individuals in World War II who make their way to the
+ill-fated MV ”Wilhelm Gustloff”.
+[6] Salt to the Sea: The story also touches on the disappearance of The Amber Room, a work of art
+stolen by the Nazis that has never been recovered.
+[7] MV Wilhelm Gustloff: MV ”Wilhelm Gustloff” was a German military transport ship which was
+sunk on 30 January 1945 by in the Baltic Sea while evacuating German civilians, Nazi officials and
+military personnel from Gdynia (Gotenhafen) as the Red Army advanced.
+[8] MV Wilhelm Gustloff: By one estimate, 9,400 people died, which makes it the largest loss of
+life in a single ship sinking in history
+## Assistant ##
+<think>The question asks me to determine when the magazine LaIsha was founded. [1] says the
+magazine LaIsha was founded in 1947.</think>
+<select>[1]</select>
+<answer>LaIsha was founded in 1947.</answer>

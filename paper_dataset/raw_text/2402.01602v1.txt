@@ -1,0 +1,769 @@
+[PAGE 1]
+Foundation Model Sherpas:
+Guiding Foundation Models through Knowledge and Reasoning
+Debarun Bhattacharjya , Junkyu Lee , Don Joven Agravante, Balaji Ganesan and Radu
+Marinescu
+IBM Research
+debarunb@us.ibm.com, {Junkyu.Lee, Don.Joven.R.Agravante}@ibm.com,
+bganesa1@in.ibm.com, radu.marinescu@ie.ibm.com
+Abstract
+Foundation models (FMs) such as large language
+models have revolutionized the field of AI by showing remarkable performance in various tasks. However, they exhibit numerous limitations that prevent
+their broader adoption in many real-world systems,
+which often require a higher bar for trustworthiness and usability. Since FMs are trained using loss
+functions aimed at reconstructing the training corpus in a self-supervised manner, there is no guarantee that the model’s output aligns with users’ preferences for a specific task at hand. In this survey
+paper, we propose a conceptual framework that encapsulates different modes by which agents could
+interact with FMs and guide them suitably for a set
+of tasks, particularly through knowledge augmentation and reasoning. Our framework elucidates
+agent role categories such as updating the underlying FM, assisting with prompting the FM, and
+evaluating the FM output. We also categorize several state-of-the-art approaches into agent interaction protocols, highlighting the nature and extent of
+involvement of the various agent roles. The proposed framework provides guidance for future directions to further realize the power of FMs in practical AI systems.
+1 Introduction
+Foundation Models (FMs) and in particular Large Language
+Models (LLMs) have revolutionized AI [Bommasani et al.,
+2021; Han et al., 2021]. They are currently at the core of several products that touch millions of users on an almost daily
+basis. However, in spite of all their promise, FMs/LLMs are
+known to suffer from important limitations that prevent their
+broader adoption, including lack of traceability, interpretability, formal reasoning, ability to easily incorporate domain
+knowledge, and generalizability to new environments.
+To alleviate some of the well-known issues with FMs, there
+has been a trend towards trying to ensurealignment of FMs –
+a term borrowed from the AI safety literature [Amodei et al.,
+2016]. Since FMs are trained through loss functions that are
+intended to generate the training corpus in a self-supervised
+manner, there is no guarantee that the model’s output aligns
+with users’ preferences for the output, in terms of the task at
+hand. A recent poster child for this general direction is the reinforcement learning with human feedback (RLHF) paradigm
+of ChatGPT, where human feedback is first used to learn reward models of the generated output and subsequently leveraged for generating future output [Stiennon et al., 2020].
+There are however numerous challenges that must be addressed for FMs to be effectively aligned in many practical
+systems. Firstly, there may be multiple users and user personas that interact with such systems, and each user (or user
+type) may have different objectives and preferences. Furthermore, datasets that are leveraged for pre-training may be outdated or generally problematic without additional guardrails
+due to concerns such as around bias and privacy. This is
+important in business problems or domains such as healthcare where incorporating domain-specific knowledge in various forms is essential. Another issue is that of robustness;
+practical systems may need to deal with shifting data distributions, and perhaps changing external factors such as regulations. FMs such as LLMs are essentially token generators, and changing the nature of generation by trial-and-error
+approaches through prompt engineering or updating the FM
+through simple human feedback alone is unlikely to yield
+long-lasting performance and build trust.
+In this survey paper, we introduce a conceptual framework
+where agents/modules that interact with FMs behave as sherpas, in the sense of guiding FMs to tackle user-specified tasks.
+We emphasize how such agents can leverage knowledge and
+reasoning in particular. While there are several recent survey papers on related subjects, such as prompt engineering
+in FMs [Liu et al., 2021; Dong et al., 2023], knowledge enablement in FMs [Wei et al., 2021; Zhen et al., 2022; Pan
+et al. , 2023], reasoning in FMs [Huang and Chang, 2023;
+Qiao et al., 2023], and instances of augmentation of FMs [Mialon et al., 2023], our framework differs in that it emphasizes
+the roles played by various agents as they interact with FMs
+to pursue user-specified tasks. Emphasizing an agent’s role
+helps in defining its motivating objectives and goals.
+In the remainder of this paper:
+• We distinguish the scope of our ideas from some ongoing
+efforts that incorporate agents into systems with FMs.
+• We introduce the sherpas framework, which categorizes the
+purpose of various agents, going well beyond the generic
+role of ‘augmentation’. We describe how the specific roles
+arXiv:2402.01602v1 [cs.AI] 2 Feb 2024
+
+[PAGE 2]
+in the framework connect to selected recent work; this distinguishes our survey from other related surveys, which
+typically focus solely on either a specific role (such as involving prompting), or technical approach for augmentation (such as the deployment of knowledge graphs).
+• We show how selected state-of-the-art approaches invoke
+a combination of some of the agent roles from the framework, through a categorization based on the extent of formal reasoning involved. We also highlight further opportunities for new types of interaction and collaboration between agents, with or without human involvement.
+• We briefly motivate a vision for a future where the proposed
+guiding agents are truly autonomous agents rather than system modules, in that they exhibit key behavior such as being proactive, reactive, interactive, and collaborative.
+While our exposition hinges primarily around LLMs, the
+ideas apply generally to all FMs. This includes models
+trained on other data modalities beyond text, such as images,
+video, audio, code, tabular data, knowledge graphs, time series data, spatiotemporal data, and even multi-modal data.
+2 Agents and Foundation Models
+There is an increasing interest in work at the intersection of
+agent-based perspectives and systems incorporating FMs. For
+instance, an approach inspired by Minsky’s ‘society of minds’
+leverages multiple language model instances (or agents) that
+individually propose and jointly debate their responses and
+reasoning processes to arrive at an answer [Du et al., 2023].
+Another approach pursues a communicative agent framework called “role playing” that utilizes inception prompting
+to guide chat agents in task completion, generating conversational data for studying multi-agent cooperative behaviors [Li
+et al., 2023a].
+Recent strides have also been made inorchestration frameworks, which seamlessly integrate FMs into various applications and workflows. An example is Langchain [Chase,
+2022], which enables systems that couple LLMs with tools
+and APIs such as code execution and knowledge retrieval.
+Another recent software framework effort that complements
+our own vision is AutoGen [Wu et al., 2023] – a programmatic orchestration layer that allows developers to build FMbased applications using a collection of ‘agents’ to solve
+tasks more effectively. These agents can operate in various
+modes and involve combinations of several different LLMs,
+human input, as well as employ tools and APIs (similar to
+Langchain). Our perspective here is consistent with these
+frameworks but also emphasizes agent roles beyond that of
+orchestration. Furthermore, we stress the autonomy of agents
+and what we consider to be desirable agent-like behavior; we
+do not regard tools/APIs to be agents in that sense, unlike
+these other frameworks.
+3 Agent Roles in the Sherpas Framework
+Figure 1 depicts components of the sherpas framework, distinguishing between various types of agents in how they guide
+an FM as it addresses a set of tasks. In general, a task is executed as follows: an input (prompt) such as a sequence of
+words is provided to an FM, which is invoked to generate an
+output (completion), which may be subsequently evaluated
+or otherwise processed. Solving a task may require multiple
+FM calls, and there may be an opportunity to leverage external knowledge and/or reasoning via one or more sherpas. In
+the remainder of this section, we categorize sherpa roles in
+the task-solving process and provide some pointers to related
+work. Sherpas may be humans or machines or involve some
+combination thereof.
+In the remainder of this section, we describe the purpose of
+each sherpa category and provide a coarse sub-categorization;
+these are intended to be sufficiently illustrative but not fully
+comprehensive, given the space limitations and rapidly expanding literature on foundation models. Note that in most
+current work, many of these functions are performed by modules of systems. Figure 2 provides a summary depiction of the
+high-level taxonomy, along with some example references.
+3.1 FM Updaters
+FM Updaters are sherpas that modify the underlying transformer or how the FM generates tokens by using external
+memory or models, to improve performance or better alignment with user preferences for a specific task. We provide a
+few illustrative examples from the following four broad categories.
+Modified Pre-training
+Various approaches modify the manner in which an FM is
+pre-trained. An important family of these agents performs
+knowledge infusion into an FM, which has been shown to
+help in downstream tasks. For instance, additional pretraining of a flan-T5 model on sentences generated from
+Wikidata triples [Agarwal et al., 2021] or using the triples directly [Moiseev et al., 2022] helped with question-answering.
+Fine/Instruction-tuning
+Perhaps the most common approach is through fine-tuning
+a pre-trained FM with labeled data. An important sub-class
+of such agents performs fine-tuning using data that is generated from intelligent prompt choices. For instance, a series
+of work uses intermediate verbal reasoning (‘rationales’) in
+prompts to improve task performance [Rajani et al. , 2019;
+Cobbe et al. , 2021; Zelikman et al. , 2022]. An approach
+popularized by ChatGPT leverages reinforcement learning to
+learn a policy network for output generation with reward signals collected from feedbacks [Stiennon et al., 2020; Bai et
+al., 2022; Ge et al., 2023]. We note that such approaches also
+involve Prompt Assistant sherpas.
+Augmented/Edited Models
+A broad category of agents modifies generation through architectural augmentation or proxies during inference, or by
+directly editing the model weights. For instance, adapters
+have been proposed to achieve similar effects as compared
+to knowledge infusion, using parameter efficient fine-tuning
+rather than additional pre-training [Wanget al., 2021; Diao et
+al., 2023]. An alternate approach isknowledge editing, which
+involves modifying the weights of the original model to incorporate any changed facts [De Cao et al., 2021; Mitchell
+et al., 2022a]. Proxy tuning [Liu et al., 2024] is an approach
+that emulates a black-box LLM without changing the model’s
+weights.
+
+[PAGE 3]
+Figure 1: The sherpas framework for guiding FMs, showing various agent categories with respect to their typical points of interaction with
+the FM as it executes or assists completion of a set of tasks.
+Controlled Generation
+Some agents perform controlled generation by modifying
+the manner in which tokens are generated without necessarily changing the underlying FM. For instance, Zhong et
+al. [2023] propose an alternate approach which does not update the LLM but instead generates a tentative response and
+checks if the output contradicts updated facts in external
+memory.
+3.2 Prompt Assistants and Sequencers
+Prompting is the primary mode of interacting with FMs,
+and Prompt Assistants help with the process of
+prompt engineering. We refer to these agents as Prompt
+Sequencers when multiple calls are made to an FM for
+a task, requiring several prompts to be composed and sequenced. Empirical studies have shown that good prompts
+offer FMs highly informative content and specific semantic meanings in pre-defined templates. Two broad categories of basic prompting have emerged: instruction-based
+and example-based. We also highlight decomposed prompts
+as an important evolution of instruction-based prompts.
+Instruction-based Prompts
+These prompts contain explicit directions for what the user
+feels the FM should do. This is very intuitive and the main
+mode of using FMs. It is perhaps also the main reason for
+the widespread use of LLMs, because of how easy it is to
+write instructions in natural language. Prompt instructions
+can be further subdivided into two sub-classes: task-prompts
+and system-prompts. Task-prompts are those which contain
+direct instructions about a task to accomplish (e.g. “write a
+poem”). On the other hand, system-prompts offer broader
+guidelines or style (e.g. “pretend you are a fantasy novel
+writer”). Constitutional principles in Bai et al. [2022] are another example of system prompts. Prompt Assistants
+often use both of these sub-classes together for better effect.
+In-context Learning Prompts
+The second major category of prompting uses examples of the
+task in the prompt. Instead of explicit instructions, these examples contain a pattern of the implicit instruction that FMs
+must follow. This is often referred to as in-context learning
+and it has spurred a lot of research [Min et al., 2022a,b; Rubin et al., 2022]. In tasks where a small dataset or some labeled examples are available, these can be directly used in the
+prompt as a source of knowledge. Chain-of-thought (CoT)
+prompting [Weiet al., 2021; Kojimaet al., 2022] is an important part of in-context learning prompts, where the research
+focus has been on elicitive prompts that guide FMs by decomposing a task into smaller tasks.
+Decomposed Prompts
+Extending the CoT idea, Prompt Sequencers are frameworks that sequentially call FMs to solve sub-tasks. The decomposition itself can also be done by FMs [Zhou et al. ,
+2023; Khot et al., 2023]. Taking this idea even further, the
+sub-task decomposition can be turned into graphical models,
+linking this line of research to formal reasoning methods. For
+example, language model cascades [Dohan et al., 2022] proposes a probabilistic programming language paradigm that
+treats question-answering tasks as a graphical model over
+string-valued random variables for prompt inputs and LLM
+outputs, thereby unifying various prompt-based reasoning approaches [Wei et al., 2022; Creswell et al., 2022].
+Prompt Assistants typically combine different
+strategies because empirically they often synergize. In the
+broader picture, prompts are also the primary way to connect
+with other agents; this features more heavily in Section 4.
+3.3 Assessors and Explainers
+Assessors evaluate output generated from an FM along
+one or more attributes for a task, including but not limited to
+measures of quality of generation, such as fluency, or those
+for trustworthiness, such as harmfulness, factuality, etc. Such
+attributes should ideally have the following properties: 1)
+they should be pertinent to the users’ values for the task(s),
+2) they should be clearly defined, and 3) they should be measurable. Human feedback is of course a valuable source for
+evaluating such attributes, but there is also a recent trend of
+
+[PAGE 4]
+Figure 2: A relatively high-level taxonomy of four major sherpa categories, along with some illustrative example references.
+leveraging other models (sometimes other FMs) as assessors.
+We distinguish between selected prior work based on the attribute being assessed.
+Generation Quality / Performance Related
+There are several well-known attributes and associated metrics that are intended to assess various facets of the quality of
+an FM’s generated output. For LLMs, these include attributes
+of the generated language, such as fluency (as measured by
+perplexity), coherence (as measured by BLEU/ROUGE), relevance or context awareness(as measured by the BERT score
+or mutual information), or the ambiguity of the output (as
+measured by accuracy). Some assessors try to evaluate metrics that are pertinent to the performance of the task at hand.
+For instance, they may assess whether or not FM generated
+code will execute or fail [Prasad et al., 2023], or measure the
+progress made by the current state from a sequence of generated FM output with regard to whether it has the potential to
+answer the user’s query [Yaoet al., 2023a].
+Trustworthiness Related
+The following attributes are pertinent to help gauge the trustworthiness of the generated output:
+Harmfulness/Toxicity. FMs such as LLMs are known to
+occasionally generate content that may be deemed toxic
+or harmful by users. The RLAIF approach [Bai et al. ,
+2022] extends reinforcement learning from human feedback
+(RLHF) by generating harmful datasets through chain-ofthought prompting using a pre-defined collection of critique
+rules; the intention is to generate output that is deemed to be
+helpful yet harmless. In this work, the assessed score is based
+on crowd worker preference.
+Factuality/Faithfulness. Generating output that is factual
+or faithful relative to some knowledge reference is often beneficial in practice. For large-scale repetitive evaluation of FM
+outputs, leveraging external knowledge such as knowledge
+graphs can be fruitful, since they offer easily interpretable and
+structured information. LAMA [Petroni et al., 2019] presents
+a method for probing LLMs with knowledge graphs for measuring and improving the factuality of LLMs.
+Consistency. ConCORD [Mitchell et al., 2022b] is an example of an approach that evaluates the consistency of FM
+generated output. It formulates a self-consistency measure
+as a compatibility score in a probabilistic model over the
+candidate question-answer pairs queried from LLMs. Note
+that consistency and factuality are closely related, as consistency asks for invariant outputs relative to semantically similar rephrased inputs, while factuality requires consistent behavior relative to ground truth outputs [Elazar et al., 2021].
+Uncertainty/Confidence. An important class of
+Assessors performs uncertainty quantification to estimate measures such as the variability or confidence of
+the FM output [Lin et al., 2022; Kuhn et al., 2022]. These
+have been further categorized as verbalized, where the FM
+provides confidence scores directly, ornon-verbalized, where
+confidence is inferred by other means such as gauging the
+consistency of the output after paraphrasing the input prompt.
+Hallucination. FMs are widely known to generate output
+that are considered hallucinations (or confabulations). Huang
+et al. [2023] categorizes them as either input-conflicting,
+where the output deviates from user-provided source input,
+context-conflicting, where the output conflicts with previously generated information by itself, and fact-conflicting,
+where the output is not faithful to established world knowledge. Note that fact-conflicting hallucination can be assessed
+by factuality measures, as described previously.
+Bias. Since an FM’s training data often reflects stereotypes
+and discriminatory beliefs about gender, race, and other societal factors, assessing such biases could be useful in deployments such as chat bots [Zhao et al., 2023b].
+Explainers are an important class of agents related to
+Assessors, and help provide explanations about the output of FMs; we refer the reader to a complementary survey
+paper which reviews relevant advances [Zhao et al., 2023a].
+Explainability has another connection to assessment of FM
+
+[PAGE 5]
+output – critical applications sometimes need an explanation
+for the evaluation, not just the evaluation itself. For instance,
+a user may appreciate receiving records in a knowledge base
+that provide evidence for a factuality assessment.
+3.4 Knowledge Curators
+Many AI systems that incorporate FMs require access to
+sources of knowledge, such as structured information in a relational database or an unstructured corpus of domain knowledge. This necessitates the involvement of an often neglected
+category of agents, which curate knowledge from appropriate
+sources with the intent of supporting the FM towards handling the task(s) of interest.
+Knowledge Curators play a particularly important
+role through their interaction with other guiding agents. For
+instance, they are needed for Assessors that rely on external knowledge to provide a reference for factuality [Petroniet
+al., 2019]. They are also crucial for many FM Updaters .
+For instance, they are needed by retrieval-augmented generative models [Lewis et al., 2020], which combine pre-trained
+language models with a non-parametric memory (such as a
+dense vector index of Wikipedia).
+We also include in this broader category agents that are
+able to suitably extract information from FMs, whenever it
+is beneficial for the application. Since FMs memorize a lot
+of facts, this class of Knowledge Curators helps acquire and maintain an FM’s inherently stored knowledge in
+more structured forms. Due to the prevalence and simplicity of knowledge graphs, there have been numerous efforts to
+extract them from LLMs [Bosselut et al., 2019; West et al.,
+2022; Hao et al., 2023b]. There is also upcoming research on
+acquiring other representations of knowledge, such as finitestate automata [Yang et al. , 2023] and causal models [Arsenyan and Shahnazaryan, 2023; Kıcımanet al., 2023; Long
+et al., 2023; Shi et al., 2023]. Knowledge Curators of
+this type can aid an AI system by being suitably leveraged in
+future relevant tasks.
+3.5 Orchestrators
+Real-world AI systems often rely on Orchestrators (or
+Controllers) to manage potentially complex workflows. Current approaches in the literature highlight interactions with
+external data sources, tools and applications in particular. We
+have previously described the burgeoning interest in frameworks to manage such workflows, including Langchain and
+AutoGen. We classify these into three high-level categories,
+primarily based on the manner in which formal reasoning is
+mimicked or leveraged for the process of orchestration.
+Tooling Interaction Focused
+An important line of research studies the use of LLMs to directly generate domain-specific actions or plans in interactive environments. Many of these efforts attempt to combine
+‘verbal reasoning’ and ‘acting’ for solving diverse language
+reasoning and decision making tasks; since they put more of
+the onus on the LLM for managing work flows, this reduces
+the load of the Orchestrator, which is typically only left
+with executing actions such as calling tools/APIs. For instance, the ReAct framework [Yao et al., 2023b] prompts an
+LLM to generate verbal reasoning traces and actions pertaining to a specific task in an interleaved manner while also allowing for interactions with specific environments that may
+be subsequently incorporated into reasoning. We also include systems such as BINDER [Cheng et al. , 2023] and
+ChatDB [Hu et al., 2023] that interact with a Python interpreter for code execution or an SQL engine for retrieval.
+Flexible Verbal Reasoning
+An alternate line of work explores orchestration that incorporates more flexibility into verbal reasoning, possibly by mimicking formal reasoning. Several state-of-the-art approaches
+use a branching structure in decomposed prompts to guide
+the FM. The ADaPT system [Prasad et al., 2023] allows in
+addition for task decomposition (or planning) to tackle more
+complex tasks. Such a branching structure can appear in different forms, such as simple decomposition [Radhakrishnan
+et al., 2023], tree-structures with search [Yao et al., 2023a],
+or full graphs [Besta et al., 2023].
+Formal Reasoning
+An upcoming class of approaches uses an FM to support a
+symbolic reasoner to solve a set of tasks. Some examples
+include LM cascades [Dohan et al., 2022] and PLoT [Wong
+et al., 2023], which both integrate FMs into a probabilistic
+programming language paradigm. These frameworks are described in more detail in a later section.
+We anticipate that all these research avenues will
+flourish in the future, with a growing interest in autonomous Orchestrators of various types, including
+work that leverages other kinds of formal reasoning (such
+as logical or decision-theoretic) for orchestration. Since
+Orchestrators play a special role in FM-guided AI systems, we rely on them heavily for the categorization in the
+next section.
+4 Agent Interaction Protocols
+In this section, we categorize existing frameworks that guide
+FMs based on interaction protocols that we classify into four
+categories: Update FM with External Knowledge , Access
+Tools for Information Retrieval , Explore Dynamic Prompts,
+and Integrate External Reasoners. These categories highlight
+common scenarios that span most current approaches.
+4.1 Update FM with External Knowledge
+The simplest interaction protocol can be seen in frameworks for updating foundation models with external knowledge from Knowledge Curator or feedback from users.
+RLHF [Stiennon et al. , 2020] uses human Assessors
+for the output of FMs, incorporating the feedback as a reward model for fine-tuning. RLAIF [Bai et al. , 2022] extends RLHF by revising harmful responses from red teaming prompts through a nuanced self-assessment of harmlessness based on user-provided constitutional principles
+with Prompt Assistant that utilizes in-context learning. Since fine-tuning a large FM is costly, more recent
+work proposes augmenting smaller external models without
+modifying the underlying FM [Liu et al. , 2024; Wang et
+al., 2021; Diao et al. , 2023]. In this category, we observe
+
+[PAGE 6]
+Paper FM Updater Prompt Assistant Assessor Knowledge Curator Orchestrator
+Update FM
+RLHF [Stiennon et al., 2020] Fine-tuning Instruction-based Binary Reward (Human) - RLAIF [Bai et al., 2022] Fine-tuning In-context learning Harmfulness (Human) - KG Infusion [Agarwal et al., 2021] Modified Pre-training - - Knowledge graphs K-ADAPTER [Wang et al., 2021] Augmented Models - - Wikipedia MixDA [Diao et al., 2023] Augmented Models - - Domain knowledge Access Tools
+RAG [Lewis et al., 2020] Controlled Generation - - Wikipedia IRCoT [Khot et al., 2023] - In-context Learning - Wikipedia/Corpus ReAct [Yao et al., 2023b] Optional Fine-tuning In-context Learning Factuality (Verbal) Web documents API Calls
+LLM Augmenter [Peng et al., 2023] Controlled Generation Instruction-based Factuality (Human) Web documents API Calls
+ChemCrow[Bran et al., 2023] - In-context Learning Factuality (Human) Chemistry expert knowledge API Calls
+BINDER [Cheng et al., 2023] - In-context Learning Execute or fail (Formal) - API Calls
+Dyn. Prompts
+ToT [Yaoet al., 2023a] - Decomposed Prompts Progress (Verbal) - Comb. search
+GoT [Besta et al., 2023] - Decomposed Prompts Progress (Verbal) - Comb. search
+ADaPT [Prasad et al., 2023] - Decomposed Prompts Execute or fail (Verbal) - Comb. search
+RAP [Hao et al., 2023a] - Decomposed Prompts Progress (Verbal) - Comb. search
+Reflexion [Shinn et al., 2023] - Decomposed Prompts Progress (Verbal) - RL
+Ext. Reasoner
+LM Cascade [Dohan et al., 2022] - In-context Learning Factuality (Formal) - Prob. reasoning
+CONCORD [Mitchell et al., 2022b] - Instruction-based Consistency (Formal) Other LMs PLoT [Wong et al., 2023] - Instruction-based Factuality (Formal) - Prob. reasoning
+LARK [Choudhary and Reddy, 2023] - Decomposed prompts - Knowledge graphs KG reasoning
+CoK [Li et al., 2023b] - Instruction-based Factuality (Formal) External knowledge Query languages
+Table 1: Illustrative frameworks for four categories of agent interaction protocols are shown in the rows. Values in the columns for five
+categories of sherpas are chosen as follows. For FM Updater and Prompt Assistant, categories are shown. For Assessor, the attribute being
+assessed is shown, along with the source of assessment (Human refers to human feedback, Verbal refers to direct assessment from an FM,
+and Formal refers to the use of formal reasoning). For Knowledge Curator, the source of the knowledge is shown. For Orchestrator, the main
+role/approach taken is shown.
+that Orchestrator plays no significant role since interaction is a simple pre-defined workflow from Knowledge
+Curator or Assessor to FM Updater .
+4.2 Access Tools for Information Retrieval
+For open-domain questions, FMs often show poor performance since it may be not possible to generate the desired
+answer solely from the input prompt. Many practical frameworks enable retrieving relevant information from web documents or other application specific data through pre-defined
+API calls [Lewiset al., 2020; Chase, 2022]. The overall agent
+interaction can be programmed in advance and Prompt
+Assistant equipped with static prompt templates can keep
+interacting with Knowledge Curator and store retrieved
+information in external memory to generate the final answer.
+The API calls can also be controlled by checking the factuality of the results, and Orchestrator can repeat the interaction based on pre-defined programs. Peng et al. [2023]
+propose a control flow similar to a reinforcement learning
+agent that generates a feedback reward from a model-based
+Assessor that evaluates factuality of the outcome. Bran et
+al. [2023] explore organic synthesis, drug discovery, and material design by combining domain expertise with FMs. Userspecified scientific tasks are tackled by providing a sequence
+of prompts in a simple reasoning-based format to GPT-4,
+where one of 17 tools can be called upon; these could be as
+basic as web search, but also includeAssessors for checking whether a molecule has been patented.
+4.3 Explore Dynamic Prompts
+In many few shot in-context learning prompting approaches, an FM generates intermediate thoughts that
+lead to the answer following static examples provided in
+the input. Searching for better combinations of intermediate thoughts, Orchestrator coordinates Prompt
+Assistant/Sequencer to decompose the prompts and
+combine thoughts as a new input prompt for querying the
+FM, essentially implementing a combinatorial search over
+the space of all possible combinations of generated thoughts
+[Yao et al., 2023a; Besta et al., 2023]. In addition to composing thoughts, Hao et al. [2023a] and Prasad et al. [2023]
+show how to define prompt templates for generating the state
+information in planning problems given a problem description with the initial state, goal states, and set of actions.
+Compared with the frameworks that access tools with a
+pre-defined interaction programmed as a chain of static API
+calls, the frameworks in this category exhibit more dynamic
+and complex interaction behavior. Many of the frameworks
+in this category have several prompt templates that are associated with a component of search procedure such as node
+generation, node evaluation, or node selection. A template
+of prompts is grounded to a fully instantiated prompt during search. A particularly popular interaction protocol is
+that Prompt Assistant generates successor states in the
+state space, Assessor evaluates the quality of the state generated by the FM, and Orchestrator controls a search
+strategy such as Monte carlo tree search, local search, or a
+reinforcement learning control loop.
+4.4 Integrate External Reasoners
+All the previous categories primarily rely on the reasoning
+capability of an FM, aiming to address tasks by infusing
+additional domain knowledge, accessing external tools, or
+composing prompts to explore a suitable search space. The
+last category follows an alternate approach that integrates external reasoning engines into Assessor or performs sym-
+
+[TABLE page=6 index=1]
+Columns: Paper | FM Updater | Prompt Assistant | Assessor | Knowledge Curator | OrchestErxatt.oRreasoner | Dyn. Prompts | Access Tools | Update FM
+Row 1: Paper: RLHF [Stiennon et al., 2020] | FM Updater: Fine-tuning | Prompt Assistant: Instruction-based | Assessor: Binary Reward (Human) | Knowledge Curator: - | OrchestErxatt.oRreasoner: - | Dyn. Prompts: | Access Tools: | Update FM:
+Row 2: Paper: RLAIF [Bai et al., 2022] | FM Updater: Fine-tuning | Prompt Assistant: In-context learning | Assessor: Harmfulness (Human) | Knowledge Curator: - | OrchestErxatt.oRreasoner: - | Dyn. Prompts: | Access Tools: | Update FM:
+Row 3: Paper: KG Infusion [Agarwal et al., 2021] | FM Updater: Modified Pre-training | Prompt Assistant: - | Assessor: - | Knowledge Curator: Knowledge graphs | OrchestErxatt.oRreasoner: - | Dyn. Prompts: | Access Tools: | Update FM:
+Row 4: Paper: K-ADAPTER [Wang et al., 2021] | FM Updater: Augmented Models | Prompt Assistant: - | Assessor: - | Knowledge Curator: Wikipedia | OrchestErxatt.oRreasoner: - | Dyn. Prompts: | Access Tools: | Update FM:
+Row 5: Paper: MixDA [Diao et al., 2023] | FM Updater: Augmented Models | Prompt Assistant: - | Assessor: - | Knowledge Curator: Domain knowledge | OrchestErxatt.oRreasoner: - | Dyn. Prompts: | Access Tools: | Update FM:
+Row 6: Paper: RAG [Lewis et al., 2020] | FM Updater: Controlled Generation | Prompt Assistant: - | Assessor: - | Knowledge Curator: Wikipedia | OrchestErxatt.oRreasoner: - | Dyn. Prompts: | Access Tools: | Update FM:
+Row 7: Paper: IRCoT [Khot et al., 2023] | FM Updater: - | Prompt Assistant: In-context Learning | Assessor: - | Knowledge Curator: Wikipedia/Corpus | OrchestErxatt.oRreasoner: - | Dyn. Prompts: | Access Tools: | Update FM:
+Row 8: Paper: ReAct [Yao et al., 2023b] | FM Updater: Optional Fine-tuning | Prompt Assistant: In-context Learning | Assessor: Factuality (Verbal) | Knowledge Curator: Web documents | OrchestErxatt.oRreasoner: API Calls | Dyn. Prompts: | Access Tools: | Update FM:
+Row 9: Paper: LLM Augmenter [Peng et al., 2023] | FM Updater: Controlled Generation | Prompt Assistant: Instruction-based | Assessor: Factuality (Human) | Knowledge Curator: Web documents | OrchestErxatt.oRreasoner: API Calls | Dyn. Prompts: | Access Tools: | Update FM:
+Row 10: Paper: ChemCrow[Bran et al., 2023] | FM Updater: - | Prompt Assistant: In-context Learning | Assessor: Factuality (Human) | Knowledge Curator: Chemistry expert knowledge | OrchestErxatt.oRreasoner: API Calls | Dyn. Prompts: | Access Tools: | Update FM:
+Row 11: Paper: BINDER [Cheng et al., 2023] | FM Updater: - | Prompt Assistant: In-context Learning | Assessor: Execute or fail (Formal) | Knowledge Curator: - | OrchestErxatt.oRreasoner: API Calls | Dyn. Prompts: | Access Tools: | Update FM:
+Row 12: Paper: ToT [Yao et al., 2023a] | FM Updater: - | Prompt Assistant: Decomposed Prompts | Assessor: Progress (Verbal) | Knowledge Curator: - | OrchestErxatt.oRreasoner: Comb. search | Dyn. Prompts: | Access Tools: | Update FM:
+Row 13: Paper: GoT [Besta et al., 2023] | FM Updater: - | Prompt Assistant: Decomposed Prompts | Assessor: Progress (Verbal) | Knowledge Curator: - | OrchestErxatt.oRreasoner: Comb. search | Dyn. Prompts: | Access Tools: | Update FM:
+Row 14: Paper: ADaPT [Prasad et al., 2023] | FM Updater: - | Prompt Assistant: Decomposed Prompts | Assessor: Execute or fail (Verbal) | Knowledge Curator: - | OrchestErxatt.oRreasoner: Comb. search | Dyn. Prompts: | Access Tools: | Update FM:
+Row 15: Paper: RAP [Hao et al., 2023a] | FM Updater: - | Prompt Assistant: Decomposed Prompts | Assessor: Progress (Verbal) | Knowledge Curator: - | OrchestErxatt.oRreasoner: Comb. search | Dyn. Prompts: | Access Tools: | Update FM:
+Row 16: Paper: Reflexion [Shinn et al., 2023] | FM Updater: - | Prompt Assistant: Decomposed Prompts | Assessor: Progress (Verbal) | Knowledge Curator: - | OrchestErxatt.oRreasoner: RL | Dyn. Prompts: | Access Tools: | Update FM:
+Row 17: Paper: LM Cascade [Dohan et al., 2022] | FM Updater: - | Prompt Assistant: In-context Learning | Assessor: Factuality (Formal) | Knowledge Curator: - | OrchestErxatt.oRreasoner: Prob. reasoning | Dyn. Prompts: | Access Tools: | Update FM:
+Row 18: Paper: CONCORD [Mitchell et al., 2022b] | FM Updater: - | Prompt Assistant: Instruction-based | Assessor: Consistency (Formal) | Knowledge Curator: Other LMs | OrchestErxatt.oRreasoner: - | Dyn. Prompts: | Access Tools: | Update FM:
+Row 19: Paper: PLoT [Wong et al., 2023] | FM Updater: - | Prompt Assistant: Instruction-based | Assessor: Factuality (Formal) | Knowledge Curator: - | OrchestErxatt.oRreasoner: Prob. reasoning | Dyn. Prompts: | Access Tools: | Update FM:
+Row 20: Paper: LARK [Choudhary and Reddy, 2023] | FM Updater: - | Prompt Assistant: Decomposed prompts | Assessor: - | Knowledge Curator: Knowledge graphs | OrchestErxatt.oRreasoner: KG reasoning | Dyn. Prompts: | Access Tools: | Update FM:
+Row 21: Paper: CoK [Li et al., 2023b] | FM Updater: - | Prompt Assistant: Instruction-based | Assessor: Factuality (Formal) | Knowledge Curator: External knowledge | OrchestErxatt.oRreasoner: Query languages | Dyn. Prompts: | Access Tools: | Update FM:
+[/TABLE]
+
+[PAGE 7]
+bolic inference to extend Knowledge Curator going beyond information retrieval. For instance, Dohan et al. [2022]
+proposes language model cascades, a probabilistic programming language paradigm that formulates natural language
+question-answering tasks as a graphical model over stringvalued random variables associated with prompt inputs and
+FM outputs, thereby unifying various prompt-based reasoning approaches. Mitchell et al. [2022b] also formulates a
+consistency Assessor as probabilistic inference. PLoT
+[Wong et al. , 2023] integrates verbal reasoning by an FM
+with symbolic reasoning by translating the natural language
+input as code using Prompt Assistant and solving an
+inference task using a probabilistic programming framework
+– Church [Goodman et al., 2008]. There are frameworks that
+integrate reasoning systems other than probabilistic programming, such as programming languages [Chenget al., 2023] or
+knowledge graph reasoning [Choudhary and Reddy, 2023].
+5 Discussion and Future Directions
+We discuss a vision where FM guiding sherpas have more autonomy, and highlight various topic areas for future research.
+5.1 Agent Behaviors for Intelligent FM Sherpas
+Much has been written about the properties of agents and
+their categorization, as well as behaviors they need to exhibit to be deemed autonomous, smart, or intelligent. A typical definition for an intelligent agent is: “a computer system
+situated in some environment and that is capable of flexible
+autonomous action in this environment in order to meet its
+design objectives” [Jennings and Wooldridge, 1998]. Considering a weak notion of agency [Wooldridge and Jennings,
+1995], we envision agents exhibiting autonomy (operating
+without the direct intervention of humans or other agents),interactivity (interacting with other agents including humans),
+reactivity (responding to perceived changes in the environment), and pro-activity (taking the initiative based on their
+motivations). We also regardcollaboration (working together
+towards common goals) as a suitable endeavor.
+While stronger notions of agency may be desirable for FM
+sherpas in the future, we believe that even weak agent behavior is beneficial for practical systems. For instance, autonomy is a useful feature for an Assessor, enabling it
+to operate continuously without direct human intervention.
+An Orchestrator must interact with various other agents,
+including humans, since practical problems may need planning adjustments based on clarifications or requested feedback. Reactivity may also be key; consider an Assessor
+that needs to leverage changes in users or user personas. Another example is a pro-active Knowledge Curator that
+actively seeks out and reports appropriate knowledge in an
+enterprise, such as the possibility of regulatory changes.
+5.2 Future Directions
+Although there have been significant recent advances around
+guiding FMs, numerous open problems and opportunities remain. Our proposed agent interaction categories can help inform future protocols with more complex and nuanced interactions, including through sherpas that are equipped with
+stronger agency. Some potential directions follow:
+• Multi-objective and Joint Optimization Paradigms. Many
+interaction protocols are aimed at improving performance
+measures such as accuracy, but it may be desirable to optimize over a broader suite of objectives, such as run-time
+costs, level of harmfulness, or social bias, using quantified
+measures from Assessors. Also, it may be prudent to
+jointly optimize over multiple sherpas; for example, if human feedback is limited, there is a question around which
+sherpa that feedback may assist most meaningfully.
+• Broader Role for Automated Assessors. The interaction
+protocols for accessing tools or exploring dynamic prompts
+heavily rely on human feedback or verbal reasoning by
+FMs. Formal Assessors could save the cost of collecting user feedback or replace less credible verbal reasoning Assessors. Furthermore, FM Updaters could directly query formal assessors and go beyond information
+retrieval to control generation of more trustworthy outputs
+during runtime. Similarly, Prompt Assistants could
+dynamically generate optimized prompts by incorporating
+feedback from Assessors in an automated manner.
+• Uncertainty Quantification Assessors. While exploring the
+search space of dynamic prompts, there is potential in using uncertainty quantification Assessors for informing
+search, so as to evaluate the predicted outcome or even
+prune the search space without wasting valuable resources
+by accessing FMs.
+• Formal Reasoning Orchestration. There is scope for integrating formal reasoners directly into dynamic Prompt
+Assistants to provide more accurate and diverse feedback to FMs.
+• Novel Modes of Knowledge Enablement. Agents should be
+able to infuse knowledge from text, tabular data and graphs
+more seamlessly. Effective use of knowledge through FM
+Updaters and Knowledge Curators is still currently under explored, in our view.
+• Humans in the Loop. The current literature merely
+scratches the surface of human involvement, such as for
+Knowledge Curators or Assessors. There is room
+for more sophisticated preference elicitation schemes from
+users that go beyond the ‘thumbs up/down’ feedback approach of RLHF. Interaction of FM sherpas with humans
+through active learning will be a fruitful pursuit.
+• Benchmarks. There is a need for newer benchmarks that
+emphasize the breadth of a system’s abilities as opposed to
+task-specific performance [Geet al., 2023; Yuet al., 2023],
+which will undoubtedly result in significant innovations in
+sherpas and highlight their power.
+6 Conclusions
+In this paper, we surveyed representative approaches for guiding FMs with knowledge and reasoning using a conceptual
+framework that elucidates the role of guiding agents. We categorized interaction protocols into four major groups, emphasizing the importance and opportunities around collaboration
+of agents with different roles. Systems that can smartly and
+jointly leverage such guiding agents would go a long way
+towards ensuring long-term usability and trustworthiness in
+real-world applications.
+
+[PAGE 8]
+References
+Oshin Agarwal, Heming Ge, Siamak Shakeri, et al. Knowledge
+graph based synthetic corpus generation for knowledge-enhanced
+language model pre-training. In Proceedings of the Conference
+of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, 2021.
+Dario Amodei, Chris Olah, Jacob Steinhardt, et al. Concrete problems in AI safety. arXiv:1606.06565, 2016.
+Vahan Arsenyan and Davit Shahnazaryan. Large language models for biomedical causal graph construction. arXiv:2301.12473,
+2023.
+Yuntao Bai, Saurav Kadavath, Sandipan Kundu, et al. Constitutional
+AI: Harmlessness from AI feedback. arXiv:2212.08073, 2022.
+Maciej Besta, Nils Blach, Ales Kubicek, et al. Graph of
+thoughts: Solving elaborate problems with large language models. arXiv:2308.09687, 2023.
+Rishi Bommasani, Drew A. Hudson, Ehsan Adeli, et al. On the
+opportunities and risks of foundation models. arXiv:2108.07258,
+2021.
+Antoine Bosselut, Hannah Rashkin, Maarten Sap, et al. COMET:
+Commonsense transformers for automatic knowledge graph construction. In Proceedings of the Annual Meeting of the Association for Computational Linguistics, 2019.
+Andres M Bran, Sam Cox, Andrew D White, and Philippe
+Schwaller. Chemcrow: Augmenting large-language models with
+chemistry tools. arXiv:2304.05376, 2023.
+Harrison Chase. Langchain. https://github.com/langchain-ai/
+langchain, October 2022.
+Zhoujun Cheng, Tianbao Xie, Peng Shi, et al. Binding language
+models in symbolic languages. In International Conference on
+Learning Representations, 2023.
+Nurendra Choudhary and Chandan K Reddy. Complex logical
+reasoning over knowledge graphs using large language models.
+arXiv:2305.01157, 2023.
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, et al. Training
+verifiers to solve math word problems. arXiv:2110.14168, 2021.
+Antonia Creswell, Murray Shanahan, and Irina Higgins. Selectioninference: Exploiting large language models for interpretable logical reasoning. arXiv:2205.09712, 2022.
+Nicola De Cao, Wilker Aziz, and Ivan Titov. Editing factual knowledge in language models. In Empirical Methods in Natural Language Processing, 2021.
+Shizhe Diao, Tianyang Xu, Ruijia Xu, et al. Mixture-of-domainadapters: Decoupling and injecting domain knowledge to pretrained language models memories. arXiv:2306.05406, 2023.
+David Dohan, Winnie Xu, Aitor Lewkowycz, et al. Language model
+cascades. In Workshop Beyond Bayes: Paths Toward Universal
+Reasoning Systems, 2022.
+Qingxiu Dong, Lei Li, Damai Dai, et al. A survey on in-context
+learning. arXiv:2301.00234, 2023.
+Yilun Du, Shuang Li, Antonio Torralba, et al. Improving factuality and reasoning in language models through multiagent debate.
+arXiv:2305.14325, 2023.
+Yanai Elazar, Nora Kassner, Shauli Ravfogel, et al. Measuring and
+improving consistency in pretrained language models. Transactions of the Association for Computational Linguistics, 2021.
+Yingqiang Ge, Wenyue Hua, Kai Mei, et al. OpenAGI: When LLM
+meets domain experts. arXiv:2304.04370, 2023.
+Noah D. Goodman, Vikash K. Mansinghka, Daniel Roy, et al.
+Church: a language for generative models. In Proceedings of
+the Conference on Uncertainty in Artificial Intelligence, 2008.
+Xu Han, Zhengyan Zhang, Ning Ding, et al. Pre-trained models:
+Past, present and future. AI Open, 2021.
+Shibo Hao, Yi Gu, Haodi Ma, et al. Reasoning with language model
+is planning with world model. In Proceedings of the Conference
+on Empirical Methods in Natural Language Processing, 2023.
+Shibo Hao, Bowen Tan, Kaiwen Tang, et al. BertNet: Harvesting
+knowledge graphs with arbitrary relations from pretrained language models. arXiv:2206.14268, 2023.
+Chenxu Hu, Jie Fu, Chenzhuang Du, et al. Chatdb: Augmenting llms with databases as their symbolic memory.
+arXiv:2306.03901, 2023.
+Jie Huang and Kevin Chen-Chuan Chang. Towards reasoning in
+large language models: A survey. In Findings of Association for
+Computational Linguistics, 2023.
+Lei Huang, Weijiang Yu, Weitao Ma, et al. A survey on hallucination
+in large language models: Principles, taxonomy, challenges, and
+open questions. arXiv:2311.05232, 2023.
+Nicholas R. Jennings and Michael J. Wooldridge, editors. Agent
+Technology: Foundations, Applications, and Markets. 1998.
+Tushar Khot, Harsh Trivedi, Matthew Finlayson, et al. Decomposed
+prompting: A modular approach for solving complex tasks. In
+International Conference on Learning Representations, 2023.
+Takeshi Kojima, Shixiang (Shane) Gu, Machel Reid, et al. Large
+language models are zero-shot reasoners. In Advances in Neural
+Information Processing Systems, 2022.
+Lorenz Kuhn, Yarin Gal, and Sebastian Farquhar. Semantic uncertainty: Linguistic invariances for uncertainty estimation in natural language generation. In International Conference on Learning
+Representations, 2022.
+Emre Kıcıman, Robert Ness, Amit Sharma, and Chenhao Tan.
+Causal reasoning and large language models: Opening a new
+frontier for causality. arXiv:2305.00050, 2023.
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, et al. Retrievalaugmented generation for knowledge-intensive NLP tasks. InAdvances in Neural Information Processing Systems, 2020.
+Guohao Li, Hasan Abed Al Kader Hammoud, Hani Itani, et al.
+Camel: Communicative agents for” mind” exploration of large
+scale language model society. arXiv:2303.17760, 2023.
+Xingxuan Li, Ruochen Zhao, Yew Ken Chia, et al. Chain of knowledge: A framework for grounding large language models with
+structured knowledge bases. arXiv:2305.13269, 2023.
+Stephanie Lin, Jacob Hilton, and Owain Evans. Teaching models
+to express their uncertainty in words. Transactions on Machine
+Learning Research, 2022.
+Pengfei Liu, Weizhe Yuan, Jinlan Fu, et al. Pre-train, prompt, and
+predict: A systematic survey of prompting methods in natural
+language processing. arXiv:2107.13586, 2021.
+Alisa Liu, Xiaochuang Han, Yizhong Wang, et al. Tuning language
+models by proxy. arXiv:2401.08565, 2024.
+Stephanie Long, Tibor Schuster, and Alexandre Pich ´e. Can large
+language models build causal graphs? arXiv:2303.05279, 2023.
+
+[PAGE 9]
+Gr´egoire Mialon, Roberto Dess `ı, Maria Lomeli, et al. Augmented
+language models: A survey. arXiv:1606.06565, 2023.
+Sewon Min, Mike Lewis, Hannaneh Hajishirzi, and Luke Zettlemoyer. Noisy channel language model prompting for few-shot
+text classification. In Proceedings of the Association for Computational Linguistics, 2022.
+Sewon Min, Xinxi Lyu, Ari Holtzman, et al. Rethinking the role
+of demonstrations: What makes in-context learning work? In
+Proceedings of the Conference on Empirical Methods in Natural
+Language Processing, 2022.
+Eric Mitchell, Charles Lin, Antoine Bosselut, et al. Memory-based
+model editing at scale. In International Conference on Machine
+Learning, 2022.
+Eric Mitchell, Joseph Noh, Siyan Li, et al. Enhancing selfconsistency and performance of pre-trained language models
+through natural language inference. InEmpirical Methods in Natural Language Processing, 2022.
+Fedor Moiseev, Zhe Dong, Enrique Alfonseca, and Martin Jaggi.
+SKILL: Structured knowledge infusion for large language models. In North American Chapter of the Association for Computational Linguistics: Human Language Technologies, 2022.
+Shirui Pan, Linhao Luo, Yufei Wang, et al. Unifying large language
+models and knowledge graphs: A roadmap. arXiv:2306.08302,
+2023.
+Baolin Peng, Michel Galley, Pengcheng He, et al. Check your facts
+and try again: Improving large language models with external
+knowledge and automated feedback. arXiv:2302.12813, 2023.
+Fabio Petroni, Tim Rockt ¨aschel, Sebastian Riedel, et al. Language
+models as knowledge bases? In Empirical Methods in Natural
+Language Processing and the International Joint Conference on
+Natural Language Processing, 2019.
+Archiki Prasad, Alexander Koller, Mareike Hartmann, et al. Adapt:
+As-needed decomposition and planning with language models.
+arXiv:2311.05772, 2023.
+Shuofei Qiao, Yixin Ou, Ningyu Zhang, et al. Reasoning with language model prompting: A survey. arXiv:2212.09597, 2023.
+Ansh Radhakrishnan, Karina Nguyen, Anna Chen, et al. Question
+decomposition improves the faithfulness of model-generated reasoning. arXiv:2307.11768, 2023.
+Nazneen Fatema Rajani, Bryan McCann, Caiming Xiong, and
+Richard Socher. Explain yourself! leveraging language models
+for commonsense reasoning. In Annual Meeting of the Association for Computational Linguistics, 2019.
+Ohad Rubin, Jonathan Herzig, and Jonathan Berant. Learning to retrieve prompts for in-context learning. In North American Chapter of the Association for Computational Linguistics: Human
+Language Technologies, 2022.
+Xiaoming Shi, Siqiao Xue, Kangrui Wang, et al. Language models
+can improve event prediction by few-shot abductive reasoning.
+arXiv:2305.16646, 2023.
+Noah Shinn, Federico Cassano, Ashwin Gopinath, et al. Reflexion:
+Language agents with verbal reinforcement learning. InAdvances
+in Neural InformationProcessing Systems, 2023.
+Nisan Stiennon, Long Ouyang, Jeff Wu, et al. Learning to summarize from human feedback. In Advances in Neural Information
+Processing Systems, 2020.
+Ruize Wang, Duyu Tang, Nan Duan, et al. K-adapter: Infusing
+knowledge into pre-trained models with adapters. In Findings
+of the Association for Computational Linguistics, 2021.
+Xiaokai Wei, Shen Wang, Dejiao Zhang, et al. Knowledge enhanced pretrained language models: A compreshensive survey.
+arXiv:2110.08455, 2021.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, et al. Chain-of-thought
+prompting elicits reasoning in large language models. In Advances in Neural Information Processing Systems, 2022.
+Peter West, Chandra Bhagavatula, Jack Hessel, et al. Symbolic
+knowledge distillation: From general language models to commonsense models. In North American Chapter of the Association
+for Computational Linguistics: Human Language Technologies ,
+2022.
+Lionel Wong, Gabriel Grand, Alexander K Lew, et al. From word
+models to world models: Translating from natural language to the
+probabilistic language of thought. arXiv:2306.12672, 2023.
+Michael Wooldridge and Nicholas R. Jennings. Intelligent agents:
+Theory and practice. The Knowledge Engineering Review, 1995.
+Qingyun Wu, Gagan Bansal, Jieyu Zhang, et al. Autogen: Enabling
+next-gen llm applications via multi-agent conversation framework. arXiv:2308.08155, 2023.
+Yunhao Yang, Jean-Rapha ¨el Gaglione, Cyrus Neary, and Ufuk
+Topcu. Automaton-based representations of task knowledge from
+generative language models. arXiv:2212.01944, 2023.
+Shunyu Yao, Dian Yu, Jeffrey Zhao, et al. Tree of thoughts:
+Deliberate problem solving with large language models.
+arXiv:2305.10601, 2023.
+Shunyu Yao, Jeffrey Zhao, Dian Yu, et al. React: Synergizing reasoning and acting in language models. In International Conference on Learning Representations, 2023.
+Jifan Yu, Xiaozhi Wang, Shangqing Tu, et al. KoLA: Carefully benchmarking world knowledge of large language models.
+arXiv:2306.09296, 2023.
+Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah Goodman. Star:
+Bootstrapping reasoning with reasoning. Advances in Neural Information Processing Systems, 2022.
+Haiyan Zhao, Hanjie Chen, Fan Yang, et al. Explainability for large
+language models: A survey. ACM Transactions on Intelligent
+Systems and Technology, 2023.
+Jiaxu Zhao, Meng Fang, Shirui Pan, et al. GPTBIAS: A comprehensive framework for evaluating bias in large language models.
+arXiv:2312.06315, 2023.
+Chaoqi Zhen, Yanlei Shang, Xiangyu Liu, et al. A survey on knowledge-enhanced pre-trained language models.
+arXiv:2212.13428, 2022.
+Zexuan Zhong, Zhengxuan Wu, Christopher D Manning, et al.
+MQuAKE: Assessing knowledge editing in language models via
+multi-hop questions. arXiv:2305.14795, 2023.
+Denny Zhou, Nathanael Sch ¨arli, Le Hou, et al. Least-to-most
+prompting enables complex reasoning in large language models.
+In International Conference on Learning Representations, 2023.
+
+[TABLE page=9 index=1]
+Columns: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented | Xiaokai Wei, | Shen | Wang, Dejiao | Zhang, | et | al. | Knowledge | enRow 1: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: language models: A survey. arXiv:1606.06565, 2023. | Xiaokai Wei,: hanced pretrained | Shen: | Wang, Dejiao: language models: | Zhang,: | et: A compreshensive survey. | al.: | Knowledge: | en-:
+Row 2: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Sewon Min, Mike Lewis, Hannaneh Hajishirzi, and Luke Zettle- | Xiaokai Wei,: arXiv:2110.08455, 2021. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 3: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: moyer. Noisy channel language model prompting for few-shot | Xiaokai Wei,: Jason Wei, Xuezhi Wang, Dale Schuurmans, et al. Chain-of-thought | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 4: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: text classification. In Proceedings of the Association for Compu- | Xiaokai Wei,: prompting | Shen: elicits | Wang, Dejiao: reasoning in large | Zhang,: | et: language | al.: | Knowledge: models. In | en-: AdRow 5: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: tational Linguistics, 2022. | Xiaokai Wei,: vances in Neural Information Processing Systems, 2022. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 6: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Sewon Min, Xinxi Lyu, Ari Holtzman, et al. Rethinking the role | Xiaokai Wei,: Peter West, Chandra | Shen: | Wang, Dejiao: Bhagavatula, | Zhang,: Jack | et: Hessel, | al.: | Knowledge: et al. Symbolic | en-:
+Row 7: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: of demonstrations: What makes in-context learning work? In | Xiaokai Wei,: knowledge distillation: | Shen: | Wang, Dejiao: From general | Zhang,: | et: language models | al.: | Knowledge: to com- | en-:
+Row 8: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Proceedings of the Conference on Empirical Methods in Natural | Xiaokai Wei,: monsense models. In North American Chapter of the Association | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 9: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Language Processing, 2022. | Xiaokai Wei,: for Computational Linguistics: | Shen: | Wang, Dejiao: Human Language Technologies, | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 10: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Eric Mitchell, Charles Lin, Antoine Bosselut, et al. Memory-based | Xiaokai Wei,: 2022. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 11: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: model editing at scale. In International Conference on Machine | Xiaokai Wei,: Lionel Wong, Gabriel Grand, Alexander K Lew, et al. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: From word | en-:
+Row 12: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Learning, 2022. | Xiaokai Wei,: models to world models: Translating from natural language to the | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 13: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Eric Mitchell, Joseph Noh, Siyan Li, et al. Enhancing self- | Xiaokai Wei,: probabilistic language of thought. arXiv:2306.12672, 2023. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 14: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: consistency and performance of pre-trained language models | Xiaokai Wei,: Michael Wooldridge and Nicholas R. Jennings. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: Intelligent agents: | Knowledge: | en-:
+Row 15: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: through natural language inference. In Empirical Methods in Nat- | Xiaokai Wei,: Theory and practice. The Knowledge Engineering Review, 1995. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 16: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: ural Language Processing, 2022. | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 17: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: Qingyun Wu, Gagan Bansal, Jieyu Zhang, et al. Autogen: Enabling | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 18: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Fedor Moiseev, Zhe Dong, Enrique Alfonseca, and Martin Jaggi. | Xiaokai Wei,: next-gen llm | Shen: applications | Wang, Dejiao: via multi-agent | Zhang,: | et: | al.: conversation | Knowledge: frame- | en-:
+Row 19: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: SKILL: Structured knowledge infusion for large language mod- | Xiaokai Wei,: work. arXiv:2308.08155, 2023. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 20: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: els. In North American Chapter of the Association for Computa- | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 21: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Ufuktional Linguistics: Human Language Technologies, 2022. | Xiaokai Wei,: Yunhao Yang, | Shen: Jean-Raphaël | Wang, Dejiao: Gaglione, | Zhang,: | et: Cyrus | al.: Neary, | Knowledge: and | en-:
+Row 22: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: Topcu. Automaton-based representations of task knowledge from | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 23: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Shirui Pan, Linhao Luo, Yufei Wang, et al. Unifying large language | Xiaokai Wei,: generative language models. arXiv:2212.01944, 2023. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 24: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: models and knowledge graphs: A roadmap. arXiv:2306.08302, | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 25: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: 2023. | Xiaokai Wei,: Shunyu Yao, | Shen: Dian | Wang, Dejiao: Yu, Jeffrey Zhao, | Zhang,: | et: et al. | al.: Tree | Knowledge: of thoughts: | en-:
+Row 26: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: Deliberate | Shen: problem | Wang, Dejiao: solving with | Zhang,: | et: large | al.: language | Knowledge: models. | en-:
+Row 27: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Baolin Peng, Michel Galley, Pengcheng He, et al. Check your facts | Xiaokai Wei,: arXiv:2305.10601, 2023. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 28: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: and try again: Improving large language models with external | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 29: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: knowledge and automated feedback. arXiv:2302.12813, 2023. | Xiaokai Wei,: Shunyu Yao, Jeffrey Zhao, Dian Yu, et al. | Shen: | Wang, Dejiao: | Zhang,: | et: React: | al.: | Knowledge: Synergizing rea- | en-:
+Row 30: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: soning and acting in language models. | Shen: | Wang, Dejiao: | Zhang,: | et: In International Confer- | al.: | Knowledge: | en-:
+Row 31: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Fabio Petroni, Tim Rocktäschel, Sebastian Riedel, et al. Language | Xiaokai Wei,: ence on Learning Representations, 2023. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 32: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: models as knowledge bases? In Empirical Methods in Natural | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 33: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Language Processing and the International Joint Conference on | Xiaokai Wei,: Jifan Yu, Xiaozhi | Shen: | Wang, Dejiao: Wang, Shangqing | Zhang,: | et: Tu, et | al.: al. | Knowledge: KoLA: Care- | en-:
+Row 34: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Natural Language Processing, 2019. | Xiaokai Wei,: fully benchmarking world knowledge of large language models. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 35: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: arXiv:2306.09296, 2023. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 36: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Archiki Prasad, Alexander Koller, Mareike Hartmann, et al. Adapt: | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 37: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: As-needed decomposition and planning with language models. | Xiaokai Wei,: Eric Zelikman, Yuhuai Wu, | Shen: | Wang, Dejiao: Jesse Mu, and Noah Goodman. | Zhang,: | et: | al.: | Knowledge: Star: | en-:
+Row 38: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: arXiv:2311.05772, 2023. | Xiaokai Wei,: Bootstrapping reasoning with reasoning. | Shen: | Wang, Dejiao: | Zhang,: | et: Advances in Neural In- | al.: | Knowledge: | en-:
+Row 39: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: formation Processing Systems, 2022. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 40: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Shuofei Qiao, Yixin Ou, Ningyu Zhang, et al. Reasoning with lan- | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 41: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: guage model prompting: A survey. arXiv:2212.09597, 2023. | Xiaokai Wei,: Haiyan Zhao, Hanjie Chen, Fan Yang, et al. Explainability for large | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 42: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: language models: | Shen: | Wang, Dejiao: A survey. ACM | Zhang,: | et: Transactions | al.: | Knowledge: on Intelligent | en-:
+Row 43: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Ansh Radhakrishnan, Karina Nguyen, Anna Chen, et al. Question | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 44: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: Systems and Technology, 2023. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 45: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: decomposition improves the faithfulness of model-generated rea- | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 46: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: soning. arXiv:2307.11768, 2023. | Xiaokai Wei,: Jiaxu Zhao, Meng Fang, Shirui Pan, et al. | Shen: | Wang, Dejiao: | Zhang,: | et: GPTBIAS: A compre- | al.: | Knowledge: | en-:
+Row 47: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: hensive framework for evaluating bias in large language models. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 48: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Nazneen Fatema Rajani, Bryan McCann, Caiming Xiong, and | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 49: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: arXiv:2312.06315, 2023. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 50: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Richard Socher. Explain yourself! leveraging language models | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 51: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: for commonsense reasoning. In Annual Meeting of the Associa- | Xiaokai Wei,: Chaoqi Zhen, | Shen: Yanlei | Wang, Dejiao: Shang, Xiangyu | Zhang,: | et: Liu, | al.: | Knowledge: et al. A | en-: surRow 52: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: tion for Computational Linguistics, 2019. | Xiaokai Wei,: vey on knowledge-enhanced | Shen: | Wang, Dejiao: | Zhang,: pre-trained | et: | al.: language | Knowledge: models. | en-:
+Row 53: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: | Xiaokai Wei,: arXiv:2212.13428, 2022. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 54: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Ohad Rubin, Jonathan Herzig, and Jonathan Berant. Learning to re- | Xiaokai Wei,: | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 55: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: trieve prompts for in-context learning. In North American Chap- | Xiaokai Wei,: Zexuan Zhong, | Shen: Zhengxuan | Wang, Dejiao: Wu, Christopher | Zhang,: | et: | al.: D | Knowledge: Manning, et | en-: al.
+Row 56: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: ter of the Association for Computational Linguistics: Human | Xiaokai Wei,: MQuAKE: Assessing knowledge editing in language models via | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 57: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Language Technologies, 2022. | Xiaokai Wei,: multi-hop questions. arXiv:2305.14795, 2023. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+Row 58: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: Xiaoming Shi, Siqiao Xue, Kangrui Wang, et al. Language models | Xiaokai Wei,: Denny Zhou, | Shen: Nathanael | Wang, Dejiao: Schärli, | Zhang,: Le Hou, | et: et | al.: al. | Knowledge: Least-to-most | en-:
+Row 59: Grégoire Mialon, Roberto Dessı̀, Maria Lomeli, et al. Augmented: can improve event prediction by few-shot abductive reasoning. | Xiaokai Wei,: prompting enables complex reasoning in large language models. | Shen: | Wang, Dejiao: | Zhang,: | et: | al.: | Knowledge: | en-:
+[/TABLE]

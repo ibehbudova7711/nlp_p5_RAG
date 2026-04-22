@@ -1,0 +1,1056 @@
+[PAGE 1]
+CheX-GPT: Harnessing Large Language Models
+for Enhanced Chest X-ray Report Labeling
+Jawook Gu1 Kihyun You1 Han-Cheol Cho2 Jiho Kim2 Eun Kyoung Hong2
+Byungseok Roh2
+1Soombit AI 2Kakao Brain
+{jawook.gu, kihyun.you }@soombit.ai, {simon.cho, tyler.md, amy.hong, peter.roh }@kakaobrain.com
+Abstract
+Free-text radiology reports present a rich data source for
+various medical tasks, but effectively labeling these texts remains challenging. Traditional rule-based labeling methods fall short of capturing the nuances of diverse free-text
+patterns. Moreover, models using expert-annotated data are
+limited by data scarcity and pre-defined classes, impacting
+their performance, flexibility and scalability. To address
+these issues, our study offers three main contributions: 1)
+We demonstrate the potential of GPT as an adept labeler
+using carefully designed prompts. 2) Utilizing only the data
+labeled by GPT, we trained a BERT-based labeler, CheXGPT, which operates faster and more efficiently than its
+GPT counterpart. 3) To benchmark labeler performance,
+we introduced a publicly available expert-annotated test
+set, MIMIC-500, comprising 500 cases from the MIMIC
+validation set. Our findings demonstrate that CheX-GPT
+not only excels in labeling accuracy over existing models, but also showcases superior efficiency, flexibility, and
+scalability, supported by our introduction of the MIMIC500 dataset for robust benchmarking. Code and models
+are available at https://github.com/Soombitai/CheXGPT
+1. Introduction
+The medical field is rich with chest X-ray (CXR) images,
+each paired with a free-text radiology report. Accurately
+labeling these reports offers significant advantages. For
+instance, labels from reports can streamline the classification of corresponding images, bypassing the need for
+labor-intensive and costly manual annotation, and setting
+the stage for automated diagnostic tools [7].
+Furthermore, these labels provide an opportunity to employ the Clinical Efficacy (CE) metric [6] to gauge the
+accuracy of reports generated in comparison to the originals. Although many past studies on medical report generRadiology report Rule-based Fine-tuned Proposed
+(a) Bibasilar atlectasis is seen. ✘ ✔ ✔
+(b) ..., underlying consolidation is ✔ ✘ ✔difficult to exclude.
+(c) A calcified granuloma is noted in ✘ ✘ ✔the left mid lung.
+(d) There is evident free gas under ✘ ✘ ✔the diaphragm, which is a critical ...
+Table 1. Four examples of report and corresponding model output.
+(a) Rule-based labeler, CheXpert [14], fails to detect typo. (b)
+Fine-tuned labeler, CheXbert [31], suffers generalization failure
+because of limited training data. Proposed CheX-GPT offers (c)
+the flexibility to easily adjust the inclusion of specific words within
+a pre-defined category, as well as (d) scalability for adding new
+categories without requiring manual annotation.
+ation [6, 25, 37] have relied on natural language generation
+(NLG) metrics like BLEU [28] or CIDEr [33], these aren’t
+tailored for medical report evaluations [15]. A clear example is contrasting the statements “There is no pneumothorax” and “There is pneumothorax.” While they might score
+similarly in NLG metrics, their medical meanings are diametrically opposed. Hence, the CE metric, calculated by
+an automated labeler, presents a more relevant method to
+assess the quality of medical reports.
+Current labelers come with their own set of challenges.
+Specifically, rule-based models [14, 29] often miss the nuanced and varied language patterns in radiology reports,
+making them especially prone to errors from typos and ambiguities, as illustrated in Table 1 (a). A fine-tuned model
+[31], built upon the rule-based system and trained with limited expert-annotated data, may not generalize well to diverse cases, as shown in Table 1 (b). Moreover, the existing labelers are tailored to specific, predefined radiological
+findings. This implies that altering the definition of findings or introducing a new category requires the creation of
+new rules or additional human annotation. While there are
+arXiv:2401.11505v2 [cs.CL] 6 Nov 2024
+
+[TABLE page=1 index=1]
+Columns: Abstract Radiology report | Unnamed: 0 | Rule-based | Fine-tuned | Proposed
+Row 1: Abstract Radiology report: (a) Bibasilar atlectasis is seen. | Unnamed: 0: | Rule-based: ✘ | Fine-tuned: ✔ | Proposed: ✔
+Row 2: Abstract Radiology report: Free-text radiology reports present a rich data source for | Unnamed: 0: | Rule-based: | Fine-tuned: | Proposed:
+Row 3: Abstract Radiology report: (b) ..., underlying consolidation is | Unnamed: 0: | Rule-based: | Fine-tuned: | Proposed:
+Row 4: Abstract Radiology report: various medical tasks, but effectively labeling these texts re- | Unnamed: 0: | Rule-based: ✔ | Fine-tuned: ✘ | Proposed: ✔
+Row 5: Abstract Radiology report: difficult to exclude. | Unnamed: 0: | Rule-based: | Fine-tuned: | Proposed:
+Row 6: Abstract Radiology report: mains challenging. Traditional rule-based labeling meth- | Unnamed: 0: | Rule-based: | Fine-tuned: | Proposed:
+Row 7: Abstract Radiology report: (c) A calcified granuloma is noted inods fall short of capturing the nuances of diverse free-text | Unnamed: 0: | Rule-based: ✘ | Fine-tuned: ✘ | Proposed: ✔
+Row 8: Abstract Radiology report: the left mid lung. | Unnamed: 0: | Rule-based: | Fine-tuned: | Proposed:
+Row 9: Abstract Radiology report: patterns. Moreover, models using expert-annotated data are | Unnamed: 0: | Rule-based: | Fine-tuned: | Proposed:
+Row 10: Abstract Radiology report: limited by data scarcity and pre-defined classes, impacting (d) There is evident free gas under | Unnamed: 0: | Rule-based: ✘ | Fine-tuned: ✘ | Proposed: ✔
+Row 11: Abstract Radiology report: the diaphragm, which is a critical ... | Unnamed: 0: | Rule-based: | Fine-tuned: | Proposed:
+Row 12: Abstract Radiology report: their performance, flexibility and scalability. To address | Unnamed: 0: | Rule-based: | Fine-tuned: | Proposed:
+[/TABLE]
+
+[PAGE 2]
+hundreds of primary radiological findings, previous labelers
+have tackled only a handful. This highlights the pressing
+need for a more flexible and scalable approach in developing automated radiograph labelers.
+Meanwhile, there have been notable advancements in
+Large Language Models (LLMs), especially with their
+human-comparable performance achieved through training
+large models on massive datasets. Their proficiency isn’t
+just in language comprehension but extends to medical
+knowledge mastery, positioning LLMs as promising tools
+in healthcare [4, 17, 26]. As such, efforts have been channeled to convert free-text radiology reports into more desired forms using LLMs [1, 22, 32], alongside proving reliable medical advice based on patient histories [8].
+In this study, we highlighted the capability of LLMs,
+such as GPT-3.5 and GPT-4 [27], to effectively label radiological findings in free-text CXR reports. Notably, this
+was achieved without the need for fine-tuning or an annotated dataset. We optimized the LLM’s potential by crafting
+tailored prompts, rich in examples for in-context learning.
+Subsequently, we mapped the LLM’s outputs into 13 predefined radiological finding categories.
+However, relying solely on LLMs for CXR report labeling isn’t the most time or cost-efficient approach. Thus, we
+introduced a more compact labeler utilizing BERT [10] architecture, trained on pseudo-labels created by LLMs. The
+resulting model, CheX-GPT, not only outpaced the LLMs
+with in-context learning but also marked a significant dip
+in inference time. Remarkably, the CheX-GPT’s training
+didn’t lean on any human-labeled data; it drew entirely from
+LLM-labeled data, and still managed to outclass both rulebased and fine-tuned labelers.
+Through our research, we discovered a notable deficiency in the field of CXR report labeling: the lack of a
+benchmark test dataset. While MIMIC-CXR [16] released
+only validation set reports, CheXpert [14] only provided
+the labels. To bridge this void and ensure an even playing
+field for labeler comparisons, we’re introducing MIMIC500, a dataset manually annotated by experts from a subset of the MIMIC-CXR validation set. This set consists of
+binary labels across our 13 defined categories, which pair
+perfectly with the MIMIC-CXR reports. This dataset not
+only lays a crucial foundation for future CXR report annotation endeavors but also supports a broad spectrum of
+medical imaging research, including automated report generation and CXR image classification, where automated labeling tools are key to enhancing evaluation and analysis.
+This work’s contributions are summarized as follows:
+• We showcased LLMs as a superior labeler for free-text
+CXR reports, relying solely on in-context learning, outpacing conventional supervised models.
+• By harnessing LLM-derived pseudo-labels, we sculpted
+a compact and efficient model, CheX-GPT, that elevated
+performance benchmarks.
+• We have introduced an expert-labeled dataset, MIMIC500, to support future annotation works and various medical imaging research endeavors as well.
+2. Related Work
+2.1. Labeling Data with Large Language Models
+Deep learning models require a large amount of labeled data
+for training. This annotation process can be costly and timeconsuming, particularly in specialized fields like law and
+medicine. Previous studies have attempted to address this
+issue by harnessing LLMs.
+In one of the pioneering studies [34], GPT-3 [3] was employed as a cost-effective data labeler, resulting in a remarkable reduction in annotation costs, ranging from 50% to
+96%, across 9 NLP tasks. Moreover, the authors have also
+demonstrated that models trained on these pseudo-labeled
+data often outperformed raw GPT-3. This was attributed to
+the predictions made on unlabeled samples serving as a regularization technique for the induced models, consequently
+enhancing their overall performance. The emergence of
+more powerful LLMs such as GPT-3.5 is accelerating this
+approach. Their robust capability to follow instructions has
+significantly reduced the complexity of prompt engineering
+to obtain high-quality pseudo labels for NLP tasks [11].
+The application of LLMs as zero-shot data labelers
+extends to specialized domains, including medical documents [1, 2, 26], legal texts [30], and material science articles [12]. Our study focuses on a specific branch of the
+medical domain, CXR reports, incorporating newly introduced radiological findings.
+2.2. Radiology Report Labelers
+Early studies [14, 29] in the field of radiology report classification relied on the expertise of domain experts. CheXpert [14] enlisted the assistance of professional radiologists
+to analyze 1,000 radiology reports and formulate a set of
+rules for creating a rule-based classifier, as illustrated in Figure 1 (a). CheXbert [31] employs a semi-supervised learning approach, initially pre-training a BERT-based model on
+the CheXpert dataset, then fine-tuning it on a smaller, manually labeled dataset, as shown in Figure 1 (b). This approach allows CheXbert to surpass the performance of previous rule-based labelers. However, these tools are tailored
+primarily for theImpression section of the CheXpert dataset
+and confined to specific predefined categories. This specialization limits their effectiveness on different datasets. Additionally, modifying or improving these labelers is challenging: enhancing CheXpert would require a new text corpus,
+and CheXbert needs extensive new expert annotations.
+In contrast, our method, illustrated in Figure 1 (c), leverages a large amount of pseudo-labeled data produced by
+
+[TABLE page=2 index=1]
+Columns: was achieved without the need for fine-tuning or an anno- | demonstrated that models trained on these pseudo-labeled
+Row 1: was achieved without the need for fine-tuning or an anno-: tated dataset. We optimized the LLM’s potential by crafting | demonstrated that models trained on these pseudo-labeled: data often outperformed raw GPT-3. This was attributed to
+Row 2: was achieved without the need for fine-tuning or an anno-: tailored prompts, rich in examples for in-context learning. | demonstrated that models trained on these pseudo-labeled: the predictions made on unlabeled samples serving as a regRow 3: was achieved without the need for fine-tuning or an anno-: Subsequently, we mapped the LLM’s outputs into 13 pre- | demonstrated that models trained on these pseudo-labeled: ularization technique for the induced models, consequently
+[/TABLE]
+
+[PAGE 3]
+Figure 1. (a) Labeling process for the rule-based labeler. (b) Training framework for the fine-tuned labeler, using a small volume of
+manually annotated data. (c) Training framework of the proposed
+CheX-GPT, employing a large volume of pseudo-labeled data generated by LLM.
+LLMs instead of a smaller manually labeled dataset. This
+approach is more adaptable to various datasets. Furthermore, altering the target category is straightforward, requiring only adjustments to the mapping section to align with
+the user’s objectives.
+2.3. Public CXR Datasets
+There has been sustained interest in constructing datasets
+for CXR research. Datasets like ChestX-ray8 [35], CheXpert [14], MIMIC-CXR [16], PadChest [5], and VinDrCXR [24] are frequently employed due to their dataset size
+relative to other datasets. While many datasets include radiology reports, CheXpert only provides labels and omits
+the report texts. In contrast, MIMIC-CXR offers both CXR
+images and reports but lacks structured information such as
+abnormal radiological findings. Our study introduces expert
+manual annotations connected to a subset of the MIMICCXR validation data. This addition completes a set of reports and labels corresponding to each CXR study, creating
+a more holistic and structured dataset for testing and aiding
+future research using CXR report labelers.
+2.4. Evaluation for Multi-modal Model in CXR
+After the introduction of the large-scale image-report
+datasets such as MIMIC-CXR [16] and Open-I [9], there
+has been notable progress in developing multi-modal models integrating both image and text modalities [19, 36, 38].
+Despite these advancements, evaluating such models using
+NLG metrics poses challenges due to variations in expressions while conveying identical clinical meanings [20].
+One potential solution involves employing the CE metric, designed to quantify clinical similarities between
+ground truth reports and model predictions [21, 23]. While
+tools like CheXpert [29] and CheXbert [14] were tailored
+for the CE metric, the text corpus of CheXpert [29] built on
+CheXpert dataset remains unavailable, creating a domain
+gap with other datasets like MIMIC-CXR and subsequently
+limiting labeling performance. In our study, we present a
+test dataset annotated by medical experts, along with corresponding model-based labelers trained on a sufficient quantity of high-quality pseudo-labels, thereby providing a robust evaluation framework for multi-modal models trained
+on MIMIC-CXR.
+3. Methods
+3.1. Selection of Abnormalities in CXR Reports
+For our study, we focused on 13 key abnormalities frequently identified in CXR reports: atelectasis, consolidation, effusion, fracture, hyperinflation, lung opacity, nodule,
+pleural lesion, pneumothorax, pulmonary edema, subcutaneous emphysema, subdiaphragmatic gas and widened mediastinal silhouette that includes cardiomegaly [13]. These
+abnormalities were selected to cover major thoracic illnesses in radiologic reports. The accurate identification of
+the abnormalities is paramount as they can indicate serious underlying conditions, affect treatment decisions, and
+guide patient management. In the context of automating
+CXR report annotation, focusing on these abnormalities ensures that the developed model addresses some of the most
+crucial and frequently encountered findings in the field of
+radiology.
+3.2. GPT Labeler
+In this study, we engaged GPT-4 [27], a state-of-the-art
+LLM model having medical knowledge, to label potential
+abnormalities within CXR reports.
+Prompt Our methodology’s core hinges on a finely crafted
+prompt structured to guide GPT-4. The prompt is composed
+
+[PAGE 4]
+A large right hydropneumothorax is demonstrated with atelectasis of the right lung and mild leftward shift of midline structures. Heart size is not enlarged. Mediastinal and hilar contours are unremarkable. Pulmonary vasculature is not engorged. Left lung appears hyperinﬂated. There are no acute osseous abnormalities.
+CXR Report PromptTask Instruc4on
+In-Context Examples
+Given the details from a CXR (Chest X-Ray) report provided below, extract and summarize findings. Finding specifies if the observation is normal or denotes any abnormal pathologies. Some examples include atelectasis, consolidation, …
+Example 1 Multifocal nodules and consolidations are seen in right upper lung zone and diffuse left lung. … Answer: Nodule, Consolidation
+Example 2 …
+Input
+Atelectasis; Hyperinflation; Hydropneumothorax
+GPT-4
+111 1
+AtelectasisConsolidationEffusionFracture
+HyperinflationLung Opacity
+Nodule
+Pleural LesionPneumothoraxPulmonary EdemaSQ emphysemaSubdiaphram. GasWidened. Silhouette
+CheX-GPT
+BERT
+Tokenizer
+[CLS]
+CLS embed
+111 1
+Token…Token[EOS]
+Supervision
+Mapping
+[ CXR Report ] Answer:
+Figure 2. The overall framework mainly consists of the GPT labeler and CheX-GPT. Initially, a CXR report is placed at the end of the
+prompt for CXR labeling. GPT-4 then extracts positive findings from the report. The output from GPT-4 is categorized into 13 distinct
+categories by mapping, and then providing supervision for the BERT-based CheX-GPT model.
+of a distinct task instruction, 20 in-context learning examples, and the input CXR report text awaiting labeling, as
+shown in Figure 2. The task instruction specifically directs
+GPT-4 to identify and label all discernable abnormalities
+present in the provided CXR report. The in-context learning
+examples are carefully curated and refined through an iterative process, where we test GPT-4’s responses, observe patterns of incorrect answers, and subsequently address these
+errors by incorporating additional in-context examples into
+the prompt. This methodical approach ensures that each example not only introduces the model to typical terminologies and phrasings found in CXR reports but also actively
+corrects and fine-tunes its understanding and response accuracy. Relying on the instruction and examples, the model
+is tasked with labeling any abnormalities.
+Mapping Following GPT-4’s labeling, a rule-based method
+is then employed to map the model’s outputs to our predefined list of 13 critical abnormalities. By coupling GPT-4’s
+vast language capabilities with our refined prompts and subsequent rule-based mapping, we aim to devise a dependable
+and efficient method to label CXR reports, spotlighting the
+13 key abnormalities of clinical interest.
+3.3. CheX-GPT
+We utilized the CheXbert architecture [31] for multilabel classification tasks. The original implementation of
+CheXbert employs BERT [10] as its backbone and appends
+a classification head for each radiological finding, categorizing them into four distinct labels: positive, negative, uncertain, and blank. In our model, we modified the classification heads for 13 designated categories, simplifying the
+labels to either ‘positive’ or ‘not positive’, as illustrated in
+Figure 2. We trained the model with binary cross-entropy
+loss.
+We trained a model with CheXbert pre-trained weights
+for efficiency. Each input report text undergoes tokenization, limiting the maximum number of tokens in each input
+sequence to 512. The model underwent 10K steps with a
+learning rate of 5e5 and a batch size of 32. The learning rate
+was halved every 4K steps by the LR scheduler. AdamW
+optimizer was employed with its default configuration. We
+implemented all experiments on PyTorch with an NVIDIA
+A100 GPU, and the training time takes about one hour.
+
+[TABLE page=4 index=2]
+Columns: hyperinflated. There are no acute osseous | Unnamed: 0 | 1 | Unnamed: 1 | 1.1 | 1.2 | Unnamed: 2 | 1.3
+Row 1: hyperinflated. There are no acute osseous: abnormalities. | Unnamed: 0: Example 1 | 1: | Unnamed: 1: | 1.1: | 1.2: | Unnamed: 2: | 1.3:
+Row 2: hyperinflated. There are no acute osseous: | Unnamed: 0: Multifocal nodules and consolidations are seen in | 1: | Unnamed: 1: | 1.1: | 1.2: | Unnamed: 2: | 1.3:
+Row 3: hyperinflated. There are no acute osseous: | Unnamed: 0: right upper lung zone and diffuse left lung. ... | 1: | Unnamed: 1: | 1.1: | 1.2: | Unnamed: 2: | 1.3:
+Row 4: hyperinflated. There are no acute osseous: | Unnamed: 0: Answer: Nodule, Consolidation | 1: | Unnamed: 1: | 1.1: | 1.2: | Unnamed: 2: | 1.3:
+Row 5: hyperinflated. There are no acute osseous: | Unnamed: 0: | 1: CLS | Unnamed: 1: | 1.1: | 1.2: | Unnamed: 2: | 1.3:
+Row 6: hyperinflated. There are no acute osseous: | Unnamed: 0: | 1: embed | Unnamed: 1: | 1.1: | 1.2: | Unnamed: 2: | 1.3:
+Row 7: hyperinflated. There are no acute osseous: | Unnamed: 0: Example 2 ... | 1: | Unnamed: 1: | 1.1: | 1.2: | Unnamed: 2: BERT | 1.3:
+Row 8: hyperinflated. There are no acute osseous: | Unnamed: 0: Input | 1: | Unnamed: 1: | 1.1: | 1.2: | Unnamed: 2: | 1.3:
+[/TABLE]
+
+[PAGE 5]
+Category Training set (50k) MIMIC-500
+Longer Findings Impression
+Atelectasis 15,461 (30.9%) 182 (36.4%) 100 (20.0%)
+Consolidation 5,195 (10.4%) 60 (12.0%) 51 (10.2%)
+Effusion 16,583 (33.2%) 203 (40.6%) 150 (30.0%)
+Fracture 3,720 (7.4%) 49 (9.8%) 9 (1.8%)
+Hyperinflation 3,861 (7.7%) 55 (11.0%) 17 (3.4%)
+Lung Opacity 15,206 (30.4%) 217 (43.4%) 139 (27.8%)
+Nodule 3,581 (7.2%) 58 (11.6%) 19 (3.8%)
+Pleural Lesion 4,130 (8.3%) 61 (12.2%) 9 (1.8%)
+Pneumothorax 3,995 (8.0%) 26 (5.2%) 22 (4.4%)
+Pulmo. Edema 7,238 (14.5%) 147 (29.4%) 134 (26.8%)
+SQ Emphysema 1,813 (3.6%) 11 (2.2%) 6 (1.2%)
+Subdia. Gas 868 (1.7%) 4 (0.8%) 1 (0.2%)
+Widened. Sil. 12,735 (25.5%) 138 (27.6%) 48 (9.6%)
+No Abnormality 14,248 (28.5%) 77 (15.4%) 165 (33.0%)
+Table 2. Label distributions of pseudo-labeled training set and
+hand-crafted test set MIMIC-500. For the training set, we selected
+the longer text segment from either theFindings or Impression sections.
+3.4. Data
+The primary dataset utilized in this study is MIMICCXR [16], comprising 377,110 images, each accompanied
+by a radiology report. These reports are a valuable source
+for gleaning insights into various chest abnormalities. For
+consistency, all reports in this study underwent preprocessing to eliminate superfluous spaces and newlines.
+In the model training phase, we engaged a subset of the
+MIMIC-CXR dataset, encompassing 50,000 unique CXR
+reports. In selecting this subset, we specifically targeted
+keywords in the reports to ensure that the training set included a substantial number of positive labels for less common categories such as ‘fracture’ or ‘subdiaphragmatic
+gas’. These were labeled using GPT-4 with specially designed prompts as described previously, and the distributions of the labels are displayed in Table 2. For each report,
+the longer segment was sampled from either theFindings or
+Impression section for training.
+For evaluation, we manually annotated 500 reports from
+the MIMIC-CXR validation set, referring to this subset as
+MIMIC-500. This collection served as a benchmark, allowing us to compare our GPT-4-driven annotation process
+with human expertise. We compiled unique report sets that
+included both the Findings and Impression sections to enable a thorough evaluation of both sections.
+Upon examining the MIMIC-500 column in Table 2,
+there is a marked difference in label distribution between
+the Findings and Impression sections. The Impression section exhibits a substantially lower count of positive labels in comparison to Findings. This is largely due to
+the characteristics of the Impression section, which generally summarizes the Findings section by selectively noting only the clinically significant observations or diagnoses
+inferred from observations. In contrast, the Findings section often includes a variety of observations with more descriptive terms, even those with lesser significance, whereas
+the Impression section tends to succinctly document only
+those findings deemed to be more important. Consequently,
+the Findings section usually contains more comprehensive
+information than the Impression section. This highlights
+the importance of an automated labeler for both sections,
+whereas previous labelers primarily focused on the Impression section, where expressions are clearer but less informative.
+The process of manual annotation involved a careful review by expert radiologists to ensure accuracy and consistency, with each section being annotated independently.
+Radiology reports, being written in natural language, offer
+multiple ways to describe identical findings. For instance,
+‘Pleural fluid’ denotes fluid in the pleural space, equivalent
+to pleural effusion. We labeled these varied expressions under the 13 selected abnormalities. Furthermore, the likelihood of findings is often expressed in different terms within
+the reports. Phrases like ‘suggesting’ indicate high probability, whereas ‘cannot be excluded’ point to a lower probability. Due to the subjectivity inherent in these probability
+expressions, findings described with low probability were
+also labeled as ‘positive’ to maintain objectivity.
+4. Experiments
+4.1. Proposed Labelers
+The performance of various labelers, including GPT-3.5,
+GPT-4 and CheX-GPT, has been evaluated in Table 3.
+GPT-3.5, an antecedent in the GPT series, demonstrated
+substantial proficiency in labeling abnormalities in CXR reports. While it showcased substantial language modeling
+prowess, its annotations were not as precise as its successor
+and CheX-GPT.
+GPT-4, with its more advanced architecture and greater
+training data, significantly outperformed GPT-3.5. Its enhanced natural language understanding allowed for more
+nuanced and accurate labeling of CXR reports. As shown
+in Table 3, GPT-4’s performance metrics in almost all categories showed tangible improvements over GPT-3.5, underscoring the importance of continual model evolution.
+Our key achievement, CheX-GPT, synergies GPT-4’s
+advanced labeling capabilities with the streamlined efficiency of the BERT architecture. While it is trained exclusively on data labeled by GPT-4, CheX-GPT not only
+assimilates GPT-4’s strengths but also significantly reduces
+model size. This reduction leads to markedly faster inference times and lower operational costs, without compro5
+
+[TABLE page=5 index=1]
+Columns: Unnamed: 0 | Training set (50k) MIMIC-500 | the characteristics | of | the | Impression | section, | which | genRow 1: Unnamed: 0: Category | Training set (50k) MIMIC-500: | the characteristics: | of: | the: | Impression: | section,: | which: | gen-:
+Row 2: Unnamed: 0: | Training set (50k) MIMIC-500: Longer Findings Impression | the characteristics: erally summarizes the Findings section by selectively not- | of: | the: | Impression: | section,: | which: | gen-:
+Row 3: Unnamed: 0: | Training set (50k) MIMIC-500: | the characteristics: ing only the clinically significant observations or diagnoses | of: | the: | Impression: | section,: | which: | gen-:
+Row 4: Unnamed: 0: Atelectasis | Training set (50k) MIMIC-500: 15,461 (30.9%) 182 (36.4%) 100 (20.0%) | the characteristics: | of: | the: | Impression: | section,: | which: | gen-:
+Row 5: Unnamed: 0: | Training set (50k) MIMIC-500: | the characteristics: inferred from observations. | of: | the: | Impression: In contrast, | section,: the Findings sec- | which: | gen-:
+Row 6: Unnamed: 0: Consolidation | Training set (50k) MIMIC-500: 5,195 (10.4%) 60 (12.0%) 51 (10.2%) | the characteristics: | of: | the: | Impression: | section,: | which: | gen-:
+Row 7: Unnamed: 0: | Training set (50k) MIMIC-500: | the characteristics: tion often includes a variety of observations with more de- | of: | the: | Impression: | section,: | which: | gen-:
+Row 8: Unnamed: 0: Effusion | Training set (50k) MIMIC-500: 16,583 (33.2%) 203 (40.6%) 150 (30.0%) | the characteristics: | of: | the: | Impression: | section,: | which: | gen-:
+Row 9: Unnamed: 0: | Training set (50k) MIMIC-500: | the characteristics: scriptive terms, even those with lesser significance, whereas | of: | the: | Impression: | section,: | which: | gen-:
+Row 10: Unnamed: 0: Fracture | Training set (50k) MIMIC-500: 3,720 (7.4%) 49 (9.8%) 9 (1.8%) | the characteristics: | of: | the: | Impression: | section,: | which: | gen-:
+Row 11: Unnamed: 0: to succinctly document onlyHyperinflation | Training set (50k) MIMIC-500: 3,861 (7.7%) 55 (11.0%) 17 (3.4%) | the characteristics: the Impression section | of: | the: tends | Impression: | section,: | which: | gen-:
+Row 12: Unnamed: 0: Lung Opacity | Training set (50k) MIMIC-500: 15,206 (30.4%) 217 (43.4%) 139 (27.8%) | the characteristics: those findings deemed to be more important. Consequently, | of: | the: | Impression: | section,: | which: | gen-:
+Row 13: Unnamed: 0: Nodule | Training set (50k) MIMIC-500: 3,581 (7.2%) 58 (11.6%) 19 (3.8%) | the characteristics: the Findings section usually contains more comprehensive | of: | the: | Impression: | section,: | which: | gen-:
+Row 14: Unnamed: 0: Pleural Lesion | Training set (50k) MIMIC-500: 4,130 (8.3%) 61 (12.2%) 9 (1.8%) | the characteristics: information than the | of: | the: Impression | Impression: section. | section,: This | which: highlights | gen-:
+Row 15: Unnamed: 0: Pneumothorax | Training set (50k) MIMIC-500: 3,995 (8.0%) 26 (5.2%) 22 (4.4%) | the characteristics: the importance of an automated | of: | the: | Impression: labeler | section,: for both sections, | which: | gen-:
+Row 16: Unnamed: 0: Pulmo. Edema | Training set (50k) MIMIC-500: 7,238 (14.5%) 147 (29.4%) 134 (26.8%) | the characteristics: whereas previous labelers primarily focused on the Impres- | of: | the: | Impression: | section,: | which: | gen-:
+Row 17: Unnamed: 0: SQ Emphysema | Training set (50k) MIMIC-500: 1,813 (3.6%) 11 (2.2%) 6 (1.2%) | the characteristics: sion section, where expressions are clearer but less informa- | of: | the: | Impression: | section,: | which: | gen-:
+Row 18: Unnamed: 0: Subdia. Gas | Training set (50k) MIMIC-500: 868 (1.7%) 4 (0.8%) 1 (0.2%) | the characteristics: tive. | of: | the: | Impression: | section,: | which: | gen-:
+Row 19: Unnamed: 0: Widened. Sil. | Training set (50k) MIMIC-500: 12,735 (25.5%) 138 (27.6%) 48 (9.6%) | the characteristics: The process of manual annotation involved a careful re- | of: | the: | Impression: | section,: | which: | gen-:
+Row 20: Unnamed: 0: | Training set (50k) MIMIC-500: | the characteristics: view by expert radiologists | of: | the: | Impression: to ensure | section,: accuracy | which: and | gen-: conRow 21: Unnamed: 0: No Abnormality | Training set (50k) MIMIC-500: 14,248 (28.5%) 77 (15.4%) 165 (33.0%) | the characteristics: | of: | the: | Impression: | section,: | which: | gen-:
+[/TABLE]
+
+[PAGE 6]
+Category Findings Impression
+CheXpert CheXbert GPT-3.5 GPT-4 CheX-GPT CheXpert CheXbert GPT-3.5 GPT-4 CheX-GPT
+Atelectasis 83.44 82.32 95.77 96.63 96.34 79.76 79.52 96.48 98.02 98.52
+Consolidation 84.68 78.43 85.50 94.02 96.72 80.46 73.17 95.92 96.97 99.01
+Effusion 91.05 90.37 90.43 97.52 97.77 92.04 91.93 93.47 97.70 97.69
+Fracture 80.43 73.56 93.88 97.03 94.95 72.73 80.00 82.35 80.00 88.89
+Lung Opacity 86.19 84.09 87.16 88.47 88.56 89.44 89.13 93.29 94.85 93.06
+Nodule 65.35 70.59 80.95 82.09 82.09 77.78 78.05 87.80 82.93 85.71
+Pleural Lesion 40.00 39.53 95.08 96.06 92.91 44.44 42.11 94.12 94.74 90.00
+Pneumothorax 88.46 87.50 60.24 92.59 92.59 93.02 92.68 100.00 97.78 95.45
+Pulmonary Edema 77.55 77.05 67.24 80.16 83.00 84.65 85.25 74.42 85.36 85.47
+Widened Mediastinal Silhouette 67.76 75.94 73.97 78.32 78.98 81.82 87.04 78.57 93.20 94.12
+Hyperinflation - - 73.56 96.23 99.08 - - 64.00 90.32 90.32
+Subqutaneous Emphysema - - 90.00 90.00 90.00 - - 90.91 76.92 90.91
+Subdiaphragmatic Gas - - 50.00 85.71 85.71 - - 100.00 100.00 100.00
+Micro-average (10 categories) 79.68 79.76 84.73 89.83 90.10 85.52 85.49 89.84 93.84 93.87
+Macro-average (10 categories) 76.49 75.94 83.02 90.29 90.39 79.61 79.89 89.64 92.15 92.79
+Micro-average (13 categories) - - 84.27 90.10 90.48 - - 89.37 93.62 93.78
+Macro-average (13 categories) - - 80.29 90.37 90.67 - - 88.56 91.45 93.01
+Table 3. F1 score of labelers on MIMIC-500 set. The best and second best results are highlighted using bold and underline numbers,
+respectively. CheX-GPT achieved either the best or the second-best F1 score in most of the diagnosis categories.
+mising performance. In fact, CheX-GPT’s specialized design for CXR report labeling allows it to perform on par
+with GPT-4, as evidenced in Table 3. This balance of efficiency and effectiveness establishes CheX-GPT as a highly
+efficient yet powerful tool in our study.
+4.2. Comparative study
+In this section, we compare the labeling accuracy of our
+CheX-GPT against the established CheXpert and CheXbert
+models, as outlined in Table 3.
+While CheXpert categorizes findings into 14 types and
+our method uses 13, there are 8 categories that are directly comparable. Moreover, we have matched two additional pairs of categories: ‘Pleural Other’ from CheXpert
+is matched with our ‘Pleural Lesion’ category, and their
+‘Enlarged Cardiomediastinum’ along with ‘Cardiomegaly’
+is matched with our ‘Widened Mediastinal Silhouette’ category. This matching process gives us a total of 10 categories
+for a side-by-side comparison among CheXpert, CheXbert,
+and CheX-GPT.
+In Table 3, the proposed method demonstrated significantly higher performance compared to CheXbert and
+CheXpert. Upon examining reports where notable differences were observed, we analyzed that these performance
+disparities primarily stem from two factors. The first cause
+is attributed to performance errors in CheXbert, predominantly occurring in complex sentences. Examples of these
+instances are provided in the Appendix.
+The second reason is the variance in the definition of
+categories between this study and CheXbert, specifically
+in terms of the inclusion of certain words. For instance,
+the ‘Pleural Lesion’ category shows markedly lower performance in comparative models, mainly because terms like
+‘Costophrenic Angle (CPA) blunting’ are not categorized
+as ‘Pleural Lesion’ by these models. CPA blunting, marked
+by a wider angle at the costophrenic recess in contrast to
+the acute angle in a normal chest X-ray (CXR), is mostly
+caused by effusion, although it does not exclusively indicate effusion [18]. Therefore, we categorized CPA blunting
+as a pleural lesion, a broader classification than just pleural effusion, whereas the comparative models classified it
+as ‘No Finding’. Other keywords contributing significantly
+to the performance gap include ‘Granuloma’ for ‘Nodule’
+and ‘Deformity’ for ‘Fracture’. More examples are listed in
+the Appendix.
+All models under consideration show improved performance in the Impression section compared to the Findings
+section. This improvement is likely due to the Impression section’s brevity and clarity, making labeling tasks easier. Notably, The improvement is particularly pronounced
+in comparative models because these models were originally developed to target the Impression section. Additionally, the Impression section generally exhibits a lower
+frequency of key terms such as ‘CPA Blunting’ or ‘Granuloma’, which, as explained earlier, is a key factor in the
+performance gap observed between the comparative models and our proposed method.
+Unlike the ground truth (GT) labels in our study, which
+
+[TABLE page=6 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Findings | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Impression | Unnamed: 5 | Unnamed: 6
+Row 1: Unnamed: 0: Category | Unnamed: 1: | Findings: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Impression: | Unnamed: 5: | Unnamed: 6:
+Row 2: Unnamed: 0: | Unnamed: 1: CheXpert | Findings: CheXbert GPT-3.5 | Unnamed: 2: GPT-4 | Unnamed: 3: CheX-GPT | Unnamed: 4: CheXpert | Impression: CheXbert GPT-3.5 | Unnamed: 5: GPT-4 | Unnamed: 6: CheX-GPT
+Row 3: Unnamed: 0: Atelectasis | Unnamed: 1: 83.44 | Findings: 82.32 95.77 | Unnamed: 2: 96.63 | Unnamed: 3: 96.34 | Unnamed: 4: 79.76 | Impression: 79.52 96.48 | Unnamed: 5: 98.02 | Unnamed: 6: 98.52
+Row 4: Unnamed: 0: Consolidation | Unnamed: 1: 84.68 | Findings: 78.43 85.50 | Unnamed: 2: 94.02 | Unnamed: 3: 96.72 | Unnamed: 4: 80.46 | Impression: 73.17 95.92 | Unnamed: 5: 96.97 | Unnamed: 6: 99.01
+Row 5: Unnamed: 0: Effusion | Unnamed: 1: 91.05 | Findings: 90.37 90.43 | Unnamed: 2: 97.52 | Unnamed: 3: 97.77 | Unnamed: 4: 92.04 | Impression: 91.93 93.47 | Unnamed: 5: 97.70 | Unnamed: 6: 97.69
+Row 6: Unnamed: 0: Fracture | Unnamed: 1: 80.43 | Findings: 73.56 93.88 | Unnamed: 2: 97.03 | Unnamed: 3: 94.95 | Unnamed: 4: 72.73 | Impression: 80.00 82.35 | Unnamed: 5: 80.00 | Unnamed: 6: 88.89
+Row 7: Unnamed: 0: Lung Opacity | Unnamed: 1: 86.19 | Findings: 84.09 87.16 | Unnamed: 2: 88.47 | Unnamed: 3: 88.56 | Unnamed: 4: 89.44 | Impression: 89.13 93.29 | Unnamed: 5: 94.85 | Unnamed: 6: 93.06
+Row 8: Unnamed: 0: Nodule | Unnamed: 1: 65.35 | Findings: 70.59 80.95 | Unnamed: 2: 82.09 | Unnamed: 3: 82.09 | Unnamed: 4: 77.78 | Impression: 78.05 87.80 | Unnamed: 5: 82.93 | Unnamed: 6: 85.71
+Row 9: Unnamed: 0: Pleural Lesion | Unnamed: 1: 40.00 | Findings: 39.53 95.08 | Unnamed: 2: 96.06 | Unnamed: 3: 92.91 | Unnamed: 4: 44.44 | Impression: 42.11 94.12 | Unnamed: 5: 94.74 | Unnamed: 6: 90.00
+Row 10: Unnamed: 0: Pneumothorax | Unnamed: 1: 88.46 | Findings: 87.50 60.24 | Unnamed: 2: 92.59 | Unnamed: 3: 92.59 | Unnamed: 4: 93.02 | Impression: 92.68 100.00 | Unnamed: 5: 97.78 | Unnamed: 6: 95.45
+Row 11: Unnamed: 0: Pulmonary Edema | Unnamed: 1: 77.55 | Findings: 77.05 67.24 | Unnamed: 2: 80.16 | Unnamed: 3: 83.00 | Unnamed: 4: 84.65 | Impression: 85.25 74.42 | Unnamed: 5: 85.36 | Unnamed: 6: 85.47
+Row 12: Unnamed: 0: Widened Mediastinal Silhouette | Unnamed: 1: 67.76 | Findings: 75.94 73.97 | Unnamed: 2: 78.32 | Unnamed: 3: 78.98 | Unnamed: 4: 81.82 | Impression: 87.04 78.57 | Unnamed: 5: 93.20 | Unnamed: 6: 94.12
+Row 13: Unnamed: 0: Hyperinflation | Unnamed: 1: - | Findings: - 73.56 | Unnamed: 2: 96.23 | Unnamed: 3: 99.08 | Unnamed: 4: - | Impression: - 64.00 | Unnamed: 5: 90.32 | Unnamed: 6: 90.32
+Row 14: Unnamed: 0: Subqutaneous Emphysema | Unnamed: 1: - | Findings: - 90.00 | Unnamed: 2: 90.00 | Unnamed: 3: 90.00 | Unnamed: 4: - | Impression: - 90.91 | Unnamed: 5: 76.92 | Unnamed: 6: 90.91
+Row 15: Unnamed: 0: Subdiaphragmatic Gas | Unnamed: 1: - | Findings: - 50.00 | Unnamed: 2: 85.71 | Unnamed: 3: 85.71 | Unnamed: 4: - | Impression: - 100.00 | Unnamed: 5: 100.00 | Unnamed: 6: 100.00
+Row 16: Unnamed: 0: Micro-average (10 categories) | Unnamed: 1: 79.68 | Findings: 79.76 84.73 | Unnamed: 2: 89.83 | Unnamed: 3: 90.10 | Unnamed: 4: 85.52 | Impression: 85.49 89.84 | Unnamed: 5: 93.84 | Unnamed: 6: 93.87
+Row 17: Unnamed: 0: Macro-average (10 categories) | Unnamed: 1: 76.49 | Findings: 75.94 83.02 | Unnamed: 2: 90.29 | Unnamed: 3: 90.39 | Unnamed: 4: 79.61 | Impression: 79.89 89.64 | Unnamed: 5: 92.15 | Unnamed: 6: 92.79
+Row 18: Unnamed: 0: Micro-average (13 categories) | Unnamed: 1: - | Findings: - 84.27 | Unnamed: 2: 90.10 | Unnamed: 3: 90.48 | Unnamed: 4: - | Impression: - 89.37 | Unnamed: 5: 93.62 | Unnamed: 6: 93.78
+Row 19: Unnamed: 0: Macro-average (13 categories) | Unnamed: 1: - | Findings: - 80.29 | Unnamed: 2: 90.37 | Unnamed: 3: 90.67 | Unnamed: 4: - | Impression: - 88.56 | Unnamed: 5: 91.45 | Unnamed: 6: 93.01
+[/TABLE]
+
+[PAGE 7]
+Figure 3. Macro averaged F1 score curve for various training data
+sizes (log scale). Performance tends to increase as the training
+data size increases. Performance on Impressions is saturated with
+fewer training samples than on Findings.
+categorize the status of findings into ‘positive’ and ‘not positive’, CheXpert and CheXbert differentiate statuses into
+four categories: ‘positive’, ‘negative’, ‘uncertain’, and ‘not
+mentioned’. In measuring the performance of these models, we combined ‘positive’ and ‘uncertain’ to compare with
+the ‘positive’ category of our GT labels. This method was
+implemented based on our labeling criteria for the test set,
+where expressions such as ‘cannot be excluded,’ categorized as ‘uncertain’ in existing models, were also treated
+as ‘positive’. When excluding the ‘uncertain’ category and
+comparing only the ‘positive’ category with our GT labels, we observed a general decline in performance metrics
+(CheXpert from 77.85 to 76.49, CheXbert from 79.93 to
+76.49 for Finding Macro-F1 score). More detailed results
+on this can be found in the Table of the Appendix.
+4.3. Size of Training Set
+One of the major advantages of the GPT labeler is that, once
+the prompt is created, the subsequent labeling effort significantly reduces compared to a radiologist annotator, both in
+terms of time and cost. In our study, we trained CheX-GPT
+models with progressively larger pseudo-labeled datasets to
+analyze the effect of dataset size on model performance,
+as illustrated in Figure 3. Enlarging the training dataset
+was found to improve performance due to the diversity
+of expressions included. However, performance reaches a
+plateau after a certain number of training samples. Notably, this saturation occurs with only 5,000 samples in the
+Impression section, as opposed to 15,000 samples in the
+Findings section, suggesting that Impression is a simpler
+task with limited textual variety. This observation supports
+the idea that models like CheXbert, which are fine-tuned
+Model Findings Impression
+F1 Precision Recall F1 Precision Recall
+GPT-4 90.37 91.52 90.57 91.45 90.42 93.22
+w.o examples 83.61 82.24 90.06 89.34 87.52 93.21
+w.o mapping 80.33 81.39 82.21 77.79 74.37 83.88
+Table 4. Macro-averaged performance metrics for the ablation
+study of the GPT-4 labeler.
+Model Findings Impression
+F1 Precision Recall F1 Precision Recall
+CheX-GPT 90.67 91.46 91.20 93.01 93.62 93.27
+w.o pre-train 89.42 91.53 89.62 92.42 92.75 93.07
+Table 5. Macro-averaged performance metrics for comparing
+CheX-GPT with and without the initialization using CheXbert.
+specifically for the Impression section, may be less adaptable when it comes to labeling the Findings section.
+4.4. Ablations
+In-Context Examples In-context learning plays a crucial
+role in enhancing comprehension within specific domains,
+thereby improving task performance. To demonstrate the
+effectiveness of in-context examples in our study, we compared performances with and without in-context learning
+in GPT-3.5 and GPT-4. The results, presented in Table 4,
+are based on the MIMIC-500 set and are macro-averaged
+across the 13 categories we defined. The addition of incontext examples generally improves performance, with a
+notable increase in precision for the Findings section. We
+have documented the cases frequently mistaken when incontext examples were not included in the prompt, detailed
+in the Appendix.
+Mapping In our ablation study, we compared two mapping methods: rule-based mapping and GPT-4 mapping,
+for classifying findings in CXR reports into 13 predefined
+categories. As shown in Table 4, while GPT-4 mapping
+has a reasonable degree of accuracy, its performance was
+still inferior to that of rule-based mapping. The complexity of CXR reports, characterized by indirect term associations and a prevalence of probabilistic language, complicates consistent classification. Misclassified examples are
+available in the Appendix. Based on these observations, we
+concluded that rule-based mapping was more suitable for
+our study’s objectives.
+CheXbert Pretrained Model The backbone of our CheXGPT mirrors has the same architecture of CheXbert [31].
+Instead of random initialization, we opt to initialize with the
+CheXbert model. This approach, using pre-trained weights,
+typically yields better performance than models initialized
+randomly, as shown in Table 5. The effectiveness of
+
+[TABLE page=7 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Findings | Unnamed: 2 | Unnamed: 3 | Impression | Unnamed: 4
+Row 1: Unnamed: 0: Model | Unnamed: 1: | Findings: | Unnamed: 2: | Unnamed: 3: | Impression: | Unnamed: 4:
+Row 2: Unnamed: 0: | Unnamed: 1: F1 | Findings: Precision | Unnamed: 2: Recall | Unnamed: 3: F1 | Impression: Precision | Unnamed: 4: Recall
+Row 3: Unnamed: 0: GPT-4 | Unnamed: 1: 90.37 | Findings: 91.52 | Unnamed: 2: 90.57 | Unnamed: 3: 91.45 | Impression: 90.42 | Unnamed: 4: 93.22
+Row 4: Unnamed: 0: w.o examples | Unnamed: 1: 83.61 | Findings: 82.24 | Unnamed: 2: 90.06 | Unnamed: 3: 89.34 | Impression: 87.52 | Unnamed: 4: 93.21
+Row 5: Unnamed: 0: w.o mapping | Unnamed: 1: 80.33 | Findings: 81.39 | Unnamed: 2: 82.21 | Unnamed: 3: 77.79 | Impression: 74.37 | Unnamed: 4: 83.88
+[/TABLE]
+
+[PAGE 8]
+CheXbert’s pre-trained weights likely stems from the similarity of the task.
+5. Discussion
+As previously mentioned, our model did not use any data labeled by experts. However, this does not mean that experts
+were unnecessary in our workflow. In the development process of CheX-GPT, medical specialists played a crucial role
+in verifying the accuracy of the LLM’s output and identifying errors to update the in-context learning examples during
+the prompt design phase. Nevertheless, instead of examining all outputs, we found that sampling and checking only a
+subset of the results was sufficient to enhance the labeler’s
+performance.
+To illustrate the efficiency of our proposed methods, we
+measured the time taken to process a set number of images in the test set by a human expert, compared to the
+time taken by the GPT-labeler and CheX-GPT. In practice,
+it took about 25 hours for a human expert to process 500
+images in the test set. If all the 50,000 reports used to
+train CheX-GPT were annotated by humans, it would have
+taken 104 days. In comparison, labeling 50,000 reports took
+4 days with GPT-labeler, and 5 minutes with CheX-GPT,
+making it much more efficient. Besides the labeling speed,
+this process also minimizes human error in labeling.
+In our comparative study, we reported that a key factor
+contributing to the performance disparity between existing
+models and ours is the inclusion of specific keywords in
+certain categories. In fact, whether such keywords should
+be included in a particular category can vary depending on
+the user’s intent of the labeler (for example, classifying ’rib
+deformity’ under the fracture category). From this perspective, our model offers a significant advantage not just in
+terms of performance on the test set, but also in its flexibility to define categories and edit the keywords associated
+with these categories. By simply modifying the mapping
+part, users can easily train the model on newly defined categories.
+Contrary to CheXpert or CheXbert, which categorize
+findings into four categories - positive, negative, uncertain,
+and not mentioned - our model simplifies this to positive
+or not-positive. This simplification is driven by the essential need to identify positives and the ambiguous distinction between uncertain and positive findings. However, we
+conducted an additional experiment to test GPT’s ability to
+classify findings into these four categories by modifying the
+prompt. Since we do not have GT labels for all four categories, we compared the responses of the GPT labeler with
+those of CheXbert, and the results are in the Table of the
+Appendix. While this comparison does not provide an exact measure of model performance, it demonstrates GPT’s
+potential to classify findings into diverse statuses.
+In terms of scalability, our training framework employing the LLM as a labeler extends its utility beyond merely
+labeling the presence or absence of findings in CXR reports.
+It has the capacity to annotate additional details, including
+the location, certainty, and severity of findings. Furthermore, it can identify comparative expressions within CXR
+reports, enabling the LLM to determine if a report references previous imaging. While these functionalities have
+been verified by our team, they are not the focus of this paper and are intended for future investigation.
+6. Conclusion
+The introduction of the CheX-GPT marks a significant
+breakthrough in the automated processing of CXR reports.
+By harnessing the advanced capabilities of GPT-4 for initial
+labeling and further refining this output with a BERT-based
+framework, our model has outperformed existing systems
+such as CheXpert and CheXbert. CheX-GPT excels particularly in handling the complex and varied linguistic patterns
+found in radiology reports, contributing significantly to its
+heightened accuracy and reliability.
+A distinct advantage of our approach is its flexibility in
+categorizing findings and incorporating specific keywords.
+This feature greatly enhances the labeling efficiency, allowing CheX-GPT to be tailored to various clinical needs and
+making it a versatile tool in medical imaging analysis. Additionally, the model’s capability to annotate intricate details in CXR reports, including the location, certainty, and
+severity of findings, demonstrates its comprehensive analytical scope.
+Importantly, the development of CheX-GPT did not
+heavily rely on expert-labeled data, significantly reducing
+the usual resource and time requirements associated with
+manual annotation. This aspect is especially crucial considering the high costs associated with manual annotation
+by medical experts. The efficiency and accuracy of CheXGPT, therefore, not only make it a practical solution in medical image analysis but also add substantial value in terms
+of cost-effectiveness.
+An integral part of our study was the creation of the
+MIMIC-500 test set, a manually annotated dataset that we
+have made publicly available. This dataset serves as a
+valuable resource for benchmarking the performance of
+CXR report labeling systems, including ours. By providing
+MIMIC-500 to the research community, we aim to foster
+further innovation and validation in this field.
+In conclusion, CheX-GPT establishes a new standard in
+CXR report labeling, blending the power of GPT-4’s language processing with the precision of BERT-based architecture. This study not only delivers a powerful tool for
+medical professionals but also opens new pathways for employing large language models in medical diagnostics and
+report analysis. The combination of CheX-GPT’s accuracy,
+efficiency, flexibility, and cost-effectiveness, along with the
+
+[PAGE 9]
+contribution of the MIMIC-500 test set, positions it as a
+transformative development in medical imaging and diagnostics.
+References
+[1] Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Stefan M Niehues, Marcus R Makowski, and Keno K Bressem.
+Leveraging gpt-4 for post hoc transformation of free-text radiology reports into structured reporting: a multilingual feasibility study. Radiology, 307(4):e230725, 2023. 2
+[2] Monica Agrawal, Stefan Hegselmann, Hunter Lang, Yoon
+Kim, and David Sontag. Large language models are few-shot
+clinical information extractors. In Proceedings of the 2022
+Conference on Empirical Methods in Natural Language Processing, pages 1998–2022, 2022. 2
+[3] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language models are few-shot learners. In Advances in neural
+information processing systems, pages 1877–1901, 2020. 2
+[4] Thomas Buckley, James A. Diao, Adam Rodman, and Arjun K. Manrai. Accuracy of a vision-language model on
+challenging medical cases, 2023. 2
+[5] Aurelia Bustos, Antonio Pertusa, Jose-Maria Salinas, and
+Maria De La Iglesia-Vaya. Padchest: A large chest x-ray
+image dataset with multi-label annotated reports. Medical
+image analysis, 66:101797, 2020. 3
+[6] Zhihong Chen, Yan Song, Tsung-Hui Chang, and Xiang
+Wan. Generating radiology reports via memory-driven transformer. In Proceedings of the 2020 Conference on Empirical
+Methods in Natural Language Processing (EMNLP) , pages
+1439–1449, 2020. 1
+[7] Joseph Paul Cohen, Rupert Brooks, Sovann En, Evan
+Zucker, Anuj Pareek, Matthew P Lungren, and Akshay
+Chaudhari. Gifsplanation via latent shift: a simple autoencoder approach to counterfactual generation for chest x-rays.
+In Medical Imaging with Deep Learning , pages 74–104.
+PMLR, 2021. 1
+[8] Debadutta Dash, Rahul Thapa, Juan M Banda, Akshay
+Swaminathan, Morgan Cheatham, Mehr Kashyap, Nikesh
+Kotecha, Jonathan H Chen, Saurabh Gombar, Lance Downing, et al. Evaluation of gpt-3.5 and gpt-4 for supporting
+real-world information needs in healthcare delivery. arXiv
+preprint arXiv:2304.13714, 2023. 2
+[9] Dina Demner-Fushman, Marc D Kohli, Marc B Rosenman, Sonya E Shooshan, Laritza Rodriguez, Sameer Antani,
+George R Thoma, and Clement J McDonald. Preparing a
+collection of radiology examinations for distribution and retrieval. Journal of the American Medical Informatics Association, 23(2):304–310, 2016. 3
+[10] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina
+Toutanova. Bert: Pre-training of deep bidirectional
+transformers for language understanding. arXiv preprint
+arXiv:1810.04805, 2018. 2, 4
+[11] Fabrizio Gilardi, Meysam Alizadeh, and Ma ¨el Kubli. Chatgpt outperforms crowd workers for text-annotation tasks.
+Proceedings of the National Academy of Sciences , 120(30):
+e2305016120, 2023. 2
+[12] Tanishq Gupta, Mohd Zaki, NM Anoop Krishnan, and
+Mausam. Matscibert: A materials domain language model
+for text mining and information extraction. npj Computational Materials, 8(1):102, 2022. 2
+[13] David M Hansell, Alexander A Bankier, Heber MacMahon,
+Theresa C McLoud, Nestor L Muller, and Jacques Remy.
+Fleischner society: glossary of terms for thoracic imaging.
+Radiology, 246(3):697–722, 2008. 3
+[14] Jeremy Irvin, Pranav Rajpurkar, Michael Ko, Yifan Yu, Silviana Ciurea-Ilcus, Chris Chute, Henrik Marklund, Behzad
+Haghgoo, Robyn Ball, Katie Shpanskaya, et al. Chexpert:
+A large chest radiograph dataset with uncertainty labels and
+expert comparison. In Proceedings of the AAAI conference
+on artificial intelligence, pages 590–597, 2019. 1, 2, 3
+[15] Haibo Jin, Haoxuan Che, Yi Lin, and Hao Chen. Promptmrg:
+Diagnosis-driven prompts for medical report generation.
+arXiv preprint arXiv:2308.12604, 2023. 1
+[16] Alistair EW Johnson, Tom J Pollard, Nathaniel R Greenbaum, Matthew P Lungren, Chih-ying Deng, Yifan Peng,
+Zhiyong Lu, Roger G Mark, Seth J Berkowitz, and Steven
+Horng. Mimic-cxr-jpg, a large publicly available database of
+labeled chest radiographs. arXiv preprint arXiv:1901.07042,
+2019. 2, 3, 5
+[17] Tiffany H Kung, Morgan Cheatham, Arielle Medenilla,
+Czarina Sillos, Lorie De Leon, Camille Elepa ˜no, Maria
+Madriaga, Rimel Aggabao, Giezel Diaz-Candido, James
+Maningo, et al. Performance of chatgpt on usmle: Potential for ai-assisted medical education using large language
+models. PLoS digital health, 2(2):e0000198, 2023. 2
+[18] Gregory M Lee and Christopher M Walker. Pleural thickening: Detection, characterization, and differential diagnosis.
+In Seminars in Roentgenology. Elsevier, 2023. 6
+[19] Mingjie Li, Bingqian Lin, Zicong Chen, Haokun Lin, Xiaodan Liang, and Xiaojun Chang. Dynamic graph enhanced
+contrastive learning for chest x-ray report generation. InProceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 3334–3343, 2023. 3
+[20] Yuxiang Liao, Hantao Liu, and Irena Spasi ´c. Deep learning approaches to automatic radiology report generation: A
+systematic review. Informatics in Medicine Unlocked, page
+101273, 2023. 3
+[21] Guanxiong Liu, Tzu-Ming Harry Hsu, Matthew McDermott,
+Willie Boag, Wei-Hung Weng, Peter Szolovits, and Marzyeh
+Ghassemi. Clinically accurate chest x-ray report generation.
+In Machine Learning for Healthcare Conference, pages 249–
+269. PMLR, 2019. 3
+[22] Zhengliang Liu, Xiaowei Yu, Lu Zhang, Zihao Wu, Chao
+Cao, Haixing Dai, Lin Zhao, Wei Liu, Dinggang Shen,
+Quanzheng Li, et al. Deid-gpt: Zero-shot medical text deidentification by gpt-4. arXiv preprint arXiv:2303.11032 ,
+2023. 2
+[23] Yasuhide Miura, Yuhao Zhang, Emily Bao Tsai, Curtis P
+Langlotz, and Dan Jurafsky. Improving factual completeness and consistency of image-to-text radiology report generation. arXiv preprint arXiv:2010.10042, 2020. 3
+
+[TABLE page=9 index=1]
+Columns: [1] | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste- | [13] | David M Hansell, Alexander A Bankier, Heber MacMahon,
+Row 1: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: fan M Niehues, Marcus R Makowski, and Keno K Bressem. | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Theresa C McLoud, Nestor L Muller, and Jacques Remy.
+Row 2: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Leveraging gpt-4 for post hoc transformation of free-text ra- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Fleischner society: glossary of terms for thoracic imaging.
+Row 3: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: diology reports into structured reporting: a multilingual fea- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Radiology, 246(3):697–722, 2008. 3
+Row 4: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: sibility study. Radiology, 307(4):e230725, 2023. 2 | [13]: [14] | David M Hansell, Alexander A Bankier, Heber MacMahon,: Jeremy Irvin, Pranav Rajpurkar, Michael Ko, Yifan Yu, SilRow 5: [1]: [2] | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Monica Agrawal, Stefan Hegselmann, Hunter Lang, Yoon | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: viana Ciurea-Ilcus, Chris Chute, Henrik Marklund, Behzad
+Row 6: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Kim, and David Sontag. Large language models are few-shot | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Haghgoo, Robyn Ball, Katie Shpanskaya, et al. Chexpert:
+Row 7: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: clinical information extractors. In Proceedings of the 2022 | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: A large chest radiograph dataset with uncertainty labels and
+Row 8: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Conference on Empirical Methods in Natural Language Pro- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: expert comparison. In Proceedings of the AAAI conference
+Row 9: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: cessing, pages 1998–2022, 2022. 2 | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: on artificial intelligence, pages 590–597, 2019. 1, 2, 3
+Row 10: [1]: [3] | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Tom Brown, Benjamin Mann, Nick Ryder, Melanie Sub- | [13]: [15] | David M Hansell, Alexander A Bankier, Heber MacMahon,: Haibo Jin, Haoxuan Che, Yi Lin, and Hao Chen. Promptmrg:
+Row 11: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: biah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakan- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Diagnosis-driven prompts for medical report generation.
+Row 12: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: tan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Lan- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: arXiv preprint arXiv:2308.12604, 2023. 1
+Row 13: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: guage models are few-shot learners. In Advances in neural | [13]: [16] | David M Hansell, Alexander A Bankier, Heber MacMahon,: Alistair EW Johnson, Tom J Pollard, Nathaniel R GreenRow 14: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: information processing systems, pages 1877–1901, 2020. 2 | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: baum, Matthew P Lungren, Chih-ying Deng, Yifan Peng,
+Row 15: [1]: [4] | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Thomas Buckley, James A. Diao, Adam Rodman, and Ar- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Zhiyong Lu, Roger G Mark, Seth J Berkowitz, and Steven
+Row 16: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: jun K. Manrai. Accuracy of a vision-language model on | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Horng. Mimic-cxr-jpg, a large publicly available database of
+Row 17: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: challenging medical cases, 2023. 2 | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: labeled chest radiographs. arXiv preprint arXiv:1901.07042,
+Row 18: [1]: [5] | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Aurelia Bustos, Antonio Pertusa, Jose-Maria Salinas, and | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: 2019. 2, 3, 5
+Row 19: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Maria De La Iglesia-Vaya. Padchest: A large chest x-ray | [13]: [17] | David M Hansell, Alexander A Bankier, Heber MacMahon,: Tiffany H Kung, Morgan Cheatham, Arielle Medenilla,
+Row 20: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: image dataset with multi-label annotated reports. Medical | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Czarina Sillos, Lorie De Leon, Camille Elepaño, Maria
+Row 21: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: image analysis, 66:101797, 2020. 3 | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Madriaga, Rimel Aggabao, Giezel Diaz-Candido, James
+Row 22: [1]: [6] | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Zhihong Chen, Yan Song, Tsung-Hui Chang, and Xiang | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Maningo, et al. Performance of chatgpt on usmle: PotenRow 23: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Wan. Generating radiology reports via memory-driven trans- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: tial for ai-assisted medical education using large language
+Row 24: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: former. In Proceedings of the 2020 Conference on Empirical | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: models. PLoS digital health, 2(2):e0000198, 2023. 2
+Row 25: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Methods in Natural Language Processing (EMNLP), pages | [13]: [18] | David M Hansell, Alexander A Bankier, Heber MacMahon,: Gregory M Lee and Christopher M Walker. Pleural thickenRow 26: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: 1439–1449, 2020. 1 | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: ing: Detection, characterization, and differential diagnosis.
+Row 27: [1]: [7] | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Joseph Paul Cohen, Rupert Brooks, Sovann En, Evan | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: In Seminars in Roentgenology. Elsevier, 2023. 6
+Row 28: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Zucker, Anuj Pareek, Matthew P Lungren, and Akshay | [13]: [19] | David M Hansell, Alexander A Bankier, Heber MacMahon,: Mingjie Li, Bingqian Lin, Zicong Chen, Haokun Lin, XiRow 29: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Chaudhari. Gifsplanation via latent shift: a simple autoen- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: aodan Liang, and Xiaojun Chang. Dynamic graph enhanced
+Row 30: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: coder approach to counterfactual generation for chest x-rays. | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: contrastive learning for chest x-ray report generation. In ProRow 31: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: In Medical Imaging with Deep Learning, pages 74–104. | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: ceedings of the IEEE/CVF Conference on Computer Vision
+Row 32: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: PMLR, 2021. 1 | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: and Pattern Recognition, pages 3334–3343, 2023. 3
+Row 33: [1]: [8] | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Debadutta Dash, Rahul Thapa, Juan M Banda, Akshay | [13]: [20] | David M Hansell, Alexander A Bankier, Heber MacMahon,: Yuxiang Liao, Hantao Liu, and Irena Spasić. Deep learnRow 34: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Swaminathan, Morgan Cheatham, Mehr Kashyap, Nikesh | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: ing approaches to automatic radiology report generation: A
+Row 35: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Kotecha, Jonathan H Chen, Saurabh Gombar, Lance Down- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: systematic review. Informatics in Medicine Unlocked, page
+Row 36: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: ing, et al. Evaluation of gpt-3.5 and gpt-4 for supporting | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: 101273, 2023. 3
+Row 37: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: real-world information needs in healthcare delivery. arXiv | [13]: [21] | David M Hansell, Alexander A Bankier, Heber MacMahon,: Guanxiong Liu, Tzu-Ming Harry Hsu, Matthew McDermott,
+Row 38: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: preprint arXiv:2304.13714, 2023. 2 | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Willie Boag, Wei-Hung Weng, Peter Szolovits, and Marzyeh
+Row 39: [1]: [9] | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: Dina Demner-Fushman, Marc D Kohli, Marc B Rosen- | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: Ghassemi. Clinically accurate chest x-ray report generation.
+Row 40: [1]: | Lisa C Adams, Daniel Truhn, Felix Busch, Avan Kader, Ste-: man, Sonya E Shooshan, Laritza Rodriguez, Sameer Antani, | [13]: | David M Hansell, Alexander A Bankier, Heber MacMahon,: In Machine Learning for Healthcare Conference, pages 249–
+[/TABLE]
+
+[PAGE 10]
+[24] Ha Q Nguyen, Khanh Lam, Linh T Le, Hieu H Pham, Dat Q
+Tran, Dung B Nguyen, Dung D Le, Chi M Pham, Hang TT
+Tong, Diep H Dinh, et al. Vindr-cxr: An open dataset of
+chest x-rays with radiologist’s annotations. Scientific Data,
+9(1):429, 2022. 3
+[25] Aaron Nicolson, Jason Dowling, and Bevan Koopman. Improving chest x-ray report generation by leveraging warm
+starting. Artificial Intelligence in Medicine , 144:102633,
+2023. 1
+[26] Harsha Nori, Nicholas King, Scott Mayer McKinney, Dean
+Carignan, and Eric Horvitz. Capabilities of gpt-4 on medical
+challenge problems. arXiv preprint arXiv:2303.13375, 2023.
+[27] OpenAI. Gpt-4 technical report, 2023. 2, 3
+[28] Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing
+Zhu. Bleu: a method for automatic evaluation of machine
+translation. In Proceedings of the 40th Annual Meeting of
+the Association for Computational Linguistics , pages 311–
+318, Philadelphia, Pennsylvania, USA, 2002. Association for
+Computational Linguistics. 1
+[29] Yifan Peng, Xiaosong Wang, Le Lu, Mohammadhadi
+Bagheri, Ronald Summers, and Zhiyong Lu. Negbio: a highperformance tool for negation and uncertainty detection in
+radiology reports. AMIA Summits on Translational Science
+Proceedings, 2018:188, 2018. 1, 2, 3
+[30] Jaromir Savelka. Unlocking practical applications in legal
+domain: Evaluation of gpt for zero-shot semantic annotation of legal texts. In Proceedings of the Nineteenth International Conference on Artificial Intelligence and Law, page
+447–451, 2023. 2
+[31] Akshay Smit, Saahil Jain, Pranav Rajpurkar, Anuj Pareek,
+Andrew Y Ng, and Matthew Lungren. Combining automatic labelers and expert annotations for accurate radiology
+report labeling using bert. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP), pages 1500–1519, 2020. 1, 2, 4, 7
+[32] Zhaoyi Sun, Hanley Ong, Patrick Kennedy, Liyan Tang,
+Shirley Chen, Jonathan Elias, Eugene Lucas, George Shih,
+and Yifan Peng. Evaluating gpt-4 on impressions generation
+in radiology reports. Radiology, 307(5):e231259, 2023. 2
+[33] Ramakrishna Vedantam, C Lawrence Zitnick, and Devi
+Parikh. Cider: Consensus-based image description evaluation. In Proceedings of the IEEE conference on computer
+vision and pattern recognition, pages 4566–4575, 2015. 1
+[34] Shuohang Wang, Yang Liu, Yichong Xu, Chenguang Zhu,
+and Michael Zeng. Want to reduce labeling cost? GPT-3 can
+help. In Proceedings of the 2021 Conference on Empirical
+Methods in Natural Language Processing (EMNLP) , 2021.
+[35] Xiaosong Wang, Yifan Peng, Le Lu, Zhiyong Lu, Mohammadhadi Bagheri, and Ronald M Summers. Chestxray8: Hospital-scale chest x-ray database and benchmarks on
+weakly-supervised classification and localization of common
+thorax diseases. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, pages 2097–2106,
+2017. 3
+[36] Xiaosong Wang, Yifan Peng, Le Lu, Zhiyong Lu, and
+Ronald M Summers. Tienet: Text-image embedding network for common thorax disease classification and reporting
+in chest x-rays. In Proceedings of the IEEE conference on
+computer vision and pattern recognition, pages 9049–9058,
+2018. 3
+[37] Zhanyu Wang, Lingqiao Liu, Lei Wang, and Luping Zhou.
+Metransformer: Radiology report generation by transformer
+with multiple learnable expert tokens. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 11558–11567, 2023. 1
+[38] Yuan Xue and Xiaolei Huang. Improved disease classification in chest x-rays with transferred features from report generation. In Information Processing in Medical Imaging: 26th
+International Conference, IPMI 2019, Hong Kong, China,
+June 2–7, 2019, Proceedings 26 , pages 125–138. Springer,
+2019. 3
+
+[PAGE 11]
+CheX-GPT: Harnessing Large Language Models
+for Enhanced Chest X-ray Report Labeling
+Supplementary Material
+A. Example-Based Analysis of Comparative Study
+A.1. Labeling Discrepancies in Complex Sentences
+The performance errors in CheXbert, which predominantly occur in complex sentences, are a primary reason for the performance gap between CheXbert and the proposed method. The examples in Table A1 demonstrate instances where CheXbert
+failed to accurately label findings that the proposed method could label correctly.
+• (a), (b): The proposed method correctly identifies ‘atelectasis’ and ‘effusion’ in the reports, whereas CheXbert and CheXpert do not. The complexity of the sentences, such as the presence of negation in example (a) or conjunctions in example
+(b), likely contributes to the misclassification by the other models.
+• (c): The proposed method correctly labels ‘effusion’ as negative, while CheXpert and CheXbert erroneously label it as
+positive. This discrepancy indicates a potential challenge for the previous labelers in distinguishing between resolved
+conditions and current findings.
+• (d): The proposed method detects a ‘fracture’ overlooked by CheXbert, potentially because the preceding sentence asserts
+the lungs are clear, which may have influenced CheXbert‘s annotation decision.
+• (e), (f): CheXpert and CheXbert categorize terms such as ‘top-normal heart size’ or ‘shift of the mediastinum’ as ‘widened
+mediastinal silhouette‘, unlike the proposed method. While these expressions suggest a variation from the standard normal
+for heart or mediastinum, they do not necessarily constitute a ‘widened mediastinal silhouette’, as they do not definitively
+indicate an enlargement of the mediastinum.
+Besides the examples summarized in Table A1, these achievements impacted the quantitative performance detailed in
+Table 3, where our proposed CheX-GPT managed to attain the highest performance.
+Radiology report Category CheXpert CheXbert CheX-GPT
+(a) Worsen aeration in the lungs with no effusion and mild bibasilaratelectasis. Atelectasis ✘ ✘ ✔
+(b) ..., there has been mild improvement but not complete resolution of the pre-existing Effusion ✘ ✘ ✔pulmonary edema, left pleural effusion with atelectasis, and cardiomegaly.
+(c) Improved right pneumothorax which is now small. Resolved right pleural effusion. Effusion ✔ ✔ ✘
+(d) The lungs are clear of consolidation or effusion. All left posterior 7th rib fracture Fracture ✘ ✘ ✔is identified. Atherosclerotic calcifications noted at the aortic arch.
+(e) There is top-normal heart size with tiny left pleural effusion. Widened media- ✔ ✔ ✘stinal silhouette
+(f) ... and marked shift of the mediastinum and trachea to the left. Widened media- ✔ ✔ ✘stinal silhouette
+Table A1. Cases comparing the proposed method with CheXpert and CheXbert across various categories. The green color denotes correct
+labeling, while a ✔mark and a ✘mark represent positive and negative annotations by the labeler, respectively. Best view in color.
+
+[TABLE page=11 index=1]
+Columns: Radiology report | Category | CheXpert | CheXbert | CheX-GPT
+Row 1: Radiology report: (a) Worsen aeration in the lungs with no effusion and mild bibasilar atelectasis. | Category: Atelectasis | CheXpert: ✘ | CheXbert: ✘ | CheX-GPT: ✔
+Row 2: Radiology report: (b) ..., there has been mild improvement but not complete resolution of the pre-existing | Category: | CheXpert: | CheXbert: | CheX-GPT:
+Row 3: Radiology report: | Category: Effusion | CheXpert: ✘ | CheXbert: ✘ | CheX-GPT: ✔
+Row 4: Radiology report: pulmonary edema, left pleural effusion with atelectasis, and cardiomegaly. | Category: | CheXpert: | CheXbert: | CheX-GPT:
+Row 5: Radiology report: (c) Improved right pneumothorax which is now small. Resolved right pleural effusion. | Category: Effusion | CheXpert: ✔ | CheXbert: ✔ | CheX-GPT: ✘
+Row 6: Radiology report: (d) The lungs are clear of consolidation or effusion. All left posterior 7th rib fracture | Category: | CheXpert: | CheXbert: | CheX-GPT:
+Row 7: Radiology report: | Category: Fracture | CheXpert: ✘ | CheXbert: ✘ | CheX-GPT: ✔
+Row 8: Radiology report: is identified. Atherosclerotic calcifications noted at the aortic arch. | Category: | CheXpert: | CheXbert: | CheX-GPT:
+Row 9: Radiology report: | Category: Widened media- | CheXpert: | CheXbert: | CheX-GPT:
+Row 10: Radiology report: (e) There is top-normal heart size with tiny left pleural effusion. | Category: | CheXpert: ✔ | CheXbert: ✔ | CheX-GPT: ✘
+Row 11: Radiology report: | Category: stinal silhouette | CheXpert: | CheXbert: | CheX-GPT:
+Row 12: Radiology report: | Category: Widened media- | CheXpert: | CheXbert: | CheX-GPT:
+Row 13: Radiology report: (f) ... and marked shift of the mediastinum and trachea to the left. | Category: | CheXpert: ✔ | CheXbert: ✔ | CheX-GPT: ✘
+Row 14: Radiology report: | Category: stinal silhouette | CheXpert: | CheXbert: | CheX-GPT:
+[/TABLE]
+
+[PAGE 12]
+A.2. Categorization Variability Due to Keyword Interpretation
+The variance in category definitions, particularly concerning the inclusion of specific terms, is the second reason for the discrepancy in performance. In Table A2, we see that the proposed method includes certain keywords under broader categories
+than CheXbert does.
+• (a): ‘Fractured wire’ is recognized by CheXpert and CheXbert but not by the proposed method, as our definition of the
+‘fracture’ category is exclusively for abnormalities of bony structures.
+• (b): The proposed method recognizes ‘fracture‘ from the term ‘deformity’, understanding the broader implications of
+structural abnormalities, while the other models do not make this connection.
+• (c): ‘Lung opacity’ is not identified by the other models when ‘fibrosis’ is mentioned.
+• (d): The term ‘granuloma’ is not categorized as a ‘Nodule’ by CheXpert and CheXbert.
+• (e): The proposed method categorizes ‘blunting of the right costophrenic angle’ under ‘Pleural lesion’, recognizing the
+broader implications of the term ‘blunting’, which are missed by the other models.
+• (f): ‘Pulmonary edema’ is recognized by the proposed method when terms like ‘pulmonary vascular congestion’ are
+present, which could be associated with edema. CheXpert does not appear to make this link, while CheXbert annotates it
+as ‘uncertain’.
+Radiology report Category CheXpert CheXbert CheX-GPT
+(a) Three fractured median sternotomy wires. The wire located third from the top Fracture ✔ ✔ ✘has a fracture fragment oriented posteriorly.
+(b) Stable deformity along the right lateral rib cage. No acute findings. Fracture ✘ ✘ ✔
+(c) Persistent biapical fibrosis without superimposed acute consolidation. Lung opacity ✘ ✘ ✔
+(d) A calcified granuloma projects over the right lateral mid lung. Nodule ✘ ✘ ✔
+(e) Blunting of the right costophrenic angle may be due to overlying soft tissue, ... Pleural lesion ✘ ✘ ✔
+(f) Compared to prior study, there is increasedpulmonary vascular congestion. Pulmonary edema ✘ ✔ ✔
+Table A2. Discrepancies in Keyword-Based Categorization illustrate the differences in how specific terms are classified by CheXpert,
+CheXbert, and the proposed method. The green color denotes correct labeling, while a✔mark and a ✘mark represent positive and negative
+annotations by the labeler, respectively. Best view in color.
+
+[TABLE page=12 index=1]
+Columns: Radiology report | Category | CheXpert | CheXbert | CheX-GPT
+Row 1: Radiology report: (a) Three fractured median sternotomy wires. The wire located third from the top | Category: | CheXpert: | CheXbert: | CheX-GPT:
+Row 2: Radiology report: | Category: Fracture | CheXpert: ✔ | CheXbert: ✔ | CheX-GPT: ✘
+Row 3: Radiology report: has a fracture fragment oriented posteriorly. | Category: | CheXpert: | CheXbert: | CheX-GPT:
+Row 4: Radiology report: (b) Stable deformity along the right lateral rib cage. No acute findings. | Category: Fracture | CheXpert: ✘ | CheXbert: ✘ | CheX-GPT: ✔
+Row 5: Radiology report: (c) Persistent biapical fibrosis without superimposed acute consolidation. | Category: Lung opacity | CheXpert: ✘ | CheXbert: ✘ | CheX-GPT: ✔
+Row 6: Radiology report: (d) A calcified granuloma projects over the right lateral mid lung. | Category: Nodule | CheXpert: ✘ | CheXbert: ✘ | CheX-GPT: ✔
+Row 7: Radiology report: (e) Blunting of the right costophrenic angle may be due to overlying soft tissue, ... | Category: Pleural lesion | CheXpert: ✘ | CheXbert: ✘ | CheX-GPT: ✔
+Row 8: Radiology report: (f) Compared to prior study, there is increased pulmonary vascular congestion. | Category: Pulmonary edema | CheXpert: ✘ | CheXbert: ✔ | CheX-GPT: ✔
+[/TABLE]
+
+[PAGE 13]
+B. Case Study on Ablation Study
+B.1. Case Study on the Role of In-Context Learning in LLM Performance
+In-context learning is essential for enhancing the performance of Large Language Models (LLMs) in specialized tasks, as it
+significantly boosts comprehension. To evaluate the effect of in-context learning examples on GPT-4‘s labeling accuracy, we
+performed a set of experiments with the model operating both with and without these examples. The qualitative outcomes of
+these tests are presented in Table 4. This section delves into a case study analysis based on these results.
+Table B1 delineates specific cases that underscore the impact of omitting in-context examples, leading to GPT-4‘s misclassification. Cases (a) to (d) highlight a pattern where GPT-4‘s prompt, lacking in-context examples, tends to misinterpret
+statements with negations, resulting in inaccurate labeling. The inclusion of in-context examples corrects this issue, showcasing their importance in understanding the context. In contrast, cases (e) to (g) illustrate scenarios where GPT-4 overlooks
+positive findings, potentially due to the intricate construction of the report‘s text. This case study underscores the significance
+of in-context examples in improving GPT-4‘s interpretative accuracy, particularly in handling complex linguistic structures
+and negations in medical reports.
+Radiology report Labels GPT-4 w.o examples
+(a) No reaccumulation of pleural fluid or development of pneumothorax. Pneumothorax ✘ ✔
+(b) Low lung volumes. No definite focal consolidation identified. Consolidation ✘ ✔
+(c) Severe emphysema without superimposed consolidation. Consolidation ✘ ✔
+(d) No evidence of pneumonia. The mediastinum is not widened. Widened media- ✘ ✔stinal silhouette
+(e) Improved right pneumothorax which is now small. Pneumothorax ✔ ✘
+(f) Diffusely increased interstitial markings compatible with interstitial Pulmonary edema ✔ ✘edema versus chronic changes.
+(g) Improvement of multifocal infiltrates but persistentdensities in right Lung opacity ✔ ✘middle lobe and peripheral lingula.
+Table B1. Failure cases of GPT-4 without In-Context Learning. (a)-(d) Negation errors. (e)-(f) Errors on GT-positive findings. The green
+color denotes correct labeling, while a ✔mark and a ✘mark represent positive and negative annotations by the labeler, respectively. Best
+view in color.
+
+[TABLE page=13 index=1]
+Columns: Radiology report | Labels | GPT-4 | w.o examples
+Row 1: Radiology report: (a) No reaccumulation of pleural fluid or development of pneumothorax. | Labels: Pneumothorax | GPT-4: ✘ | w.o examples: ✔
+Row 2: Radiology report: (b) Low lung volumes. No definite focal consolidation identified. | Labels: Consolidation | GPT-4: ✘ | w.o examples: ✔
+Row 3: Radiology report: (c) Severe emphysema without superimposed consolidation. | Labels: Consolidation | GPT-4: ✘ | w.o examples: ✔
+Row 4: Radiology report: | Labels: Widened media- | GPT-4: | w.o examples:
+Row 5: Radiology report: (d) No evidence of pneumonia. The mediastinum is not widened. | Labels: | GPT-4: ✘ | w.o examples: ✔
+Row 6: Radiology report: | Labels: stinal silhouette | GPT-4: | w.o examples:
+Row 7: Radiology report: (e) Improved right pneumothorax which is now small. | Labels: Pneumothorax | GPT-4: ✔ | w.o examples: ✘
+Row 8: Radiology report: (f) Diffusely increased interstitial markings compatible with interstitial | Labels: | GPT-4: | w.o examples:
+Row 9: Radiology report: | Labels: Pulmonary edema | GPT-4: ✔ | w.o examples: ✘
+Row 10: Radiology report: edema versus chronic changes. | Labels: | GPT-4: | w.o examples:
+Row 11: Radiology report: (g) Improvement of multifocal infiltrates but persistent densities in right | Labels: | GPT-4: | w.o examples:
+Row 12: Radiology report: | Labels: Lung opacity | GPT-4: ✔ | w.o examples: ✘
+Row 13: Radiology report: middle lobe and peripheral lingula. | Labels: | GPT-4: | w.o examples:
+[/TABLE]
+
+[PAGE 14]
+B.2. Case Study on Mapping Methods for CXR Report Classification
+In our ablation study detailed within the paper, we examined two distinct mapping methods for categorizing findings in CXR
+reports into our 13 pre-established categories: rule-based mapping and GPT-4 mapping. The comparisons, as reflected in
+Table 4, indicate that although GPT-4 mapping achieves a satisfactory level of accuracy, it is still outperformed by rule-based
+mapping. The intricate nature of CXR reports, often laden with indirect terminology and probabilistic phrases, presents
+significant hurdles for consistent classification by AI models like GPT-4.
+A deeper analysis of GPT-4’s mapping results, which are tabulated in Table B2, demonstrates that this method not only
+scored lower in accuracy but also encountered difficulties in deciphering the underlying reasons for certain misclassifications.
+• (a): GPT-4 mapping erroneously labels ‘pneumonia’ as ‘Consolidation’, whereas rule-based mapping refrains from categorizing it, recognizing the distinction between the terms.
+• (b): Similarly to case (a), GPT-4 mapping conflates ‘pneumonia’ with ‘Consolidation’. Additionally, it overlooks ‘Lung
+opacity’, which is the label applied by rule-based mapping.
+• (c): Rule-based mapping accurately categorizes a ‘mass’ as ‘Nodule’, a connection missed by GPT-4 mapping, which fails
+to label it.
+• (d): GPT-4 mapping incorrectly attributes ‘Pulmonary edema’ to a case mentioning ‘congestion’, neglecting the qualifying
+phrase ‘without overt edema’ that rule-based mapping correctly interprets as negating the condition.
+• (e): GPT-4 mapping inappropriately labels the ‘resolution of pleural effusion’ as ongoing ‘Effusion’, a misclassification
+not present in rule-based mapping, which likely understands ‘resolution’ as indicative of the condition’s improvement or
+absence.
+The case studies support that rule-based mapping is more aligned with our study’s objectives, offering a more definitive
+and dependable approach to classifying CXR report findings. This method allows for greater control over the categorization
+dictionary and facilitates simpler corrections of misclassifications.
+Radiology report Rule-based mapping GPT-4 mapping
+(a) Right middle lobe and lingular pneumonia. - Consolidation
+(b) New retrocardiacopacity concerning for pneumonia in the appropriate clinical setting. Lung opacity Consolidation
+(c) Left perihilar opacity corresponding to known pulmonary mass again seen. Nodule -
+(d) Vascular congestion without overt edema. - Pulmonary edema
+(e) Interval resolution of right pleural effusion. - Effusion
+Table B2. Error Cases of GPT-4 Mapping. GPT-4 mapping (a) mislabels ‘pneumonia’ as ‘Consolidation’, overlooks (b) ‘Lung opacity’
+and (c) ‘Nodule’, (d) mislabels ‘congestion without edema’ as ‘Pulmonary edema’, and (e) incorrectly labels resolved effusion as positive.
+
+[TABLE page=14 index=1]
+Columns: Radiology report | Rule-based mapping | GPT-4 mapping
+Row 1: Radiology report: (a) Right middle lobe and lingular pneumonia. | Rule-based mapping: - | GPT-4 mapping: Consolidation
+Row 2: Radiology report: (b) New retrocardiac opacity concerning for pneumonia in the appropriate clinical setting. | Rule-based mapping: Lung opacity | GPT-4 mapping: Consolidation
+Row 3: Radiology report: (c) Left perihilar opacity corresponding to known pulmonary mass again seen. | Rule-based mapping: Nodule | GPT-4 mapping: Row 4: Radiology report: (d) Vascular congestion without overt edema. | Rule-based mapping: - | GPT-4 mapping: Pulmonary edema
+Row 5: Radiology report: (e) Interval resolution of right pleural effusion. | Rule-based mapping: - | GPT-4 mapping: Effusion
+[/TABLE]
+
+[PAGE 15]
+C. Experiments on Diverse Status in Labeling
+C.1. Comparative Analysis of Inclusion Versus Exclusion of ‘Uncertain’ Category
+In Section 3.4, we outlined our GT labeling approach, which categorizes findings into ‘positive’ or ‘not positive’. This is in
+contrast to the four-status categorization of CheXpert and CheXbert, which includes ‘positive’, ‘negative’, ‘uncertain’, and
+‘not mentioned’. Our standard practice for comparative analysis involves combining the ‘positive’ and ‘uncertain’ statuses
+from the comparative labelers, matching them to ‘positive’ in our GT. This adjustment is reflective of our labeling criteria
+for the test set, wherein terms like ‘cannot be excluded’, which are labeled as ‘uncertain’ by CheXpert and CheXbert, are
+considered ‘positive’ in our dataset.
+This section examines the implications of solely aligning the ‘positive’ status from CheXpert and CheXbert with the
+‘positive’ category from our GT, providing an alternative perspective on the influence of including or excluding the ‘uncertain’
+category. Table C1 presents the macro-averaged F1 scores for this experiment. Models annotated with an asterisk (*) indicate
+where the ‘uncertain’ category has been excluded, highlighting the performance impact of this exclusion. The comparison
+revealed that when ‘uncertain’ labels are not counted as ‘positive’, there is an observable decrease in performance metrics.
+Specifically, for the Finding Macro-F1 score, CheXpert‘s performance dropped from 77.85 to 76.49, and CheXbert‘s from
+79.93 to 76.49. These results are well aligned with our GT labeling approach.
+Category Findings Impression
+CheXpert CheXpert* CheXbert CheXbert* CheXpert CheXpert* CheXbert CheXbert*
+Atelectasis 94.86 83.44 95.16 82.32 98.02 79.76 98.51 79.52
+Consolidation 83.33 84.68 87.59 78.43 96.15 80.46 92.31 73.17
+Effusion 94.61 91.05 96.76 90.37 93.60 92.04 95.65 91.93
+Fracture 82.98 80.43 77.78 73.56 72.73 72.73 80.00 80.00
+Hyperinflation 84.10 86.19 83.52 84.09 88.81 89.44 88.81 89.13
+Lung Opacity 68.57 65.35 69.81 70.59 82.05 77.78 75.56 78.05
+Nodule 44.44 40.00 46.32 39.53 47.62 44.44 45.45 42.11
+Pleural Lesion 78.12 88.46 90.20 87.50 95.65 93.02 100.00 92.68
+Pneumothorax 89.86 77.55 91.78 77.05 90.14 84.65 91.49 85.25
+Pulmonary Edema 57.57 67.76 60.40 75.94 77.05 81.82 80.00 87.04
+Micro-average 80.73 79.68 82.22 79.76 90.08 85.52 90.81 85.49
+Macro-average 77.85 76.49 79.93 75.94 84.18 79.61 84.78 79.89
+Table C1. Macro-averaged F1 Scores on MIMIC-500, demonstrating the impact of treating the ‘uncertain‘ category by CheXpert and
+CheXbert. Models marked with an asterisk (*) consider only ‘positive‘ labels as ‘positive’, while models without an asterisk treat both
+‘positive’ and ‘uncertain’ as ‘positive’. Excluding the ‘uncertain’ category results in a divergence from our GT alignment.
+
+[TABLE page=15 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Findings | Unnamed: 2 | Unnamed: 3 | Impression | Unnamed: 4
+Row 1: Unnamed: 0: Category | Unnamed: 1: | Findings: | Unnamed: 2: | Unnamed: 3: | Impression: | Unnamed: 4:
+Row 2: Unnamed: 0: | Unnamed: 1: CheXpert | Findings: CheXpert* CheXbert | Unnamed: 2: CheXbert* | Unnamed: 3: CheXpert | Impression: CheXpert* CheXbert | Unnamed: 4: CheXbert*
+Row 3: Unnamed: 0: Atelectasis | Unnamed: 1: 94.86 | Findings: 83.44 95.16 | Unnamed: 2: 82.32 | Unnamed: 3: 98.02 | Impression: 79.76 98.51 | Unnamed: 4: 79.52
+Row 4: Unnamed: 0: Consolidation | Unnamed: 1: 83.33 | Findings: 84.68 87.59 | Unnamed: 2: 78.43 | Unnamed: 3: 96.15 | Impression: 80.46 92.31 | Unnamed: 4: 73.17
+Row 5: Unnamed: 0: Effusion | Unnamed: 1: 94.61 | Findings: 91.05 96.76 | Unnamed: 2: 90.37 | Unnamed: 3: 93.60 | Impression: 92.04 95.65 | Unnamed: 4: 91.93
+Row 6: Unnamed: 0: Fracture | Unnamed: 1: 82.98 | Findings: 80.43 77.78 | Unnamed: 2: 73.56 | Unnamed: 3: 72.73 | Impression: 72.73 80.00 | Unnamed: 4: 80.00
+Row 7: Unnamed: 0: Hyperinflation | Unnamed: 1: 84.10 | Findings: 86.19 83.52 | Unnamed: 2: 84.09 | Unnamed: 3: 88.81 | Impression: 89.44 88.81 | Unnamed: 4: 89.13
+Row 8: Unnamed: 0: Lung Opacity | Unnamed: 1: 68.57 | Findings: 65.35 69.81 | Unnamed: 2: 70.59 | Unnamed: 3: 82.05 | Impression: 77.78 75.56 | Unnamed: 4: 78.05
+Row 9: Unnamed: 0: Nodule | Unnamed: 1: 44.44 | Findings: 40.00 46.32 | Unnamed: 2: 39.53 | Unnamed: 3: 47.62 | Impression: 44.44 45.45 | Unnamed: 4: 42.11
+Row 10: Unnamed: 0: Pleural Lesion | Unnamed: 1: 78.12 | Findings: 88.46 90.20 | Unnamed: 2: 87.50 | Unnamed: 3: 95.65 | Impression: 93.02 100.00 | Unnamed: 4: 92.68
+Row 11: Unnamed: 0: Pneumothorax | Unnamed: 1: 89.86 | Findings: 77.55 91.78 | Unnamed: 2: 77.05 | Unnamed: 3: 90.14 | Impression: 84.65 91.49 | Unnamed: 4: 85.25
+Row 12: Unnamed: 0: Pulmonary Edema | Unnamed: 1: 57.57 | Findings: 67.76 60.40 | Unnamed: 2: 75.94 | Unnamed: 3: 77.05 | Impression: 81.82 80.00 | Unnamed: 4: 87.04
+Row 13: Unnamed: 0: Micro-average | Unnamed: 1: 80.73 | Findings: 79.68 82.22 | Unnamed: 2: 79.76 | Unnamed: 3: 90.08 | Impression: 85.52 90.81 | Unnamed: 4: 85.49
+Row 14: Unnamed: 0: Macro-average | Unnamed: 1: 77.85 | Findings: 76.49 79.93 | Unnamed: 2: 75.94 | Unnamed: 3: 84.18 | Impression: 79.61 84.78 | Unnamed: 4: 79.89
+[/TABLE]
+
+[PAGE 16]
+C.2. GPT-4 Labeling Across Extended Status Categories
+This section demonstrates an experiment assessing GPT-4‘s ability to classify CXR findings into four distinct statuses: positive, negative, uncertain, and not mentioned. This assessment goes beyond our proposed model‘s binary classification of
+positive versus not-positive findings. It is crucial to note that the table does not directly compare GPT-4‘s performance with
+ground truth labels for all four statuses, as these labels do not exist. Instead, the comparison attempts to explain GPT-4‘s
+capacity for detailed classification, illustrating its adaptability to other models‘ standards like CheXbert‘s.
+For the experiment, we adapted the GPT prompt to match CheXbert‘s four-status system and compared GPT-4‘s classification performance against CheXbert‘s on the MIMIC-500 dataset. We requested GPT-4 to classify the status of CXR
+findings, incorporating the following instruction into the prompt to guide its responses: “Status indicates whether the finding
+is positive, negative, or uncertain. An uncertain status means it is used in cases of speculation such as ‘cannot be excluded,’
+‘possibly,’ ‘suggest,’ or when vague expressions like ‘unchanged, ‘stable,’ are used.” Table C2 displays a cross-tabulation of
+statuses as classified by GPT-4 (rows) and the corresponding classifications by CheXbert (columns) in both theFindings and
+Impression sections. Considering the scarce occurrences of specific statuses within particular categories, such as ‘fracture’
+labeled as ‘uncertain’, micro-averaged scores are presented to report performance, minimizing the unwanted influence that a
+few misclassifications could have on macro-averaged scores.
+Findings (CheXbert, %) Impression (CheXbert, %)
+GPT-4 Positive Negative Uncertain Not mentioned Positive Negative Uncertain Not mentioned
+Positive 83.37 (802) 1.35 (13) 6.44 (62) 8.84 (85) 81.49 (427) 1.34 (7) 6.68 (35) 10.50 (55)
+Negative 2.52 (26) 81.36 (838) 8.16 (84) 7.96 (82) 1.66 (8) 13.46 (65) 1.45 (7) 83.44 (403)
+Uncertain 27.57 (59) 10.28 (22) 33.18 (71) 28.97 (62) 39.38 (89) 3.10 (7) 28.32 (64) 29.20 (66)
+Not mentioned 3.69 (103) 1.00 (28) 1.79 (50) 93.52 (2613) 2.04 (77) 0.19 (7) 0.69 (26) 97.08 (3657)
+Table C2. Cross-Tabulation of CheXbert and GPT-4 classification concordance. Rows indicate the GPT-4 classifications, while columns
+show CheXbert’s corresponding reclassifications forFindings and Impression categories. Percentage values denote the frequency of GPT4’s agreement with CheXbert’s categories, and numbers in parentheses indicate the total count of instances for each intersecting classification.
+Table C2 demonstrates a strong alignment between GPT-4 and CheXbert in categorizing ‘positive’ and ‘not mentioned’
+statuses. A disparity arises in theImpression section for cases labeled ‘negative’ by GPT-4, which CheXbert often categorizes
+as ‘not mentioned’. This discrepancy is largely due to GPT-4’s interpretation of definitive negations such as ‘No acute
+cardiopulmonary process’, a phrase frequently written in theImpression section. Despite these phrases signifying the absence
+of acute conditions, GPT-4 labels them as ‘negative’, contrasting with CheXbert’s ‘not mentioned’ categorization.
+For ‘uncertain’ labels, GPT-4 and CheXbert show considerable misalignment in both Findings and Impression sections.
+Upon review, we identified that GPT-4‘s default interpretation of ‘uncertain’ diverges from that of CheXbert, particularly for
+terms such as ‘unchanged’ and ‘stable‘, which GPT-4 classifies as ‘uncertain’, whereas CheXbert often classifies them as
+‘positive’. Conversely, CheXbert alone tends to mark terms indicative of lower severity like ‘small’, ‘partial’, and ‘mild’ as
+‘uncertain’. On top of that, there‘s a notable lack of consistency in how terms like ‘or’, ‘probable’, and ‘reflect’ are classified,
+with both labelers alternating between ‘positive’ and ‘uncertain’. From our analysis, the only term consistently labeled as
+‘uncertain’ across both labelers was ‘not excluded’.
+In conclusion, the comparison with CheXbert has shown that GPT-4‘s classification can align with CheXbert for positive,
+negative, and not mentioned statuses, except negation phrases where GPT-4 tends to label findings as negative. For ‘uncertain’
+status, discrepancies arise from GPT-4‘s distinctive interpretation of uncertainty and inherent inconsistencies among labelers.
+These observations suggest that with tailored prompt tuning and our proposed training approach, a consistent labeler could
+be established to categorize findings into a variety of statuses according to the user‘s requirements. Addressing these issues
+and refining the labeler‘s performance will be part of future work.
+
+[TABLE page=16 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Findings (CheXbert, %) | Unnamed: 2 | Unnamed: 3 | Impression (CheXbert, %)
+Row 1: Unnamed: 0: GPT-4 | Unnamed: 1: Positive | Findings (CheXbert, %): Negative Uncertain | Unnamed: 2: Not mentioned | Unnamed: 3: Positive | Impression (CheXbert, %): Negative Uncertain Not mentioned
+Row 2: Unnamed: 0: Positive | Unnamed: 1: 83.37 (802) | Findings (CheXbert, %): 1.35 (13) 6.44 (62) | Unnamed: 2: 8.84 (85) | Unnamed: 3: 81.49 (427) | Impression (CheXbert, %): 1.34 (7) 6.68 (35) 10.50 (55)
+Row 3: Unnamed: 0: Negative | Unnamed: 1: 2.52 (26) | Findings (CheXbert, %): 81.36 (838) 8.16 (84) | Unnamed: 2: 7.96 (82) | Unnamed: 3: 1.66 (8) | Impression (CheXbert, %): 13.46 (65) 1.45 (7) 83.44 (403)
+Row 4: Unnamed: 0: Uncertain | Unnamed: 1: 27.57 (59) | Findings (CheXbert, %): 10.28 (22) 33.18 (71) | Unnamed: 2: 28.97 (62) | Unnamed: 3: 39.38 (89) | Impression (CheXbert, %): 3.10 (7) 28.32 (64) 29.20 (66)
+Row 5: Unnamed: 0: Not mentioned | Unnamed: 1: 3.69 (103) | Findings (CheXbert, %): 1.00 (28) 1.79 (50) | Unnamed: 2: 93.52 (2613) | Unnamed: 3: 2.04 (77) | Impression (CheXbert, %): 0.19 (7) 0.69 (26) 97.08 (3657)
+[/TABLE]

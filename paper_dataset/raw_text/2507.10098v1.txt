@@ -1,0 +1,1005 @@
+[PAGE 1]
+Fusing Large Language Models with
+Temporal Transformers for Time Series Forecasting
+Chen Su♠, Yuanhe Tian ♥, Qinyu Liu ♧, Jun Zhang 3, Yan Song ♠∗
+♠University of Science and Technology of China ♥University of Washington
+♧Beijing Northern Computility InterConnection Co., Ltd. 3ENN Group Co., Ltd.
+♠suchen4565@mail.ustc.edu.cn ♥yhtian@uw.edu
+♧garryliuqy@hotmail.com 3zhangjunbp@enn.cn ♠clksong@gmail.com
+Abstract
+Recently, large language models (LLMs)
+have demonstrated powerful capabilities in
+performing various tasks and thus are applied by recent studies to time series forecasting (TSF) tasks, which predict future
+values with the given historical time series. Existing LLM-based approaches transfer knowledge learned from text data to time
+series prediction using prompting or finetuning strategies. However, LLMs are proficient at reasoning over discrete tokens and
+semantic patterns but are not initially designed to model continuous numerical time
+series data. The gaps between text and time
+series data lead LLMs to achieve inferior
+performance to a vanilla Transformer model
+that is directly trained on TSF data. However, the vanilla Transformers often struggle
+to learn high-level semantic patterns. In this
+paper, we design a novel Transformer-based
+architecture that complementarily leverages
+LLMs and vanilla Transformers, so as to
+integrate the high-level semantic representations learned by LLMs into the temporal
+information encoded by time series Transformers, where a hybrid representation is
+obtained by fusing the representations from
+the LLM and the Transformer. The resulting
+fused representation contains both historical temporal dynamics and semantic variation patterns, allowing our model to predict
+more accurate future values. Experiments
+on benchmark datasets demonstrate the effectiveness of the proposed approach.1
+1 Introduction
+Time series forecasting (TSF) is a task that focuses on predicting future values of sequential
+data points based on historical observations, which
+*Corresponding author.
+1The code is available at https://github.com/
+synlp/SemInf-TSF.
+aims to capture latent temporal patterns and dependencies within dynamic systems to extrapolate future fluctuations. This task holds significant practical value, enabling informed decisionmaking across diverse domains such as finance
+for stock prediction (Mehtab and Sen, 2020; Liu
+and Long, 2020; Prakhar et al., 2022), meteorology for weather modeling (Kothapalli and Totad,
+2017; Karevan and Suykens, 2020; Hewage et al.,
+2020), energy management for load forecasting
+(Wang et al., 2018; Heidrich et al., 2020; LaraBenítez et al., 2020), and healthcare for epidemic
+trend analysis (Kumar and Susan, 2020; Liu et al.,
+2021; Chhabra et al., 2024).
+Early TSF approaches (Qin et al., 2017; Lai
+et al., 2018; Sen et al., 2019; Huang et al., 2019a,b;
+Salinas et al., 2020) relying on recurrent and convolutional architectures exhibit poor long-range
+modeling capabilities, leading to suboptimal performance in long-term predictions. Transformerbased approaches (Zhou et al., 2021; Wu et al.,
+2021; Zhou et al., 2022) address such challenges by leveraging self-attention mechanisms
+for global temporal relationships, yet their effectiveness remains constrained by insufficient training data and model scale. Recent breakthroughs of
+large language models (LLMs) demonstrate that
+billions of parameters and pre-training on large
+corpora are effective in acquiring universal knowledge that allows them to perform well in downstream NLP tasks through prompt engineering
+(Lester et al., 2021; Wei et al., 2022; Liu et al.,
+2023) and fine-tuning (Houlsby et al., 2019; Raffel
+et al., 2020; Tian et al., 2025). This observation inspires studies (Jin et al., 2023; Gruver et al., 2023;
+Jia et al., 2024) to apply LLMs to TSF, with, however, critical challenges persist in adapting LLMs
+to process continuous sequential data and interpret forecasting task objectives. In general, LLMbased approaches for TSF are primarily categorized into two main streams. The first category
+arXiv:2507.10098v1 [cs.CL] 14 Jul 2025
+
+[PAGE 2]
+…
+…
+Q K
+Add&Norm
+V
+Attention
+Add&Norm
+FFN
+Encoder
+Transformer Block
+Transformer
+Block
+Fusion Layer
+LLM-driven
+Pattern learning
+Block
+…
+…
+Transformer
+Block
+…
+…
+Norm & Patching
+Flatten & Linear
+De-norm
+Fusion Layer
+...
+Instance Norm
+& Patching
+...
+Pre-trained
+LLM
+(Body)
+Task Prompt
+Feature Prompt
+Data Prompt
+Linear &
+Sigmoid
+Concat
+PredictionLLM Block
+……
+𝒳 𝒴
+LLM
+Embedder
+Patch
+Embedder
+LinearLinear
+Transformer Encoder LLM Block Fusion Layer
+Temporal Feature
+LLM Representation LLM Representation
+Prompt Token
+…
+𝑔
+1 − 𝑔
+𝐗
+𝐙𝑙−1
+Figure 1: The overall architecture of our approach.
+transforms time series into text, thereby enabling
+LLMs to process them as textual data. The second
+integrates trainable embedding layers that convert
+time series data into continuous token representations, thus preserving full temporal information.
+The approaches in both streams leverage LLM as
+time series “encoders”, using the output of the last
+LLM layer to predict time series values. However,
+these approaches face several issues. First, they
+apply LLMs pre-trained on textual data to encode
+time series. The LLMs carry a strong prior bias towards the text domain and thus may misinterpret
+the input time series. For instance, LLMs tend
+to treat time series embeddings as a special type
+of tokens, and these time series tokens within the
+LLM’s embedding space may have high similarity
+to word embeddings that are irrelevant to time series understanding. While some studies (Liu et al.,
+2024a, 2025) introduce modal alignment between
+time-series and synthetic text to mitigate this conflict, such synthetic text often reflects human subjectivity and typically fails to achieve true matching. Second, these approaches utilize LLMs with
+a decoder-only architecture for time-series encoding. This inherent decoder-only structure restricts
+the information integrity during encoding. Consequently, the representations output by LLMs for
+time-series often reflect a unidirectional perspective. Therefore, directly employing LLMs for TSF
+is challenging and needs further accommodations.
+Considering that conventional deep learning approaches (e.g., a vanilla Transformer) are able to
+effectively learn features in time series data from
+scratch, it is expected to combine LLMs and the
+conventional approaches to better perform TSF.
+In this paper, we propose a novel TSF model
+that benefits from both LLM and vanilla Transformer. It aims to fuse the semantic patterns computed by LLMs from time series data into the
+representations generated by a Transformer-based
+time series encoder, achieving a synergistic integration of temporal dynamics and high-level semantic information. Specifically, the model employs a vanilla Transformer encoder to process input time series patches, producing representations
+containing temporal dynamics. Subsequently, the
+temporal representations and the original time series patches are fed into an LLM. The LLM identifies semantic patterns among the time series tokens and leverages them accordingly to generate
+a higher-level semantic representation. A gate
+mechanism then performs feature fusion on these
+two distinct representation types, i.e., the temporal
+dynamics from the Transformer and the semantic
+patterns from the LLM, resulting in a comprehensive and integrated representation. This fused representation is then used to generate future time series values. Extensive experiments on benchmark
+datasets demonstrate that our framework surpasses
+existing TSF approaches, achieving state-of-theart results across diverse application domains.
+2 The Approach
+Given a historical time series X with the historical length Tx, the objective of TSF is to forecast future values Y over Ty time steps. Our ap-
+
+[PAGE 3]
+proach for TSF is illustrated in Figure 1 with three
+core components: a Transformer-based backbone
+model that encodes the time seriesX and forecasts
+the future valuesY, an LLM that generates semantic representations of the time series, and a feature fusion module incorporates the features from
+the LLM into the backbone Transformer. Specifically, the time series X is divided into patches,
+and the patches are fed into the Transformer-based
+backbone with L layers of multi-head attentions
+(MHA) and a linear project layer that takes the
+output of the last HMA layer and forecast the future values Y. The output of the ( l-1)-th MHA
+layer (denoted as Zl−1), the original time seriesX ,
+and prompts are fed into the LLM to compute the
+deep semantics of X , which is denoted asXs. The
+feature fusion module then integrates the output of
+the LLM Xs into the l-th MHA layer of the backbone Transformer for further processing. In the
+following text, we firstly present the Transformerbased backbone model for TSF, then illustrate the
+process of prompting the LLM to encode the time
+series data, and finally the feature fusion module
+that integrates the LLM output into the backbone
+model.
+2.1 Transformer-based Backbone Model
+The Transformer-based backbone model consists
+of a Transformer encoder with L layers of MHA
+and a fully connected layer fF. The Transformer
+encoder aims to capture temporal dependencies
+and encode sequential information from the input
+time series. This input time series X undergoes
+patching with a stride S and a patch length T , dividing it into a sequence of overlapping patches
+X ∈ RN ×T . The patch sequence length N is determined by
+N =
+ (Tx − T )
+S
+
++ 2 (1)
+where ⌊·⌋ means the floor function that rounds a
+number down to the nearest integer. Especially,
+we pad the input time series at the end by repeating the last value S times to ensure that the values
+of the last part form a patch. This patching reduces
+sequence length and facilitates the capture of local
+patterns. A linear projection layer with a trainable
+parameter Wt transforms the input patches into
+a high-dimensional feature space, where the positional encoding Epos is added to obtain the input
+embedding (i.e., denoted as Z) of the Transformer.
+This entire process is expressed by:
+Z = XWt + Epos (2)
+The resulting sequence Z serves as input to the
+L-layer MHA, where the output of a Transformer
+layer is the input of the next layer. Particularly,
+at the layer l, we enhance its input (denoted as
+Zl−1) with the output of the LLM (see the following subsections for details), so as to better encode
+the time series data. The output of the last MHA
+layer, i.e., ZL, is flattened and fed into the fully
+connected projection layer for forecasting the future time series bY. The entire model minimizes
+the mean squared error (MSE) loss L between the
+predicted time series bY and the ground truth time
+series Y:
+L = 1
+Ty
+TyX
+i=1
+
+bYi − Y ∗
+i
+2
+(3)
+where bYi and Y ∗
+i are the predicted and the gold
+standard future values at the position i, respectively.
+2.2 LLM-driven Time Series Encoding
+The LLM processes the temporal representations
+Zl−1 obtained from the backbone model and the
+original time series patch sequence X to compute inherent patterns and semantic relationships
+among tokens. Specifically, both Zl−1 and X
+firstly undergo linear projection onto the LLM’s
+input feature space, forming their embeddings EZ
+and EX, respectively. In the input sequence, EZ
+precedes EX. Auxiliary text prompts interleave
+with these time series embeddings to stimulate the
+LLM’s reasoning capabilities and guide the learning of semantic connections among time series tokens. A task-descriptive prompt, such as “ This
+is a time series forecasting task. The input contains historical data patterns that need to be analyzed for future predictions.”, prefixes the entire
+sequence to frame the forecasting objective. Immediately before the temporal representationsEZ,
+the prompt “ The following are the encoded time
+series features extracted from the Transformer encoder, which represent the learned temporal patterns.” indicates their nature. Preceding the original embedding X, the prompt “The following are
+the original patch data features that provide additional context for the prediction task. ” signals
+its role. These text prompts are tokenized and
+
+[PAGE 4]
+mapped to their embedding following the standard process, resulting in Ptask, Pf eat, and Pdata,
+respectively. They are then concatenated in the
+aforementioned order with the time-series features
+EZ and the time-series embedding EX, forming
+the LLM input ELLM by
+ELLM = Cat(Ptask, Pf eat, EZ, Pdata, EX ) (4)
+Internally, the LLM leverages the knowledge
+learned from large-scale corpora to uncover intricate patterns within the input features ELLM and
+capture high-level semantic relationships. Following the standard LLM modeling process, we obtain the output from the last layer of the LLM. We
+only retain the representations (denoted as ZLLM)
+corresponding to the positions of the X and discard all preceding prefixes, including the textual
+prompts and the temporal representations. The
+representation ZLLM is integrated into the backbone model through the feature fusion module.
+2.3 Feature Fusion Module
+The feature fusion layer integrates the temporal
+representation Zl−1 from the ( l-1)-th layer of the
+backbone Transformer and the semantic representation ZLLM from the LLM, obtaining a fused
+representation Zl−1
+E that simultaneously encodes
+both temporal patterns and semantic information.
+Specifically, to fuseZl−1 and ZLLM, a gate mechanism (fgate) is employed, where the semantic representation ZLLM and the temporal representation
+Zl−1 are concatenated and processed through a
+linear layer followed by a sigmoid activation function, yielding a gate valueg. The unified representation Zl−1
+E is then computed by
+Zl−1
+E = g · ZLLM + (1 − g) · Zl−1 (5)
+The resulting representation Zl−1
+E inherently possesses both temporal dynamics and semantic understanding, and it is subsequently fed into thel-th
+MHA layer in the backbone Transformer model.
+3 Experiment Settings
+3.1 Datasets
+We run experiments on three widely-used time
+series datasets: ETT (Electricity Transformer
+Temperature), Weather, and Influenza-like Illness
+(ILI), covering diverse domains for comprehensive evaluation. The ETT dataset, including
+ETTh1, ETTh2, ETTm1, ETTm2, records load
+Table 1: The statistics of the datasets, including total
+timesteps, number of features, and recording period in
+each dataset.
+Dataset Timesteps Features Period
+Weather 52696 21 10 min
+ETTh1 17420 7 1 hour
+ETTh2 17420 7 1 hour
+ETTm1 69680 7 15 min
+ETTm2 69680 7 15 min
+ILI 966 7 1 week
+and temperature data from electricity transformers, while the Electricity dataset captures hourly
+power consumption of 321 clients. The Weather
+dataset includes 21 meteorological indicators from
+1,600 locations, and the ILI dataset tracks weekly
+influenza-like illness patient ratios. All datasets
+undergo Z-score normalization, where the mean
+is subtracted and the result is divided by the
+standard deviation, preserving temporal patterns
+while mitigating magnitude variations. Following the protocols in existing studies (Wu et al.,
+2021; Zhou et al., 2022), the data splits maintain temporal order to prevent information leakage: for ETT datasets, sequences are partitioned
+into 6:2:2 ratios for training, validation, and testing, respectively, whereas other datasets use 7:1:2
+splits. Such chronological partitioning strategy
+ensures the evaluation realistically simulates realworld forecasting scenarios where models predict
+future observations based on historical patterns.
+The statistics of the datasets (including the number of timesteps, features, and the recording period) are reported in Table 1.
+3.2 Baselines and Comparing Models
+To validate the effectiveness of our approach, we
+run a series of baseline models and compare their
+performance with ours. Specifically, we implement the following three baselines:
+• LLM-only: This baseline directly feeds time
+series patches into a LLM to obtain corresponding time series representations. These representations are subsequently fed into an linear layer
+for the subsequent prediction task.
+• Trans-only: This baseline employs solely the
+Transformer for encoding the time series. The
+resulting representation is then used for prediction via an linear projection.
+
+[TABLE page=4 index=1]
+Columns: aforementioned order with the time-series features | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3
+Row 1: aforementioned order with the time-series features: | Unnamed: 0: Dataset | Unnamed: 1: Timesteps | Unnamed: 2: Features | Unnamed: 3: Period
+Row 2: aforementioned order with the time-series features: EZ and the time-series embedding EX , forming | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 3: aforementioned order with the time-series features: the LLM input ELLM by | Unnamed: 0: Weather | Unnamed: 1: 52696 | Unnamed: 2: 21 | Unnamed: 3: 10 min
+Row 4: aforementioned order with the time-series features: | Unnamed: 0: ETTh1 | Unnamed: 1: 17420 | Unnamed: 2: 7 | Unnamed: 3: 1 hour
+Row 5: aforementioned order with the time-series features: ELLM = Cat(Ptask,Pfeat,EZ ,Pdata,EX) (4) | Unnamed: 0: ETTh2 | Unnamed: 1: 17420 | Unnamed: 2: 7 | Unnamed: 3: 1 hour
+Row 6: aforementioned order with the time-series features: | Unnamed: 0: ETTm1 | Unnamed: 1: 69680 | Unnamed: 2: 7 | Unnamed: 3: 15 min
+Row 7: aforementioned order with the time-series features: Internally, the LLM leverages the knowledge | Unnamed: 0: ETTm2 | Unnamed: 1: 69680 | Unnamed: 2: 7 | Unnamed: 3: 15 min
+Row 8: aforementioned order with the time-series features: learned from large-scale corpora to uncover intri- | Unnamed: 0: ILI | Unnamed: 1: 966 | Unnamed: 2: 7 | Unnamed: 3: 1 week
+[/TABLE]
+
+[PAGE 5]
+• Trans-LLM: This baseline directly adds the
+features encoded by the backbone Transformer
+and the features encoded by the LLM without
+using the feature fusion module.
+Furthermore, we compare our approach with a
+series of existing TSF models, which are categorized into the following three groups, namely,
+Transformer-based models, MLP-based models,
+and LLM-based models. For Transformer-based
+models, we compare our approach with the following ones:
+• PatchTST2 (Nie et al., 2022): This model utilizes a vanilla Transformer to encode time series patches and performs prediction via a linear
+head.
+• Autoformer (Wu et al., 2021): a Transformerbased model where self-attention is replaced
+with auto-correlation, combined with a decomposition approach for forecasting.
+For the MLP-based models, we compare our approach with the following ones:
+• DLinear (Zeng et al., 2023): A single-layer linear prediction model incorporating decomposition approach.
+• Timemixer (Wang et al., 2024): This model integrates multi-scale information, separately predicts time series components at different scales,
+and combines them to yield the final forecast.
+For the MLP-based models, we compare our approach with the following ones:
+• GPT4TS (Zhou et al., 2023a): This model employs GPT-2 to encode time series patches and
+conducts prediction through a linear head.
+• Time-LLM (Jin et al., 2023): A model uses text
+prototypes to reprogram time-series patches.
+These tokens are then fed into a frozen LLM
+for encoding, and finally processed via an MLP
+for forecasting.
+2We employ PatchTST/42, which corresponds to the case
+of a historical window of 336. This aligns with our experimental setup to ensure fair comparison.
+3.3 Implementation Details
+For time series length configurations, the historical sequence length is fixed at 104 for the ILI
+dataset, while other datasets adopt a default historical length of 336. The forecast horizon is evaluated across four settings P ∈ {96, 192, 336, 720},
+which comprehensively assesses model performance for short-term, medium-term, and longterm forecasting tasks. This setup ensures consistency with prior benchmarks while testing generalization capabilities under varying temporal dependencies. For patch splitting, following the setting from (Nie et al., 2022), we use a patch length
+of 24 and a stride of 2 on the ILI dataset, while
+employing a patch length of 16 and a stride of
+8 uniformly across all other datasets. We employ a channel separation technique for processing multivariate time series. Additionally, the
+time series undergoes reversible instance normalization (RevIN), whereby the mean and variance
+are computed from the historical time series prior
+to model input and used for normalization The
+corresponding statistics are then added back to
+the model’s predicted outputs. This technique
+has been demonstrated to effectively address the
+distribution-shift problem (Kim et al., 2021).
+Regarding the model architecture, we employ
+a time series Transformer encoder based on Nie
+et al. (2022), which utilizes a 3-layer transformer
+encoder, where the LLM output is used to enhance the output of the second layer. On the
+ILI dataset, the model dimension is set to 128
+with 16 attention heads, while a uniform configuration of a model dimension of 16 and 4 attention heads is used for all other datasets. For
+the LLM, we adopt GPT-2 (Radford et al., 2019)
+(with 768-dimensional hidden vectors and 2 layers) and apply Low-Rank Adaptation (LoRA) (Hu
+et al., 2022) for parameter-efficient fine-tuning.
+The overall model is trained for 300 epochs with a
+learning rate of 0.0001.
+Following existing studies (Wu et al., 2021; Nie
+et al., 2022), we use Mean Squared Error (MSE)
+and Mean Absolute Error (MAE) as the primary
+evaluation metrics to quantify forecasting accuracy. Both metrics are computed across all prediction horizons, with lower values indicating better
+performance. To ensure statistical reliability, all
+reported results represent averaged outcomes from
+three independent training runs with different random seeds.
+
+[TABLE page=5 index=1]
+Columns: • GPT4TS (Zhou et al., 2023a): This model em- | Unnamed: 0 | et al., | 2022) | for | parameter-efficient | fine-tuning.
+Row 1: • GPT4TS (Zhou et al., 2023a): This model em-: ploys GPT-2 to encode time series patches and | Unnamed: 0: | et al.,: The overall model is trained for 300 epochs with a | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 2: • GPT4TS (Zhou et al., 2023a): This model em-: conducts prediction through a linear head. | Unnamed: 0: | et al.,: learning rate of 0.0001. | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 3: • GPT4TS (Zhou et al., 2023a): This model em-: | Unnamed: 0: | et al.,: Following existing studies (Wu et al., 2021; Nie | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 4: • GPT4TS (Zhou et al., 2023a): This model em-: • Time-LLM (Jin et al., 2023): A model uses text | Unnamed: 0: | et al.,: | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 5: • GPT4TS (Zhou et al., 2023a): This model em-: | Unnamed: 0: | et al.,: et al., 2022), we use Mean Squared Error (MSE) | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 6: • GPT4TS (Zhou et al., 2023a): This model em-: prototypes to reprogram | Unnamed: 0: time-series patches. | et al.,: | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 7: • GPT4TS (Zhou et al., 2023a): This model em-: | Unnamed: 0: | et al.,: and Mean Absolute Error (MAE) as the primary | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 8: • GPT4TS (Zhou et al., 2023a): This model em-: These tokens are then | Unnamed: 0: fed into a frozen LLM | et al.,: | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 9: • GPT4TS (Zhou et al., 2023a): This model em-: | Unnamed: 0: | et al.,: evaluation | 2022): metrics | for: | parameter-efficient: to quantify forecasting | fine-tuning.: accuRow 10: • GPT4TS (Zhou et al., 2023a): This model em-: for encoding, and finally processed via an MLP | Unnamed: 0: | et al.,: | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 11: • GPT4TS (Zhou et al., 2023a): This model em-: | Unnamed: 0: | et al.,: racy. Both metrics are computed across all predic- | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 12: • GPT4TS (Zhou et al., 2023a): This model em-: for forecasting. | Unnamed: 0: | et al.,: | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 13: • GPT4TS (Zhou et al., 2023a): This model em-: | Unnamed: 0: | et al.,: tion horizons, with lower values indicating better | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 14: • GPT4TS (Zhou et al., 2023a): This model em-: | Unnamed: 0: | et al.,: performance. | 2022): | for: To | parameter-efficient: ensure statistical reliability, | fine-tuning.: all
+Row 15: • GPT4TS (Zhou et al., 2023a): This model em-: 2 | Unnamed: 0: | et al.,: reported results represent averaged outcomes from | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 16: • GPT4TS (Zhou et al., 2023a): This model em-: We employ PatchTST/42, which corresponds to the case | Unnamed: 0: | et al.,: | 2022): | for: | parameter-efficient: | fine-tuning.:
+Row 17: • GPT4TS (Zhou et al., 2023a): This model em-: of a historical window of 336. | Unnamed: 0: This aligns with our experi- | et al.,: three independent training runs with different ran- | 2022): | for: | parameter-efficient: | fine-tuning.:
+[/TABLE]
+
+[PAGE 6]
+Table 2: Performance of baselines and the proposed model measured by MSE and MAE. "Avg." denotes the
+aggregated performance across the test sets of eight datasets. For each dataset, the top two results (lower is better)
+are indicated through boldface (best) and underlines (second best), respectively.
+Dataset LLM-only Trans-only Trans-LLM Ours
+MSE MAE MSE MAE MSE MAE MSE MAE
+Weather 0.247 0.287 0.253 0.296 0.242 0.281 0.237 0.279
+ETTh1 0.438 0.443 0.428 0.437 0.426 0.434 0.406 0.424
+ETTh2 0.403 0.422 0.352 0.392 0.378 0.409 0.333 0.380
+ETTm1 0.384 0.429 0.373 0.403 0.367 0.395 0.355 0.382
+ETTm2 0.337 0.341 0.270 0.339 0.278 0.327 0.258 0.318
+ILI 1.870 0.896 2.306 0.968 2.191 0.967 1.424 0.819
+Table 3: Performance of existing models and the proposed model in terms of MSE and MAE.
+Dataset Autoformer PatchTST Timemixer DLinear GPT4TS Time-LLM Ours
+MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE MSE MAE
+Weather 0.338 0.382 0.225 0.264 0.240 0.271 0.249 0.300 0.237 0.270 0.225 0.257 0.237 0.279
+ETTh1 0.496 0.487 0.413 0.430 0.447 0.440 0.423 0.437 0.427 0.426 0.408 0.423 0.406 0.422
+ETTh2 0.450 0.459 0.330 0.379 0.364 0.395 0.431 0.447 0.346 0.394 0.334 0.383 0.333 0.379
+ETTm1 0.588 0.517 0.351 0.387 0.381 0.395 0.357 0.378 0.352 0.383 0.329 0.372 0.355 0.382
+ETTm2 0.327 0.371 0.255 0.315 0.275 0.323 0.267 0.334 0.266 0.326 0.251 0.313 0.258 0.318
+ILI 3.006 1.161 1.443 0.798 2.037 0.938 2.169 1.041 1.925 0.903 1.435 0.801 1.424 0.819
+4 Results and Analyses
+4.1 Overall Results
+To validate the effectiveness of the proposed approach, we compare the performance of our approach with the baselines and report the results
+in Table 2. Several observations emerge from the
+results. First, Transformer-only baseline exhibits
+lower error values than LLM-only baseline on
+ETT datasets but higher errors on other datasets.
+This indicates different performance characteristics for these two models across different datasets.
+This occurs because the representations learned
+by the LLM-only model possess stronger semantic patterns, whereas the Transformer-only model
+learns representations capturing stronger temporal dynamics. These distinct representations contribute differently to forecasting performance depending on the dataset. Second, the TransformerLLM model consistently achieves lower error values than both the Transformer-only and LLMonly baselines. This demonstrates that combining the two models provides superior time series
+representations. This improvement arises because
+the Transformer and LLM learn complementary
+characteristics of the time series, capturing different aspects and levels of information. Integrating these representations enhances prediction accuracy. Finally, our proposed model attains the
+smallest prediction MSE and MAE errors. This
+signifies that adaptively fusing the two types of
+representations better leverages their respective
+strengths. The rationale is that the representations
+learned by the two models exhibit heterogeneity.
+Therefore, directly combining the two representations leads to confusion, preventing the predictor
+from effectively utilizing useful information for
+TSF. These findings confirm the effectiveness of
+our proposed approach.
+The comparative results between our approach
+and existing time series forecasting approaches are
+reported in Table 3, yielding the following observations. First, the proposed approach achieves
+the lowest average MSE and average MAE error values, demonstrating its superior forecasting accuracy. Particularly, our approach outperforms Transformer-based and MLP-based models,
+achieving lower errors on ETTh1 dataset. This indicates that integrating LLMs as a complement to
+conventional deep learning models enhances prediction performance. The key factor is the LLM’s
+reasoning capability acquired through corpus pretraining, enabling it to learn high-level semantic
+patterns from time series data. This capability
+effectively offsets the limitations of conventional
+models in capturing such abstract information. Finally, compared to other LLM-based models, our
+
+[PAGE 7]
+Figure 2: Comparison of our approach and the model
+that directly uses the LLM in our approach to perform
+TSF in a non-autoregressive manner on the ILI and
+ETTh1 datasets.
+approach achieves lower error rates on ETTh1 and
+ETTh2 datasets. This advantage stems from our
+utilization of the LLM: instead of directly using
+it in time series prediction, we employ the LLM
+to generate semantic features, which are then provided to deep learning models that specialize in
+processing continuous numerical data. This strategy circumvents the issue of natural language bias
+in LLM representations, which may hurt prediction accuracy when utilized directly by predictors
+lacking corresponding linguistic knowledge.
+4.2 Effects of LLM Encoding
+In our setup, a decoder-only LLM serves as the
+time series encoder, with its generated representations used for subsequent processing and prediction. To investigate the role of the LLM
+specifically as a time series encoder, we compare its performance when employed as a time series "decoder". Specifically, we modify the proposed model to achieve a non-autoregressive LLM
+decoding approach: append placeholder tokens
+matching the number of patches corresponding to
+the prediction length to the end of the input token sequence, then remove the subsequent feature fusion layer and prediction head. These tokens serve as placeholders for the patches to be
+predicted; the LLM predicts the values at these
+positions in a single forward pass. Finally, we
+extract the representations only from these placeholder tokens and apply a linear layer to invert the
+patching operation, reconstructing the original sequence shape. Figure 2 presents the results of this
+model and our full model on the ILI and ETTh1
+datasets across different prediction lengths. First,
+we observe a higher prediction error for the LLMdecoder compared to our proposed model on the
+ILI dataset. This indicates that the LLM-decoder
+model fails to capture useful information for the
+task from this specific data. Furthermore, the
+LLM-decoder obtains comparable error metrics to
+our proposed model on the ETTh1 dataset for the
+short-term forecasting horizon of 96 steps. This
+result suggests that employing an LLM for decoding delivers acceptable short-term forecasting performance on the ETT dataset, primarily because
+temporal dynamics show relatively consistent and
+stable characteristics within short time windows.
+However, the performance of LLM decoding prediction degrades as the prediction length increases.
+This degradation demonstrates the LLM failure to
+correctly decode continuous variation patterns in
+historical time series, causing progressive deviation from ground truth values during long-term
+forecasting.
+4.3 Effects of Time Series Representation
+To investigate the differences between representations learned by the Transformer and those learned
+by the LLM for time series, we visualize attention weights for time series patches from the final Transformer encoder block and the final LLM
+layer. We also display t-SNE plots of the time series tokens encoded by the Transformer and the
+LLM before feature fusion. The heatmaps are
+shown in Figure 3. Several observations emerge.
+First, the attention maps in the Transformer show a
+continuous block-style attention distribution, indicating that the learned relational patterns tend to
+present continuous temporal variations. In contrast, the attention heatmaps in the LLM display a
+sparser attention distribution, suggesting the LLM
+places greater emphasis on analyzing and extracting critical patches, which is similar to extracting
+keywords from a sentence for semantic summarization. This attention distribution difference re-
+
+[PAGE 8]
+Figure 3: (a) Attention visualization from the last layer of our approach’s Transformer encoder and (b) the second
+layer of the LLM. (c) t-SNE visualization of time-series tokens from the Transformer encoder and the LLM.
+flects the distinct intrinsic learning mechanisms of
+the two models. The t-SNE visualization reveals
+that tokens encoded by the Transformer and tokens
+encoded by the LLM form distinct clusters. This
+separation indicates that the Transformer-encoded
+tokens and LLM-encoded tokens possess different
+distribution characteristics. This divergence originates from their differing internal learning processes, leading the Transformer to encode more information about temporal dynamics within its tokens, while the LLM encodes more information
+about semantic patterns. These findings demonstrate the source of performance gains from integrating these complementary information types
+for prediction.
+4.4 Effects of LLM Type and Scale
+To investigate the impact of employing diverse
+LLM types and sizes as time series encoders,
+we test LLMs including GPT-2, Llama3.2-1B
+(Grattafiori et al., 2024), Qwen3-1.7B (Yang et al.,
+2025), and Qwen2.5-3B (Yang et al., 2024). The
+results of these models are presented in Figure 4.
+The results first reveal that when replacing GPT2 with Llama, the error metric increases. Transitioning from Llama to Qwen leads to a further
+rise in error. Concurrently, the model size progressively grows larger throughout this sequence
+of LLM substitutions. These findings demonstrate that more advanced and larger-scale LLMs
+do not yield improved forecasting performance.
+This occurs because, in our framework, the LLM
+only serves as an encoder for time series data,
+extracting semantic representations to help TSF.
+Since LLMs inherently rely on their natural language priors to handle unseen tokens, an overly
+strong linguistic bias hinders the model’s ability to
+rapidly learn the correct processing approach from
+limited time series data. These results indicate that
+utilizing excessively large LLMs for time series
+semantic representation is unnecessary. Such large
+models increase training costs and cause performance degradation.
+4.5 Case Study
+To qualitatively investigate the impact of the proposed approach on TSF, Figure 5 presents prediction results from GPT4TS, PatchTST, and our proposed model on the ILI dataset. Several observations emerge from the results. First, the shortterm prediction scenario in the upper plot shows
+our approach consistently generates curves closer
+
+[PAGE 9]
+Figure 4: Comparison of different types and sizes of LLMs as time series encoders for forecasting. We report MSE
+and MAE for each LLM encoder on the ETTh1 dataset.
+Figure 5: Case study on the ETTh1 dataset. The historical time series is plotted in blue. The future time
+series to be forecasted is indicated by a dashed gray
+line. Forecasts from the PatchTST, GPT4TS, and our
+proposed model are depicted in yellow, green, and red
+colors, respectively.
+to the ground truth than other approaches. This
+indicates our model accurately captures continuous variation patterns within the time series, enabling high-precision short-term forecasts. This
+occurs because the Transformer encoder within
+our model effectively extracts temporal dynamics from historical data, enabling the prediction
+of similar sequential variations. Second, the longterm prediction scenario in the lower plot reveals
+that GPT4TS produces predictions opposite to the
+ground truth. While PatchTST correctly estimates
+the future trend direction, its predictions lack
+high precision, showing a significant gap from the
+ground truth curve. Our proposed model, however,
+not only correctly identifies the trend but also produces a prediction curve closely aligned with the
+ground truth, demonstrating high forecasting accuracy. This demonstrates the robustness of our
+proposed approach relative to other models. The
+LLM component learns higher-level semantic relationships within the time series, preventing overreliance on simple, repetitive patterns. These findings collectively validate the effectiveness of the
+proposed approach.
+5 Related Work
+5.1 Time Series Forecasting
+Early time series forecasting models use statistical
+approaches, such as the autoregressive integrated
+moving average model (ARIMA) (Jiang et al.,
+2022; Sarla et al., 2022) and exponential smoothing (ETS) (Panigrahi and Behera, 2017). These
+models represent time series through linear parametric equations and handle trends and seasonality via differencing or decomposition. These models struggle with complex nonlinear patterns, longrange dependencies, and high-dimensional data in
+time series, which necessitates significant manual
+tuning and limits scalability. Therefore, research
+shifts towards automated feature learning and deep
+learning models that offer higher flexibility. Early
+deep learning approaches employ recurrent neural networks (RNNs) (Jovanovic et al., 2022; Mers
+et al., 2023) and long short-term memory networks (LSTMs) (Fantin and Hadad, 2022) to capture temporal dependencies. Subsequently, convolutional neural networks (CNNs) (Huang et al.,
+2019a; Livieris et al., 2020) are utilized to efficiently extract local patterns using dilated convolutions. More recently, researchers apply Transformer architectures (Wu et al., 2021; Zhou et al.,
+2022) to TSF, leveraging self-attention to model
+global dependencies and interactions across arbitrary time lags effectively. Current research focuses on large foundation time series models. For
+instance, Liu et al. (2024b) build dedicated time
+
+[PAGE 10]
+series foundation models through massive pretraining. Simultaneously, multimodal forecasting
+gains traction (Jin et al., 2023; Wang et al., 2025;
+Su et al., 2025), merging time series with external data (such as text, images, graphs, etc.) for
+richer context-aware TSF and thus improving the
+model performance. Our approach focuses on how
+to apply natural language knowledge from LLMs
+to time series forecasting.
+5.2 LLM-based Time Series Modeling
+LLMs demonstrate remarkable capabilities across
+diverse natural language processing (NLP) tasks
+(Dogra et al., 2022; Salmony and Faridi, 2022;
+Grattafiori et al., 2024; Tian et al., 2024), achieving exceptional performance on numerous benchmarks. This success drives a trend of adapting
+these powerful foundation models to analyze diverse data modalities beyond text (Abu et al.,
+2022; Wang et al., 2022), including time series
+data. Therefore, researchers increasingly explore
+leveraging LLMs for time series forecasting. Early
+approaches (Gruver et al., 2023; Sun et al., 2023)
+treat time series data as textual sequences, directly
+feeding flattened numerical values or simple symbolic representations into the LLM for prediction
+tasks. Subsequent approaches (Zhou et al., 2023a;
+Cao et al., 2023; Zhou et al., 2023b) advance by
+embedding raw time series data into continuous
+vectors compatible with LLM input layers, enabling the model to process numerical sequences
+more effectively. To better leverage the rich world
+knowledge learned by the LLMs, more recent efforts focus on aligning the time series modality
+with the textual modality (Liu et al., 2024a, 2025)
+so as to translate temporal patterns into concepts
+the LLM understands. These models directly apply the LLM to modeling the time series data and
+show satisfying performance. However, standard
+LLMs are initially designed for discrete token sequences with long-range dependencies, and thus
+struggle to capture the continuous temporal dynamics inherent in time series data. Their architectures lack inductive biases specifically designed
+for such temporal structures. Differing from these
+studies, we propose leveraging the LLM’s capability to learn semantic relationships by using it as a
+feature extractor. We then integrate these LLMderived semantic features as supplementary information alongside conventional numerical time series features within a downstream model specifically designed for TSF. This integration aims
+to enhance forecasting performance through enriched contextual understanding.
+6 Conclusion
+In this paper, we present a novel approach integrating the reasoning capabilities of LLMs with
+conventional time-series Transformer forecasting
+models. Our approach utilizes the raw time-series
+data along with its Transformer-encoded temporal features as input to the LLM. Leveraging the
+LLM’s capability for discrete token reasoning and
+pattern learning, the model actively captures highlevel semantic patterns from the time-series data.
+An adaptive feature fusion layer dynamically integrates these extracted semantic representations
+with the original Transformer-encoded temporal
+features. A linear predictor then utilizes this
+fused representation for final time-series forecasting. Comprehensive experiments on diverse realworld datasets demonstrate the effectiveness and
+superior performance of our approach. Future
+research directions include further incorporating
+textual features for enhanced fusion and exploring
+multi-modal collaborative forecasting strategies.
+References
+Masyitah Abu, Nik Adilah Hanin Zahri, Amiza
+Amir, Muhammad Izham Ismail, Azhany
+Yaakub, Said Amirul Anwar, and Muhammad Imran Ahmad. 2022. A comprehensive
+performance analysis of transfer learning optimization in visual field defect classification.
+Diagnostics, 12(5):1258.
+Defu Cao, Furong Jia, Sercan O Arik, Tomas
+Pfister, Yixiang Zheng, Wen Ye, and Yan Liu.
+2023. Tempo: Prompt-based generative pretrained transformer for time series forecasting.
+arXiv preprint arXiv:2310.04948.
+Anureet Chhabra, Sunil K Singh, Akash Sharma,
+Sudhakar Kumar, Brij B Gupta, Varsha Arya,
+and Kwok Tai Chui. 2024. Sustainable
+and intelligent time-series models for epidemic disease forecasting and analysis. Sustainable Technology and Entrepreneurship ,
+3(2):100064.
+Varun Dogra, Sahil Verma, Kavita, Pushpita Chatterjee, Jana Shafi, Jaeyoung Choi, and Muhammad Fazal Ijaz. 2022. A complete process of
+
+[TABLE page=10 index=1]
+Columns: series foundation models | through | massive | pre- | Unnamed: 0 | Unnamed: 1 | ically designed for | TSF. | This | integration aims
+Row 1: series foundation models: training. Simultaneously, multimodal forecasting | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: to enhance forecasting | TSF.: | This: performance | integration aims: through enRow 2: series foundation models: gains traction (Jin et al., 2023; Wang et al., 2025; | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: riched contextual understanding. | TSF.: | This: | integration aims:
+Row 3: series foundation models: Su et al., 2025), merging | through: time series with exter- | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 4: series foundation models: nal data (such as text, images, | through: graphs, | massive: etc.) | pre-: for | Unnamed: 0: | Unnamed: 1: | ically designed for: 6 Conclusion | TSF.: | This: | integration aims:
+Row 5: series foundation models: richer context-aware TSF and thus improving the | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: In this paper, we present | TSF.: | This: a novel | integration aims: approach inteRow 6: series foundation models: model performance. Our approach focuses on how | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: grating the reasoning | TSF.: capabilities | This: | integration aims: of LLMs with
+Row 7: series foundation models: to apply natural language knowledge from LLMs | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: conventional time-series Transformer | TSF.: | This: | integration aims: forecasting
+Row 8: series foundation models: to time series forecasting. | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: models. Our approach utilizes the raw time-series | TSF.: | This: | integration aims:
+Row 9: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: data along with its | TSF.: Transformer-encoded | This: | integration aims: tempoRow 10: series foundation models: 5.2 LLM-based Time Series Modeling | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: ral features as input | TSF.: to the LLM. Leveraging the | This: | integration aims:
+Row 11: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: LLM’s capability for discrete token reasoning and | TSF.: | This: | integration aims:
+Row 12: series foundation models: LLMs demonstrate remarkable capabilities across | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: pattern learning, the model actively captures high- | TSF.: | This: | integration aims:
+Row 13: series foundation models: diverse natural language processing | through: | massive: (NLP) | pre-: tasks | Unnamed: 0: | Unnamed: 1: | ically designed for: level semantic patterns from the time-series data. | TSF.: | This: | integration aims:
+Row 14: series foundation models: (Dogra et al., 2022; Salmony | through: and | massive: Faridi, 2022; | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: An adaptive feature fusion layer dynamically in- | TSF.: | This: | integration aims:
+Row 15: series foundation models: Grattafiori et al., 2024; Tian et al., 2024), achiev- | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: tegrates these extracted | TSF.: | This: semantic | integration aims: representations
+Row 16: series foundation models: ing exceptional performance on numerous bench- | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: with the original Transformer-encoded | TSF.: | This: | integration aims: temporal
+Row 17: series foundation models: marks. This success drives | through: a trend | massive: of adapting | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: features. A linear | TSF.: predictor | This: | integration aims: then utilizes this
+Row 18: series foundation models: these powerful foundation models | through: | massive: to analyze di- | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: fused representation for final time-series forecast- | TSF.: | This: | integration aims:
+Row 19: series foundation models: verse data modalities beyond | through: text | massive: (Abu et | pre-: al., | Unnamed: 0: | Unnamed: 1: | ically designed for: ing. Comprehensive experiments on diverse real- | TSF.: | This: | integration aims:
+Row 20: series foundation models: 2022; Wang et al., 2022), | through: including | massive: time series | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: world datasets demonstrate | TSF.: | This: the effectiveness and | integration aims:
+Row 21: series foundation models: data. Therefore, researchers increasingly explore | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: superior performance | TSF.: of | This: our approach. | integration aims: Future
+Row 22: series foundation models: leveraging LLMs for time series forecasting. Early | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: research directions include | TSF.: | This: further | integration aims: incorporating
+Row 23: series foundation models: approaches (Gruver et al., 2023; Sun et al., 2023) | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: textual features for enhanced fusion and exploring | TSF.: | This: | integration aims:
+Row 24: series foundation models: treat time series data as textual sequences, directly | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: multi-modal collaborative forecasting strategies. | TSF.: | This: | integration aims:
+Row 25: series foundation models: feeding flattened numerical values or simple sym- | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 26: series foundation models: bolic representations into the LLM for prediction | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 27: series foundation models: tasks. Subsequent approaches (Zhou et al., 2023a; | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: References | TSF.: | This: | integration aims:
+Row 28: series foundation models: Cao et al., 2023; Zhou et al., 2023b) advance by | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 29: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: Masyitah Abu, Nik | TSF.: Adilah | This: Hanin | integration aims: Zahri, Amiza
+Row 30: series foundation models: embedding raw time series | through: data into | massive: continuous | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 31: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: Amir, Muhammad | TSF.: | This: Izham | integration aims: Ismail, Azhany
+Row 32: series foundation models: vectors compatible with LLM | through: input | massive: layers, | pre-: en- | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 33: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: Yaakub, Said Amirul | TSF.: | This: Anwar, | integration aims: and MuhamRow 34: series foundation models: abling the model to process numerical sequences | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 35: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: mad Imran Ahmad. | TSF.: | This: 2022. A | integration aims: comprehensive
+Row 36: series foundation models: more effectively. To better leverage the rich world | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 37: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: performance analysis | TSF.: | This: of transfer | integration aims: learning opRow 38: series foundation models: knowledge learned by the LLMs, more recent ef- | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 39: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: timization in visual | TSF.: | This: field defect | integration aims: classification.
+Row 40: series foundation models: forts focus on aligning the | through: time series | massive: modality | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 41: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: Diagnostics, 12(5):1258. | TSF.: | This: | integration aims:
+Row 42: series foundation models: with the textual modality (Liu et al., 2024a, 2025) | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 43: series foundation models: so as to translate temporal patterns into concepts | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: Defu Cao, Furong | TSF.: Jia, | This: Sercan | integration aims: O Arik, Tomas
+Row 44: series foundation models: the LLM understands. These models directly ap- | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: Pfister, Yixiang Zheng, Wen Ye, and Yan Liu. | TSF.: | This: | integration aims:
+Row 45: series foundation models: ply the LLM to modeling the time series data and | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: 2023. Tempo: Prompt-based | TSF.: | This: | integration aims: generative preRow 46: series foundation models: show satisfying performance. | through: However, standard | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: trained transformer for time series forecasting. | TSF.: | This: | integration aims:
+Row 47: series foundation models: LLMs are initially designed for discrete token se- | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: arXiv preprint arXiv:2310.04948. | TSF.: | This: | integration aims:
+Row 48: series foundation models: quences with long-range dependencies, | through: | massive: and | pre-: thus | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 49: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: Anureet Chhabra, Sunil K Singh, Akash Sharma, | TSF.: | This: | integration aims:
+Row 50: series foundation models: struggle to capture the continuous | through: | massive: temporal | pre-: dy- | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 51: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: Sudhakar Kumar, | TSF.: Brij | This: B Gupta, | integration aims: Varsha Arya,
+Row 52: series foundation models: namics inherent in time series data. | through: | massive: Their archi- | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 53: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: and Kwok Tai | TSF.: Chui. | This: 2024. | integration aims: Sustainable
+Row 54: series foundation models: tectures lack inductive biases specifically designed | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 55: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: and intelligent time-series | TSF.: | This: | integration aims: models for epiRow 56: series foundation models: for such temporal structures. Differing from these | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 57: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: demic disease forecasting | TSF.: | This: and | integration aims: analysis. SusRow 58: series foundation models: studies, we propose leveraging the LLM’s capabil- | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 59: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: tainable Technology | TSF.: | This: and Entrepreneurship, | integration aims:
+Row 60: series foundation models: ity to learn semantic relationships by using it as a | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 61: series foundation models: | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: 3(2):100064. | TSF.: | This: | integration aims:
+Row 62: series foundation models: feature extractor. We then | through: integrate | massive: these LLM- | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: | TSF.: | This: | integration aims:
+Row 63: series foundation models: derived semantic features as supplementary infor- | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: Varun Dogra, Sahil Verma, Kavita, Pushpita Chat- | TSF.: | This: | integration aims:
+Row 64: series foundation models: mation alongside conventional numerical time se- | through: | massive: | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: terjee, Jana Shafi, Jaeyoung Choi, and Muham- | TSF.: | This: | integration aims:
+Row 65: series foundation models: ries features within a downstream | through: | massive: model specif- | pre-: | Unnamed: 0: | Unnamed: 1: | ically designed for: mad Fazal Ijaz. 2022. | TSF.: | This: A complete process of | integration aims:
+[/TABLE]
+
+[PAGE 11]
+text classification system using state-of-the-art
+nlp models. Computational Intelligence and
+Neuroscience, 2022(1):1883698.
+Cristiane Orquisa Fantin and Eli Hadad. 2022.
+Stock price forecasting with artificial neural
+networks long short-term memory: A bibliometric analysis and systematic literature review. Journal of Computer and Communications, 10(12):29–50.
+Aaron Grattafiori, Abhimanyu Dubey, Abhinav
+Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur,
+Alan Schelten, Alex Vaughan, et al. 2024.
+The llama 3 herd of models. arXiv preprint
+arXiv:2407.21783.
+Nate Gruver, Marc Finzi, Shikai Qiu, and Andrew G Wilson. 2023. Large language models are zero-shot time series forecasters. Advances in Neural Information Processing Systems, 36:19622–19635.
+Benedikt Heidrich, Marian Turowski, Nicole Ludwig, Ralf Mikut, and Veit Hagenmeyer. 2020.
+Forecasting energy time series with profile neural networks. In Proceedings of the eleventh
+acm international conference on future energy
+systems, pages 220–230.
+Pradeep Hewage, Ardhendu Behera, Marcello
+Trovati, Ella Pereira, Morteza Ghahremani,
+Francesco Palmieri, and Yonghuai Liu. 2020.
+Temporal convolutional neural (tcn) network
+for an effective weather forecasting using timeseries data from the local weather station. Soft
+Computing, 24:16453–16482.
+Neil Houlsby, Andrei Giurgiu, Stanislaw Jastrzebski, Bruna Morrone, Quentin De Laroussilhe,
+Andrea Gesmundo, Mona Attariyan, and Sylvain Gelly. 2019. Parameter-efficient transfer
+learning for nlp. In International conference on
+machine learning, pages 2790–2799. PMLR.
+Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan
+Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang,
+Weizhu Chen, et al. 2022. Lora: Low-rank
+adaptation of large language models. ICLR,
+1(2):3.
+Siteng Huang, Donglin Wang, Xuehan Wu, and
+Ao Tang. 2019a. Dsanet: Dual self-attention
+network for multivariate time series forecasting.
+In Proceedings of the 28th ACM international
+conference on information and knowledge management, pages 2129–2132.
+Siteng Huang, Donglin Wang, Xuehan Wu, and
+Ao Tang. 2019b. Dsanet: Dual self-attention
+network for multivariate time series forecasting.
+In Proceedings of the 28th ACM international
+conference on information and knowledge management, pages 2129–2132.
+Furong Jia, Kevin Wang, Yixiang Zheng, Defu
+Cao, and Yan Liu. 2024. Gpt4mts: Promptbased large language model for multimodal
+time-series forecasting. In Proceedings of the
+AAAI Conference on Artificial Intelligence, volume 38, pages 23343–23351.
+Fengchang Jiang, John Awaitey, and Haiyan Xie.
+2022. Analysis of construction cost and investment planning using time series data. Sustainability, 14(3):1703.
+Ming Jin, Shiyu Wang, Lintao Ma, Zhixuan Chu,
+James Y Zhang, Xiaoming Shi, Pin-Yu Chen,
+Yuxuan Liang, Yuan-Fang Li, Shirui Pan, et al.
+2023. Time-llm: Time series forecasting by
+reprogramming large language models. arXiv
+preprint arXiv:2310.01728.
+Luka Jovanovic, Nemanja Milutinovic, Masa
+Gajevic, Jelena Krstovic, Tarik A Rashid, and
+Aleksandar Petrovic. 2022. Sine cosine algorithm for simple recurrent neural network tuning for stock market prediction. In 2022 30th
+Telecommunications Forum (TELFOR) , pages
+1–4. IEEE.
+Zahra Karevan and Johan AK Suykens. 2020.
+Transductive lstm for time-series prediction:
+An application to weather forecasting. Neural
+Networks, 125:1–9.
+Taesung Kim, Jinhee Kim, Yunwon Tae, Cheonbok Park, Jang-Ho Choi, and Jaegul Choo.
+2021. Reversible instance normalization for accurate time-series forecasting against distribution shift. In International conference on learning representations.
+Sushmitha Kothapalli and SG Totad. 2017. A realtime weather forecasting and analysis. In 2017
+
+[PAGE 12]
+IEEE International Conference on Power, Control, Signals and Instrumentation Engineering
+(ICPCSI), pages 1567–1570. IEEE.
+Naresh Kumar and Seba Susan. 2020. Covid19 pandemic prediction using time series forecasting models. In 2020 11th international
+conference on computing, communication and
+networking technologies (ICCCNT), pages 1–7.
+IEEE.
+Guokun Lai, Wei-Cheng Chang, Yiming Yang,
+and Hanxiao Liu. 2018. Modeling long-and
+short-term temporal patterns with deep neural
+networks. In The 41st international ACM SIGIR conference on research & development in
+information retrieval, pages 95–104.
+Pedro Lara-Benítez, Manuel Carranza-García,
+José M Luna-Romera, and José C Riquelme.
+2020. Temporal convolutional networks applied to energy-related time series forecasting.
+applied sciences, 10(7):2322.
+Brian Lester, Rami Al-Rfou, and Noah Constant. 2021. The power of scale for parameterefficient prompt tuning. arXiv preprint
+arXiv:2104.08691.
+Chenxi Liu, Qianxiong Xu, Hao Miao, Sun
+Yang, Lingzheng Zhang, Cheng Long, Ziyue
+Li, and Rui Zhao. 2024a. Timecma: Towards llm-empowered time series forecasting
+via cross-modality alignment. arXiv preprint
+arXiv:2406.01638.
+Hui Liu and Zhihao Long. 2020. An improved
+deep learning model for predicting stock market price time series. Digital Signal Processing,
+102:102741.
+Peiyuan Liu, Hang Guo, Tao Dai, Naiqi Li, Jigang
+Bao, Xudong Ren, Yong Jiang, and Shu-Tao
+Xia. 2025. Calf: Aligning llms for time series
+forecasting via cross-modal fine-tuning. In Proceedings of the AAAI Conference on Artificial
+Intelligence, volume 39, pages 18915–18923.
+Pengfei Liu, Weizhe Yuan, Jinlan Fu, Zhengbao
+Jiang, Hiroaki Hayashi, and Graham Neubig.
+2023. Pre-train, prompt, and predict: A systematic survey of prompting methods in natural
+language processing. ACM computing surveys,
+55(9):1–35.
+Yong Liu, Haoran Zhang, Chenyu Li, Xiangdong
+Huang, Jianmin Wang, and Mingsheng Long.
+2024b. Timer: Generative pre-trained transformers are large time series models. arXiv
+preprint arXiv:2402.02368.
+Zeyuan Liu, Jiankai Zuo, Rongxin Lv, Shibo Liu,
+and Wenlu Wang. 2021. Coronavirus epidemic
+(covid-19) prediction and trend analysis based
+on time series. In 2021 IEEE international conference on artificial intelligence and industrial
+design (AIID), pages 35–38. IEEE.
+Ioannis E Livieris, Emmanuel Pintelas, and Panagiotis Pintelas. 2020. A cnn–lstm model for
+gold price time-series forecasting. Neural computing and applications, 32:17351–17360.
+Sidra Mehtab and Jaydip Sen. 2020. A time series analysis-based stock price prediction using
+machine learning and deep learning models. International Journal of Business Forecasting and
+Marketing Intelligence, 6(4):272–335.
+Micah Mers, Zhongyu Yang, Yung-An Hsieh, and
+Yichang Tsai. 2023. Recurrent neural networks
+for pavement performance forecasting: review
+and model performance comparison. Transportation Research Record, 2677(1):610–624.
+Yuqi Nie, Nam H Nguyen, Phanwadee Sinthong,
+and Jayant Kalagnanam. 2022. A time series is worth 64 words: Long-term forecasting with transformers. arXiv preprint
+arXiv:2211.14730.
+Sibarama Panigrahi and Himansu Sekhar Behera.
+2017. A hybrid ets–ann model for time series
+forecasting. Engineering applications of artificial intelligence, 66:49–59.
+Kumar Prakhar, S Sountharrajan, E Suganya,
+M Karthiga, and Sathis Kumar. 2022. Effective stock price prediction using time series
+forecasting. In 2022 6th International Conference on Trends in Electronics and Informatics
+(ICOEI), pages 1636–1640. IEEE.
+Yao Qin, Dongjin Song, Haifeng Chen, Wei
+Cheng, Guofei Jiang, and Garrison Cottrell.
+2017. A dual-stage attention-based recurrent
+neural network for time series prediction. arXiv
+preprint arXiv:1704.02971.
+
+[PAGE 13]
+Alec Radford, Jeffrey Wu, Rewon Child, David
+Luan, Dario Amodei, Ilya Sutskever, et al.
+2019. Language models are unsupervised multitask learners. OpenAI blog, 1(8):9.
+Colin Raffel, Noam Shazeer, Adam Roberts,
+Katherine Lee, Sharan Narang, Michael
+Matena, Yanqi Zhou, Wei Li, and Peter J Liu.
+2020. Exploring the limits of transfer learning
+with a unified text-to-text transformer. Journal
+of machine learning research, 21(140):1–67.
+David Salinas, Valentin Flunkert, Jan Gasthaus,
+and Tim Januschowski. 2020. Deepar: Probabilistic forecasting with autoregressive recurrent networks. International journal of forecasting, 36(3):1181–1191.
+Monir Yahya Ali Salmony and Arman Rasool
+Faridi. 2022. Bert distillation to enhance the
+performance of machine learning models for
+sentiment analysis on movie review data. In
+2022 9th International Conference on Computing for Sustainable Global Development (INDIACom), pages 400–405. IEEE.
+Pushpalatha Sarla, S Rakmaiah, R Archana
+Reddy, A Rajesh, E Kumaraswamy, Navya, and
+P Manikya Rekha. 2022. Forecasting the spread
+of covid-19 pandemic outbreak in india using
+arima time series modelling. In AIP Conference
+Proceedings, volume 2418, page 060003. AIP
+Publishing LLC.
+Rajat Sen, Hsiang-Fu Yu, and Inderjit S Dhillon.
+2019. Think globally, act locally: A deep neural network approach to high-dimensional time
+series forecasting. Advances in neural information processing systems, 32.
+Chen Su, Yuanhe Tian, and Yan Song. 2025. Multimodal conditioned diffusive time series forecasting. arXiv preprint arXiv:2504.19669.
+Chenxi Sun, Hongyan Li, Yaliang Li, and Shenda
+Hong. 2023. Test: Text prototype aligned embedding to activate llm’s ability for time series.
+arXiv preprint arXiv:2308.08241.
+Yuanhe Tian, Ruyi Gan, Yan Song, Jiaxing Zhang,
+and Yongdong Zhang. 2024. ChiMed-GPT: A
+Chinese medical large language model with full
+training regime and better alignment to human
+preferences. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) ,
+pages 7156–7173, Bangkok, Thailand.
+Yuanhe Tian, Xu Li, Wei Wang, Guoqing Jin,
+Pengsen Cheng, and Yan Song. 2025. Large
+language models enhanced by plug and play
+syntactic knowledge for aspect-based sentiment
+analysis. arXiv preprint arXiv:2506.12991.
+Chengsen Wang, Qi Qi, Jingyu Wang, Haifeng
+Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and
+Jianxin Liao. 2025. Chattime: A unified multimodal time series foundation model bridging
+numerical and textual data. In Proceedings of
+the AAAI Conference on Artificial Intelligence ,
+volume 39, pages 12694–12702.
+Peng Wang, An Yang, Rui Men, Junyang Lin,
+Shuai Bai, Zhikang Li, Jianxin Ma, Chang
+Zhou, Jingren Zhou, and Hongxia Yang. 2022.
+Ofa: Unifying architectures, tasks, and modalities through a simple sequence-to-sequence
+learning framework. In International conference on machine learning, pages 23318–23340.
+PMLR.
+Qiang Wang, Shuyu Li, and Rongrong Li. 2018.
+Forecasting energy demand in china and india: Using single-linear, hybrid-linear, and nonlinear time series forecast techniques. Energy,
+161:821–831.
+Shiyu Wang, Haixu Wu, Xiaoming Shi, Tengge
+Hu, Huakun Luo, Lintao Ma, James Y Zhang,
+and Jun Zhou. 2024. Timemixer: Decomposable multiscale mixing for time series forecasting. arXiv preprint arXiv:2405.14616.
+Jason Wei, Xuezhi Wang, Dale Schuurmans,
+Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le,
+Denny Zhou, et al. 2022. Chain-of-thought
+prompting elicits reasoning in large language
+models. Advances in neural information processing systems, 35:24824–24837.
+Haixu Wu, Jiehui Xu, Jianmin Wang, and Mingsheng Long. 2021. Autoformer: Decomposition transformers with auto-correlation for longterm series forecasting. Advances in neural information processing systems, 34:22419–
+22430.
+
+[TABLE page=13 index=1]
+Columns: David Salinas, Valentin | Flunkert, | Jan Gasthaus, | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and
+Row 1: David Salinas, Valentin: and Tim Januschowski. | Flunkert,: 2020. | Jan Gasthaus,: Deepar: | Unnamed: 0: Prob- | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Jianxin Liao. 2025. Chattime: A unified mulRow 2: David Salinas, Valentin: abilistic forecasting with | Flunkert,: autoregressive | Jan Gasthaus,: | Unnamed: 0: recur- | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: timodal time series foundation model bridging
+Row 3: David Salinas, Valentin: rent networks. International | Flunkert,: | Jan Gasthaus,: journal of | Unnamed: 0: fore- | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: numerical and textual data. In Proceedings of
+Row 4: David Salinas, Valentin: casting, 36(3):1181–1191. | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: the AAAI Conference on Artificial Intelligence,
+Row 5: David Salinas, Valentin: | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: volume 39, pages 12694–12702.
+Row 6: David Salinas, Valentin: Monir Yahya Ali Salmony | Flunkert,: and | Jan Gasthaus,: Arman Rasool | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and:
+Row 7: David Salinas, Valentin: Faridi. 2022. Bert distillation | Flunkert,: | Jan Gasthaus,: to enhance | Unnamed: 0: the | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Peng Wang, An Yang, Rui Men, Junyang Lin,
+Row 8: David Salinas, Valentin: performance of machine | Flunkert,: learning | Jan Gasthaus,: models | Unnamed: 0: for | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Shuai Bai, Zhikang Li, Jianxin Ma, Chang
+Row 9: David Salinas, Valentin: sentiment analysis on | Flunkert,: movie review | Jan Gasthaus,: data. | Unnamed: 0: In | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Zhou, Jingren Zhou, and Hongxia Yang. 2022.
+Row 10: David Salinas, Valentin: 2022 9th International Conference on Comput- | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Ofa: Unifying architectures, tasks, and modalRow 11: David Salinas, Valentin: ing for Sustainable Global Development (INDI- | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: ities through a simple sequence-to-sequence
+Row 12: David Salinas, Valentin: ACom), pages 400–405. IEEE. | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: learning framework. In International conferRow 13: David Salinas, Valentin: | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: ence on machine learning, pages 23318–23340.
+Row 14: David Salinas, Valentin: Pushpalatha Sarla, S | Flunkert,: Rakmaiah, | Jan Gasthaus,: R Archana | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: PMLR.
+Row 15: David Salinas, Valentin: Reddy, A Rajesh, E Kumaraswamy, Navya, and | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and:
+Row 16: David Salinas, Valentin: P Manikya Rekha. 2022. Forecasting the spread | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Qiang Wang, Shuyu Li, and Rongrong Li. 2018.
+Row 17: David Salinas, Valentin: of covid-19 pandemic | Flunkert,: outbreak | Jan Gasthaus,: in india | Unnamed: 0: using | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Forecasting energy demand in china and inRow 18: David Salinas, Valentin: arima time series modelling. | Flunkert,: In AIP Conference | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: dia: Using single-linear, hybrid-linear, and nonRow 19: David Salinas, Valentin: Proceedings, volume 2418, | Flunkert,: page 060003. AIP | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: linear time series forecast techniques. Energy,
+Row 20: David Salinas, Valentin: Publishing LLC. | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: 161:821–831.
+Row 21: David Salinas, Valentin: Rajat Sen, Hsiang-Fu Yu, and Inderjit S Dhillon. | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Shiyu Wang, Haixu Wu, Xiaoming Shi, Tengge
+Row 22: David Salinas, Valentin: 2019. Think globally, act locally: | Flunkert,: | Jan Gasthaus,: A deep neu- | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Hu, Huakun Luo, Lintao Ma, James Y Zhang,
+Row 23: David Salinas, Valentin: ral network approach to high-dimensional time | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: and Jun Zhou. 2024. Timemixer: DecomposRow 24: David Salinas, Valentin: series forecasting. Advances in neural informa- | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: able multiscale mixing for time series forecastRow 25: David Salinas, Valentin: tion processing systems, 32. | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: ing. arXiv preprint arXiv:2405.14616.
+Row 26: David Salinas, Valentin: Chen Su, Yuanhe Tian, and Yan Song. 2025. Mul- | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Jason Wei, Xuezhi Wang, Dale Schuurmans,
+Row 27: David Salinas, Valentin: timodal conditioned diffusive time series fore- | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le,
+Row 28: David Salinas, Valentin: casting. arXiv preprint arXiv:2504.19669. | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: Denny Zhou, et al. 2022. Chain-of-thought
+Row 29: David Salinas, Valentin: | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: prompting elicits reasoning in large language
+Row 30: David Salinas, Valentin: Chenxi Sun, Hongyan Li, Yaliang Li, and Shenda | Flunkert,: | Jan Gasthaus,: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Sun, Zirui Zhuang, Jinming Wu, Lei Zhang, and: models. Advances in neural information pro-
+[/TABLE]
+
+[TABLE page=13 index=2]
+Columns: Alec Radford, Jeffrey Wu, | Rewon | Child, | Unnamed: 0 | David | Unnamed: 1 | Unnamed: 2 | preferences. In | Proceedings of | the 62nd | AnRow 1: Alec Radford, Jeffrey Wu,: Luan, Dario Amodei, | Rewon: Ilya | Child,: Sutskever, | Unnamed: 0: | David: et al. | Unnamed: 1: | Unnamed: 2: | preferences. In: nual Meeting of | Proceedings of: the Association | the 62nd: for | An-: CompuRow 2: Alec Radford, Jeffrey Wu,: 2019. Language models are unsupervised mul- | Rewon: | Child,: | Unnamed: 0: | David: | Unnamed: 1: | Unnamed: 2: | preferences. In: tational Linguistics | Proceedings of: (Volume 1: | the 62nd: Long Papers), | An-:
+Row 3: Alec Radford, Jeffrey Wu,: titask learners. OpenAI blog, 1(8):9. | Rewon: | Child,: | Unnamed: 0: | David: | Unnamed: 1: | Unnamed: 2: | preferences. In: pages 7156–7173, Bangkok, Thailand. | Proceedings of: | the 62nd: | An-:
+Row 4: Alec Radford, Jeffrey Wu,: Colin Raffel, Noam Shazeer, | Rewon: | Child,: Adam Roberts, | Unnamed: 0: | David: | Unnamed: 1: | Unnamed: 2: | preferences. In: Yuanhe Tian, Xu Li, | Proceedings of: Wei Wang, | the 62nd: Guoqing | An-: Jin,
+Row 5: Alec Radford, Jeffrey Wu,: Katherine Lee, Sharan | Rewon: Narang, | Child,: Michael | Unnamed: 0: | David: | Unnamed: 1: | Unnamed: 2: | preferences. In: Pengsen Cheng, | Proceedings of: and Yan Song. | the 62nd: 2025. | An-: Large
+Row 6: Alec Radford, Jeffrey Wu,: Matena, Yanqi Zhou, Wei Li, | Rewon: | Child,: and Peter J Liu. | Unnamed: 0: | David: | Unnamed: 1: | Unnamed: 2: | preferences. In: language models | Proceedings of: enhanced by plug | the 62nd: and | An-: play
+Row 7: Alec Radford, Jeffrey Wu,: 2020. Exploring the limits of transfer learning | Rewon: | Child,: | Unnamed: 0: | David: | Unnamed: 1: | Unnamed: 2: | preferences. In: syntactic knowledge for aspect-based sentiment | Proceedings of: | the 62nd: | An-:
+[/TABLE]
+
+[TABLE page=13 index=3]
+Columns: arXiv preprint arXiv:2308.08241. | Haixu Wu, Jiehui Xu, Jianmin Wang, and MingRow 1: arXiv preprint arXiv:2308.08241.: | Haixu Wu, Jiehui Xu, Jianmin Wang, and Ming-: sheng Long. 2021. Autoformer: DecomposiRow 2: arXiv preprint arXiv:2308.08241.: Yuanhe Tian, Ruyi Gan, Yan Song, Jiaxing Zhang, | Haixu Wu, Jiehui Xu, Jianmin Wang, and Ming-: tion transformers with auto-correlation for longRow 3: arXiv preprint arXiv:2308.08241.: and Yongdong Zhang. 2024. ChiMed-GPT: A | Haixu Wu, Jiehui Xu, Jianmin Wang, and Ming-: term series forecasting. Advances in neuRow 4: arXiv preprint arXiv:2308.08241.: Chinese medical large language model with full | Haixu Wu, Jiehui Xu, Jianmin Wang, and Ming-: ral information processing systems, 34:22419–
+[/TABLE]
+
+[PAGE 14]
+An Yang, Anfeng Li, Baosong Yang, Beichen
+Zhang, Binyuan Hui, Bo Zheng, Bowen Yu,
+Chang Gao, Chengen Huang, Chenxu Lv, et al.
+2025. Qwen3 technical report. arXiv preprint
+arXiv:2505.09388.
+An Yang, Baosong Yang, Beichen Zhang, Binyuan
+Hui, Bo Zheng, Bowen Yu, Chengyuan Li,
+Dayiheng Liu, Fei Huang, Haoran Wei, et al.
+2024. Qwen2.5 technical report. arXiv preprint
+arXiv:2412.15115.
+Ailing Zeng, Muxi Chen, Lei Zhang, and Qiang
+Xu. 2023. Are transformers effective for time
+series forecasting? In Proceedings of the AAAI
+conference on artificial intelligence, volume 37,
+pages 11121–11128.
+Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai
+Zhang, Jianxin Li, Hui Xiong, and Wancai
+Zhang. 2021. Informer: Beyond efficient transformer for long sequence time-series forecasting. In Proceedings of the AAAI conference on
+artificial intelligence, volume 35, pages 11106–
+11115.
+Tian Zhou, Ziqing Ma, Qingsong Wen, Xue Wang,
+Liang Sun, and Rong Jin. 2022. Fedformer:
+Frequency enhanced decomposed transformer
+for long-term series forecasting. In International conference on machine learning , pages
+27268–27286. PMLR.
+Tian Zhou, Peisong Niu, Liang Sun, Rong Jin,
+et al. 2023a. One fits all: Power general time series analysis by pretrained lm. Advances in neural information processing systems, 36:43322–
+43355.
+Tian Zhou, Peisong Niu, Xue Wang, Liang Sun,
+and Rong Jin. 2023b. One fits all: Universal time series analysis by pretrained lm and
+specially designed adaptors. arXiv preprint
+arXiv:2311.14782.

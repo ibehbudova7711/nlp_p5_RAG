@@ -1,0 +1,2365 @@
+[PAGE 1]
+The Role of Foundation Models in Neuro-Symbolic Learning and Reasoning
+Daniel Cunnington1,2 , Mark Law3 , Jorge Lobo4 and Alessandra Russo2
+1IBM Research Europe
+2Imperial College London
+3ILASP Limited
+4ICREA-Universitat Pompeu Fabra
+dtc20@imperial.ac.uk, mark@ilasp.com, jorge.lobo@upf.edu, a.russo@imperial.ac.uk
+Abstract
+Neuro-Symbolic AI (NeSy) holds promise to ensure the safe deployment of AI systems, as interpretable symbolic techniques provide formal behaviour guarantees. The challenge is how to effectively integrate neural and symbolic computation,
+to enable learning and reasoning from raw data.
+Existing pipelines that train the neural and symbolic components sequentially require extensive labelling, whereas end-to-end approaches are limited
+in terms of scalability, due to the combinatorial explosion in the symbol grounding problem. In this
+paper, we leverage the implicit knowledge within
+foundation models to enhance the performance in
+NeSy tasks, whilst reducing the amount of data
+labelling and manual engineering. We introduce
+a new architecture, called NeSyGPT, which finetunes a vision-language foundation model to extract symbolic features from raw data, before learning a highly expressive answer set program to solve
+a downstream task. Our comprehensive evaluation
+demonstrates that NeSyGPT has superior accuracy
+over various baselines, and can scale to complex
+NeSy tasks. Finally, we highlight the effective use
+of a large language model to generate the programmatic interface between the neural and symbolic
+components, significantly reducing the amount of
+manual engineering required.
+1 Introduction
+Ensuring the safe deployment of AI systems is a top-priority.
+Neuro-Symbolic AI (NeSy) [d’Avila Garcez et al., 2019] is
+well-suited to help achieve this goal, as interpretable symbolic components enable manual inspection, whilst providing formal guarantees of their behaviour. However, integrating neural components to enable learning and reasoning from
+raw data remains an open challenge. Existing approaches either require extensive data labelling and manual engineering
+of symbolic rules [Eiter et al. , 2022 ], or, when neural and
+symbolic components are trained end-to-end [Dai and Muggleton, 2021], they encounter difficulties scaling to complex
+tasks. This is due to the combinatorial explosion in learning the correct assignment of symbolic features to the raw
+input (i.e., the symbol grounding problem [Harnad, 1990]).
+End-to-end approaches are also difficult to control, causing
+unintended concepts to be learned, thus posing a challenge
+to AI safety [Marconato et al., 2023]. Pre-trained foundation
+models on the other hand, have a large amount of implicit
+knowledge embedded within their latent space, which could
+be leveraged during the training of a NeSy system. The question we address in this paper is: How can we use this knowledge to reduce the amount of data labelling and engineering
+required, whilst solving complex neuro-symbolic tasks that
+have many possible values for the symbolic features?
+We introduce a new architecture, called NeSyGPT, that
+fine-tunes the BLIP vision-language foundation model [Li et
+al., 2022b] to extract symbolic features from raw data, before
+learning a set of logical rules to solve a downstream task.
+The architecture utilises the implicit knowledge of BLIP,
+and therefore, we only require a few labelled data points
+to fine-tune for a specific task. Logical rules are learned
+as Answer Set Programming (ASP) programs, suited for efficiently representing solutions to computationally complex
+problems [Gelfond and Kahl, 2014]. The rules are learned using a state-of-the-art Learning from Answer Sets (LAS) symbolic learner robust to noise. We evaluate NeSyGPT in four
+problem domains, each with specific challenges, and demonstrate that it out-performs a variety of neural and NeSy baselines. The main contribution of this paper is a novel architecture that integrates a vision-language foundation model and
+a symbolic leaner for solving complex neuro-symbolic tasks,
+offering the following advantages:
+1. It requires a reduced amount of labelled data points to
+extract symbolic features from raw data and learn the
+rules of the downstream task.
+2. It scales to complex tasks that have a large number of
+possible symbolic feature values.
+3. It does not require the symbolic rules to be manually
+engineered.
+4. It can solve tasks that require detecting multiple objects and their properties within a single image, e.g., the
+CLEVR-Hans3 dataset [Stammer et al., 2021].
+5. It can utilise a Large Language Model (LLM) to generate questions and answers for fine-tuning BLIP, and to
+construct the programmatic interface between the neural
+and symbolic components.
+arXiv:2402.01889v1 [cs.AI] 2 Feb 2024
+
+[PAGE 2]
+2 Related Work
+There are various NeSy systems proposed in the literature
+[Besold et al. , 2022 ]. Some inject neural architectures
+with symbolic rules [Riegel et al., 2020; Badreddine et al.,
+2022], whereas others perform neural and symbolic computation in separate modules [Manhaeve et al., 2018; Yang
+et al. , 2020; Aspis et al. , 2022; Cunnington et al. , 2023b;
+Pryor et al. , 2023 ]. Whilst various architectures, types of
+logic, and computation techniques have been explored, many
+NeSy systems lack the expressivity required to learn or reason with general and complex rules, and are either restricted
+to definite clauses [Manhaeve et al., 2018; Dai et al., 2019;
+Dai and Muggleton, 2021; Shindo et al. , 2023 ], graphical
+models with cost matricies [Defresne et al., 2023], or lookup tables [Daniele et al., 2023]. In this paper, we focus on
+ASP-based NeSy systems, as they are able to express general
+and complex rules.
+Current NeSy approaches still suffer drawbacks. Some rely
+on pre-trained pipelines that require extensive data labelling
+and manual engineering [Eiter et al. , 2022; Cunnington et
+al., 2023a], whereas others are limited in terms of scalability,
+in the case of end-to-end training [Yang et al., 2020; Evans
+et al. , 2021; Aspis et al. , 2022; Cunnington et al. , 2023b;
+Skryagin et al., 2023; Charalambous et al., 2023 ]. This is
+due to the aforementioned symbol grounding problem. Furthermore, only [Evans et al., 2021; Cunnington et al., 2023a;
+Cunnington et al. , 2023b; Charalambous et al. , 2023 ] are
+able to perform rule learning from raw data in ASP for NeSy
+tasks, whereas other approaches assume the symbolic rules
+are manually specified. Our approach is able to seamlessly
+integrate rule learning and reasoning in ASP, and scales to
+tasks with a large amount of choice for the values of the
+symbolic features, thus avoiding the combinatorial explosion
+that end-to-end methods suffer. Also, we require very few
+labelled data points, and a reduced amount of manual engineering, thus gaining an advantage over existing pipeline
+approaches. Finally, it is difficult to integrate object detection within current NeSy architectures, as they train a CNN
+to classify an entire image. Our approach is more general,
+and can extract various objects and their properties from a
+single image through Visual Question Answering (VQA) (see
+CLEVR-Hans results in Section 5).
+Integrating foundation models with symbolic computation has also been studied previously. [Yang et al. , 2023;
+Ishay et al., 2023] leverage LLMs to generate ASP programs
+to solve complex reasoning problems, and [Nye et al., 2021]
+use a LLM to iteratively generate candidate solutions, accepting a solution if it satisfies some given background knowledge. In contrast to our approach, these focus purely on language models, and are unable to support visual input. Also,
+none of these approaches learn symbolic rules, as they are
+either specified symbolically, or in textual form.
+There are cases where rules are generated automatically.
+[Wang et al., 2023] uses a language model to perform inductive reasoning, by generating multiple candidate hypotheses
+and having a human-oracle or another language model select a subset for validation. This technique does not support
+visual input, and crucially, the final hypothesis is chosen as
+the candidate that covers the most training examples, during
+a post-processing stage. In contrast, our approach takes advantage of a symbolic learner that includes a more advanced
+optimisation algorithm, which maximises example coverage
+as part of the hypothesis search, and provides a formal guarantee of the optimality and consistency of the learned rules.
+Finally, [Sur´ıset al., 2023] achieves VQA, by using a LLM
+to generate python programs that call external modules for
+image processing. However, as evidenced in our results, it
+is difficult to generate solutions to complex problems that require negation, choice, and constraints using current LLMs
+[Kassner and Sch ¨utze, 2019 ]. Our approach can learn and
+efficiently express such rules using ASP.
+3 Background
+BLIP. BLIP uses a multi-modal mixture of encoder-decoder
+transformer modules. The image encoder is a Vision Transformer, and the text encoder is a BERT model. BLIP is pretrained to jointly optimise three objectives; (1) Image-Text
+Contrastive Loss, which aligns the embedding space of the
+vision transformer and BERT by encouraging positive imagetext pairs to have similar latent representations in contrast to
+negative pairs. (2) Image-Text Matching Loss, which is a binary classification task that trains BLIP to predict whether
+an image-text pair is matched (positive) or unmatched (negative). (3) Language Modelling Loss which aims to generate
+a textual description given an image. This is achieved using
+the cross-entropy loss with a ground-truth description. In this
+paper, we use the “VQA” mode to perform fine-tuning. The
+pre-trained BLIP model is rearranged by encoding an imagequestion pair into multi-modal embeddings, before passing
+the embeddings to a text decoder to obtain the answer. The
+VQA architecture is then trained end-to-end using the Language Modelling Loss with ground-truth answers. For more
+details, please refer to [Li et al., 2022b].
+LAS. A LAS symbolic learner learns a set of rules, called
+a hypothesis. The symbolic learner accepts as input a set of
+training examples E = {⟨eid, epos, epen, einc, eexc, ectx⟩, . . .},
+where eid is an identifier, epos denotes whether the example is
+either positive or negative, epen is a weight penalty, which is
+paid if the example is not covered by the learned rules, einc
+and eexc contain inclusion and exclusion atoms respectively,
+and ectx contains a set of contextual facts. Alongside E, the
+symbolic learner also requires a domain knowledge B that
+contains relations used to construct a search spaceH, and any
+(optional) background knowledge. The output is a hypothesis
+H ∈ H in the form of an ASP program. H minimises a
+scoring function based on the length of H, and its example
+coverage. Let us assume the set of examples uncovered byH
+is denoted by U N COV (H, (B, E)). The score of H is given
+by score(H, (B, E)) = |H| + P
+e∈U N COV (H,(B,E )) epen. A
+LAS symbolic learner computes the optimal solution H ∗ that
+satisfies Equation 1:
+H ∗ = arg min
+H∈H
+[score(H, (B, E))] (1)
+This can be interpreted as jointly maximising the generality
+of H (i.e., a concise ASP program), and example coverage.
+For more details, please refer to [Law et al., 2019].
+
+[PAGE 3]
+(a) BLIP Fine-Tuning
+(b) Symbolic Rule Learning
+Figure 1: NeSyGPT architecture with one data point in the Follow Suit task. The goal is to learn the rules of the game: The winner is the
+player with the highest ranked card with the same suit as Player 1. (a) BLIP is fine-tuned using playing card images and natural language
+questions and answers. (b) A hypothesis is learned from BLIP predictions. Note in (a), fine-tuning occurs with both suit and rank answers.
+4 Method
+4.1 Problem Formulation
+We assume a perception function f : ⟨X , Q⟩ → A that performs VQA. X , Q, and A are the spaces of raw image inputs, natural language questions, and answers, respectively.
+The answers represent symbolic features related to an image.
+We also assume a reasoning function h : ⟨Au, M⟩n → Y
+that maps n-length sequences of answers and meta-data pairs
+to a target value. Note that there could be u questions asked
+of each image, and therefore, u answers for each pair. The
+meta-data in the space M is used to encode any extra information associated with the raw input. Y is the space of the
+target values.
+During training, we use two datasets: (1) Dimage =
+{⟨x, z⟩, . . .}, where x ∈ X is an image, and z ∈ Z is an
+image label, and (2) Dtask = {⟨X, M, y⟩, . . .} where X is a
+sequence of images x ∈ X , M ⊆ M is a (possibly empty) set
+of meta-data associated with X, and y ∈ Y is a downstream
+task label. We learn f and h sequentially,1 as our experiments demonstrate this outperforms an end-to-end approach
+(see Section 5). To learn f, we require, in addition to the raw
+input, sets of questions and answers. These are generated automatically, and are assumed constant for a given task. We
+denote the set of questions as Q ⊆ Q and the set of possible answers for a given question q ∈ Q as Aq ⊆ A . For
+example, in the Follow Suit task (see Figure 1), the question q =“which rank is this?” has the set of possible answers
+Aq = {“2”, “3”, . . . ,“Ace”}. We also require a look-up table l : ⟨Q, Z⟩ → A which is used to map question and image
+label pairs to the correct answer. For example, given an image
+label z = “Jack of Hearts”, the look-up table returns the answer “Jack” for the question q = “which rank is this?”, and
+the answer “Hearts” for q = “which suit is this?”.
+The goal is to learn f s.t. ∀⟨x, z⟩ ∈ Dimage, and ∀q ∈ Q,
+f (x, q) = l(⟨q, z⟩), i.e., f returns the correct answer for all
+1where h is learned using predictions from f, once f is learned.
+images and all questions. Once f is learned, the next objective is to learnh. Let us define the set of predicted answers for
+an image xi ∈ X as ˆAi = [ f (xi, q1), . . . , f(xi, qu)], where
+qj ∈ Q. The goal is to learn h, s.t. ∀⟨X, M, y⟩ ∈ Dtask,
+h([⟨ ˆAi, mi⟩ : xi ∈ X]) = y, where mi ∈ M. Intuitively, this means that each data point in Dtask has a correct
+downstream prediction. For example, in Figure 1, assuming
+correct predictions, the answers are ˆA1 = [ “2”, “Hearts”],
+ˆA2 = [ “9”, “Diamonds”], ˆA3 = [ “Jack”, “Hearts”], and
+ˆA4 = [“Ace”, “Clubs”], and the meta-data M indicates which
+player each card corresponds to, e.g., m1 = “Player 1”. The
+target label is y = 3 , as Player 3 is the winner. We propose
+the NeSyGPT architecture which consists of the BLIP FineTuning phase for learningf, and the Symbolic Rule Learning
+phase for learning h (see Figure 1).
+4.2 BLIP Fine-Tuning
+Given an image data point ⟨xi, zi⟩ ∈ Dimage, and a question
+q ∈ Q, the answer returned from the look-up tablel(⟨q, zi⟩) is
+used to fine-tune BLIP, alongside the imagexi. The questionanswer generator is specific to each task, and can be manually engineered or obtained automatically using a LLM. Our
+experiments show that the LLM output is below the level of
+accuracy achieved with manual engineering. See the Supp.
+Material for a detailed analysis. However, we expect this to
+improve as LLMs themselves continue to improve. To finetune BLIP with the generated questions and answers, we use
+the “VQA” mode as presented in Section 3.
+4.3 Symbolic Rule Learning
+Example Generator . Given a task data point
+⟨X, M, y⟩ ∈ Dtask, and a sequence of answer metadata pairs [⟨ ˆAi, mi⟩ : xi ∈ X] from the BLIP Fine-Tuning
+phase, the goal is to generate a LAS training example
+e ∈ E for the symbolic learner. The inclusion and exclusion sets of e encode the downstream label. Formally,
+einc = {y}, and eexc = {y′ : y′ ∈ Y , y′ ̸= y}. The
+
+[PAGE 4]
+answers and meta-data are encoded into the example’s
+context ectx. In the case of feature classification questions
+(e.g., q = “which rank is this?”), there is no guarantee
+that BLIP predicts a valid answer for a given question.
+To tackle this problem, we use the Levenshtein string
+distance to return the answer a ∈ Aq with the lowest edit
+distance compared to the predicted answer ˆa [Yujian and
+Bo, 2007 ]. The answers and meta-data are then encoded
+into ectx in ASP form, which is task specific. For example,
+in Figure 1b, assuming correct BLIP predictions, ectx =
+{card(1, 2, h)., card(2, 9, d)., card(3, j, h)., card(4, a, c).},
+representing the “Two of Hearts”, “Nine of Diamonds”, “Jack
+of Hearts”, and “Ace of Clubs” for each player’s card, respectively. The Example Generator can be manually engineered,
+or obtained using a LLM, which generates Python code that
+encodes the ASP representation of a full training example e.
+We use the string distance method to obtain valid answers
+before using the LLM to encode e. In the Supp. Material,
+we demonstrate that with small syntactic fixes, the LLM
+can encode the training examples with competitive accuracy
+compared to a manual specification.
+LAS Symbolic Learner Given a set of training examples
+E, and a domain knowledge B, the symbolic learner learns
+an optimal hypothesis H ∗, satisfying the scoring function in
+Equation 1. H ∗, together with B, forms the reasoning function h = H ∗∪B. Let us now present our experimental results.
+5 Evaluation
+Our evaluation investigates whether the implicit knowledge
+embedded within BLIP can improve the accuracy of NeSy
+learning and reasoning, whilst reducing the amount of labelled data required. 2 We compare NeSyGPT against the
+following types of architectures: NeSy Reasoning, where the
+symbolic rules are given,NeSy Learning, where the symbolic
+rules are learned, and Fully Neural Methods including deep
+learning, and generative models.
+We choose four problem domains; MNIST Arithmetic,
+Follow Suit, Plant Disease Hitting Sets, and CLEVR-Hans,
+each with their own characteristics. The MNIST Arithmetic
+domain includes the standard NeSy benchmark from [Manhaeve et al., 2018], and the E9P task from [Cunnington et al.,
+2023b], where we demonstrate learning negation as failure.
+The Follow Suit domain tests scalability w.r.t. the number of
+choices for the symbolic features [Cunnington et al., 2023a].
+A given data point has∼ 6.5m choices in the 4-player variant,
+and ∼ 5.74 × 1016 choices in the 10-player variant. For reference, the 2-digit MNIST Addition task has 100 choices per
+data point. This domain also requires learning predicates that
+are not directly observed in the examples (i.e., predicate invention). The Plant Hitting Sets domain includes real-world
+images, and requires learning complex rules including constraints and choice, as well as reasoning over multiple models
+(answer sets). Finally, the CLEVR-Hans domain tests object
+detection, as up to 10 objects and their properties need to be
+extracted from a single image.
+The results show that NeSyGPT: (1) Achieves better performance than any of the other approaches. (2) Requires very
+2Code will be released upon paper acceptance.
+few labelled data points. (3) Can scale to complex tasks with
+a large number of choices for the symbolic features. (4) Can
+easily integrate symbolic learning of ASP programs to learn
+complex and interpretable rules. (5) Can achieve state-ofthe-art performance on CLEVR-Hans. We also demonstrate
+that the amount of manual engineering can be reduced using
+GPT-4 [OpenAI et al., 2023]. The results indicate GPT-4 can
+generate reasonable questions and answers for feature extraction. Due to space limitations, we present these results in the
+Supp. Material.
+Baselines. Our baselines have symbolic components that
+are either fully neural, or are capable of learning or representing complex rules expressed in ASP. This is in order to show
+that the proposed benefits of NeSyGPT are due to the implicit
+knowledge embedded within BLIP, and our novel method of
+integrating BLIP with the symbolic component, as opposed
+to the symbolic representation used.
+For NeSy Reasoning, we compare our approach to
+NeurASP [Yang et al. , 2020 ], SLASH [Skryagin et al. ,
+2023], and two variants of Embed2Sym [Aspis et al., 2022]:
+One trained end-to-end as usual (Embed2Sym), and another
+where clustering is performed on an embedding space resulting from fine-tuning a perception model with ground-truth
+image labels ( Embed2Sym*). We also use a modified version of ABL [Dai et al. , 2019 ] as an additional baseline,
+which uses the same perception component as in our approach (BLIP+ABL). Note that BLIP can’t directly be used
+in NeurASP, SLASH, and Embed2Sym because these methods require back-propagating gradients to a softmax layer
+for training the perception model. BLIP on the other hand,
+is fine-tuned with natural language questions and answers.
+For NeurASP, SLASH, and Embed2Sym, we use the best
+pre-trained model available; the Vision TransformerViT-B-32
+from PyTorch, which is pre-trained on ImageNet.
+For NeSy Learning, we compare to FF-NSL [Cunnington
+et al., 2023a] and NSIL [Cunnington et al., 2023b], using the
+pre-trained ViT-B-32 as the perception model. For Fully Neural Methods, we compare to: (1) The ViT-B-32 connected to a
+fully differentiable reasoning network (ViT+ReasoningNet),
+which is an MLP in the MNIST Arithmetic and Follow Suit
+domains, and a Recurrent Transformer in the Plant Hitting
+Sets domain, since longer sequences are observed [Hutchins
+et al., 2022]. (2) BLIP connected to GPT-4 for rule learning
+(BLIP+GPT4). We prompt GPT-4 to generate Python programs for the MNIST Arithmetic and Follow Suit domains,
+since it is easy to express solutions to these tasks in Python,
+and GPT-4 has likely seen many Python examples during pretraining. For Plant Hitting Sets, we prompt GPT-4 to generate
+ASP programs, given it is more natural to express the solution
+to this problem in a declarative manner. (3) BLIP solving the
+downstream task with all images contained within a single
+image (BLIP Single Image ). Finally, in the CLEVR-Hans
+domain, we consider αILP [Shindo et al., 2023] as our baseline, since αILP has achieved state-of-the-art performance.
+Experiment Setup. In the MNIST Arithmetic, Follow
+Suit, and Plant Hitting Sets tasks, we generate questions and
+answers for fine-tuning BLIP using a varying number of image labels: {0, 1, 2, 5, 10, 20, 50, 100}× the number of feature values for each image. To learn the symbolic rules,
+
+[TABLE page=4 index=1]
+Columns: distance to return the answer a ∈ Aq | with | the | lowest edit | Unnamed: 0 | Unnamed: 1 | that the amount of manual engineering can be reduced using
+Row 1: distance to return the answer a ∈ Aq: distance compared to the | with: predicted answer â | the: | lowest edit: [Yujian and | Unnamed: 0: | Unnamed: 1: | that the amount of manual engineering can be reduced using: GPT-4 [OpenAI et al., 2023]. The results indicate GPT-4 can
+Row 2: distance to return the answer a ∈ Aq: Bo, 2007]. The answers | with: and meta-data are | the: | lowest edit: then encoded | Unnamed: 0: | Unnamed: 1: | that the amount of manual engineering can be reduced using: generate reasonable questions and answers for feature extracRow 3: distance to return the answer a ∈ Aq: into ectx in ASP form, which is task specific. | with: | the: | lowest edit: For example, | Unnamed: 0: | Unnamed: 1: | that the amount of manual engineering can be reduced using: tion. Due to space limitations, we present these results in the
+[/TABLE]
+
+[PAGE 5]
+we use {10, 20, 50, 100} labelled examples for the symbolic
+learner. In all datasets, we use an even distribution of labels.
+For the baselines, we use the same total number of labels,
+distributed as follows. For NeurASP, SLASH, Embed2Sym,
+BLIP+ABL, NSIL, and BLIP Single Image, we train these
+models end-to-end with the same total number of labels as required for our approach, with no supervision on the symbolic
+features. For Embed2Sym*, FF-NSL, ViT+ReasoningNet,
+and BLIP+GPT4, we follow a similar approach to ours: We
+first fine-tune the perception component using ground-truth
+image labels, and then train the reasoning component using
+the same number of task labels.
+In the MNIST Arithmetic and CLEVR-Hans domains, we
+use FastLAS for the symbolic learner due to FastLAS’ increased efficiency in larger search spaces for these specific
+class of problems [Law et al. , 2020a ]. We use ILASP in
+the Follow Suit and Plant Hitting Sets domains, as ILASP
+supports predicate invention (required in the Follow Suit domain), and the ability to learn choice rules and constraints (required in the Plant Hitting Sets domain) [Law et al., 2020b].
+We set the LAS example weight penalty to 10 in all experiments except CLEVR-Hans, where a penalty of 1 is used.
+10 and 1 were chosen because they provide adequate balance
+against the length of the hypothesis. In CLEVR-Hans, there
+are more symbolic examples given, so a lower weight penalty
+is required to learn a shorter, more general hypothesis.
+Each experiment is repeated 5 times using 5 randomly generated seeds and datasets. We use the “vqav2” BLIP model
+from the LA VIS library [Li et al. , 2022a ], which is pretrained on the Visual Genome, Conceptual Captions, Conceptual 12M, SBU captions, LAION, and the VQA v2.0 datasets.
+In our paper, BLIP is fine-tuned using a distinct set of training images, and the images in the training examples for the
+symbolic learner are not used for BLIP fine-tuning. We use 5
+held-out test sets (not seen in any training stage) to evaluate
+task accuracy, and report the mean and standard error. For all
+models, we train with the most performant number of epochs
+we can achieve within a 24 hour time limit. For NeSyGPT,
+we train for 10 epochs on MNIST Arithmetic and Follow
+Suit, and 20 epochs on Plant Hitting Sets and CLEVR. For
+all baselines, we train for 50 epochs unless otherwise stated.
+All hyper-parameters are left as default, and we use the SGD
+optimiser with a learning rate of 0.01 for all models, unless
+specified in a methods codebase. All experiments were run on
+a shared cluster with the following specification: RHEL 8.5
+x86 64 with Intel Xeon E5-2667 CPUs (10 cores total), and 1
+NVIDIA A100 GPU, 150GB RAM. The domain knowledge
+and search spaces are given in the Supp. Material.
+5.1 MNIST Arithmetic
+This includes 2-digit Addition from [Manhaeve et al., 2018],
+and E9P, where the input is 2 MNIST images, and the label
+is equal to the digit value of the second image, if the digit
+value of the first image is even, or 9 plus the digit value in
+the second image otherwise. The search space for the symbolic learner follows [Cunnington et al., 2023b] and includes
+the relations even, not even, plus nine, and ‘=’, as well
+as the function ‘+’. We fine-tune BLIP using the question
+“which digit is this? ”, and use the corresponding digit value
+as the answer. Image accuracies are reported over the standard MNIST test set of 10,000 images, and task accuracies
+are reported over held-out test sets of 1000 examples.
+The results are shown in Figures 2a-2b when the symbolic
+rules are given, and Figures 3a-3b when the rules are learned.
+NeSyGPT outperforms all baselines, and learns the correct
+rules (see Supp. Material). In both cases, BLIP is fine-tuned
+to a mean image accuracy of 0.9216 with 100 labels, increasing to 0.9753 with 1000 labels. This is within 2.34% of the
+state-of-the-art result of 0.9987 [Byerly et al., 2021], whilst
+using only 1.67% of the 60,000 labels available. NeSyGPT
+is able to learn the correct rules in all 5 repeats when BLIP
+is fine-tuned using only 10 image labels. To do so, the symbolic learner requires 50 task labels for the Addition task, and
+20 for the E9P task. Note that the NeSyGPT curves in Figures 2a-2b are shifted to the left because no task examples are
+required as the rules are given. All baselines use the same total number of examples as NeSyGPT does when learning the
+rules (Figure 3).
+In terms of the baselines in Figure 2, all methods except
+SLASH perform better on the E9P task than Addition. This
+is expected as the downstream label is more informative in
+E9P: There is a reduced number of possible digit choices
+for certain examples, which gives a stronger signal for training the perception model. NeSyGPT is unaffected by this,
+given it is fine-tuned directly with answers generated from
+image labels. With fewer labels, the end-to-end variant of
+Embed2Sym struggles to achieve a good clustering in the embedding space of the perception model in Addition, again because it’s more difficult to distinguish the individual digits in
+these examples. In Figure 3, a similar pattern occurs, with the
+notable exception of BLIP+GPT4. It performs well in Addition, but fails to generate the correct rules in the E9P task.
+The E9P task is less common than Addition, and it is unlikely
+GPT4 has seen many examples of this during pre-training.
+The fully neural ViT+ReasoningNet struggles in such lowlabel settings, whereas the NeSy approaches perform better.
+NSIL has to explore more of the search space in Addition before converging to the correct rules, and FF-NSL follows a
+similar curve to NeSyGPT, but has lower performance due to
+an inferior perception component.
+5.2 Follow Suit
+The Follow Suit domain requires learning the rules of a trickbased playing card game, called Follow Suit Winner. Each
+player plays a card from a standard deck of 52 cards, and
+the winner is the player with the highest ranked card with
+the same suit as the first player. This domain involves a
+large amount of choice for the symbolic features, and therefore presents a challenge for end-to-end methods. To investigate this, we introduce a new 10-player variant, which significantly increases the number of choices compared to the
+4-player variant. Assuming a single deck of cards, the 4player variant has ∼ 6.5m choices for the symbolic features,
+whereas the 10-player variant has ∼ 5.74 × 1016 choices.
+The search space for the symbolic learner follows [Cunnington et al., 2023a] and includes the relations higher rank of
+arity 2 which denotes a certain player having a higher ranked
+card than another player, and the ‘!=’ relation to denote two
+
+[PAGE 6]
+Ours (rules given) NeurASP Embed2Sym Embed2Sym* SLASH BLIP+ABL
+0 200 400 600 800 1000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(a) Addition
+0 200 400 600 800 1000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(b) E9P
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(c) Follow Suit 10 ACA
+0 1000 2000 3000 4000
+Total num. of labels
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0Task accuracy
+(d) Plant Hitting Sets
+Figure 2: Task accuracy when the symbolic rules are given.
+Ours FF-NSL NSIL ViT+ReasoningNet BLIP+GPT4 BLIP Single Image
+0 200 400 600 800 1000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(a) Addition
+0 200 400 600 800 1000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(b) E9P
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(c) Follow Suit 10 ACA
+0 1000 2000 3000 4000
+Total num. of labels
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(d) Plant Hitting Sets
+Figure 3: Task accuracy when the symbolic rules are learned.
+suit values are not equal. The search space also includes an
+instruction to perform predicate invention, to enable the definition of a winning player to be learned.
+For images, we use the Standard and Adversarial Captain
+America (ACA) decks from [Cunnington et al., 2023a], where
+the ACA deck contains card images from a Captain America
+card deck placed on a background of standard card images.
+BLIP is fine-tuned with the questions “ which rank is this? ”,
+and “which suit is this?”. Image accuracies are reported over
+a test set of 1040 card images, and task accuracies are reported over held-out test sets of 1000 examples.
+The results for the most challenging 10-player ACA variant are shown in Figures 2c and 3c for reasoning and learning respectively. The results for the other variants are shown
+in the Supp. Material. Note that all of the methods in Figure 3c have low standard error across 5 repeats. In both reasoning and learning, NeSyGPT achieves perfect performance
+on all variants, and significantly outperforms the baselines.
+When the symbolic rules are given, NeurASP, SLASH, and
+BLIP+ABL all reach the 24-hour time limit, even with the
+4-player standard variant. NeurASP struggles with the large
+number of choices, and we had to limit the number of answer sets calculated during each example to 5000, so it is not
+able to update gradients based on all the answer sets. We also
+had to limit NeurASP to 10 epochs. SLASH became stuck in
+the ASP grounding stage, and therefore we are unable to obtain any results. For BLIP+ABL, the 10-player variant takes
+longer because there are more images in each example to calculate pseudo-labels for. Embed2Sym* is able to learn a good
+playing card clustering in the embedding space, but the ASP
+Optimisation used to label the clusters struggles, and we had
+to limit the ASP solver to return the best cluster labelling discovered within a 60 second timeout. The end-to-end variant
+of Embed2Sym also struggles with cluster labelling, and is
+unable to learn a good clustering in the embedding space. See
+the Supp. Material for the embedding space plots.
+When learning the rules, FF-NSL is the next-best baseline,
+but requires more labels to fine-tune the perception component to the same level of accuracy. As NSIL is based upon
+NeurASP, it suffers similar timeout issues. The fully neural VIT+ReasoningNet struggles in such low-label settings.
+BLIP+GPT4 and BLIP Single Image perform well in the 4player variants, with BLIP Single Image achieving perfect
+accuracy given enough labels in the 4-player standard case.
+However, both of these approaches fail to solve the 10-player
+variant. For NeSyGPT, BLIP is fine-tuned to an image accuracy of 0.9832 and 0.9988 for standard and ACA decks
+respectively, with only 52 image labels (single-shot). This
+increases to 1.0 in all 5 repeats for both standard and ACA
+variants, given 520 and 2600 labels respectively. The correct
+rules are learned with only 10 task labels, in all variants.
+5.3 Plant Hitting Sets
+The goal is to learn a variation of the Hitting Set problem
+[Karp, 1972 ] from images of plant leaves of various crops
+[Singh et al., 2020]. Let us assume a collection of crop fields,
+where each field contains a set of crops that can be diseased or
+healthy. In this context, a “hitting set” represents a set of dis-
+
+[TABLE page=6 index=1]
+Columns: Unnamed: 0 | Ours (rules given) | Unnamed: 1 | NeurASP | Embed2Sym | Unnamed: 2 | Embed2Sym* | SLASH | BLIP+ABTLask accuracy
+Row 1: Unnamed: 0: 1.0 | Ours (rules given): | Unnamed: 1: 1.0 | NeurASP: | Embed2Sym: | Unnamed: 2: 1.0 | Embed2Sym*: | SLASH: | BLIP+ABTLask accuracy:
+Row 2: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | NeurASP: | Embed2Sym: | Unnamed: 2: | Embed2Sym*: | SLASH: 1.0 | BLIP+ABTLask accuracy:
+Row 3: Unnamed: 0: 0.8 | Ours (rules given): | Unnamed: 1: 0.8 | NeurASP: | Embed2Sym: | Unnamed: 2: 0.8 | Embed2Sym*: | SLASH: | BLIP+ABTLask accuracy:
+Row 4: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | NeurASP: | Embed2Sym: | Unnamed: 2: | Embed2Sym*: | SLASH: 0.9 | BLIP+ABTLask accuracy:
+Row 5: Unnamed: 0: 0.6 | Ours (rules given): | Unnamed: 1: 0.6 | NeurASP: | Embed2Sym: | Unnamed: 2: 0.6 | Embed2Sym*: | SLASH: 0.8 | BLIP+ABTLask accuracy:
+Row 6: Unnamed: 0: 0.4 | Ours (rules given): | Unnamed: 1: 0.4 | NeurASP: | Embed2Sym: | Unnamed: 2: | Embed2Sym*: | SLASH: | BLIP+ABTLask accuracy:
+Row 7: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | NeurASP: | Embed2Sym: | Unnamed: 2: 0.4 | Embed2Sym*: | SLASH: 0.7 | BLIP+ABTLask accuracy:
+Row 8: Unnamed: 0: 0.2 | Ours (rules given): | Unnamed: 1: 0.2 | NeurASP: | Embed2Sym: | Unnamed: 2: | Embed2Sym*: | SLASH: 0.6 | BLIP+ABTLask accuracy:
+Row 9: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | NeurASP: | Embed2Sym: | Unnamed: 2: 0.2 | Embed2Sym*: | SLASH: | BLIP+ABTLask accuracy:
+Row 10: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | NeurASP: | Embed2Sym: | Unnamed: 2: | Embed2Sym*: | SLASH: 0.5 | BLIP+ABTLask accuracy:
+Row 11: Unnamed: 0: 0.0 | Ours (rules given): | Unnamed: 1: 0.0 | NeurASP: | Embed2Sym: | Unnamed: 2: | Embed2Sym*: | SLASH: | BLIP+ABTLask accuracy:
+[/TABLE]
+
+[PAGE 7]
+eased crops that intersects with each crop field. This enables
+a prioritisation in terms of which diseases should be eradicated first, as one may wish to eradicate diseases that occur
+in each crop field. The size of the hitting set can be viewed as
+the budget for how many crops are able to be eradicated. The
+standard rules of the Hitting Set problem apply, and we also
+require the constraint that no healthy crops should appear in
+the hitting set, since we are not interested in eradicating those.
+To solve this task, complex rules are required involving constraints, choice rules, and, to generate all the hitting sets with
+a certain budget, the solution requires multiple models.
+The input consists of a collection of plant disease images
+arranged into various subsets. We generate the examples randomly, where each example contains at most 5 subsets, and
+each subset contains at most 5 elements. In the plant disease
+image dataset [Singh et al., 2020], each element can take an
+integer value in {1..38} to denote a particular plant species
+and disease. Note we remove the “background” class. We
+assume the budget is 2, and the label is binary, indicating
+whether the collection contains a hitting set with no healthy
+images of size ≤ 2. The search space for the symbolic learner
+contains the relation ‘!=’ and the relation hs, which defines
+an element of the hitting set. The budget 2, as well as the
+integer values which correspond to healthy plant images, are
+given as background knowledge. To fine-tune BLIP, we use
+the questions “which plant species is this?”, and “which disease is this?”. If the plant image is not diseased, we use the
+answer “healthy”. Image accuracies are reported over a test
+set of 5000 plant images, and task accuracies are reported
+over held-out test sets of 1000 examples.
+The results are shown in Figures 2d and 3d, for reasoning
+and learning respectively. With > 10 labels, NeSyGPT is
+able to match or out-perform all the baseline methods. BLIP
+is fine-tuned to an accuracy of 0.8826 with 380 image labels,
+and 0.9871 with 3800 labels. The correct rules are learned
+using the BLIP model fine-tuned with 380 image labels, when
+100 examples are given to the symbolic learner.
+In terms of the baselines, when the rules are given,
+NeurASP and BLIP+ABL suffer similar timeout issues to
+Follow Suit, and the implementation of SLASH does not
+support variable length sequences in the examples, so results can’t be obtained. Both variants of Embed2Sym are
+fairly constant, regardless of the number of labels. Inspecting
+the perception model’s embedding space, it appears the pretrained vision transformer model is able to return a reasonably
+good image clustering without any fine-tuning. However, labelling the clusters accurately is very difficult, since there are
+many possible choices of symbolic features that satisfy the
+downstream label (see the Supp. Material for details). When
+learning the rules, FF-NSL performs similarly to NeSyGPT,
+as does BLIP Single Image. The ViT+ReasoningNet is unable to solve the task, although when the reasoning network
+(a Recurrent Transformer) is given 5000 downstream examples (50× more than shown in Figure 3d), the task accuracy
+approaches 90%. The results for BLIP+GPT4 are very variable, and somewhat random. We note that this method requires extensive prompt tuning, although is able to learn the
+correct rules on some repeats. We had to limit the number of
+downstream examples to a maximum of 20 as otherwise the
+Num Im. Task Acc. (250 Task Ex.) Task Acc. (500 Task Ex.)
+αILP 70k 0.9505 (0.0024) 0.9752 (0.0081)
+9k 0.4992 (0.0116) 0.4808 (0.0160)
+NeSyGPT 70k 0.9853(0.0012) 0.9853(0.0012)
+9k 0.8629(0.0090) 0.8691(0.0085)
+Table 1: CLEVR-Hans Results.
+token limit in the prompt was exceeded.
+5.4 CLEVR-Hans
+To demonstrate NeSyGPT can solve tasks that require detecting multiple objects within an image, we present results on
+the CLEVR-Hans3 dataset [Stammer et al., 2021]. The input is a single image containing up to 10 objects, and the
+downstream label is one of three classes, which groups images with certain objects and properties together. To solve
+this task, BLIP must detect the properties of the various objects, namely, their size, material, color, and shape. The
+learned rules then classify a set of objects and their properties. The search space for the symbolic learner contains
+all possible properties and their values. BLIP is fine-tuned
+using the question “ what does the image contain? ” and the
+answer contains the list of object properties, e.g., “ The image contains a large gray cube made of metal, a large yellow cylinder made of rubber, ...”. Image and task accuracies
+are reported over the CLEVR-Hans test set, where we count
+an image prediction as correct if all ground truth objects and
+their properties are correctly identified. For training, we finetune BLIP firstly using the 70k-example CLEVR dataset, as
+performed in [Shindo et al., 2023], and secondly, using the
+9000-example CLEVR-Hans training set. For rule learning,
+we use 500 and 250 task examples. In all cases, we run 5 repeats with different randomly generated seeds. For αILP, we
+use the 5 seeds specified in their implementation.
+The results are shown in Table 1. NeSyGPT outperforms
+αILP in all cases, achieving state-of-the-art performance using 50% of the downstream labels. BLIP is fine-tuned to an
+image accuracy of 0.410 and 0.934, and the average rule accuracy with 250 task examples is 0.831 and 1.0, for the 9000
+and 70k cases respectively. With 500 task examples, the average rule accuracy increases to 0.833 in the 9000 case.
+6 Conclusion
+In this paper, we have introduced a new architecture
+called NeSyGPT, that integrates a vision-language foundation model with symbolic learning and reasoning in ASP. Our
+evaluation demonstrates NeSyGPT provides many benefits
+over existing ASP-based NeSy systems, including strong performance, reduced labelling, advanced perception, and symbolic learning. We have also demonstrated that LLMs can
+be used to reduce the manual engineering effort, generating
+questions and answers to fine-tune the perception model, and
+also the programmatic interface between the neural and symbolic components. Future work could explore generating the
+search space for the symbolic learner using a LLM, and developing VQA fine-tuning in more advanced models, which
+could then be integrated into the NeSyGPT architecture.
+
+[TABLE page=7 index=1]
+Columns: eased crops that intersects with each crop field. This enables | Unnamed: 0 | Num Im. Task Acc. (250 Task Ex.) | Task Acc. (500 Task Ex.)
+Row 1: eased crops that intersects with each crop field. This enables: a prioritisation in terms of which diseases should be eradi- | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): 70k 0.9505 (0.0024) | Task Acc. (500 Task Ex.): 0.9752 (0.0081)
+Row 2: eased crops that intersects with each crop field. This enables: | Unnamed: 0: αILP | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 3: eased crops that intersects with each crop field. This enables: cated first, as one may wish to eradicate diseases that occur | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): 9k 0.4992 (0.0116) | Task Acc. (500 Task Ex.): 0.4808 (0.0160)
+Row 4: eased crops that intersects with each crop field. This enables: in each crop field. The size of the hitting set can be viewed as | Unnamed: 0: NeSyGPT | Num Im. Task Acc. (250 Task Ex.): 70k 0.9853 (0.0012) | Task Acc. (500 Task Ex.): 0.9853 (0.0012)
+Row 5: eased crops that intersects with each crop field. This enables: the budget for how many crops are able to be eradicated. The | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): 9k 0.8629 (0.0090) | Task Acc. (500 Task Ex.): 0.8691 (0.0085)
+Row 6: eased crops that intersects with each crop field. This enables: standard rules of the Hitting Set problem apply, and we also | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 7: eased crops that intersects with each crop field. This enables: | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): Table 1: CLEVR-Hans Results. | Task Acc. (500 Task Ex.):
+Row 8: eased crops that intersects with each crop field. This enables: require the constraint that no healthy crops should appear in | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 9: eased crops that intersects with each crop field. This enables: the hitting set, since we are not interested in eradicating those. | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 10: eased crops that intersects with each crop field. This enables: To solve this task, complex rules are required involving con- | Unnamed: 0: token limit in the prompt was exceeded. | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 11: eased crops that intersects with each crop field. This enables: straints, choice rules, and, to generate all the hitting sets with | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 12: eased crops that intersects with each crop field. This enables: a certain budget, the solution requires multiple models. | Unnamed: 0: 5.4 CLEVR-Hans | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 13: eased crops that intersects with each crop field. This enables: The input consists of a collection of plant disease images | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 14: eased crops that intersects with each crop field. This enables: | Unnamed: 0: To demonstrate NeSyGPT can solve tasks that require detect- | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 15: eased crops that intersects with each crop field. This enables: arranged into various subsets. We generate the examples ran- | Unnamed: 0: | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 16: eased crops that intersects with each crop field. This enables: | Unnamed: 0: ing multiple objects within an image, we present results on | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.):
+Row 17: eased crops that intersects with each crop field. This enables: domly, where each example contains at most 5 subsets, and | Unnamed: 0: the CLEVR-Hans3 dataset [Stammer et al., | Num Im. Task Acc. (250 Task Ex.): | Task Acc. (500 Task Ex.): 2021]. The in-
+[/TABLE]
+
+[PAGE 8]
+Ethical Statement
+Our approach relies upon naturally interpretable logic programs for the symbolic component, which helps to increase
+transparency of what has been learned, compared to a fully
+neural system. Also, these programs can be manually adjusted if required, and provide formal guarantees of their
+behaviour when deployed to production. However, our approach also relies upon the BLIP vision-language foundation model, which is difficult to interpret and assert strong
+claims over its future behaviour. Through our approach of
+fine-tuning with questions and answers generated from image labels, we hope to reduce the risk of hallucinations in
+the specific tasks and settings our system is deployed. Also,
+the modular nature of our system enables each component to
+be adjusted and updated if required. The usual cautions and
+monitoring should apply if our approach is used in a production setting, particularly if image inputs are observed that are
+significantly outside the distribution in which BLIP has been
+fine-tuned.
+References
+[Aspis et al., 2022] Yaniv Aspis, Krysia Broda, Jorge Lobo,
+and Alessandra Russo. Embed2sym-scalable neurosymbolic reasoning via clustered embeddings. In Proceedings of the International Conference on Principles
+of Knowledge Representation and Reasoning, volume 19,
+pages 421–431, 2022.
+[Badreddine et al., 2022] Samy Badreddine, Artur d’Avila
+Garcez, Luciano Serafini, and Michael Spranger. Logic
+tensor networks. Artificial Intelligence, 303:103649, 2022.
+[Besold et al., 2022] Tarek R Besold, Artur d’Avila Garcez,
+Sebastian Bader, Howard Bowman, Luis C Lamb, Leo
+de Penning, BV Illuminoo, Hoifung Poon, and COPPE
+Gerson Zaverucha. Neural-symbolic learning and reasoning: A survey and interpretation. Neuro-Symbolic Artificial Intelligence: The State of the Art, 342:1, 2022.
+[Byerly et al., 2021] Adam Byerly, Tatiana Kalganova, and
+Ian Dear. No routing needed between capsules. Neurocomputing, 463:545–553, 2021.
+[Charalambous et al., 2023] Theo Charalambous, Yaniv Aspis, and Alessandra Russo. Neuralfastlas: Fast logic-based
+learning from raw data. arXiv preprint arXiv:2310.05145,
+2023.
+[Cunnington et al., 2023a] Daniel Cunnington, Mark Law,
+Jorge Lobo, and Alessandra Russo. Ffnsl: feed-forward
+neural-symbolic learner. Machine Learning, 112(2):515–
+569, 2023.
+[Cunnington et al., 2023b] Daniel Cunnington, Mark Law,
+Jorge Lobo, and Alessandra Russo. Neuro-symbolic learning of answer set programs from raw data. In Proceedings
+of the Thirty-Second International Joint Conference on Artificial Intelligence, pages 3586–3596, 2023.
+[Dai and Muggleton, 2021] Wang-Zhou Dai and Stephen
+Muggleton. Abductive knowledge induction from raw
+data. In Zhi-Hua Zhou, editor,Proceedings of the Thirtieth
+International Joint Conference on Artificial Intelligence,
+IJCAI-21, pages 1845–1851. International Joint Conferences on Artificial Intelligence Organization, 8 2021.
+Main Track.
+[Dai et al., 2019] Wang-Zhou Dai, Qiuling Xu, Yang Yu, and
+Zhi-Hua Zhou. Bridging machine learning and logical reasoning by abductive learning. Advances in Neural Information Processing Systems, 32, 2019.
+[Daniele et al., 2023] Alessandro Daniele, Tommaso Campari, Sagar Malhotra, and Luciano Serafini. Deep symbolic learning: Discovering symbols and rules from perceptions. In Edith Elkind, editor, Proceedings of the
+Thirty-Second International Joint Conference on Artificial
+Intelligence, IJCAI-23 , pages 3597–3605. International
+Joint Conferences on Artificial Intelligence Organization,
+8 2023. Main Track.
+[d’Avila Garcezet al., 2019] Artur d’Avila Garcez, Marco
+Gori, Lu´ıs C. Lamb, Luciano Serafini, Michael Spranger,
+and Son N. Tran. Neural-symbolic computing: An effective methodology for principled integration of machine
+learning and reasoning. FLAP, 6(4):611–632, 2019.
+[Defresne et al., 2023] Marianne Defresne, Sophie Barbe,
+and Thomas Schiex. Scalable coupling of deep learning
+with logical reasoning. In Edith Elkind, editor, Proceedings of the Thirty-Second International Joint Conference
+on Artificial Intelligence, IJCAI-23, pages 3615–3623. International Joint Conferences on Artificial Intelligence Organization, 8 2023. Main Track.
+[Eiter et al., 2022] Thomas Eiter, Nelson Higuera, Johannes
+Oetsch, and Michael Pritz. A neuro-symbolic asp pipeline
+for visual question answering. Theory and Practice of
+Logic Programming, 22(5):739–754, 2022.
+[Evans et al., 2021] Richard Evans, Matko Bo ˇsnjak, Lars
+Buesing, Kevin Ellis, David Pfau, Pushmeet Kohli, and
+Marek Sergot. Making sense of raw input. Artificial Intelligence, 299:103521, 2021.
+[Gelfond and Kahl, 2014] Michael Gelfond and Yulia Kahl.
+Knowledge representation, reasoning, and the design
+of intelligent agents: The answer-set programming approach. Cambridge University Press, Cambridge, UK,
+2014.
+[Harnad, 1990] Stevan Harnad. The symbol grounding problem. Physica D: Nonlinear Phenomena, 42(1-3):335–346,
+1990.
+[Hutchins et al., 2022] DeLesley Hutchins, Imanol Schlag,
+Yuhuai Wu, Ethan Dyer, and Behnam Neyshabur. Blockrecurrent transformers. Advances in Neural Information
+Processing Systems, 35:33248–33261, 2022.
+[Ishay et al., 2023] Adam Ishay, Zhun Yang, and Joohyung
+Lee. Leveraging Large Language Models to Generate Answer Set Programs. In Proceedings of the 20th International Conference on Principles of Knowledge Representation and Reasoning, pages 374–383, 8 2023.
+[Karp, 1972] Richard M Karp. Reducibility among combinatorial problems. In Complexity of computer computations, pages 85–103. Springer, 1972.
+
+[PAGE 9]
+[Kassner and Sch¨utze, 2019] Nora Kassner and Hinrich
+Sch¨utze. Negated and misprimed probes for pretrained
+language models: Birds can talk, but cannot fly. arXiv
+preprint arXiv:1911.03343, 2019.
+[Law et al., 2019] Mark Law, Alessandra Russo, and Krysia
+Broda. Logic-based learning of answer set programs.
+In Reasoning Web. Explainable Artificial Intelligence 15th International Summer School 2019, Bolzano, Italy,
+September 20-24, 2019, Tutorial Lectures, pages 196–231,
+2019.
+[Law et al., 2020a] Mark Law, Alessandra Russo, Elisa
+Bertino, Krysia Broda, and Jorge Lobo. Fastlas: Scalable inductive logic programming incorporating domainspecific optimisation criteria. In Proceedings of the AAAI
+conference on artificial intelligence , volume 34, pages
+2877–2885, 2020.
+[Law et al., 2020b] Mark Law, Alessandra Russo, and
+Krysia Broda. The ilasp system for inductive learning of
+answer set programs. arXiv preprint arXiv:2005.00904 ,
+2020.
+[Li et al., 2022a] Dongxu Li, Junnan Li, Hung Le, Guangsen
+Wang, Silvio Savarese, and Steven CH Hoi. Lavis: A
+library for language-vision intelligence. arXiv preprint
+arXiv:2209.09019, 2022.
+[Li et al., 2022b] Junnan Li, Dongxu Li, Caiming Xiong,
+and Steven Hoi. Blip: Bootstrapping language-image
+pre-training for unified vision-language understanding and
+generation. In International Conference on Machine
+Learning, pages 12888–12900. PMLR, 2022.
+[Li et al., 2023] Junnan Li, Dongxu Li, Silvio Savarese, and
+Steven Hoi. Blip-2: Bootstrapping language-image pretraining with frozen image encoders and large language
+models. arXiv preprint arXiv:2301.12597, 2023.
+[Manhaeve et al., 2018] Robin Manhaeve, Sebastijan Dumancic, Angelika Kimmig, Thomas Demeester, and Luc
+De Raedt. Deepproblog: Neural probabilistic logic programming. Advances in neural information processing
+systems, 31, 2018.
+[Marconato et al., 2023] Emanuele Marconato, Stefano
+Teso, Antonio Vergari, and Andrea Passerini. Not all
+neuro-symbolic concepts are created equal: Analysis and
+mitigation of reasoning shortcuts. CoRR, abs/2305.19951,
+2023.
+[Nye et al., 2021] Maxwell Nye, Michael Tessler, Josh
+Tenenbaum, and Brenden M Lake. Improving coherence and consistency in neural sequence models with dualsystem, neuro-symbolic reasoning. Advances in Neural
+Information Processing Systems, 34:25192–25204, 2021.
+[OpenAI et al., 2023] OpenAI, :, Josh Achiam, and et al.
+Steven Adler. Gpt-4 technical report, 2023.
+[OpenAI, 2023] OpenAI. Gpt-4 system card - openai, 2023.
+[Pryor et al., 2023] Connor Pryor, Charles Dickens, Eriq
+Augustine, Alon Albalak, William Yang Wang, and Lise
+Getoor. Neupsl: Neural probabilistic soft logic. In Edith
+Elkind, editor, Proceedings of the Thirty-Second International Joint Conference on Artificial Intelligence, IJCAI23, pages 4145–4153. International Joint Conferences on
+Artificial Intelligence Organization, 8 2023. Main Track.
+[Riegel et al., 2020] Ryan Riegel, Alexander G. Gray, Francois P. S. Luus, Naweed Khan, Ndivhuwo Makondo, Ismail Yunus Akhalwaya, Haifeng Qian, Ronald Fagin,
+Francisco Barahona, Udit Sharma, Shajith Ikbal, Hima
+Karanam, Sumit Neelam, Ankita Likhyani, and Santosh K. Srivastava. Logical neural networks. CoRR,
+abs/2006.13155, 2020.
+[Shindo et al., 2023] Hikaru Shindo, Viktor Pfanschilling,
+Devendra Singh Dhami, and Kristian Kersting. α ilp:
+thinking visual scenes as differentiable logic programs.
+Machine Learning, 112(5):1465–1497, 2023.
+[Singh et al., 2020] Davinder Singh, Naman Jain, Pranjali
+Jain, Pratik Kayal, Sudhakar Kumawat, and Nipun Batra.
+Plantdoc: A dataset for visual plant disease detection. In
+Proceedings of the 7th ACM IKDD CoDS and 25th COMAD, pages 249–253, 2020.
+[Skryagin et al., 2023] Arseny Skryagin, Daniel Ochs, Devendra Singh Dhami, and Kristian Kersting. Scalable neural-probabilistic answer set programming. arXiv
+preprint arXiv:2306.08397, 2023.
+[Stammer et al., 2021] Wolfgang Stammer, Patrick
+Schramowski, and Kristian Kersting. Right for the
+right concept: Revising neuro-symbolic concepts by
+interacting with their explanations. In Proceedings of the
+IEEE/CVF conference on computer vision and pattern
+recognition, pages 3619–3629, 2021.
+[Sur´ıset al., 2023] D´ıdac Sur´ıs, Sachit Menon, and Carl
+V ondrick. Vipergpt: Visual inference via python execution
+for reasoning. arXiv preprint arXiv:2303.08128, 2023.
+[Wang et al., 2023] Ruocheng Wang, Eric Zelikman, Gabriel
+Poesia, Yewen Pu, Nick Haber, and Noah D Goodman.
+Hypothesis search: Inductive reasoning with language
+models. arXiv preprint arXiv:2309.05660, 2023.
+[Yang et al., 2020] Zhun Yang, Adam Ishay, and Joohyung
+Lee. Neurasp: Embracing neural networks into answer set
+programming. In Christian Bessiere, editor, Proceedings
+of the Twenty-Ninth International Joint Conference on Artificial Intelligence, IJCAI-20, pages 1755–1762. International Joint Conferences on Artificial Intelligence Organization, 7 2020.
+[Yang et al., 2023] Zhun Yang, Adam Ishay, and Joohyung
+Lee. Coupling large language models with logic programming for robust and general reasoning from text. arXiv
+preprint arXiv:2307.07696, 2023.
+[Yujian and Bo, 2007] Li Yujian and Liu Bo. A normalized
+levenshtein distance metric. IEEE transactions on pattern analysis and machine intelligence, 29(6):1091–1095,
+2007.
+
+[PAGE 10]
+A Appendix
+A.1 Reducing the Engineering using a LLM
+We evaluate GPT-4 [OpenAI et al., 2023 ] when generating
+questions and answers for fine-tuning BLIP, and when generating the training examples for the symbolic learner. In both
+cases, we prompt GPT-4 with instructions and an example.
+QA Generator . We use a base prompt, followed by an
+instruction for the given task. In this case, we require the
+user to input a natural language description of what the image represents, the space of possible image features, and a
+description of the downstream task. Note that we don’t specify the specific rules of the task in the description. The base
+prompt used across all tasks is shown in Listing 1, and the
+specific instructions used for the MNIST Arithmetic, Follow
+Suit, and Plant Hitting Sets tasks are shown in Listings 2, 3,
+and 4 respectively.
+Listing 1: Base prompt used across all tasks for generating QA for
+fine-tuning BLIP.
+You are required to generate a set of questions and
+answers to extract symbolic features from an image. You
+are given a description of the type of object the image
+represents, a description of the downstream task to be
+performed based on extracted features, and a list of
+ground-truth labels which denote the possible object
+instances. Return your response as a JSON list of
+questions and answers for each label. Try to use the exact
+same question(s) for all object instances, and ensure
+the answers are unique across each instance such that a
+classification can be performed. Under no circumstances
+should you return a response where two different labels
+have the same answers to the same question(s). Simple
+questions that distinguish between all instances are
+preferred over detailed questions on specific features.
+Use as few questions as possible, and eliminate redundant
+questions. Here is an example:
+Description: The image represents a vehicle.
+Downstream task description: The task is to learn rules
+based on the type of vehicle.
+Labels: [car, ship, bicycle].
+Output:
+‘‘‘json
+{
+"car": [
+{"question": "Does the vehicle have wheels?", "answer":
+"yes"},
+{"question": "Does the vehicle drive on a road?", "
+answer": "yes"},
+{"question": "Does the vehicle carry passengers?", "
+answer": "yes"}
+],
+"ship": [
+{"question": "Does the vehicle have wheels?", "answer":
+"no"},
+{"question": "Does the vehicle drive on a road?", "
+answer": "no"},
+{"question": "Does the vehicle carry passengers?", "
+answer": "yes"}
+],
+"bicycle": [
+{"question": "Does the vehicle have wheels?", "answer":
+"yes"},
+{"question": "Does the vehicle drive on a road?", "
+answer": "yes"},
+{"question": "Does the vehicle carry passengers?", "
+answer": "no"}
+]
+}‘‘‘
+Listing 2: Instruction used for MNIST Arithmetic QA generation.
+Generate a set of questions and answers as follows.
+Description: The image represents a handwritten digit 0-9.
+Downstream task description: Perform arithmetic over
+digits.
+Labels: [0,1,2,3,4,5,6,7,8,9].
+Output:
+Listing 3: Instruction used for Follow Suit QA generation.
+Generate a set of questions and answers as follows.
+Description: The image represents a playing card from a
+standard deck of 52 cards.
+Downstream task description: Learn the rules of a card
+game.
+Labels: ["two of hearts", "two of diamonds", "two of
+spades", "two of clubs", ..., "ace of clubs"].
+Do not truncate the response.
+Output:
+Listing 4: Instruction used for Plant Hitting Sets QA generation.
+Generate a set of questions and answers as follows.
+Description: The image represents a plant leaf. The plant
+leaf is from a certain species and may be diseased or
+healthy.
+Downstream task description: Learn rules over groups of
+plant species and diseases.
+Labels: ["apple scab", "apple black rot", ..., "tomato
+healthy"].
+Output:
+Example Generator Again, we use a base prompt followed by an instruction specific to each task. We require the
+user to input a description of the downstream task, with details on the features given, and the range of input and output
+values. The ASP background knowledge and mode declarations are also required, and we also input the full QA JSON
+that is either manually specified, or LLM generated. The base
+prompt is shown in Listing 5, and the instructions used for the
+MNIST Arithmetic, Follow Suit, and Plant Hitting Sets tasks
+are shown in Listings 6, 7, and 8 respectively. In this paper,
+to avoid duplication, we omit the ASP background knowledge and mode declarations, as these are presented in Section
+A.4.
+Listing 5: Base prompt used across all tasks for generating symbolic
+training examples.
+The task is to generate a python function called
+"create_wcdpi" that takes as input a list of image
+features in the form of questions and answers, together
+with a label and a unique identifier, and returns a
+training example for a symbolic learning system based on
+Answer Set Programming (ASP). The symbolic learning system
+learns a set of logical rules in the form of an ASP
+program to solve a downstream task. A training example
+can be positive or negative, and it consists of the unique
+identifier, an integer weight, a set of inclusions,
+exclusions, and a set of contextual facts. The inclusion
+set can represent the label that should be output by the
+learned rules, given the contextual facts. The exclusion
+set can represent the labels that should *not* be output
+given the contextual facts. For binary classification
+tasks, the label can be represented with a positive (1) or
+negative (0) example, and the inclusion and exclusion sets
+can remain empty. Note the atoms within the inclusion
+and exclusion sets, as well as the atoms in the contextual
+facts are specified in the language of ASP. To generate
+
+[TABLE page=10 index=1]
+Columns: should you return a response where two different labels | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6
+Row 1: should you return a response where two different labels: have the same answers to the same question(s). Simple | Unnamed: 0: Example Generator | Unnamed: 1: Again, | Unnamed: 2: we | Unnamed: 3: use | Unnamed: 4: a | Unnamed: 5: base prompt | Unnamed: 6: folRow 2: should you return a response where two different labels: questions that distinguish between all instances are | Unnamed: 0: lowed by an instruction specific to each task. | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: We require the | Unnamed: 6:
+Row 3: should you return a response where two different labels: preferred over detailed questions on specific features. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 4: should you return a response where two different labels: Use as few questions as possible, and eliminate redundant | Unnamed: 0: user to input a description of the downstream task, with de- | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 5: should you return a response where two different labels: questions. Here is an example: | Unnamed: 0: tails on the features given, and the range of input and output | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 6: should you return a response where two different labels: | Unnamed: 0: values. The ASP background knowledge and mode declara- | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 7: should you return a response where two different labels: Description: The image represents a vehicle. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 8: should you return a response where two different labels: Downstream task description: The task is to learn rules | Unnamed: 0: tions are also required, and we also input the full QA JSON | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 9: should you return a response where two different labels: based on the type of vehicle. | Unnamed: 0: that is either manually specified, or LLM generated. The base | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 10: should you return a response where two different labels: Labels: [car, ship, bicycle]. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 11: should you return a response where two different labels: | Unnamed: 0: prompt is shown in Listing 5, and the instructions used for the | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 12: should you return a response where two different labels: Output: | Unnamed: 0: MNIST Arithmetic, Follow Suit, and Plant Hitting Sets tasks | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 13: should you return a response where two different labels: | Unnamed: 0: are shown in Listings 6, 7, and 8 respectively. | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: In this paper, | Unnamed: 6:
+Row 14: should you return a response where two different labels: ‘‘‘json | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 15: should you return a response where two different labels: { | Unnamed: 0: to avoid duplication, we | Unnamed: 1: omit the | Unnamed: 2: ASP | Unnamed: 3: | Unnamed: 4: background | Unnamed: 5: knowl- | Unnamed: 6:
+Row 16: should you return a response where two different labels: "car": [ | Unnamed: 0: edge and mode declarations, as these are presented in Section | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+[/TABLE]
+
+[PAGE 11]
+MNIST Arithmetic Follow Suit 4 Follow Suit 10 Plant HS
+100+100 labels 52+100 labels 52+100 labels 760+100 labels
+Sum E9P Standard ACA Standard ACA
+Manual QA + Manual Sym. Ex.0.8492(0.01) 0.9004(0.00) 0.9958(0.00) 0.9994(0.00) 0.9968(0.00) 1.0000(0.00) 0.9846(0.00)
+LLM QA + Manual Sym. Ex. 0.6954 (0.16) 0.7302 (0.17) 0.9928 (0.00) 0.9984 (0.00) 0.9892 (0.01) 0.9974 (0.00) 0.9734 (0.01)
+Manual QA + LLM Sym. Ex. 0.5158 (0.21) 0.5486 (0.22) 0.2938 (0.20) 0.2938 (0.20) 0.2936 (0.18) 0.2936 (0.18) 0.7874 (0.20)
+LLM QA + LLM Sym. Ex. 0.1634 (0.16) 0.1746 (0.17) 0.0500 (0.05) 0.0500 (0.05) 0.0908 (0.09) 0.0912 (0.09) 0.1974 (0.20)
+Manual QA + LLM Sym. Ex.∗ 0.8492(0.01) 0.9004(0.00) 0.5986 (0.24) 0.5994 (0.24) 0.9968(0.00) 1.0000(0.00) LLM QA + LLM Sym. Ex.∗ 0.6832 (0.17) 0.7198 (0.18) 0.8472 (0.15) 0.8486 (0.15) 0.7898 (0.20) 0.7976 (0.20) Table 2: Task accuracy with manual vs LLM engineering. The number of labels is decomposed as “num image labels + num task labels”. *
+denotes manual fixes to simple errors.
+a symbolic training example, the WCDPI python class can be
+used. This is instantiated as follows: new_example =
+WCDPI(f"id{example_identifier}", positive=True, weight=10,
+inclusion=[], exclusion=[], context=[]). The "example_id"
+attribute is the unique identifier, the boolean "positive"
+attribute indicates whether the example is positive or
+negative, the weight is the integer weight and should be
+set to 10, and the remaining attributes correspond to the
+inclusion, exclusion, and context sets respectively. To
+help generate the correct python function, you are given a
+description of the downstream task, a complete set of
+possible questions and answers for each type of image, as
+well as an ASP background knowledge specification
+related to the downstream task. Finally, you are also
+given a set of mode declarations, which the
+symbolic learner uses to construct a search space for
+possible rules. The mode declarations define what should
+be in the head and the body of the learned rules, using
+#modeh, and #modeb statements respectively. The background
+knowledge and mode declarations give clues as to the
+format of the atoms in the inclusion and exclusion sets,
+as well as the contextual facts.
+Here are some examples:
+Example 1:
+Description: The downstream task is to learn a set of
+rules define the validity of 4x4 Sudoku grids. Image
+features are given related to the digits apparent in
+each cell. The digit values are in the range 1-4, and
+the output is a binary classification. Note that it
+is important to associate the value of each digit to
+a particular cell on the Sudoku grid.
+Complete set of questions and answers for each type of
+image: {"1": [{"question": "what is the digit value?",
+"answer": "1"}], "2": [{"question": "what is the digit
+value?", "answer": "2"}], "3": [{"question": "what
+is the digit value?", "answer": "3"}], "4": [{
+"question": "what is the digit value?", "answer":
+"4"}]}
+ASP background knowledge for the downstream task:
+value("1, 1", X) :- value(1, 1, X).
+value("1, 2", X) :- value(1, 2, X).
+value("1, 3", X) :- value(1, 3, X).
+value("1, 4", X) :- value(1, 4, X).
+value("2, 1", X) :- value(2, 1, X).
+value("2, 2", X) :- value(2, 2, X).
+value("2, 3", X) :- value(2, 3, X).
+value("2, 4", X) :- value(2, 4, X).
+... etc.
+% Columns
+col("1, 1", 1).
+col("1, 2", 2).
+col("1, 3", 3).
+col("1, 4", 4).
+col("2, 1", 1).
+col("2, 2", 2).
+col("2, 3", 3).
+col("2, 4", 4).
+... etc.
+% Rows
+row("1, 1", 1).
+row("1, 2", 1).
+row("1, 3", 1).
+row("1, 4", 1).
+row("2, 1", 2).
+row("2, 2", 2).
+row("2, 3", 2).
+row("2, 4", 2).
+... etc.
+% Blocks
+block("1, 1", 1).
+block("1, 2", 1).
+block("2, 1", 1).
+block("2, 2", 1).
+... etc.
+Mode declarations for the symbolic learner:
+#modeh(invalid).
+#modeb(value(var(cell), var(num))).
+#modeb(row(var(cell), var(row))).
+#modeb(not row(var(cell), var(row))).
+#modeb(col(var(cell), var(col))).
+#modeb(not col(var(cell), var(col))).
+#modeb(block(var(cell), var(block))).
+#modeb(not block(var(cell), var(block))).
+#modeb(neq(var(cell), var(cell))).
+neq(X, Y) :- cell(X), cell(Y), X != Y.
+#maxv(4).
+num(1..4).
+row(1..4).
+col(1..4).
+block(1..4).
+cell(C) :- value(C, _).
+#bias("penalty(1, head).").
+#bias("penalty(1, body(X)) :- in_body(X).").
+Python function:
+‘‘‘python
+def create_wcdpi(example_identifier: str, image_features:
+list, label: str):
+# Decide whether to create a positive or negative
+example
+if label == ’1’:
+positive = True
+else:
+positive = False
+# Create contextual facts
+# Assume image features are passed in order of
+increasing row and column
+ctx = []
+GRID_SIZE = 4
+current_idx = 0
+for row in range(1, GRID_SIZE+1):
+
+[TABLE page=11 index=1]
+Columns: Unnamed: 0 | MNIST Arithmetic | Follow Suit 4 | Follow Suit 10 | Plant HS
+Row 1: Unnamed: 0: | MNIST Arithmetic: 100+100 labels | Follow Suit 4: 52+100 labels | Follow Suit 10: 52+100 labels | Plant HS: 760+100 labels
+Row 2: Unnamed: 0: | MNIST Arithmetic: Sum E9P | Follow Suit 4: Standard ACA | Follow Suit 10: Standard ACA | Plant HS:
+Row 3: Unnamed: 0: Manual QA + Manual Sym. Ex. | MNIST Arithmetic: 0.8492 (0.01) 0.9004 (0.00) | Follow Suit 4: 0.9958 (0.00) 0.9994 (0.00) | Follow Suit 10: 0.9968 (0.00) 1.0000 (0.00) | Plant HS: 0.9846 (0.00)
+Row 4: Unnamed: 0: LLM QA + Manual Sym. Ex. | MNIST Arithmetic: 0.6954 (0.16) 0.7302 (0.17) | Follow Suit 4: 0.9928 (0.00) 0.9984 (0.00) | Follow Suit 10: 0.9892 (0.01) 0.9974 (0.00) | Plant HS: 0.9734 (0.01)
+Row 5: Unnamed: 0: Manual QA + LLM Sym. Ex. | MNIST Arithmetic: 0.5158 (0.21) 0.5486 (0.22) | Follow Suit 4: 0.2938 (0.20) 0.2938 (0.20) | Follow Suit 10: 0.2936 (0.18) 0.2936 (0.18) | Plant HS: 0.7874 (0.20)
+Row 6: Unnamed: 0: LLM QA + LLM Sym. Ex. | MNIST Arithmetic: 0.1634 (0.16) 0.1746 (0.17) | Follow Suit 4: 0.0500 (0.05) 0.0500 (0.05) | Follow Suit 10: 0.0908 (0.09) 0.0912 (0.09) | Plant HS: 0.1974 (0.20)
+Row 7: Unnamed: 0: Manual QA + LLM Sym. Ex.∗ | MNIST Arithmetic: 0.8492 (0.01) 0.9004 (0.00) | Follow Suit 4: 0.5986 (0.24) 0.5994 (0.24) | Follow Suit 10: 0.9968 (0.00) 1.0000 (0.00) | Plant HS: Row 8: Unnamed: 0: LLM QA + LLM Sym. Ex.∗ | MNIST Arithmetic: 0.6832 (0.17) 0.7198 (0.18) | Follow Suit 4: 0.8472 (0.15) 0.8486 (0.15) | Follow Suit 10: 0.7898 (0.20) 0.7976 (0.20) | Plant HS: -
+[/TABLE]
+
+[PAGE 12]
+for col in range(1, GRID_SIZE+1):
+ctx.append(f’value({row},{col},{image_features[
+current_idx]["what is the digit value?"]})
+.’)
+current_idx += 1
+# Create WCDPI
+new_example = WCDPI(ex_id=f"id{example_identifier}",
+positive=positive, weight=10, inclusion=[],
+exclusion=[], context=ctx)
+return new_example
+‘‘‘
+Example 2:
+Description: The downstream task is to learn a set of
+rules that define the features of various animals.
+Image features are given related to a single animal (
+one image). Only one animal is present in each image.
+Complete set of questions and answers for each type of
+image: {"fish": [{"question": "does it have hair?", "
+answer": "no"}, {"question": "does it have fins?", "
+answer": "yes"}, {"question": "does it lay eggs?", "
+answer": "yes"}, {"question": "does it have feathers
+?", "answer": "no"}, {"question": "does it have legs
+?", "answer": "no"}], "bird": [{"question": "does it
+have hair?", "answer": "no"}, {"question": "does it
+have fins?", "answer": "no"}, {"question": "does it
+lay eggs?", "answer": "yes"}, {"question": "does it
+have feathers?", "answer": "yes"}, {"question": "does
+it have legs?", "answer": "yes"}], "mammal": [{"
+question": "does it have hair?", "answer": "yes"}, {"
+question": "does it have fins?", "answer": "no"}, {"
+question": "does it lay eggs?", "answer": "no"}, {"
+question": "does it have feathers?", "answer": "no"},
+{"question": "does it have legs?", "answer": "yes
+"}]}
+ASP background knowledge for the downstream task:
+:- class(X), class(Y), X < Y.
+Mode declarations for the symbolic learner:
+#maxv(1).
+#modeh(class(const(class))).
+#modeb(1, hair(const(hair))).
+#modeb(1, feathers(const(feathers))).
+#modeb(1, eggs(const(eggs))).
+#modeb(1, fins(const(fins))).
+#modeb(1, legs(const(legs))).
+Python function:
+‘‘‘python
+def create_wcdpi(example_identifier: str, image_features:
+list, label: str):
+# Inclusion set
+inclusion_set = [f’label({label})’]
+# Exclusion set - all other classes
+classes = [’fish’, ’bird’, ’mammal’]
+exclusion_set = [f’label({l})’ for l in classes if l !=
+label]
+# Create contextual facts
+# Single image so extract first image features
+first_image = image_features[0]
+ctx = [f’hair({first_image["does it have hair?"]}).’, f
+’fins({first_image["does it have fins?"]}).’,
+f’feathers({first_image["does it have feathers?"]}).’,
+f’eggs({first_image["does it lay eggs?"]}).’,
+f’legs({first_image["does it have legs?"]}).’]
+# Create WCDPI
+new_example = WCDPI(ex_id=f"id{example_identifier}",
+positive=True, weight=10, inclusion=inclusion_set,
+exclusion=exclusion_set, context=ctx)
+return new_example
+‘‘‘
+Listing 6: Instruction used for MNIST Arithmetic symbolic example
+generation.
+Goal:
+Generate a Python function for the following task:
+Description: The downstream task is to learn a set of
+rules that perform arithmetic over two numeric digits.
+Image features are given related to the two digits, and
+the digit values are in the range 0-9. The output is in
+the range 0-18.
+Complete set of questions and answers for each type of
+image:
+{’0’: [{’question’: ’which digit is this?’, ’answer’:
+’0’}],
+...,
+’9’: [{’question’: ’which digit is this?’, ’answer’:
+’9’}]}
+<<Insert ASP background knowledge and mode declarations>>
+Python function:
+Listing 7: Instruction used for Follow Suit symbolic example generation.
+Goal:
+Generate a Python function for the following task:
+Description: The downstream task is to learn a set of
+rules of a playing card game with 4 players. Image
+features are given related to 4 playing card images,
+which correspond to a card played by each player of
+the game. The cards take values from a standard deck
+of 52 playing cards, and the output indicates which
+player wins the game.
+Complete set of questions and answers for each type of
+image: {’2h’: [{’question’: ’which color are the
+symbols?’, ’answer’: ’red’}, {’question’: ’which
+symbol is on the card?’, ’answer’: ’heart’}, {’
+question’: ’which suit is the playing card?’, ’answer
+’: ’hearts’}, {’question’: ’which rank is the playing
+card?’, ’answer’: ’2’}, {’question’: ’is it a number
+card or face card?’, ’answer’: ’number’}],
+...,
+’ac’: [{’question’: ’which color are the symbols?’, ’
+answer’: ’black’}, {’question’: ’which symbol is on
+the card?’, ’answer’: ’club’}, {’question’: ’which
+suit is the playing card?’, ’answer’: ’clubs’}, {’
+question’: ’which rank is the playing card?’, ’answer
+’: ’ace’}, {’question’: ’is it a number card or face
+card?’, ’answer’: ’face’}]}
+<< Insert ASP background knowledge and mode declarations>>
+Python function:
+Listing 8: Instruction used for Plant Hitting Sets symbolic example
+generation.
+Goal:
+Generate a Python function for the following task:
+Description: The downstream task is to learn a set of
+rules over a collection of sets containing images
+related to plant disease. There are various plant
+diseases, and they are denoted by integers 1-38
+inclusive. It is important to associate each image
+with a particular set identifier. The output is a
+binary classification. Assume a global variable "
+ss_element_assignments" is available, that is
+assigned a list that contains subset assignments for
+each image in an example. This list can be indexed by
+the example identifier to return a list of subset
+identifiers, one for each image. Also, assume a
+function "get_image_class" is available, that takes
+as input the key "{species}_{disease}", and returns
+the associated integer in the range 1-38.
+
+[TABLE page=12 index=1]
+Columns: :- class(X), class(Y), X < Y. | Unnamed: 0 | image: {’2h’: [{’question’: ’which color are the
+Row 1: :- class(X), class(Y), X < Y.: | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: symbols?’, ’answer’: ’red’}, {’question’: ’which
+Row 2: :- class(X), class(Y), X < Y.: Mode declarations for the symbolic learner: | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: symbol is on the card?’, ’answer’: ’heart’}, {’
+Row 3: :- class(X), class(Y), X < Y.: #maxv(1). | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: question’: ’which suit is the playing card?’, ’answer
+Row 4: :- class(X), class(Y), X < Y.: #modeh(class(const(class))). | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: ’: ’hearts’}, {’question’: ’which rank is the playing
+Row 5: :- class(X), class(Y), X < Y.: #modeb(1, hair(const(hair))). | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: card?’, ’answer’: ’2’}, {’question’: ’is it a number
+Row 6: :- class(X), class(Y), X < Y.: #modeb(1, feathers(const(feathers))). | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: card or face card?’, ’answer’: ’number’}],
+Row 7: :- class(X), class(Y), X < Y.: #modeb(1, eggs(const(eggs))). | Unnamed: 0: ..., | image: {’2h’: [{’question’: ’which color are the:
+Row 8: :- class(X), class(Y), X < Y.: #modeb(1, fins(const(fins))). | Unnamed: 0: ’ac’: [{’question’: ’which color are the symbols?’, ’ | image: {’2h’: [{’question’: ’which color are the:
+Row 9: :- class(X), class(Y), X < Y.: #modeb(1, legs(const(legs))). | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: answer’: ’black’}, {’question’: ’which symbol is on
+Row 10: :- class(X), class(Y), X < Y.: | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: the card?’, ’answer’: ’club’}, {’question’: ’which
+Row 11: :- class(X), class(Y), X < Y.: Python function: | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: suit is the playing card?’, ’answer’: ’clubs’}, {’
+Row 12: :- class(X), class(Y), X < Y.: | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: question’: ’which rank is the playing card?’, ’answer
+Row 13: :- class(X), class(Y), X < Y.: ‘‘‘python | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: ’: ’ace’}, {’question’: ’is it a number card or face
+Row 14: :- class(X), class(Y), X < Y.: def create_wcdpi(example_identifier: str, image_features: | Unnamed: 0: | image: {’2h’: [{’question’: ’which color are the: card?’, ’answer’: ’face’}]}
+[/TABLE]
+
+[PAGE 13]
+Complete set of questions and answers for each type of
+image: {’1’: [{’question’: ’which plant species is
+this?’, ’answer’: ’apple’}, {’question’: ’which
+disease is this?’, ’answer’: ’scab’}],
+...,
+’38’: [{’question’: ’which plant species is this?’, ’
+answer’: ’tomato’}, {’question’: ’which disease is
+this?’, ’answer’: ’healthy’}]}
+<<Insert ASP background knowledge and mode declarations>>
+Python function:
+In order to evaluate the responses from the LLM, we perform a variety of experiments with all combinations of manual and LLM engineered components, and report the mean
+task accuracy, and standard error over 5 repeats. We use 5
+different random seeds, and pass these to the LLM accordingly. All experiments are performed with the OpenAI API,
+and queries were made between 19th-30th December 2023.
+For the QA generation prompts, we use the “gpt-4” model
+with 1000 max tokens for MNIST Arithmetic, and the “gpt-41106-preview” model with 4096 max tokens for Follow Suit
+and Plant Hitting Sets. For the symbolic example prompts,
+we use the “gpt-4” model with 750 max tokens in all tasks.
+Note on the Follow Suit task, we give only 50% of the labels in the QA JSON, as otherwise the max token limit is
+exceeded.
+The results are shown in Table 2. Manually engineering
+everything achieves the best performance, although the LLM
+shows promise in generating questions and answers for finetuning BLIP in the Follow Suit and Plant Hitting Sets tasks
+(see LLM QA + Manual Sym.Ex ). In the MNIST Arithmetic
+tasks, it is difficult to decompose the MNIST images into a set
+of questions. On four repeats, GPT-4 returns the expected response of directly querying the value of the digit, whereas on
+one repeat it returns a set of questions based on the digit being
+even, and greater than 5. When GPT-4 directly generates the
+function to create symbolic examples, the accuracy is poor,
+although we show with simple syntactic fixes, the accuracy
+is able to approach that of manual engineering in the MNIST
+Arithmetic and the 10-player Follow Suit tasks. Simple errors
+include using a solution predicate in the inclusion set instead of the label predicate in the MNIST Arithmetic tasks,
+and using the rank values “jack”, “queen”, “king”, and “ace”,
+instead of single letters, as expected by the ASP background
+knowledge. In the Plant Hitting Sets case, the responses contained significant errors that couldn’t easily be fixed manually. Full details of all responses, and errors made, are available in the code.3 Requiring the user to apply simple fixes is a
+significantly reduced level of engineering compared to specifying the full components. In all but the Plant Hitting Sets
+domain, when using the LLM to generate both components,
+and assuming user fixes, the task accuracy achieved is reasonable. As LLMs are an active research area, we expect these
+results to improve as LLMs improve.
+A.2 Follow Suit Results
+The Follow Suit results are presented in Figures 4 and 5 for
+reasoning and learning respectively. NeSyGPT achieves perfect performance in all cases, and significantly outperforms
+3https://www.github.com/TBC
+the baselines, with the exception of FF-NSL, which is closer
+to our approach. As expected, all methods perform better
+on the 4-player standard and ACA variants, as the 10-player
+variant contains significantly more choice for the symbolic
+features.
+A.3 Learned Rules
+The learned rules are shown in Figure 6. For MNIST Arithmetic, the rules represent the Addition and E9P functions
+over two input digits, where the definitions of even and
+plus nine predicates are given in the background knowledge (see Section A.4). For Follow Suit, the rules define
+whether a given player is a winner. winner(X) is true if neither of the p1 rules hold. p1 is the invented predicate, and is
+true if the suit of the given player is different from the suit
+of Player 1, or if there is another player with the same suit
+as Player 1 with a higher ranked card than the given player.
+For Plant Hitting Sets, the first rule is a choice rule that generates all possible hitting sets, where V1 is the index and V2
+is the element. The second rule defines whether a subset is
+“hit”, that is, if it contains an element in the hitting set. The
+remaining rules are constraints that ensure all subsets are hit,
+the hitting set must not contain different elements at a given
+index, and there are no “healthy” elements in the hitting set.
+Finally, for CLEVR-Hans, the rules define the various object
+properties associated with each class, where V0 and V1 are
+object indices.
+A.4 Domain Knowledge
+Listing 9: MNIST Arithmetic domain knowledge.
+% Background Knowledge
+even(X) :- digit_type(X), X \ 2 = 0.
+plus_nine(X1,X2) :- digit_type(X1), X2=9+X1.
+:- digit(1,X0),digit(2,X1),label(Y1),label(Y2), Y1 != Y2.
+label(Y) :- digit(1,X0), digit(2,X1), solution(X0,X1,Y).
+num(0..18).
+digit_type(0..9).
+% Mode Declarations
+#modeh(solution(var(digit_type),var(digit_type),
+var(num))).
+#modeb(var(num) = var(digit_type)).
+#modeb(var(num) = var(digit_type) + var(digit_type)).
+#modeb(plus_nine(var(digit_type),var(num))).
+#modeb(even(var(digit_type))).
+#modeb(not even(var(digit_type))).
+#maxv(3).
+#bias("penalty(1, head(X)) :- in_head(X).").
+#bias("penalty(1, body(X)) :- in_body(X).").
+Listing 10: Follow Suit domain knowledge.
+% Background Knowledge
+suit(h). suit(s). suit(d). suit(c). rank(a). rank(2).
+rank(3). rank(4). rank(5). rank(6). rank(7). rank(8).
+rank(9). rank(10). rank(j). rank(q). rank(k).
+rank_value(2, 2). rank_value(3, 3). rank_value(4, 4).
+rank_value(5, 5). rank_value(6, 6). rank_value(7, 7).
+rank_value(8, 8). rank_value(9, 9). rank_value(10, 10).
+rank_value(j, 11). rank_value(q, 12). rank_value(k, 13).
+rank_value(a, 14). player(1..4).
+% Highest rank
+rank_higher(P1, P2) :- card(P1, R1, _), card(P2, R2, _),
+rank_value(R1, V1), rank_value(R2, V2), V1 > V2.
+% Link player’s card to suit
+
+[TABLE page=13 index=1]
+Columns: able in the code.3 Requiring the user to apply simple fixes is a | Unnamed: 0
+Row 1: able in the code.3 Requiring the user to apply simple fixes is a: significantly reduced level of engineering compared to spec- | Unnamed: 0: Listing 10: Follow Suit domain knowledge.
+Row 2: able in the code.3 Requiring the user to apply simple fixes is a: ifying the full components. In all but the Plant Hitting Sets | Unnamed: 0:
+Row 3: able in the code.3 Requiring the user to apply simple fixes is a: | Unnamed: 0: % Background Knowledge
+Row 4: able in the code.3 Requiring the user to apply simple fixes is a: domain, when using the LLM to generate both components, | Unnamed: 0: suit(h). suit(s). suit(d). suit(c). rank(a). rank(2).
+Row 5: able in the code.3 Requiring the user to apply simple fixes is a: and assuming user fixes, the task accuracy achieved is reason- | Unnamed: 0: rank(3). rank(4). rank(5). rank(6). rank(7). rank(8).
+Row 6: able in the code.3 Requiring the user to apply simple fixes is a: | Unnamed: 0: rank(9). rank(10). rank(j). rank(q). rank(k).
+Row 7: able in the code.3 Requiring the user to apply simple fixes is a: able. As LLMs are an active research area, we expect these | Unnamed: 0:
+Row 8: able in the code.3 Requiring the user to apply simple fixes is a: | Unnamed: 0: rank_value(2, 2). rank_value(3, 3). rank_value(4, 4).
+Row 9: able in the code.3 Requiring the user to apply simple fixes is a: results to improve as LLMs improve. | Unnamed: 0: rank_value(5, 5). rank_value(6, 6). rank_value(7, 7).
+[/TABLE]
+
+[PAGE 14]
+Ours (rules given) NeurASP Embed2Sym Embed2Sym* SLASH BLIP+ABL
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(a) 4 Standard
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(b) 4 ACA
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(c) 10 Standard
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(d) 10 ACA
+Figure 4: Follow Suit task accuracy when the symbolic rules are given.
+Ours FF-NSL NSIL ViT+ReasoningNet BLIP+GPT4 BLIP Single Image
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(a) 4 Standard
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(b) 4 ACA
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(c) 10 Standard
+0 1000 2000 3000 4000 5000
+Total num. of labels
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0Task accuracy
+(d) 10 ACA
+Figure 5: Follow Suit task accuracy when the symbolic rules are learned.
+suit(P1, S) :- card(P1, _, S).
+% Mode Declarations
+P(X) :- Q(X), identity(P, Q).
+P(X) :- player(X), not Q(X), inverse(P, Q).
+#modem(2, inverse(target/1, invented/1)).
+#modem(2, identity(target/1, invented/1)).
+#predicate(target, winner/1).
+#predicate(invented, p1/1).
+#modeh(p1(var(player))).
+#modeb(1, var(suit) != var(suit)).
+#modeb(1, suit(var(player), var(suit)), (positive)).
+#modeb(1, suit(const(player), var(suit)), (positive)).
+#modeb(1, rank_higher(var(player), var(player)),
+(positive)).
+#constant(player, 1).
+#constant(player, 2).
+#constant(player, 3).
+#constant(player, 4).
+Listing 11: Plant Hitting Sets domain knowledge.
+% Background Knowledge
+ss(1..5). hs_index(1..2). elt(1..38). healthy(4).
+healthy(5). healthy(7). healthy(11). healthy(15).
+healthy(18). healthy(20). healthy(23). healthy(24).
+healthy(25). healthy(28). healthy(38).
+% Mode Declarations
+#modeha(hs(var(hs_index), var(elt))).
+#modeb(hs(var(hs_index), var(elt)),(positive)).
+#modeb(var(elt) != var(elt)).
+#modeb(ss_element(var(ss), var(elt)),(positive)).
+#modeh(hit(var(ss))).
+#modeb(hit(var(ss))).
+#modeb(healthy(var(elt)), (positive)).
+#bias(":- not lb(0), choice_rule.").
+#bias(":- not ub(1), choice_rule.").
+#bias(":- in_head(H1), in_head(H2), H1<H2.").
+Listing 12: CLEVR-HANS domain knowledge.
+% Background Knowledge
+:- label(X), label(Y), X < Y. label_type(0..2).
+obj_id(1..10). s_type(small). s_type(large).
+m_type(rubber). m_type(metal). c_type(red).
+c_type(cyan). c_type(brown). c_type(yellow).
+c_type(blue). c_type(gray). c_type(purple).
+c_type(green). sh_type(cylinder). sh_type(sphere).
+sh_type(cube).
+% Mode Declarations
+#maxv(2).
+#modeh(label(const(label_type))).
+#modeb(size(var(obj_id), const(s_type))).
+#modeb(material(var(obj_id), const(m_type))).
+#modeb(color(var(obj_id), const(c_type))).
+#modeb(shape(var(obj_id), const(sh_type))).
+#bias("penalty(1, head(X)) :- in_head(X).").
+#bias("penalty(1, body(X)) :- in_body(X).").
+A.5 Baseline Details
+In this section we present specific noteworthy details and
+analysis of the baseline methods.
+NeurASP. On Follow Suit and Plant Hitting Sets tasks, we
+had to limit the number of epochs to 10, and the number of
+answer sets returned for each training example to 5000, in
+order to obtain results within the 24-hour time limit.
+Embed2Sym. In the MNIST Arithmetic domain, the
+variant of Embed2Sym trained with image features, Embed2Sym*, achieves a better clustering in the embedding
+
+[TABLE page=14 index=1]
+Columns: 1.0 | 1.0.1 | 1.0.2 | 1.0.3
+Row 1: 1.0: | 1.0.1: | 1.0.2: 0.8 | 1.0.3:
+Row 2: 1.0: 0.8 | 1.0.1: 0.8 | 1.0.2: | 1.0.3: 0.8
+[/TABLE]
+
+[TABLE page=14 index=2]
+Columns: Unnamed: 0 | Ours (rules given) | Unnamed: 1 | Unnamed: 2 | NeurASP | Embed2Sym | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Embed2Sym* | Unnamed: 6 | SLASH | Unnamed: 7 | BLIP+ABTLask accuracy | Unnamed: 8 | Task accuracy
+Row 1: Unnamed: 0: | Ours (rules given): | Unnamed: 1: 1.0 | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: 1.0 | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: 1.0 | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 2: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: 0.8 | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 3: Unnamed: 0: | Ours (rules given): | Unnamed: 1: 0.8 | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: 0.8 | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 4: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: 0.6 | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: 0.6 | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 5: Unnamed: 0: | Ours (rules given): | Unnamed: 1: 0.6 | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 6: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: 0.4 | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: 0.4 | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 7: Unnamed: 0: | Ours (rules given): | Unnamed: 1: 0.4 | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 8: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: 0.2 | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 9: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: 0.2 | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 10: Unnamed: 0: | Ours (rules given): | Unnamed: 1: 0.2 | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 11: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: 0.0 | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 12: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: 0.0 | Unnamed: 7: | BLIP+ABTLask accuracy: | Unnamed: 8: | Task accuracy:
+Row 13: Unnamed: 0: 2000 | Ours (rules given): 3000 4000 5000 | Unnamed: 1: | Unnamed: 2: 0.0 | NeurASP: 1000 2000 3000 | Embed2Sym: 4000.0 | Unnamed: 3: 5000.0 | Unnamed: 4: | Unnamed: 5: 0.0 | Embed2Sym*: 1000 2000 3000 4000 | Unnamed: 6: | SLASH: 5000.0 | Unnamed: 7: 0.0 | BLIP+ABTLask accuracy: 1000 2000 3000 4000 | Unnamed: 8: 5000.0 | Task accuracy:
+Row 14: Unnamed: 0: tal num. of labels | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: Total num. of labels | Embed2Sym: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Embed2Sym*: Total num. of labels | Unnamed: 6: | SLASH: | Unnamed: 7: | BLIP+ABTLask accuracy: Total num. of labels | Unnamed: 8: | Task accuracy:
+Row 15: Unnamed: 0: Standard | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: (b) 4 ACA | Embed2Sym: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Embed2Sym*: (c) 10 Standard | Unnamed: 6: | SLASH: | Unnamed: 7: | BLIP+ABTLask accuracy: (d) 10 ACA | Unnamed: 8: | Task accuracy:
+Row 16: Unnamed: 0: | Ours (rules given): | Unnamed: 1: | Unnamed: 2: | NeurASP: | Embed2Sym: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Embed2Sym*: | Unnamed: 6: | SLASH: | Unnamed: 7: | BLIP+ABTLask accuracy: Task accuracy | Unnamed: 8: | Task accuracy: Task accuracy
+[/TABLE]
+
+[TABLE page=14 index=3]
+Columns: Unnamed: 0 | Ours | FF-NSL | NSIL | ViT+ReasoningNet | BLIP+GPT4 | BLIP Single Image
+Row 1: Unnamed: 0: 1.0 | Ours: | FF-NSL: 1.0 | NSIL: | ViT+ReasoningNet: 1.0 | BLIP+GPT4: | BLIP Single Image: 1.0
+Row 2: Unnamed: 0: | Ours: | FF-NSL: | NSIL: | ViT+ReasoningNet: 0.8 | BLIP+GPT4: | BLIP Single Image: 0.8
+Row 3: Unnamed: 0: 0.8 | Ours: | FF-NSL: 0.8 | NSIL: | ViT+ReasoningNet: | BLIP+GPT4: | BLIP Single Image:
+Row 4: Unnamed: 0: | Ours: | FF-NSL: | NSIL: | ViT+ReasoningNet: 0.6 | BLIP+GPT4: | BLIP Single Image: 0.6
+Row 5: Unnamed: 0: 0.6 | Ours: | FF-NSL: 0.6 | NSIL: | ViT+ReasoningNet: | BLIP+GPT4: | BLIP Single Image:
+Row 6: Unnamed: 0: | Ours: | FF-NSL: | NSIL: | ViT+ReasoningNet: 0.4 | BLIP+GPT4: | BLIP Single Image: 0.4
+Row 7: Unnamed: 0: 0.4 | Ours: | FF-NSL: 0.4 | NSIL: | ViT+ReasoningNet: | BLIP+GPT4: | BLIP Single Image:
+Row 8: Unnamed: 0: | Ours: | FF-NSL: | NSIL: | ViT+ReasoningNet: 0.2 | BLIP+GPT4: | BLIP Single Image: 0.2
+Row 9: Unnamed: 0: 0.2 | Ours: | FF-NSL: 0.2 | NSIL: | ViT+ReasoningNet: | BLIP+GPT4: | BLIP Single Image:
+Row 10: Unnamed: 0: | Ours: | FF-NSL: | NSIL: | ViT+ReasoningNet: 0.0 | BLIP+GPT4: | BLIP Single Image: 0.0 Task accuracy
+[/TABLE]
+
+[PAGE 15]
+Addition
+result(V0,V1,V2) :- V2 = V0 + V1.
+E9P
+result(V0,V1,V2) :- even(V0),V2 = V1.
+result(V0,V1,V2) :- not even(V0),
+plus_nine(V1,V2).
+(a) MNIST Arithmetic
+winner(X) :- not p1(X), player(X).
+p1(V1) :- V2 != V3, suit(V1,V2), suit(1,V3).
+p1(V1) :- suit(V2,V3), suit(1,V3),
+rank_higher(V2,V1).
+(b) Follow Suit
+0 {hs(V1,V2) } 1.
+hit(V1) :- hs(V3,V2), ss_element(V1,V2).
+:- ss_element(V1,V2), not hit(V1).
+:- hs(V3,V1), hs(V3,V2), V1 != V2.
+:- hs(V1,V2), healthy(V2).
+(c) Plant Hitting Sets
+label(0) :- size(V0,large), shape(V0,cube),
+size(V1,large), shape(V1,cylinder).
+label(1) :- size(V0,small), material(V0,metal),
+shape(V0,cube), size(V1,small),
+shape(V1,sphere).
+label(2) :- size(V0,large), color(V0,blue),
+shape(V0,sphere), size(V1,small),
+color(V1,yellow), shape(V1,sphere).
+(d) CLEVR-Hans
+Figure 6: NeSyGPT learned rules.
+space on the Addition task, compared to the end-to-end variant. This is because the downstream labels in the Addition
+task provide a weaker training signal than training directly
+with image labels. To illustrate this, the TSNE plots of the
+embedding spaces for the first repeat when the models are
+trained with 1100 labels are shown in Figure 7. For reference,
+Figure 8 shows the same plots but for the E9P task, where
+the clustering is similar between the two training strategies.
+This explains the performance difference in Figure 2a, and
+the similar performance in Figure 2b of the two Embed2Sym
+variants.
+(a) Trained with image labels
+(b) Trained end-to-end
+Figure 7: Embed2Sym embedding spaces - Addition.
+(a) Trained with image labels
+(b) Trained end-to-end
+Figure 8: Embed2Sym embedding spaces - E9P.
+In the Follow Suit domain, Embed2Sym* is able to cluster
+the playing card images in embedding space, but the normal
+end-to-end variant fails to separate the cards into 52 clusters.
+The TSNE plots for the embedding spaces for the first repeat
+of the 4-player standard variant, when the models are trained
+with 5300 examples, are shown in Figure 9. Also, in both
+Embed2Sym variants, labelling the clusters is difficult, and
+to obtain results in a timely manner, we return the best cluster labelling the ASP Optimisation can find after 60 seconds.
+For reference, the cluster labelling in the MNIST Arithmetic
+domain completed in less than a second.
+(a) Trained with image labels
+(b) Trained end-to-end
+Figure 9: Embed2Sym embedding spaces - Follow Suit 4 Standard.
+In the Plants Hitting Sets domain, the ViT perception
+model is able to cluster the images without any fine-tuning,
+which explains why the results in both variants are fairly constant. Figure 10 shows the embedding space plots before
+training, and after training with both variants. In the before
+training case, we generate the TSNE plot with the 100-sample
+dataset that the cluster labelling stage observes, whereas after
+training, we use the images in the full dataset of 3800+100
+samples. In the end-to-end case, the training data points in
+the embedding space are closer together. This makes it more
+difficult for k-means to identify general clusters in the data, to
+enable robust test-time performance. This explains why the
+performance of the Embed2Sym* variant is better than the
+end-to-end variant in Figure 2d.
+
+[PAGE 16]
+(a) Before training
+(b) Trained with image labels
+(c) Trained end-to-end
+Figure 10: Embed2Sym embedding spaces - Plant Hitting Sets.
+SLASH. We modified the optimiser to SGD with a learning
+rate of 0.01, as we obtained “nan” values for the gradients.
+This matches the other baselines.
+BLIP+ABL. To match our NeSyGPT results, we train
+BLIP+ABL for 10 iterations on MNIST Arithmetic and Follow Suit, and 20 iterations on Plant Hitting Sets. On MNIST
+Arithmetic, we fine-tune BLIP for 10 epochs with a given set
+of abduced pseudo-labels each iteration. For Follow Suit and
+Plant Hitting Sets, we restricted the number of epochs to 1,
+but this did not prevent a timeout.
+NSIL. In all experiments, we train the perception network
+for 1 epoch given the learned rules at each iteration. We also
+had to limit the number of answer sets to 5000 in each training
+sample, as in the Follow Suit domain there are too many corrective examples for ILASP. This was also required to train
+the network in NeurASP. In the MNIST Arithmetic and Follow Suit domains, we had to restrict NSIL to 10 iterations, in
+order to avoid a timeout. For Follow Suit, we had to further
+restrict the number of corrective examples by removing those
+examples with weights less than 5 (the lower the weight, the
+less influence the example has on the optimisation of the symbolic learner). Finally, we failed to obtain NSIL results in the
+Plant Hitting Sets domain, because the implementation does
+not support variable length training samples, and when attempting to run the initial bootstrap stage manually, the symbolic learner failed to return a hypothesis within a few hours.
+As NeurASP also timed out in this domain, we can assume
+NSIL would also reach a timeout, should the bootstrap task
+have succeeded.
+ViT+ReasoningNet. We tried using an LSTM and a Recurrent Transformer as the reasoning network in the Follow
+Suit domains, but an MLP had superior performance.
+BLIP+GPT4. For this method, we use the same BLIP perception model as NeSyGPT, and prompt GPT-4 to generate
+the symbolic component. For the Arithmetic and Follow Suit
+domains, we prompt GPT-4 to generate a python program,
+and for the Plant Hitting Sets domain GPT-4 generates an
+ASP program, as it is more natural to express the solution
+to this task in a declarative manner. We don’t include the
+target rules directly in the prompt, but we do explain the various relations that can be used, to simulate passing the search
+space as occurs in the symbolic learner of NeSyGPT. We also
+give substantial clues in the Plant Hitting Sets domain as to
+the correct rules, and provide context on the correct syntax of
+ASP. In all experiments we use the “gpt-4” model from the
+OpenAI API, perform 5 repeats with 5 random seeds, and set
+the max tokens parameter to 5000. We access the API between 20th November - 30th December 2023. The prompts
+are shown in Listings 13, 14, and 15 for the MNIST Arithmetic, Follow Suit, and Plant Hitting Sets domains respectively.
+Listing 13: BLIP+GPT4 prompt - MNIST Arithmetic.
+The task is to generate a python program called
+"compute_answer" that returns a target answer, given a
+pair of digits as input. The program should generalise
+across a set of training examples and output the correct
+answer for all of the given input digit pairs. The digits
+are represented using a list, where the first and second
+elements denote the values of the first and second digit
+respectively. Note that the digits could be noisy as they
+are output from neural network predictions. The training
+examples are:
+Example 1:
+Input: [4, 8]
+Output: 12
+Example 2:
+Input: [4, 6]
+Output: 10
+<<Insert more examples here>>
+As background knowledge, consider using code that
+computes; (1) whether a given digit is even or not, (2)
+the arithmetic sum "9 + the given digit", (3) arithmetic
+addition, and (4) equality. Note that the python function
+must generate exactly one output for a given pair of
+digits. The range of possible values for the answer is
+0-18, and for the input digits is 0-9, both inclusive.
+Generate the "compute_answer" python program that covers
+as many of the training examples as possible, whilst
+minimising the length of the program. Return your
+response as #### <python program> ####.
+Listing 14: BLIP+GPT4 prompt - 4-player Follow Suit.
+The task is to generate a python program called
+"compute_answer" that returns a target answer for a card
+game, given a list of 4 playing cards as input. The
+cards in the list correspond to a card played by each of
+4 players, and the answer denotes the winning player in
+the card game. Each player’s card is denoted by the rank
+and then the suit, for example "kh" represents the card
+king of hearts, and "as" represents the card ace of
+spades. Note that for "10d", the rank is 10 and the suit
+is diamonds. The program should generalise across a set
+of training examples and output the correct answer for
+all of the given examples. Note that the cards could be
+noisy as they are output from neural network predictions.
+The training examples are:
+Example 1:
+Input: [’8s’, ’9d’, ’10s’, ’7d’]
+Output: 3
+Example 2:
+Input: [’8c’, ’js’, ’10h’, ’6c’]
+Output: 1
+
+[PAGE 17]
+<<Insert more examples here>>
+As background knowledge, consider using code that
+computes; (1) whether the suit of one player’s card is
+equal to a suit of another player’s card, and (2),
+whether the rank of one player’s card is higher than the
+rank of another player’s card. Note that the python
+function must generate exactly one output for a given
+list of cards. Consider the following python function
+that computes the value of a playing card rank, given as
+input a playing card. This can be used in the program:
+def compute_rank_value(card):
+rank = card[:-1]
+if rank == ’j’:
+rank_value = 11
+elif rank == ’q’:
+rank_value = 12
+elif rank == ’k’:
+rank_value = 13
+elif rank == ’a’:
+rank_value = 14
+else:
+rank_value = int(rank)
+return rank_value
+The range of possible values for the answer is 1-4, and
+assume the card inputs can be one of 52 playing cards
+from a standard deck. Generate the "compute_answer"
+python program that covers as many of the training
+examples as possible, whilst minimising the length of
+the program. Return your response as
+#### <python program> ####.
+Listing 15: BLIP+GPT4 prompt - Plant Hitting Sets.
+The task is to generate an Answer Set Program (ASP)
+program that decides whether a given collection of sets
+contains a hitting set. A hitting set is a set that
+intersects with each set in the collection. Each set
+contains integer values, which are given as input. In
+this task, the hitting set is restricted to be of size
+2 or less. In each example, elements in each set are
+denoted with the predicate "ss_el", where the arguments
+correspond to the set identifier and the element itself.
+For example, "ss_el(1,5)." indicates that set 1 contains
+the element 5. The program should generalise across a
+set of training examples and return satisfiable or
+unsatisfiable (depending on whether the collection of
+elements contains a hitting set) for all of the given
+examples. Note the "ss_el" predicates could be noisy as
+the elements are generated from neural network
+predictions. The training examples are:
+Example 1:
+Input:
+ss_el(1,24). ss_el(1,31). ss_el(1,33). ss_el(1,14).
+ss_el(1,3). ss_el(2,26). ss_el(2,6). ss_el(2,28).
+ss_el(2,37). ss_el(2,31). ss_el(3,29). ss_el(3,18).
+ss_el(3,9). ss_el(4,10). ss_el(4,5). ss_el(4,24).
+ss_el(4,26).
+Has hitting set? No.
+Example 2:
+Input:
+ss_el(1,36). ss_el(1,19). ss_el(1,31). ss_el(1,23).
+ss_el(2,19). ss_el(2,35). ss_el(2,7). ss_el(2,27).
+ss_el(2,32).
+Has hitting set? Yes.
+<<Insert more examples here>>
+The following ASP background knowledge should be used in
+the program:
+hs_index(1..2).
+elt(1..38).
+healthy(4). healthy(5). healthy(7). healthy(11).
+healthy(15). healthy(18). healthy(20). healthy(23).
+healthy(24). healthy(25). healthy(28). healthy(38).
+The "hs_index" predicate denotes the index in the hitting
+set (1 or 2). "elt" denotes the range of possible integer
+elements. The "healthy" predicate indicates which integers
+have the healthy attribute and do not appear in the
+hitting set. When generating the ASP program, consider
+using the following predicates in the head of a rule: a
+"hs" predicate of arity 2 with the form "hs(X,Y)", which
+associates an element Y in the hitting set with it’s
+index in the hitting set X, and a "hit" predicate of
+arity 1 with the form "hit(X)", to denote if a set X
+in the collection has been hit. In the body of the
+rule(s), consider using: (1) the "hs" predicate, (2)
+the != relation to denote that two elements are not
+equal, (3) the "ss_el" predicate, (4) the "hit"
+predicate, and (5) a "healthy" predicate to constrain
+the hitting set to only include non-healthy elements.
+You may use all necessary ASP constructs such as
+variables, negation, constraints and choice rules. In ASP,
+negation of an atom p is expresses as "not p.". Negation
+of a predicate q(x) is expressed as "not q(x).". For
+choice rules, use the form "a { p(1); p(2); p(3) } b."
+which is a disjunction and denotes "choose a minimum of
+a, and a maximum of b of elements from the set
+{ p(1), p(2), p(3) }". Don’t use any weak constraints,
+optimisation statements, square brackets, or # statements.
+Include a constraint to ensure that the same elements
+occur at the same index in the hitting set. Also ensure
+that each set in the given collection is hit. Make sure
+all variables introduced in the head of a rule exist in
+the body, and that all variables are grounded by the
+background knowledge or the set elements. Try to generate
+an ASP program that covers as many of the training
+examples as possible, whilst minimising the length of
+the program. Return your response as
+#### <ASP program> ####.
+It is also interesting to analyse the ASP programs GPT4 generates. Listing 16 shows an example where the correct rules are learned. This can be compared to the program
+learned by ILASP, presented in Figure 6c. GPT-4 generates
+the constraint that the hitting set must only contain healthy
+elements in the choice rule, which is a more compact representation than what ILASP learns (due to the representation
+given in the mode declarations). Although, GPT-4 repeats
+the healthy constraint in the third and fourth rules, which is
+redundant. GPT-4 also generates a constraint which states
+that the hitting set must not contain duplicate elements at the
+different indices, whereas ILASP learns the constraint that
+ensures different elements are not present at the same index.
+The third and fourth rules generated by GPT-4 are similar to
+what ILASP learns, as there is a definition of what it means
+for a set to be hit, and a constraint that ensures each set in the
+collection is hit. The other programs generated by GPT-4 are
+given in our GitHub repository.
+Listing 16: Example GPT-4 output for Plant Hitting Sets.
+% Choice rule for hitting set elements
+1 { hs(I,E) : hs_index(I), elt(E), not healthy(E) } 2.
+% Constraint for same elements to occur at same index
+:- hs(I,E1), hs(J,E2), I != J, E1 = E2.
+% Each set should be hit by at least one element from the
+hitting set
+:- ss_el(S,E), not hit(S), elt(E), not healthy(E).
+% A set is hit if it contains an element also in the
+hitting set
+hit(S) :- hs(I,E), ss_el(S,E), elt(E), not healthy(E).
+BLIP Single Image . For the Follow Suit domain, we include player annotations for each image, and for the Plant
+
+[PAGE 18]
+MNIST Arithmetic Follow Suit 4 Follow Suit 10 Plant HS
+1100 labels 5300 labels 5300 labels 3900 labels
+Sum E9P Standard ACA Standard ACA
+Embed2Sym* 99.6 (1.5) 111.7 (1.4) 2322.6 (11.4) 3132.3 (27.6) 2343.1 (5.8) 3302.6 (24.5) 2030.9 (47.7)
+Embed2Sym 101.7 (0.3) 101.2 (0.3) 1136.2 (4.3) 1291.3 (7.6) 2859.5 (1.3) 3382.2 (51.8) 6626.2 (963.5)
+ViT+ReasoningNet 113.9 (0.3) 118.2 (0.4) 2534.8 (9.6) 2693.3 (15.3) 3160.1 (32.3) 2568.4 (2.7) 765.7 (11.3)
+FF-NSL 126.5 (0.5) 126.9 (0.5) 2382.4 (28.3) 2645.4 (48.8) 2399.0 (25.9) 2660.9 (50.9) 1247.0 (120.2)
+NSIL 545.2 (52.3) 395.5 (25.8) - - - - NeurASP 689.4 (6.1) 730.1 (8.2) - - - - SLASH 1112.6 (6.6) 963.5 (27.4) - - - - Ours (rules given) 1557.6 (7.5) 1557.6 (7.5) 15597.4 (302.1) 15147.6 (242.4) 15597.4 (302.1) 15147.6 (242.4) 9653.1 (9.7)
+BLIP+GPT4 1559.4 (7.7) 1562.7 (7.4) 15606.3 (301.8) 15161.7 (242.4) - - Ours 1581.0 (8.0) 1579.9 (7.5) 15603.1 (301.8) 15153.4 (242.2) 15621.9 (302.8) 15172.2 (241.3) 9998.6 (85.7)
+BLIP Single Image 3495.1 (8.1) 3530.7 (7.4) 15747.1 (224.9) 16033.7 (94.7) 16346.4 (109.8) 16378.9 (216.5) 11478.4 (27.7)
+BLIP+ABL 17521.9 (290.8) 17760.3 (326.1) - - - - Table 3: Average learning time results (s) when models are trained with the largest number of labels. Sorted by increasing learning time on
+the MNIST Arithmetic Sum task. Results show average time and standard error across 5 repeats.
+Hitting Sets domain, we encode the set assignment information as brackets within the image. All images are square as
+required by the BLIP image processors. Figure 11 shows example data points for each domain.
+(a) MNIST Arithmetic
+(b) Follow Suit
+(c) Plant Hitting
+Sets
+Figure 11: BLIP Single Image examples.
+A.6 Learning Time
+The learning time results are shown in Table 3.
+A.7 Dataset Examples
+In addition to the Follow Suit data point presented in Figure
+1 in the main paper, Figures 12, and 13 show example data
+points in the CLEVR-Hans3, and Plant Hitting Sets tasks respectively.
+(a) y = 1
+(b) y = 2
+(c) y = 3
+Figure 12: CLEVR-Hans3 example data points. The meta-data M
+is empty. Class 1 images contain a large cube and a large cylinder.
+Class 2 images contain a small metal cube, and a small sphere. Class
+3 images contain a large blue sphere, and a small yellow sphere.
+(a) Apple Black Rot,
+Set 1
+(b) Apple Healthy, Set
+(c) Tomato Bacterial
+Spot, Set 2
+(d) Tomato Bacterial
+Spot, Set 3
+Figure 13: Plant Hitting Sets example data point. The meta-data M
+indicates which set each element belongs to. The label is y = 1 as
+there is a hitting set of size ≤ 2 with the elements Apple Black Rot,
+and Tomato Bacterial Spot.
+A.8 Zero-shot Evaluation
+We consider whether recent vision-language foundation models such as BLIP2 [Li et al., 2023], and GPT-4 vision (GPT4V) [OpenAI, 2023] can be used out-of-the-box within the
+NeSyGPT architecture. These models don’t currently support
+fine-tuning with VQA, but they do support VQA inference,
+and they are arguably more advanced than the original BLIP
+approach we use in our main results (BLIP1). To investigate
+this, we generate image predictions in a zero-shot fashion via
+natural language questions or prompts, and then use these image predictions to perform rule learning in our downstream
+tasks. When performing rule learning, we present the mean
+task accuracy achieved over 5 repeats.
+With both BLIP approaches, we consider asking the models to generate the image predictions directly, and on the
+
+[TABLE page=18 index=1]
+Columns: Unnamed: 0 | MNIST Arithmetic | Follow Suit 4 | Follow Suit 10 | Plant HS
+Row 1: Unnamed: 0: | MNIST Arithmetic: 1100 labels | Follow Suit 4: 5300 labels | Follow Suit 10: 5300 labels | Plant HS: 3900 labels
+Row 2: Unnamed: 0: | MNIST Arithmetic: Sum E9P | Follow Suit 4: Standard ACA | Follow Suit 10: Standard ACA | Plant HS:
+Row 3: Unnamed: 0: Embed2Sym* | MNIST Arithmetic: 99.6 (1.5) 111.7 (1.4) | Follow Suit 4: 2322.6 (11.4) 3132.3 (27.6) | Follow Suit 10: 2343.1 (5.8) 3302.6 (24.5) | Plant HS: 2030.9 (47.7)
+Row 4: Unnamed: 0: Embed2Sym | MNIST Arithmetic: 101.7 (0.3) 101.2 (0.3) | Follow Suit 4: 1136.2 (4.3) 1291.3 (7.6) | Follow Suit 10: 2859.5 (1.3) 3382.2 (51.8) | Plant HS: 6626.2 (963.5)
+Row 5: Unnamed: 0: ViT+ReasoningNet | MNIST Arithmetic: 113.9 (0.3) 118.2 (0.4) | Follow Suit 4: 2534.8 (9.6) 2693.3 (15.3) | Follow Suit 10: 3160.1 (32.3) 2568.4 (2.7) | Plant HS: 765.7 (11.3)
+Row 6: Unnamed: 0: FF-NSL | MNIST Arithmetic: 126.5 (0.5) 126.9 (0.5) | Follow Suit 4: 2382.4 (28.3) 2645.4 (48.8) | Follow Suit 10: 2399.0 (25.9) 2660.9 (50.9) | Plant HS: 1247.0 (120.2)
+Row 7: Unnamed: 0: NSIL | MNIST Arithmetic: 545.2 (52.3) 395.5 (25.8) | Follow Suit 4: - - | Follow Suit 10: - - | Plant HS: Row 8: Unnamed: 0: NeurASP | MNIST Arithmetic: 689.4 (6.1) 730.1 (8.2) | Follow Suit 4: - - | Follow Suit 10: - - | Plant HS: Row 9: Unnamed: 0: SLASH | MNIST Arithmetic: 1112.6 (6.6) 963.5 (27.4) | Follow Suit 4: - - | Follow Suit 10: - - | Plant HS: Row 10: Unnamed: 0: Ours (rules given) | MNIST Arithmetic: 1557.6 (7.5) 1557.6 (7.5) | Follow Suit 4: 15597.4 (302.1) 15147.6 (242.4) | Follow Suit 10: 15597.4 (302.1) 15147.6 (242.4) | Plant HS: 9653.1 (9.7)
+Row 11: Unnamed: 0: BLIP+GPT4 | MNIST Arithmetic: 1559.4 (7.7) 1562.7 (7.4) | Follow Suit 4: 15606.3 (301.8) 15161.7 (242.4) | Follow Suit 10: - - | Plant HS: Row 12: Unnamed: 0: Ours | MNIST Arithmetic: 1581.0 (8.0) 1579.9 (7.5) | Follow Suit 4: 15603.1 (301.8) 15153.4 (242.2) | Follow Suit 10: 15621.9 (302.8) 15172.2 (241.3) | Plant HS: 9998.6 (85.7)
+Row 13: Unnamed: 0: BLIP Single Image | MNIST Arithmetic: 3495.1 (8.1) 3530.7 (7.4) | Follow Suit 4: 15747.1 (224.9) 16033.7 (94.7) | Follow Suit 10: 16346.4 (109.8) 16378.9 (216.5) | Plant HS: 11478.4 (27.7)
+Row 14: Unnamed: 0: BLIP+ABL | MNIST Arithmetic: 17521.9 (290.8) 17760.3 (326.1) | Follow Suit 4: - - | Follow Suit 10: - - | Plant HS: -
+[/TABLE]
+
+[PAGE 19]
+MNIST Playing Cards Plant Disease
+Standard ACA
+BLIP1 Generate 0.27 0.074 0.0096 0.0008
+BLIP1 Rank 0.2262 0.0971 0.0567 0.035
+BLIP1 Rank CQA - 0.6962 0.225 0.0326
+BLIP2 ITM 0.6521 0.7846 0.3096 0.1214
+BLIP2 ITM CQA - 0.6385 0.301 0.1624
+GPT-4 Vision∗ 0.5178 0.9048 0.8625 0.04
+Table 4: Foundation model zero-shot image accuracy.
+Arithmetic Follow Suit 4 Follow Suit 10 Plant HS
+Sum E9P Standard ACA Standard ACA
+BLIP1 Generate 0.089 0.1484 0.4198 0.3038 0.174 0.1226 0.7688BLIP1 Rank 0.0742 0.1018 0.301 0.2806 0.1784 0.1716 0.7624BLIP1 Rank CQA - - 0.4278 0.2914 0.271 0.0808 0.7176BLIP2 ITM 0.4276 0.5458 0.5074 0.3734 0.3168 0.18540.7252BLIP2 ITM CQA - - 0.4706 0.2858 0.2688 0.115 0.8102GPT-4 Vision∗ 0.2602 0.2982 0.45020.4886 0.20260.235 Table 5: Foundation model task accuracy with zero-shot image predictions.
+Follow Suit and Plant Hitting Sets images, via a conditional
+questioning approach (denoted CQA). This is useful when the
+image features can easily be decomposed into various questions. For example, in the playing cards domain, one can initially ask the question “which color are the symbols?”, before
+asking “which symbol is on the card”. Candidate answers can
+then be restricted accordingly, e.g., to force the model to return “hearts” or “diamonds” for the symbol question, if the
+color is predicted as “red”. We don’t use this technique for
+the MNIST images as these are challenging to decompose.
+We also evaluate the “generate” and “rank” inference
+modes in BLIP1, where the “generate” approach is the same
+as the one presented in the main body of this paper, with the
+string distance measure included. The rank approach requires
+giving possible candidate answers to BLIP, which then returns the answer that minimises the language model loss between each candidate and the generated output. We didn’t
+use this for NeSyGPT in the main results, because after finetuning, we obtained better results using the generate mode.
+For BLIP2, we evaluated the Flan-t5 XXL instruct, feature
+extractor, and Image-Text-Matching (ITM) modes, and selected the ITM mode as this resulted in the best performance.
+For GPT-4V , we use the OpenAI API with the model “gpt4-vision-preview”, and set the max tokens parameter to 300.
+All responses were obtained when accessing the API between
+19th-30th December 2023. Finally, in all tasks, we used 100
+downstream examples.
+The image and downstream task accuracy results are
+shown in Tables 4 and 5 respectively. As you can see,
+more recent models such as BLIP2 and GPT-4V outperform
+BLIP1, but still fall significantly below the levels of accuracy
+achieved in the main body of the paper, where a small amount
+of fine-tuning was used with labelled data. Also, the correct
+rules are only learned on the Arithmetic tasks when BLIP2
+and GPT-4V are used zero-shot, but again, the task accuracy
+is lower than that presented in Figure 1b in the main paper.
+The * indicates that GPT-4V was unable to return a classification for all of the images in the datasets.4 The error rates are
+38.83% (MNIST), 8.08% (Playing Cards Standard), 4.23%
+(Playing Cards ACA), and 92.16% (Plant Disease). Note that
+on the Plant Disease dataset, most of the errors were GPT-4V
+refusing to make a classification, citing a lack of information, rather than an error from the API. The accuracy results
+presented in Table 4 are measured over the full test set, and
+therefore include erroneous data points. When rule learning
+is performed, examples without a complete set of image predictions are removed from the symbolic learning task. On the
+Plant Hitting Sets task with GPT-4V , there are therefore no
+examples and no rules can be learned. If a test example has
+missing image predictions, it is assumed incorrect.
+The best results are on the Follow Suit tasks, although even
+with an image accuracy of 0.9048 on the standard deck, it is
+insufficient to learn the correct rules. With more downstream
+task examples, it may be possible to do so and improve the
+task accuracy. These results demonstrate that the fine-tuning
+approach of NeSyGPT is currently required to achieve strong
+performance. In future, should BLIP2 or GPT-4V support
+VQA fine-tuning, it may be possible to improve upon the
+NeSyGPT results presented in the main body of this paper.
+A.9 Full Results
+Tables 6 - 9 show the full NeSyGPT results for all data points
+in all domains.
+4We often observe error responses from the OpenAI API, including file extension errors, and errors regarding violation of the profanity filter.
+
+[TABLE page=19 index=1]
+Columns: Unnamed: 0 | Arithmetic | Follow Suit 4 | Follow Suit 10 | Plant HS | examples and no rules can be learned. If a test example has
+Row 1: Unnamed: 0: | Arithmetic: Sum E9P | Follow Suit 4: Standard ACA | Follow Suit 10: Standard ACA | Plant HS: | examples and no rules can be learned. If a test example has: missing image predictions, it is assumed incorrect.
+Row 2: Unnamed: 0: BLIP1 Generate | Arithmetic: 0.089 0.1484 | Follow Suit 4: 0.4198 0.3038 | Follow Suit 10: 0.174 0.1226 | Plant HS: 0.7688 | examples and no rules can be learned. If a test example has: The best results are on the Follow Suit tasks, although even
+Row 3: Unnamed: 0: BLIP1 Rank | Arithmetic: 0.0742 0.1018 | Follow Suit 4: 0.301 0.2806 | Follow Suit 10: 0.1784 0.1716 | Plant HS: 0.7624 | examples and no rules can be learned. If a test example has:
+Row 4: Unnamed: 0: BLIP1 Rank CQA | Arithmetic: - - | Follow Suit 4: 0.4278 0.2914 | Follow Suit 10: 0.271 0.0808 | Plant HS: 0.7176 | examples and no rules can be learned. If a test example has: with an image accuracy of 0.9048 on the standard deck, it is
+Row 5: Unnamed: 0: BLIP2 ITM | Arithmetic: 0.4276 0.5458 | Follow Suit 4: 0.5074 0.3734 | Follow Suit 10: 0.3168 0.1854 | Plant HS: 0.7252 | examples and no rules can be learned. If a test example has:
+Row 6: Unnamed: 0: BLIP2 ITM CQA | Arithmetic: - - | Follow Suit 4: 0.4706 0.2858 | Follow Suit 10: 0.2688 0.115 | Plant HS: 0.8102 | examples and no rules can be learned. If a test example has: insufficient to learn the correct rules. With more downstream
+Row 7: Unnamed: 0: GPT-4 Vision∗ | Arithmetic: 0.2602 0.2982 | Follow Suit 4: 0.4502 0.4886 | Follow Suit 10: 0.2026 0.235 | Plant HS: - | examples and no rules can be learned. If a test example has: task examples, it may be possible to do so and improve the
+[/TABLE]
+
+[TABLE page=19 index=2]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | 4
+Row 1: Unnamed: 0: | Unnamed: 1: MNIST | Unnamed: 2: Playing Cards | Unnamed: 3: Plant Disease | 4: cation for all of the images in the datasets. The error rates are
+Row 2: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: Standard ACA | Unnamed: 3: | 4: 38.83% (MNIST), 8.08% (Playing Cards Standard), 4.23%
+Row 3: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 4: (Playing Cards ACA), and 92.16% (Plant Disease). Note that
+Row 4: Unnamed: 0: BLIP1 Generate | Unnamed: 1: 0.27 | Unnamed: 2: 0.074 0.0096 | Unnamed: 3: 0.0008 | 4:
+Row 5: Unnamed: 0: BLIP1 Rank | Unnamed: 1: 0.2262 | Unnamed: 2: 0.0971 0.0567 | Unnamed: 3: 0.035 | 4: on the Plant Disease dataset, most of the errors were GPT-4V
+Row 6: Unnamed: 0: BLIP1 Rank CQA | Unnamed: 1: - | Unnamed: 2: 0.6962 0.225 | Unnamed: 3: 0.0326 | 4: refusing to make a classification, citing a lack of informaRow 7: Unnamed: 0: BLIP2 ITM | Unnamed: 1: 0.6521 | Unnamed: 2: 0.7846 0.3096 | Unnamed: 3: 0.1214 | 4: tion, rather than an error from the API. The accuracy results
+Row 8: Unnamed: 0: BLIP2 ITM CQA | Unnamed: 1: - | Unnamed: 2: 0.6385 0.301 | Unnamed: 3: 0.1624 | 4: presented in Table 4 are measured over the full test set, and
+Row 9: Unnamed: 0: GPT-4 Vision∗ | Unnamed: 1: 0.5178 | Unnamed: 2: 0.9048 0.8625 | Unnamed: 3: 0.04 | 4: therefore include erroneous data points. When rule learning
+[/TABLE]
+
+[PAGE 20]
+Sum E9P
+Num. Image Labels Num. Task Labels Image Acc. Rule Acc. Task Acc. Rule Acc. Task Acc.
+0.2700
+0.19 (0.11) 0.07 (0.01) 0.30 (0.09) 0.10 (0.02)
+20 0.25 (0.09) 0.07 (0.01) 0.35 (0.08) 0.12 (0.02)
+50 0.19 (0.10) 0.09 (0.00) 0.40 (0.09) 0.14 (0.01)
+100 0.16 (0.06) 0.09 (0.00) 0.52 (0.01) 0.15 (0.00)
+0.7217 (0.0130)
+0.70 (0.17) 0.39 (0.09) 0.86 (0.09) 0.56 (0.05)
+20 0.92 (0.08) 0.48 (0.04) 1.00 (0.00) 0.65 (0.01)
+50 1.00 (0.00) 0.53 (0.02) 1.00 (0.00) 0.65 (0.01)
+100 1.00 (0.00) 0.53 (0.02) 1.00 (0.00) 0.65 (0.01)
+0.7891 (0.0139)
+0.87 (0.09) 0.55 (0.06) 0.91 (0.05) 0.67 (0.04)
+20 0.96 (0.04) 0.60 (0.03) 1.00 (0.00) 0.74 (0.01)
+50 1.00 (0.00) 0.63 (0.02) 1.00 (0.00) 0.74 (0.01)
+100 1.00 (0.00) 0.63 (0.02) 1.00 (0.00) 0.74 (0.01)
+0.8849 (0.0036)
+0.92 (0.05) 0.71 (0.04) 0.95 (0.05) 0.81 (0.04)
+20 0.91 (0.06) 0.71 (0.04) 1.00 (0.00) 0.85 (0.01)
+50 1.00 (0.00) 0.78 (0.01) 1.00 (0.00) 0.85 (0.01)
+100 1.00 (0.00) 0.78 (0.01) 1.00 (0.00) 0.85 (0.01)
+0.9216 (0.0024)
+1.00 (0.00) 0.85 (0.01) 1.00 (0.00) 0.90 (0.00)
+20 1.00 (0.00) 0.85 (0.01) 1.00 (0.00) 0.90 (0.00)
+50 1.00 (0.00) 0.85 (0.01) 1.00 (0.00) 0.90 (0.00)
+100 1.00 (0.00) 0.85 (0.01) 1.00 (0.00) 0.90 (0.00)
+0.9485 (0.0030)
+1.00 (0.00) 0.90 (0.00) 1.00 (0.00) 0.93 (0.00)
+20 1.00 (0.00) 0.90 (0.00) 1.00 (0.00) 0.93 (0.00)
+50 1.00 (0.00) 0.90 (0.00) 1.00 (0.00) 0.93 (0.00)
+100 1.00 (0.00) 0.90 (0.00) 1.00 (0.00) 0.93 (0.00)
+0.9685 (0.0010)
+1.00 (0.00) 0.94 (0.00) 1.00 (0.00) 0.96 (0.00)
+20 1.00 (0.00) 0.94 (0.00) 1.00 (0.00) 0.96 (0.00)
+50 1.00 (0.00) 0.94 (0.00) 1.00 (0.00) 0.96 (0.00)
+100 1.00 (0.00) 0.94 (0.00) 1.00 (0.00) 0.96 (0.00)
+0.9753 (0.0013)
+1.00 (0.00) 0.95 (0.00) 1.00 (0.00) 0.96 (0.00)
+20 1.00 (0.00) 0.95 (0.00) 1.00 (0.00) 0.96 (0.00)
+50 1.00 (0.00) 0.95 (0.00) 1.00 (0.00) 0.96 (0.00)
+100 1.00 (0.00) 0.95 (0.00) 1.00 (0.00) 0.96 (0.00)
+Table 6: Full MNIST Arithmetic results.
+
+[TABLE page=20 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Sum | E9P
+Row 1: Unnamed: 0: Num. Image Labels | Unnamed: 1: Num. Task Labels | Unnamed: 2: Image Acc. | Sum: Rule Acc. Task Acc. | E9P: Rule Acc. Task Acc.
+Row 2: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | Sum: 0.19 (0.11) 0.07 (0.01) | E9P: 0.30 (0.09) 0.10 (0.02)
+Row 3: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | Sum: 0.25 (0.09) 0.07 (0.01) | E9P: 0.35 (0.08) 0.12 (0.02)
+Row 4: Unnamed: 0: 0 | Unnamed: 1: | Unnamed: 2: 0.2700 | Sum: | E9P:
+Row 5: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | Sum: 0.19 (0.10) 0.09 (0.00) | E9P: 0.40 (0.09) 0.14 (0.01)
+Row 6: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | Sum: 0.16 (0.06) 0.09 (0.00) | E9P: 0.52 (0.01) 0.15 (0.00)
+Row 7: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | Sum: 0.70 (0.17) 0.39 (0.09) | E9P: 0.86 (0.09) 0.56 (0.05)
+Row 8: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | Sum: 0.92 (0.08) 0.48 (0.04) | E9P: 1.00 (0.00) 0.65 (0.01)
+Row 9: Unnamed: 0: 10 | Unnamed: 1: | Unnamed: 2: 0.7217 (0.0130) | Sum: | E9P:
+Row 10: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | Sum: 1.00 (0.00) 0.53 (0.02) | E9P: 1.00 (0.00) 0.65 (0.01)
+Row 11: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | Sum: 1.00 (0.00) 0.53 (0.02) | E9P: 1.00 (0.00) 0.65 (0.01)
+Row 12: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | Sum: 0.87 (0.09) 0.55 (0.06) | E9P: 0.91 (0.05) 0.67 (0.04)
+Row 13: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | Sum: 0.96 (0.04) 0.60 (0.03) | E9P: 1.00 (0.00) 0.74 (0.01)
+Row 14: Unnamed: 0: 20 | Unnamed: 1: | Unnamed: 2: 0.7891 (0.0139) | Sum: | E9P:
+Row 15: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | Sum: 1.00 (0.00) 0.63 (0.02) | E9P: 1.00 (0.00) 0.74 (0.01)
+Row 16: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | Sum: 1.00 (0.00) 0.63 (0.02) | E9P: 1.00 (0.00) 0.74 (0.01)
+Row 17: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | Sum: 0.92 (0.05) 0.71 (0.04) | E9P: 0.95 (0.05) 0.81 (0.04)
+Row 18: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | Sum: 0.91 (0.06) 0.71 (0.04) | E9P: 1.00 (0.00) 0.85 (0.01)
+Row 19: Unnamed: 0: 50 | Unnamed: 1: | Unnamed: 2: 0.8849 (0.0036) | Sum: | E9P:
+Row 20: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | Sum: 1.00 (0.00) 0.78 (0.01) | E9P: 1.00 (0.00) 0.85 (0.01)
+Row 21: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | Sum: 1.00 (0.00) 0.78 (0.01) | E9P: 1.00 (0.00) 0.85 (0.01)
+Row 22: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | Sum: 1.00 (0.00) 0.85 (0.01) | E9P: 1.00 (0.00) 0.90 (0.00)
+Row 23: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | Sum: 1.00 (0.00) 0.85 (0.01) | E9P: 1.00 (0.00) 0.90 (0.00)
+Row 24: Unnamed: 0: 100 | Unnamed: 1: | Unnamed: 2: 0.9216 (0.0024) | Sum: | E9P:
+Row 25: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | Sum: 1.00 (0.00) 0.85 (0.01) | E9P: 1.00 (0.00) 0.90 (0.00)
+Row 26: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | Sum: 1.00 (0.00) 0.85 (0.01) | E9P: 1.00 (0.00) 0.90 (0.00)
+Row 27: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | Sum: 1.00 (0.00) 0.90 (0.00) | E9P: 1.00 (0.00) 0.93 (0.00)
+Row 28: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | Sum: 1.00 (0.00) 0.90 (0.00) | E9P: 1.00 (0.00) 0.93 (0.00)
+Row 29: Unnamed: 0: 200 | Unnamed: 1: | Unnamed: 2: 0.9485 (0.0030) | Sum: | E9P:
+Row 30: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | Sum: 1.00 (0.00) 0.90 (0.00) | E9P: 1.00 (0.00) 0.93 (0.00)
+Row 31: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | Sum: 1.00 (0.00) 0.90 (0.00) | E9P: 1.00 (0.00) 0.93 (0.00)
+Row 32: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | Sum: 1.00 (0.00) 0.94 (0.00) | E9P: 1.00 (0.00) 0.96 (0.00)
+Row 33: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | Sum: 1.00 (0.00) 0.94 (0.00) | E9P: 1.00 (0.00) 0.96 (0.00)
+Row 34: Unnamed: 0: 500 | Unnamed: 1: | Unnamed: 2: 0.9685 (0.0010) | Sum: | E9P:
+Row 35: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | Sum: 1.00 (0.00) 0.94 (0.00) | E9P: 1.00 (0.00) 0.96 (0.00)
+Row 36: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | Sum: 1.00 (0.00) 0.94 (0.00) | E9P: 1.00 (0.00) 0.96 (0.00)
+Row 37: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | Sum: 1.00 (0.00) 0.95 (0.00) | E9P: 1.00 (0.00) 0.96 (0.00)
+Row 38: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | Sum: 1.00 (0.00) 0.95 (0.00) | E9P: 1.00 (0.00) 0.96 (0.00)
+Row 39: Unnamed: 0: 1000 | Unnamed: 1: | Unnamed: 2: 0.9753 (0.0013) | Sum: | E9P:
+Row 40: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | Sum: 1.00 (0.00) 0.95 (0.00) | E9P: 1.00 (0.00) 0.96 (0.00)
+Row 41: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | Sum: 1.00 (0.00) 0.95 (0.00) | E9P: 1.00 (0.00) 0.96 (0.00)
+[/TABLE]
+
+[PAGE 21]
+4 Players 10 Players
+Num. Image Labels Num. Task Labels Image Acc. Rule Acc. Task Acc. Rule Acc. Task Acc.
+0.0740
+0.55 (0.01) 0.45 (0.01) 0.15 (0.07) 0.15 (0.05)
+20 0.47 (0.07) 0.43 (0.01) 0.22 (0.09) 0.10 (0.03)
+50 0.37 (0.07) 0.41 (0.01) 0.19 (0.06) 0.14 (0.04)
+100 0.78 (0.14) 0.42 (0.01) 0.19 (0.06) 0.17 (0.03)
+0.9833 (0.0106)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+0.9988 (0.0009)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+0.9983 (0.0015)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+1.0000 (0.0000)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+1.0000 (0.0000)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+1.0000 (0.0000)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+1.0000 (0.0000)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+Table 7: Full Follow Suit results, standard deck.
+
+[TABLE page=21 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | 4 Players | 10 Players
+Row 1: Unnamed: 0: Num. Image Labels | Unnamed: 1: Num. Task Labels | Unnamed: 2: Image Acc. | 4 Players: Rule Acc. Task Acc. | 10 Players: Rule Acc. Task Acc.
+Row 2: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 0.55 (0.01) 0.45 (0.01) | 10 Players: 0.15 (0.07) 0.15 (0.05)
+Row 3: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 0.47 (0.07) 0.43 (0.01) | 10 Players: 0.22 (0.09) 0.10 (0.03)
+Row 4: Unnamed: 0: 0 | Unnamed: 1: | Unnamed: 2: 0.0740 | 4 Players: | 10 Players:
+Row 5: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 0.37 (0.07) 0.41 (0.01) | 10 Players: 0.19 (0.06) 0.14 (0.04)
+Row 6: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 0.78 (0.14) 0.42 (0.01) | 10 Players: 0.19 (0.06) 0.17 (0.03)
+Row 7: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 8: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 9: Unnamed: 0: 52 | Unnamed: 1: | Unnamed: 2: 0.9833 (0.0106) | 4 Players: | 10 Players:
+Row 10: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 11: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 12: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 13: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 14: Unnamed: 0: 104 | Unnamed: 1: | Unnamed: 2: 0.9988 (0.0009) | 4 Players: | 10 Players:
+Row 15: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 16: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 17: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 18: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 19: Unnamed: 0: 260 | Unnamed: 1: | Unnamed: 2: 0.9983 (0.0015) | 4 Players: | 10 Players:
+Row 20: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 21: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 22: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 23: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 24: Unnamed: 0: 520 | Unnamed: 1: | Unnamed: 2: 1.0000 (0.0000) | 4 Players: | 10 Players:
+Row 25: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 26: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 27: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 28: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 29: Unnamed: 0: 1040 | Unnamed: 1: | Unnamed: 2: 1.0000 (0.0000) | 4 Players: | 10 Players:
+Row 30: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 31: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 32: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 33: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 34: Unnamed: 0: 2600 | Unnamed: 1: | Unnamed: 2: 1.0000 (0.0000) | 4 Players: | 10 Players:
+Row 35: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 36: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 37: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 38: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 39: Unnamed: 0: 5200 | Unnamed: 1: | Unnamed: 2: 1.0000 (0.0000) | 4 Players: | 10 Players:
+Row 40: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 41: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+[/TABLE]
+
+[PAGE 22]
+4 Players 10 Players
+Num. Image Labels Num. Task Labels Image Acc. Rule Acc. Task Acc. Rule Acc. Task Acc.
+0.0096
+0.10 (0.05) 0.24 (0.03) 0.05 (0.05) 0.08 (0.02)
+20 0.06 (0.04) 0.29 (0.01) 0.03 (0.02) 0.13 (0.00)
+50 0.03 (0.03) 0.27 (0.03) 0.02 (0.01) 0.12 (0.01)
+100 0.04 (0.03) 0.30 (0.00) 0.05 (0.02) 0.12 (0.01)
+0.9988 (0.0006)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+0.9994 (0.0004)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+0.9996 (0.0002)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+0.9996 (0.0002)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+0.9996 (0.0002)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+1.0000 (0.0000)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+1.0000 (0.0000)
+1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+20 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+50 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+100 1.00 (0.00) 1.00 (0.00) 1.00 (0.00) 1.00 (0.00)
+Table 8: Full Follow Suit results, ACA deck.
+
+[TABLE page=22 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | 4 Players | 10 Players
+Row 1: Unnamed: 0: Num. Image Labels | Unnamed: 1: Num. Task Labels | Unnamed: 2: Image Acc. | 4 Players: Rule Acc. Task Acc. | 10 Players: Rule Acc. Task Acc.
+Row 2: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 0.10 (0.05) 0.24 (0.03) | 10 Players: 0.05 (0.05) 0.08 (0.02)
+Row 3: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 0.06 (0.04) 0.29 (0.01) | 10 Players: 0.03 (0.02) 0.13 (0.00)
+Row 4: Unnamed: 0: 0 | Unnamed: 1: | Unnamed: 2: 0.0096 | 4 Players: | 10 Players:
+Row 5: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 0.03 (0.03) 0.27 (0.03) | 10 Players: 0.02 (0.01) 0.12 (0.01)
+Row 6: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 0.04 (0.03) 0.30 (0.00) | 10 Players: 0.05 (0.02) 0.12 (0.01)
+Row 7: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 8: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 9: Unnamed: 0: 52 | Unnamed: 1: | Unnamed: 2: 0.9988 (0.0006) | 4 Players: | 10 Players:
+Row 10: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 11: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 12: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 13: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 14: Unnamed: 0: 104 | Unnamed: 1: | Unnamed: 2: 0.9994 (0.0004) | 4 Players: | 10 Players:
+Row 15: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 16: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 17: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 18: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 19: Unnamed: 0: 260 | Unnamed: 1: | Unnamed: 2: 0.9996 (0.0002) | 4 Players: | 10 Players:
+Row 20: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 21: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 22: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 23: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 24: Unnamed: 0: 520 | Unnamed: 1: | Unnamed: 2: 0.9996 (0.0002) | 4 Players: | 10 Players:
+Row 25: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 26: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 27: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 28: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 29: Unnamed: 0: 1040 | Unnamed: 1: | Unnamed: 2: 0.9996 (0.0002) | 4 Players: | 10 Players:
+Row 30: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 31: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 32: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 33: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 34: Unnamed: 0: 2600 | Unnamed: 1: | Unnamed: 2: 1.0000 (0.0000) | 4 Players: | 10 Players:
+Row 35: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 36: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 37: Unnamed: 0: | Unnamed: 1: 10 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 38: Unnamed: 0: | Unnamed: 1: 20 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 39: Unnamed: 0: 5200 | Unnamed: 1: | Unnamed: 2: 1.0000 (0.0000) | 4 Players: | 10 Players:
+Row 40: Unnamed: 0: | Unnamed: 1: 50 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+Row 41: Unnamed: 0: | Unnamed: 1: 100 | Unnamed: 2: | 4 Players: 1.00 (0.00) 1.00 (0.00) | 10 Players: 1.00 (0.00) 1.00 (0.00)
+[/TABLE]
+
+[PAGE 23]
+Num. Image Labels Num. Task Labels Image Acc. Rule Acc. Task Acc.
+0.0008 (0.0000)
+0.77 (0.06) 0.71 (0.02)
+20 0.75 (0.07) 0.69 (0.03)
+50 0.74 (0.02) 0.75 (0.02)
+100 0.81 (0.05) 0.77 (0.00)
+0.2934 (0.0104)
+0.94 (0.05) 0.82 (0.03)
+20 0.95 (0.04) 0.83 (0.02)
+50 0.94 (0.04) 0.84 (0.02)
+100 0.97 (0.02) 0.86 (0.01)
+0.6016 (0.0125)
+0.88 (0.07) 0.84 (0.04)
+20 0.98 (0.01) 0.91 (0.01)
+50 0.98 (0.01) 0.91 (0.01)
+100 0.98 (0.01) 0.91 (0.01)
+0.7586 (0.0025)
+0.98 (0.01) 0.92 (0.01)
+20 0.95 (0.04) 0.90 (0.03)
+50 0.97 (0.01) 0.92 (0.01)
+100 0.98 (0.01) 0.93 (0.00)
+0.8826 (0.0058)
+0.93 (0.04) 0.91 (0.04)
+20 0.99 (0.01) 0.96 (0.01)
+50 0.99 (0.01) 0.96 (0.01)
+100 1.00 (0.00) 0.97 (0.00)
+0.9456 (0.0030)
+0.92 (0.04) 0.91 (0.04)
+20 0.95 (0.04) 0.94 (0.04)
+50 0.99 (0.01) 0.98 (0.01)
+100 1.00 (0.00) 0.98 (0.00)
+0.9784 (0.0011)
+0.93 (0.04) 0.93 (0.04)
+20 0.99 (0.01) 0.98 (0.01)
+50 0.99 (0.01) 0.99 (0.01)
+100 1.00 (0.00) 0.99 (0.00)
+0.9871 (0.0008)
+0.93 (0.04) 0.93 (0.04)
+20 0.99 (0.01) 0.99 (0.01)
+50 0.99 (0.01) 0.99 (0.01)
+100 1.00 (0.00) 1.00 (0.00)
+Table 9: Full Plant Hitting Sets results.
+
+[TABLE page=23 index=1]
+Columns: Num. Image Labels | Num. Task Labels | Image Acc. | Rule Acc. | Task Acc.
+Row 1: Num. Image Labels: | Num. Task Labels: 10.0 | Image Acc.: | Rule Acc.: 0.77 (0.06) | Task Acc.: 0.71 (0.02)
+Row 2: Num. Image Labels: | Num. Task Labels: 20.0 | Image Acc.: | Rule Acc.: 0.75 (0.07) | Task Acc.: 0.69 (0.03)
+Row 3: Num. Image Labels: 0.0 | Num. Task Labels: | Image Acc.: 0.0008 (0.0000) | Rule Acc.: | Task Acc.:
+Row 4: Num. Image Labels: | Num. Task Labels: 50.0 | Image Acc.: | Rule Acc.: 0.74 (0.02) | Task Acc.: 0.75 (0.02)
+Row 5: Num. Image Labels: | Num. Task Labels: 100.0 | Image Acc.: | Rule Acc.: 0.81 (0.05) | Task Acc.: 0.77 (0.00)
+Row 6: Num. Image Labels: | Num. Task Labels: 10.0 | Image Acc.: | Rule Acc.: 0.94 (0.05) | Task Acc.: 0.82 (0.03)
+Row 7: Num. Image Labels: | Num. Task Labels: 20.0 | Image Acc.: | Rule Acc.: 0.95 (0.04) | Task Acc.: 0.83 (0.02)
+Row 8: Num. Image Labels: 38.0 | Num. Task Labels: | Image Acc.: 0.2934 (0.0104) | Rule Acc.: | Task Acc.:
+Row 9: Num. Image Labels: | Num. Task Labels: 50.0 | Image Acc.: | Rule Acc.: 0.94 (0.04) | Task Acc.: 0.84 (0.02)
+Row 10: Num. Image Labels: | Num. Task Labels: 100.0 | Image Acc.: | Rule Acc.: 0.97 (0.02) | Task Acc.: 0.86 (0.01)
+Row 11: Num. Image Labels: | Num. Task Labels: 10.0 | Image Acc.: | Rule Acc.: 0.88 (0.07) | Task Acc.: 0.84 (0.04)
+Row 12: Num. Image Labels: | Num. Task Labels: 20.0 | Image Acc.: | Rule Acc.: 0.98 (0.01) | Task Acc.: 0.91 (0.01)
+Row 13: Num. Image Labels: 76.0 | Num. Task Labels: | Image Acc.: 0.6016 (0.0125) | Rule Acc.: | Task Acc.:
+Row 14: Num. Image Labels: | Num. Task Labels: 50.0 | Image Acc.: | Rule Acc.: 0.98 (0.01) | Task Acc.: 0.91 (0.01)
+Row 15: Num. Image Labels: | Num. Task Labels: 100.0 | Image Acc.: | Rule Acc.: 0.98 (0.01) | Task Acc.: 0.91 (0.01)
+Row 16: Num. Image Labels: | Num. Task Labels: 10.0 | Image Acc.: | Rule Acc.: 0.98 (0.01) | Task Acc.: 0.92 (0.01)
+Row 17: Num. Image Labels: | Num. Task Labels: 20.0 | Image Acc.: | Rule Acc.: 0.95 (0.04) | Task Acc.: 0.90 (0.03)
+Row 18: Num. Image Labels: 190.0 | Num. Task Labels: | Image Acc.: 0.7586 (0.0025) | Rule Acc.: | Task Acc.:
+Row 19: Num. Image Labels: | Num. Task Labels: 50.0 | Image Acc.: | Rule Acc.: 0.97 (0.01) | Task Acc.: 0.92 (0.01)
+Row 20: Num. Image Labels: | Num. Task Labels: 100.0 | Image Acc.: | Rule Acc.: 0.98 (0.01) | Task Acc.: 0.93 (0.00)
+Row 21: Num. Image Labels: | Num. Task Labels: 10.0 | Image Acc.: | Rule Acc.: 0.93 (0.04) | Task Acc.: 0.91 (0.04)
+Row 22: Num. Image Labels: | Num. Task Labels: 20.0 | Image Acc.: | Rule Acc.: 0.99 (0.01) | Task Acc.: 0.96 (0.01)
+Row 23: Num. Image Labels: 380.0 | Num. Task Labels: | Image Acc.: 0.8826 (0.0058) | Rule Acc.: | Task Acc.:
+Row 24: Num. Image Labels: | Num. Task Labels: 50.0 | Image Acc.: | Rule Acc.: 0.99 (0.01) | Task Acc.: 0.96 (0.01)
+Row 25: Num. Image Labels: | Num. Task Labels: 100.0 | Image Acc.: | Rule Acc.: 1.00 (0.00) | Task Acc.: 0.97 (0.00)
+Row 26: Num. Image Labels: | Num. Task Labels: 10.0 | Image Acc.: | Rule Acc.: 0.92 (0.04) | Task Acc.: 0.91 (0.04)
+Row 27: Num. Image Labels: | Num. Task Labels: 20.0 | Image Acc.: | Rule Acc.: 0.95 (0.04) | Task Acc.: 0.94 (0.04)
+Row 28: Num. Image Labels: 760.0 | Num. Task Labels: | Image Acc.: 0.9456 (0.0030) | Rule Acc.: | Task Acc.:
+Row 29: Num. Image Labels: | Num. Task Labels: 50.0 | Image Acc.: | Rule Acc.: 0.99 (0.01) | Task Acc.: 0.98 (0.01)
+Row 30: Num. Image Labels: | Num. Task Labels: 100.0 | Image Acc.: | Rule Acc.: 1.00 (0.00) | Task Acc.: 0.98 (0.00)
+Row 31: Num. Image Labels: | Num. Task Labels: 10.0 | Image Acc.: | Rule Acc.: 0.93 (0.04) | Task Acc.: 0.93 (0.04)
+Row 32: Num. Image Labels: | Num. Task Labels: 20.0 | Image Acc.: | Rule Acc.: 0.99 (0.01) | Task Acc.: 0.98 (0.01)
+Row 33: Num. Image Labels: 1900.0 | Num. Task Labels: | Image Acc.: 0.9784 (0.0011) | Rule Acc.: | Task Acc.:
+Row 34: Num. Image Labels: | Num. Task Labels: 50.0 | Image Acc.: | Rule Acc.: 0.99 (0.01) | Task Acc.: 0.99 (0.01)
+Row 35: Num. Image Labels: | Num. Task Labels: 100.0 | Image Acc.: | Rule Acc.: 1.00 (0.00) | Task Acc.: 0.99 (0.00)
+Row 36: Num. Image Labels: | Num. Task Labels: 10.0 | Image Acc.: | Rule Acc.: 0.93 (0.04) | Task Acc.: 0.93 (0.04)
+Row 37: Num. Image Labels: | Num. Task Labels: 20.0 | Image Acc.: | Rule Acc.: 0.99 (0.01) | Task Acc.: 0.99 (0.01)
+Row 38: Num. Image Labels: 3800.0 | Num. Task Labels: | Image Acc.: 0.9871 (0.0008) | Rule Acc.: | Task Acc.:
+Row 39: Num. Image Labels: | Num. Task Labels: 50.0 | Image Acc.: | Rule Acc.: 0.99 (0.01) | Task Acc.: 0.99 (0.01)
+Row 40: Num. Image Labels: | Num. Task Labels: 100.0 | Image Acc.: | Rule Acc.: 1.00 (0.00) | Task Acc.: 1.00 (0.00)
+[/TABLE]

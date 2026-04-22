@@ -1,0 +1,1883 @@
+[PAGE 1]
+Published in Transactions on Machine Learning Research (10/2025)
+Offline Learning and Forgetting for Reasoning with Large
+Language Models
+Tianwei Ni1∗, Allen Nie2, Sapana Chaudhary2, Yao Liu2, Huzefa Rangwala2, Rasool Fakoor2
+1Mila - Quebec AI Institute & Université de Montréal,2Amazon Web Services
+Reviewed on OpenReview:https: // openreview. net/ forum? id= RF6raEUATc
+Abstract
+Leveraging inference-time search in large language models has proven effective in further enhancing a trained model’s capability to solve complex mathematical and reasoning problems.
+However, this approach significantly increases computational costs and inference time, as the
+model must generate and evaluate multiple candidate solutions to identify a viable reasoning
+path. To address this, we propose an effective approach that integrates search capabilities
+directly into the model by fine-tuning it onunpairedsuccessful (learning) and failed reasoning
+paths (forgetting) derived from diverse search methods. A key challenge we identify is that
+naive fine-tuning can degrade the model’s search capability; we show this can be mitigated
+with a smaller learning rate. Extensive experiments on the challenging Game-of-24 and Countdown arithmetic puzzles show that, replacing CoT-generated data with search-generated data
+for offline fine-tuning improves success rates by around 23% over inference-time search baselines, while reducing inference time by 180×. On top of this, our learning and forgetting objective consistently outperforms both supervised fine-tuning and preference-based methods.1
+1 Introduction
+21 24 27
+Inference Time (GPU minutes)
+50Success Rate (%)
+Countdown Test Set
+Base LLM
+SFT
+CPO-SimPO
+UFT (ours)
+CoT (greedy)
+CoT (pass@1)
+ToT
+RAP
+Figure 1:Trade-off between inference time
+and success rate in challenging arithmetic
+puzzles,Countdown. We find that fine-tuning
+onCoT-style data from diverse reasoners
+substantially enhances CoT inference over the
+base LLM (Qwen2.5-Math 7B) while preserving
+inference-time search(ToT (Yao et al., 2023a),
+RAP (Hao et al., 2023)) usinga smaller learning
+rate. Among fine-tuning methods including SFT
+andpreferenceoptimization,ourmethod(UFT)
+achieves the best CoT and search performance.
+The last few years has seen the rapid development of large
+language models (LLMs) (Vaswani et al., 2017; Achiam
+et al., 2023) and their applications to a diverse set of
+tasks. In particular, these LLMs have been tested on
+challenging benchmarks requiring high-level reasoning across
+domains such as mathematics (Glazer et al., 2024), abstract
+reasoning (Chollet et al., 2024), code generation (Zhuo et al.,
+2024), and science (Mitchener et al., 2025).
+Chain-of-Thought (CoT) andinference-time search(search)
+have been proposed to enhance LLM generalization to
+reasoning problems at test time. Specifically, given a task
+description and inputx, CoT (Wei et al., 2022) outputs
+a single reasoning pathˆy via greedy decoding, or samples
+multiple paths to compute average performance. In contrast,
+search-based methods (Lightman et al., 2023; Yao et al.,
+2023a; Snell et al., 2024) explicitly generate intermediate
+reasoning (possibly with multiple passes) before extractingˆy
+via a reward model or self-evaluation. Despite inference-time
+search’s effectiveness, it comes with greater computational
+costs (e.g., Fig. 1 and Chen et al. (2024c;b)).
+∗Work primarily done while Tianwei Ni was an intern at Amazon. Correspondence: Tianwei Ni (twni2016@gmail.com), Allen
+Nie (anie@cs.stanford.edu), Rasool Fakoor (rasool.fakoor@gmail.com).
+1Code is open-source athttps://github.com/twni2016/llm-reasoning-uft.
+arXiv:2504.11364v4 [cs.LG] 28 Oct 2025
+
+[PAGE 2]
+Published in Transactions on Machine Learning Research (10/2025)
+A beneficial outcome of utilizing inference-time sampling strategies, such as CoT and search-based methods,
+is the generation of rich datasets. These datasets can subsequently be fed back into the model for further
+fine-tuning, potentially enhancing the base model’s overall performance. Prior work has primarily focused
+on distilling the knowledge fromsuccessfulreasoning paths, drawing from CoT-generated data (Zelikman
+et al., 2022; Yuan et al., 2023b; Singh et al., 2023), paths from search trees (Feng et al., 2023; Tian et al.,
+2024; Zhang et al., 2024a), or full search traces (Gandhi et al., 2024; Lehnert et al., 2024). However, in many
+complex problems, failed (reasoning) paths far outnumber successful ones, representing an underutilized
+resource. While potentially valuable, these failed paths are often unpaired, making them difficult to use
+in preference optimization (Rafailov et al., 2023). Diverse search algorithms further enrich data coverage
+and reasoning quality but produce heterogeneous structures (e.g., trees) unlike linear CoT traces. This raises
+a natural question:can we make full use of both successful and failed reasoning paths, from both CoT and
+search-based methods, to improve LLM reasoning?
+In this paper, we propose a straightforward method consisting of three phases designed to enhance the
+reasoning capabilities of large language models: data generation, fine-tuning, and evaluation. First, we
+collect heterogeneous reasoning data from both CoT and the search-based methods, and convert the data
+into a unified CoT-style path format. Next, we fine-tune the base LLM bylearningsuccessful paths with
+the supervised fine-tuning (SFT) andforgettingunpaired failed paths with the unlikelihood loss. We refer
+to this objective asunlikelihood fine-tuning (UFT). Finally, we evaluate the fine-tuned model on test sets
+using both CoT and inference-time search, with a primary focus on efficient CoT inference. We demonstrate
+the effectiveness of our three-phase pipeline on two arithmetic puzzle domains: Game-of-24 and Countdown,
+which are widely used as testbeds for explicit search (Yao et al., 2023a; Gandhi et al., 2024). We summarize
+our key findings below, using Qwen2.5-Math 1.5B and 7B (Yang et al., 2024) as base LLMs:
+1. Data quality drives performance:On Countdown, replacing CoT data with high-quality classic search
+data boosts CoT performance from33.5%to57 .1%, significantly outperforming the inference-time search
+baseline (25%) with a180×reduction in inference cost.
+2. Unpaired forgetting reliably improves performance:Incorporating failed paths using UFT improves
+CoT performance by1–2%on average, with up to7%gains in the best case. In contrast, preference-based
+methods like CPO-SimPO (Xu, 2024) often underperform SFT due to the paired format.
+3. Controlled learning rate helps maintain search capability:Naive fine-tuning can quickly degrade
+a model’s search ability. A substantially reduced learning rate helps prevent this, making it a simple
+but crucial step when fine-tuning with CoT-style data.
+2 Related Work
+LLM inference-time search.Inference-time search has shown remarkable success across reasoning (Wang
+et al., 2022; Stechly et al., 2024; Hao et al., 2024; Snell et al., 2024) and planning tasks (Valmeekam et al., 2023;
+Zheng et al., 2024; Bohnet et al., 2024). Approaches include best-of-n sampling (Nakano et al., 2021; Wang
+et al., 2022), multi-agent debates (Du et al., 2023), and iterative correction via predefined rules (Bai et al.,
+2022) or self-refinement (Shinn et al., 2023; Madaan et al., 2024). A key direction, which this paper focuses on,
+integratesclassic search algorithmswith LLMs, employing BFS (Yao et al., 2023a; Xie et al., 2023), DFS (Qin
+et al., 2023), A* (Zhuang et al., 2023; Meng et al., 2024a; Koh et al., 2024) and MCTS (Hao et al., 2023; Zhou
+et al., 2023; Zhao et al., 2024; Xie et al., 2024; Gao et al., 2024). While effective, inference-time search methods
+remain computationally expensive: self-refinement requires multiple expensive passes, multi-agent approaches
+demand substantial GPU memory, and search trees grow exponentially with depth (Chen et al., 2024c).
+LLM policy distillation from synthetic data.Synthetic data, generated by classic algorithms or LLMs,
+is widely used for SFT in reasoning tasks to mitigate the scarcity of human-annotated datasets (Liu et al.,
+2024). However, despite its abundance, synthetic responses may fail to solve the task. To address this, most
+prior work distills reasoning knowledge to policy (Hinton et al., 2015) by selecting only correct responses. Policy
+distillation strategies can be categorized based on whether the source and target data originate from CoT or
+search algorithms. CoT-to-CoT distillation learns CoT reasoning from correct CoT paths filtered by rewards,
+widely used in practice (Zelikman et al., 2022; 2024; Uesato et al., 2022; Yuan et al., 2023b; Gulcehre et al., 2023;
+Singh et al., 2023). Search-to-search distillation either refines the proposal policy in tree search by learning
+
+[PAGE 3]
+Published in Transactions on Machine Learning Research (10/2025)
+from expert behavior (Feng et al., 2023; Tian et al., 2024; Zhang et al., 2024a) and preference pairs (Chen
+et al., 2024a), or learns a meta-policy by imitating entire search traces (Yang et al., 2022; Gandhi et al., 2024;
+Lehnert et al., 2024). Notably, Zhang et al. (2024c) performs search-to-CoT distillation using preference pairs
+from Tree-of-Thought without a verifier. In comparison, we focus on{CoT, search}-to-CoT distillation from
+diverse reasoners and distillunpairedpositive and negative data to the policy, labeled by a rule-based verifier.
+Offline fine-tuning with negative data.Negative data has been extensively studied inLLM safety,
+where the goal is to unlearn harmful content using objectives such as Gradient Ascent and unlikelihood training (Welleck et al., 2019; Keskar et al., 2019; Yao et al., 2023b; Zhang et al., 2024b). In preference optimization,
+negative examples are used to increase therelativelikelihood of preferred responses inpaireddata(x, y+, y−),
+commonly used in alignment (Rafailov et al., 2023; Yuan et al., 2023a; Zhao et al., 2023; Hong et al., 2024; Xu
+et al., 2024; Meng et al., 2024b) and reasoning (Pal et al., 2024; Pang et al., 2024; Zhang et al., 2024c; Setlur
+et al., 2024; Chen et al., 2024a). However, this paired format discards unpaired positives or negatives, reducing
+data efficiency. KTO (Ethayarajh et al., 2024) addresses the limitation of relative likelihood (Tuan & Wang,
+2024) by learning from unpaired data, although it requires a reference model. In LLM reasoning, negative data
+is also used to train a reward model (Cobbe et al., 2021; Uesato et al., 2022; Lightman et al., 2023; Feng et al.,
+2023; Zhang et al., 2024a; Hosseini et al., 2024) for response re-ranking and search during inference. However,
+this does not inherently improve the base model as a policy. Instead of requiring preference pairs or reference
+models, we adopt unlikelihood training (Welleck et al., 2019) to directly forget failed paths as an auxiliary
+loss. Finally, concurrent work (Wang et al., 2025) highlights the challenges of unlearning in reasoning tasks,
+namely forgetting both incorrect reasoning traces and final answers while retaining overall reasoning ability.
+3 Preliminaries
+Reasoning task as an MDP.We formalize a reasoning task as a token-level Markov decision process
+(MDP) (Sutton et al., 1998)(X,Y,R,T ). The initial states0 =x ∈Xconsists of a tokenized sequence
+representing the task description and input. An actionyt∈Yis chosen based on the current statest, which
+is the sequence of all previous tokens:st = (s0,y 0:t−1). A terminal statesT is reached upon generating
+a special end-of-sequence token. The ground-truth reward functionR is a rule-based verifier that checks
+the correctness ofsT, yieldingr =R(sT )∈{0, 1}, where0means failure and1means success. The goal
+is to find a policyπthat generates anaction sequencey0:T−1(denoted asy) which maximizes the reward:
+maxy0:T−1 R(sT ) = max yR(x,y). We refer to the terminal state(x,y)as a (reasoning)path.
+LLM reasoners.We use an LLM policy πθ, parameterized byθ, along with a search algorithmf as the
+reasoner. We denote this LLM reasoner asf (πθ)and focus on three popular LLM reasoners (Hao et al., 2024):
+(1) CoT (Wei et al., 2022) that uses greedy search, (2) Tree-of-Thought (ToT) (Yao et al., 2023a) that uses beam
+search, (3) Reasoning-via-Planning (RAP) (Hao et al., 2023) that uses MCTS (Kocsis & Szepesvári, 2006).
+CoT directly outputs one (via greedy decoding) or multiple reasoning paths (under non-zero temperature)
+without intermediate search process2. On the contrary, ToT and RAP areinference-time searchmethods,
+first constructing a search tree of reasoning paths before selecting a final path(x, y)as the answer. Their
+performance is evaluated based on the success rate of the selected reasoning path. Please see Appendix C for
+more details.
+4 Fine-tuning on Unpaired Correct and Failed Paths from Diverse Reasoners
+In this section, we describe our approach to solving a reasoning task, as outlined in Fig. 2. Our approach
+involves three stages: (1) generating reasoning data from diverse reasoners, (2) offline fine-tuning the base
+LLM fromunpairedcorrect and failed paths, and (3) evaluating it with reasoning algorithms.
+2CoT’s performance is often measured by theaveragesuccess rate over generated reasoning paths, also known as thepass@1
+metric (Chen et al., 2021; Guo et al., 2025), as used in this work.
+
+[PAGE 4]
+Published in Transactions on Machine Learning Research (10/2025)
+Base LLM
+CoT
+Improved
+LLM
+Forgetting: Unlikelihood loss
+Learning: NLL loss
+Correct CoT-style paths
+Failed CoT-style pathsReasoners
+T oT
+RAP
+BFS
+DFS
+Data gen
+Eval
+Figure 2:Our method for reasoning tasks.We first generate synthetic reasoning data using multiple
+LLM reasoners (e.g., CoT, ToT, RAP) and classic algorithms (e.g., BFS, DFS). This data is converted to
+a unified CoT-style format and labeled as correct or failed by a ground-truth verifier to form an unpaired
+dataset. We then fine-tune the base LLM with negative log-likelihood (NLL) loss on correct paths and
+unlikelihood loss on failed paths, which we refer to asunlikelihood fine-tuning(UFT). Finally, we evaluate
+the improved LLM with multiple LLM reasoners on a test set.
+4.1 CoT-style Data Generation Using LLM and Classic Reasoners
+For a given reasoning task, we generate synthetic reasoning data from multiple reasoners. LLM reasonersf (πθ)
+share a common base policyπθbut differ in their search algorithmsf, which include CoT and inference-time
+search methods such as ToT and RAP. Optionally, reasoning paths can also be generated using classical search
+algorithms (classic reasoners) such as DFS and BFS, which rely on an external verifier rather than LLMs.
+For search-based methods, we extract all root-to-leaf paths from the search tree – rather than only the final
+selected path – to follow the format ofCoT-style paths. This enables (1) unifying heterogeneous search traces
+into a common format as training data, and (2) efficient inference, as CoT inference is fastest. We aggregate
+CoT-style paths from all reasoners to compose the training datasetD:
+D={(x,y,r)|f∈F,x∈X,y∈f(πθ)(x),r=R(x,y)},(1)
+whereF is the set of considered reasoners, andf (πθ)(x)is the set of all reasoning paths produced by reasoner
+f (πθ). Note that classic reasonersf do not depend onπθ. Each path is labeled by a verifier as correct(r = 1)
+or failed(r = 0), splittingD into two unpaired datasets: the correct datasetD+ ={(x, y)|(x, y, 1)∈D}
+and the failed datasetD−={(x,y)|(x,y,0)∈D}.
+4.2 Unlikelihood Fine-Tuning on Unpaired Correct and Failed Paths
+While prior work typically fine-tunes LLMs on correct CoT-generated paths (Yuan et al., 2023b; Singh et al.,
+2023) or on preference pairs of correct and failed responses (Pang et al., 2024; Zhang et al., 2024c), we extend
+these approaches in two directions: (1) incorporating diverse reasoners beyond CoT toaugmentthe training
+data, (2) fine-tuning the model to avoid and forget failed reasoning patterns usingonlyfailed examples.
+Unlike most preference-based methods, our approach leveragesunpairedpositive or negative data, without
+requiring success-failure pairs for the same question.
+Learning to follow correct reasoning paths.First, we consider the negative log-likelihood (NLL) loss,
+also known as supervised fine-tuning (SFT) (Ouyang et al., 2022; Cen et al., 2025), on correct reasoning
+paths collected from multiple reasoners:
+min
+θ
+−E(x,y,r)∼D[1(r= 1) logπθ(y|x)] =−E(x,y+)∼D+
+[
+logπθ(y+|x)
+] :=J NLL(θ;D+).(2)
+Examining the gradient of the NLL objective (Eq. 2),−E(x,y,r)∼D[1(r= 1)∇logπθ(y|x)], reveals its
+connection to REINFORCE (Williams, 1992) with a binary (indicator) reward function, as noted in prior
+work (Zelikman et al., 2022; Gulcehre et al., 2023; Singh et al., 2023)3.
+3This resemblance holds whenD is close to on-policy data (Fakoor et al., 2020), e.g., CoT-generated, but may break down
+as model weights shift during fine-tuning or ifDincludes search-derived data.
+
+[PAGE 5]
+Published in Transactions on Machine Learning Research (10/2025)
+Learning to avoid and forget incorrect reasoning paths.While NLL encourages the model to learn
+correct reasoning paths, it can only leverage the limited number of available successful trajectories and
+discards a large number of failed ones – which often vastly outnumber the correct ones (e.g.,|D−|/|D+|
+ranges from 5 to 400 in our experiments). To address the limitation of NLL, we propose leveraging failed
+trajectories by incorporating theunlikelihood(UL) loss (Welleck et al., 2019) as an additional objective.
+The UL loss enables the model to learn to avoid (i.e., forget) failed reasoning paths, effectively utilizing the
+large set of failed trajectories.
+min
+θ
+JUL(θ;D−) :=−E(x,y−)∼D−
+[
+log(1−πθ(y−|x))
+]
+.(3)
+This objective explicitly reduces the probability of incorrect paths under the model. Unlike Gradient Ascent
+(GA) unlearning (Yao et al., 2023b)4, UL objective has a smooth optimization landscape, with gradient:
+∇JUL(θ) =E(x,y−)∼D−
+[ πθ(y−|x)
+1−πθ(y−|x)∇logπθ(y−|x)
+]
+.(4)
+The gradient implies convergence to the stationary point whereπθ(y−|x) = 0,∀(x, y−)∈D−. From a
+REINFORCE view, Eq. 4 imposes anadaptive penaltyof−πθ(y−|x)
+1−πθ(y−|x), penalizing higher-probability failures
+more strongly and thus efficiently suppressing wrong paths.
+Combining learning and forgetting: unlikelihood fine-tuning (UFT).Our final objective UFT
+combines NLL (Eq. 2) and UL losses (Eq. 3) with a coefficientα∈(0,1):
+min
+θ
+J(θ;D,α):= (1−α)JNLL(θ;D+) +αJUL(θ;D−).(5)
+Since correct paths provide explicit solutions while wrong paths only rule out alternatives, we treat UL as an
+auxiliaryloss by setting αclose to 0. Moreover, as correct and failed paths may be drawn from the same
+search trees, they often share prefixes, introducing conflicts whenαis large, as also noted in preference-based
+methods (Zhang et al., 2024c). For example, suppose a prefix sequence(x,y 0:t)(t<T−1) appears in bothD+
+andD−with equal frequency. The gradient of Eq. 5 w.r.t. this prefix is
+(
+α
+1−πθ(y0:t|x)−1
+)
+∇logπθ(y0:t|x),
+which has a stationary point atπθ(y0:t|x) = 1−α. Thus,1−αsets the desired probability of the shared
+prefix, further motivating the need for a smallαto avoid conflicting objectives. Unlike prior work (Zhang
+et al., 2024c; Setlur et al., 2024; Chen et al., 2024a) that identify high-credit steps with more computation,
+we sidestep this with an auxiliary loss without preference pairs.
+4.3 Practical Algorithm
+We summarize our method in Algo. 1. For a given reasoning task, we partition the initial state setX into
+training, validation and test sets, namely,Xtrain,X valid,X test. Each subset has distinct input cases with
+follows the same instruction template. Our approach assumes access to a ground-truth verifier inXtrain (for
+generating training data) andXvalid (for checkpoint selection), but not inXtest on which the final evaluation
+is conducted.
+Algorithm 1Fine-tuning on unpaired correct and failed paths from diverse reasoners
+Require: Reasoning task(X,Y,R,T ), base LLMπθ, set of reasonersF, number of epochsE, batch sizeB, learning
+rateη, UL coefficientα(close to 0)
+1: Generate CoT-style training data from various reasoners:D ={(x, y,r )|f∈F,x∈Xtrain, y∈f(πθ)(x),r =
+R(x,y)}, and splitDinto correct dataD+ and failed dataD−.
+2: Fine-tune the LLM with UFT (Eq. 5) forE|D+|/Bsteps. In each step, sample batchesB+∼D+ andB−∼D−
+of sizeBeach, and update:
+θ←θ−η[(1−α)∇JSFT(θ;B+) +α∇JUL(θ;B−)].(6)
+3: Evaluate the fine-tuned LLMπθon test cases by collectingD′={(x, y,r )|f∈F,x∈Xtest, y∈f(πθ)(x),r =
+R(x,y)}.
+4The GA objectiveminθE(x,y−)∼D−
+[
+logπθ(y−|x)
+]
+is shown to be unstable to optimize (Zhang et al., 2024b;d), as it has an
+unbounded optimum (−∞) and a divergent gradient near the optimum. We provide results for GA in Sec. B.3 for completeness.
+
+[PAGE 6]
+Published in Transactions on Machine Learning Research (10/2025)
+Table 1:Performance on Countdown and Game-of-24 using Qwen2.5-Math 7B as the base model
+fine-tuned on Countdown.Each cell shows (success rate / inference time) averaged with 3 seeds, where the time is
+measured in minutes (m) on an A100 GPU. We compare the base LLM with three fine-tuning methods (SFT (Ouyang
+et al., 2022),CPO-SimPO (Xu, 2024),UFT (ours)) under twolearning regimes(varying learning rate and training
+data). SimPO (Meng et al., 2024b) is omitted due to near-zero success rate.Bolded numbersindicate the best
+success rate per row. Fig. 1 visualizes the stronger result per fine-tuning method acrosslearning regimes.
+T est set
+& Inference Base LLM lr=5e-6, CoT+BFS+DFS training data lr=1e-6, CoT training data
+SFT(α=0) CPO-SimPO UFT(α=1e-3) SFT(α=0) CPO-SimPO UFT(α=1e-4)
+Countdown(1000 cases)
+CoT (greedy) 6.2% / 1.0m 55.4% / 0.6m 50.6% / 0.7m57.4%/ 0.5m 24.7% / 0.5m 23.4% / 0.8m 24.7% / 0.5m
+CoT (pass@1) 5.6% / 3.4m 51.8% / 3.5m 45.7% / 4.7m53.5%/ 3.4m 24.1% / 2.9m 22.1% / 5.7m 24.7% / 3.3m
+search: ToT 25.0% / 90m 2.4% / 104m 4.1% / 61m 0.0% / 1.9m 22.2% / 96m 23.3% / 179m28.6%/ 153m
+search: RAP 10.2% / 278m 7.3% / 155m 7.0% / 137m 0.0% / 341m 17.5% / 141m 17.7% / 190m28.9%/ 439m
+Game-of-24(100 cases)
+CoT (greedy) 6.0% / 0.1m 35.0% / 0.1m 24.7% / 0.1m42.0%/ 0.1m 8.0% / 0.1m 6.7% / 0.1m 8.3% / 0.1m
+CoT (pass@1) 6.0% / 0.6m 28.3% / 0.7m 23.0% / 1.3m29.7%/ 0.8m 7.3% / 0.6m 7.0% / 1.5m 6.7% / 0.8m
+search: ToT 28.0% / 6.5m 2.3% / 8.2m 1.0% / 4.3m 0.3% / 0.4m 30.7%/ 8m 22.7% / 13m 24.0% / 13m
+search: RAP 27.0% / 8.3m 1.3% / 13m 3.0% / 19m 3.7% / 29m 27.7% / 16m 25.7% / 42m33.7%/ 75m
+5 Experiments
+We evaluate our approach on two arithmetic puzzle tasks.
+Game-of-24.In Game-of-24 5, the goal is to use basic arithmetic operations (+-*/) and parentheses to
+combine four input numbers to obtain the number24. Each input number can only be used once, which
+requires exactly three high-level reasoning steps. We follow the step-by-step response format from ToT (Yao
+et al., 2023a). For example, given numbers2 9 10 12 , a correct reasoning path is12 * 2 = 24 (left:
+9 10 24), 10 - 9 = 1 (left: 1 24), 24 * 1 = 24 (left: 24), Answer: (12 * 2) * (10 - 9)
+= 24 . Each high-level step must include the remaining numbers after the operation. We implement a
+process-based verifier (Uesato et al., 2022) that checks both the intermediate steps and the final answer.
+For evaluation, we use the same test set from Yao et al. (2023a), consisting of100cases. For training and
+validation, we use900distinct cases, considered easier than the test set based on the human performance.
+Countdown.The Countdown game (Gandhi et al., 2024) extends Game-of-24 by requiring the use of
+four integers to obtain a specified target number beyond 24. All other rules remain the same including the
+step-by-step format. Following Gandhi et al. (2024), we randomly generate 500k training cases, excluding24
+as a target number. For evaluation, we randomly generate 1,000 test cases with distinct target numbers from
+training set. This setup allows us to test generalization to Game-of-24 when trained on Countdown data.
+5.1 Setup
+Base LLMs.We use Qwen2.5-Math 1.5B (Q1.5B) and Qwen2.5-Math 7B (Q7B) (Yang et al., 2024) as
+base LLMs. Qwen2.5-Math series were state-of-the-art open-weightmathematicalLLMs as of December 2024.
+Step 1: Data generation setup.We mainly build upon the LLM-reasoners repository6 (Hao et al., 2024),
+which provides a unified library for all the LLM reasoners studied here. We significantly accelerate inference
+by batching inputs using vLLM (Kwon et al., 2023). All reported inference time in our results is based on our
+optimized codebase. For each LLM reasoner algorithm, we vary its hyperparameters to gather data fromXtrain.
+For CoT (Wei et al., 2022), we vary the temperature between(0.5, 0.7, 1.0)and top-p between(0.7, 0.8, 0.9)to
+have 9 variants. For each variant, we use a fixed 5-shot prompt template and collect100paths for each case
+in Game-of-24 and3paths for Countdown. For Game-of-24, we follow LLM-reasoners to implement ToT (Yao
+et al., 2023a) (varying the beam size from5to16) and RAP (Hao et al., 2023) (varying the exploration
+parameter from1.0to10 .0). Since Countdown is implemented in Stream-of-Search (SoS) (Gandhi et al.,
+2024), we use SoS code to implement classic BFS and DFS algorithms, which do not use LLMs but rely on
+the oracle verifier. We merge the reasoning paths generated by all the variants of the same reasoner, and
+then remove duplicates by exact matching, to serve as our training dataset. See Appendix C for all details.
+5https://en.wikipedia.org/wiki/24_(puzzle)
+6https://github.com/maitrix-org/llm-reasoners
+
+[TABLE page=6 index=1]
+Columns: Test set | Unnamed: 0 | lr=5e-6, CoT+BFS+DFS training data | lr=1e-6, CoT training data
+Row 1: Test set: Base LLM | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: | lr=1e-6, CoT training data:
+Row 2: Test set: & Inference | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: | lr=1e-6, CoT training data:
+Row 3: Test set: | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: SFT (α=0) CPO-SimPO UFT (α=1e-3) | lr=1e-6, CoT training data: SFT (α=0) CPO-SimPO UFT (α=1e-4)
+Row 4: Test set: Countdown (1000 cases) | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: | lr=1e-6, CoT training data:
+Row 5: Test set: CoT (greedy) 6.2% / 1.0m | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: 55.4% / 0.6m 50.6% / 0.7m 57.4% / 0.5m | lr=1e-6, CoT training data: 24.7% / 0.5m 23.4% / 0.8m 24.7% / 0.5m
+Row 6: Test set: CoT (pass@1) 5.6% / 3.4m | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: 51.8% / 3.5m 45.7% / 4.7m 53.5% / 3.4m | lr=1e-6, CoT training data: 24.1% / 2.9m 22.1% / 5.7m 24.7% / 3.3m
+Row 7: Test set: search: ToT 25.0% / 90m | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: 2.4% / 104m 4.1% / 61m 0.0% / 1.9m | lr=1e-6, CoT training data: 22.2% / 96m 23.3% / 179m 28.6% / 153m
+Row 8: Test set: search: RAP 10.2% / 278m | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: 7.3% / 155m 7.0% / 137m 0.0% / 341m | lr=1e-6, CoT training data: 17.5% / 141m 17.7% / 190m 28.9% / 439m
+Row 9: Test set: Game-of-24 (100 cases) | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: | lr=1e-6, CoT training data:
+Row 10: Test set: CoT (greedy) 6.0% / 0.1m | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: 35.0% / 0.1m 24.7% / 0.1m 42.0% / 0.1m | lr=1e-6, CoT training data: 8.0% / 0.1m 6.7% / 0.1m 8.3% / 0.1m
+Row 11: Test set: CoT (pass@1) 6.0% / 0.6m | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: 28.3% / 0.7m 23.0% / 1.3m 29.7% / 0.8m | lr=1e-6, CoT training data: 7.3% / 0.6m 7.0% / 1.5m 6.7% / 0.8m
+Row 12: Test set: search: ToT 28.0% / 6.5m | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: 2.3% / 8.2m 1.0% / 4.3m 0.3% / 0.4m | lr=1e-6, CoT training data: 30.7% / 8m 22.7% / 13m 24.0% / 13m
+Row 13: Test set: search: RAP 27.0% / 8.3m | Unnamed: 0: | lr=5e-6, CoT+BFS+DFS training data: 1.3% / 13m 3.0% / 19m 3.7% / 29m | lr=1e-6, CoT training data: 27.7% / 16m 25.7% / 42m 33.7% / 75m
+[/TABLE]
+
+[PAGE 7]
+Published in Transactions on Machine Learning Research (10/2025)
+Step 2: Fine-tuning setup and baselines.We follow the alignment handbook (Tunstall et al., 2024) to
+implement all fine-tuning methods on an instance with 8 A100 GPUs. All methods share the same datasets
+and use common hyperparameters when applicable. We fix the batch sizeB to128and train E = 10epochs
+on each dataset for Game-of-24 andE = 2epochs for Countdown. We use a cosine schedule and sweep the
+peaklearning rate ηover (1e-5, 5e-6, 2e-6) for Q1.5B and over (5e-6, 2e-6, 1e-6) for Q7B. We setα= 0
+to have theSFTbaseline and sweep αover (1e-3, 1e-4, 1e-5, 1e-6) for our UFT. We also implement two
+preference-based baselines:SimPO(Meng et al., 2024b), which optimizes overpairedpreference data
+constructed from successful and failed reasoning paths, andCPO-SimPO(Xu, 2024), which augments
+SimPO with NLL term to better support reasoning tasks. Both methods are reference-free and leverage
+negative data as UFT. Notably, CPO-SimPO closely resembles the non-iterative variant of RPO (Pang et al.,
+2024). See Appendix A for details and Table 4 for method comparison.
+Step 3: Evaluation on CoT and search-based reasoning.Since our training dataset are all CoT-style
+reasoning paths, fine-tuning on these data should directly improve CoT reasoning capability. This is
+measured by performingzero-shotCoT (via greedy decoding or sampling) onXtest with fine-tuned LLM. On
+the other hand, we also aim to retain search-based reasoning capability after fine-tuning. This is measured
+by performing ToT or RAP onXtest.
+Inference-time baselines on CoT and search-based reasoning.Inference-time baselines refer to
+reasoners that use base LLMs without fine-tuning. For CoT reasoning, we use thefew-shotCoT (via
+greedy-decoding or sampling) on the base LLMs. For search-based reasoning, we report thebest variantsof
+ToT and RAP with the base LLM. The results for these baselines are shown in Table 1 for Q7B and Table 6
+for Q1.5B. We find that search-based reasoning (especially ToT) significantly improves success rates over
+CoT reasoning for Q7B (6.2%→25% in Countdown, 6%→28% in Game-of-24), but not for Q1.5B (2.2%
+→2.2% in Countdown, 2% to 8% in Game-of-24). However, search-based reasoning substantially increases
+inference time compared to CoT; for example, in Countdown, ToT and RAP are 90×and 278×slower than
+CoT (greedy decoding).
+5.2 Boosting Chain-of-Thought Reasoning
+We present CoT reasoning resultsat inference timefor LLMs fine-tuned on the Countdown (Table 2) and
+the Game-of-24 datasets (Table 3). Similar to Ye et al. (2024), we also evaluate the models trained on
+Countdown on the Game-of-24 test set, because conceptually Game-of-24 is a subset of Countdown. For
+both tables, we use the highest learning rate (1e-5 for Q1.5B and 5e-6 for Q7B) that yields best performance
+in CoT reasoning, leaving further discussion on the learning rate for Sec. 5.3. For the UFT objective, we
+fix the coefficientαfor the same model across different datasets, selected by the average success rate on
+validation setX valid. Our key findings are summarized below.
+NLL loss is essential for offline fine-tuning on reasoning tasks.The most salient observation is
+that SimPO, while successful in alignment tasks using only a preference loss (Meng et al., 2024b), yields
+near-zero success across model sizes and datasets. In contrast, CPO-SimPO (Xu, 2024), which simply adds
+an NLL term to SimPO, achieves substantially better results. This highlights the critical role of NLL loss,
+shared by SFT, CPO-SimPO, and UFT, which explicitly encourages models to follow correct reasoning paths.
+These findings align with prior results in Pang et al. (2024); Pal et al. (2024).
+Incorporating high-quality training data is decisive for CoT reasoning.Second, among methods
+that use NLL loss, performance is primarily determined by the quality of the training data, outweighing
+the effect of forgetting objective. We measuredata qualityby thebest-of-n success rate: the fraction of
+uniquesolved cases out of all the training cases.7 The best performances in Table 2 and Table 3 correspond
+to the datasets with the highest quality (BFS+DFS data in Countdown, CoT data in Game-of-24). In
+addition, when the two datasets have similar quality (BFS+DFS vs CoT+BFS+DFS in Countdown, CoT
+vs CoT+ToT+RAP in Game-of-24), their performances are also alike. Remarkably, fine-tuning on the
+high-quality classic search (BFS+DFS) data from Countdown yields significantly better performance on
+7Although ToT and RAP greatly outperform CoT as inference-time methods (Table 1, Table 6) in Game-of-24, they produce
+lower-quality training data than CoT (Table 3), because CoT’s best-of-n (n=100) success rate far exceeds its average (93%
+versus 6% in Q7B, 82% versus 5% in Q1.5B).
+
+[PAGE 8]
+Published in Transactions on Machine Learning Research (10/2025)
+Table 2:CoT reasoning performance of LLMs fine-tuned on Countdown.Each row shows the averaged
+result (3 seeds) of an LLM fine-tuned on data from specified sources. Models are evaluated on Countdown (1000
+cases) and Game-of-24 (100 cases) test sets using zero-shot CoT via greedy decoding (greedy) or sampling (pass@1).
+BFS+DFS data are generated by oracle reasoners without LLMs. We highlightour two contributions(incorporating
+search-derived data and the fine-tuning method UFT) andthe best cellfor each (test set, CoT inference) pair.
+Boldindicates the highest mean for each row. A superscript∗marks results that are statistically significant according
+to a Welch’s t-test (p < 0.05).
+(a) Base LLM: Qwen2.5-Math 7B (best succ rate with search: 25% on Countdown, 28% on Game-of-24)
+SFT SimPO CPO-SimPO UFT
+CoT data(quality:37.6%)
+Countdown succ (greedy) 32.5%±0.3%0.0%±0.0%27.8%±0.5%33.5%±1.0%
+Countdown succ (pass@1) 32.2%±0.6%0.0%±0.0%25.9%±1.3%32.5%±1.7%
+Game-of-24 succ (greedy) 16.0%±1.0%0.0%±0.0%11.7%±3.1%16.7%±2.9%
+Game-of-24 succ (pass@1) 12.3%±2.3%0.0%±0.0%10.3%±4.0%14.7%±4.6%
+BFS+DFS data(quality:86.2%)
+Countdown succ (greedy) 56.1%±0.4%0.0%±0.0%51.4%±0.6%57.1% ∗±0.3%
+Countdown succ (pass@1) 53.1%±2.6%0.0%±0.0%48.6%±1.3% 54.4%±1.1%
+Game-of-24 succ (greedy) 37.0%±1.0%0.0%±0.0%31.7%±2.5%39.7%±2.5%
+Game-of-24 succ (pass@1) 28.3%±4.0%0.0%±0.0%28.3%±4.0%24.7%±5.7%
+CoT+BFS+DFS data(quality:86.9%)
+Countdown succ (greedy) 55.4%±1.9%0.0%±0.0%50.6%±0.6% 57.4%±0.4%
+Countdown succ (pass@1) 51.8%±2.4%0.0%±0.0%45.7%±0.4%53.5%±0.5%
+Game-of-24 succ (greedy) 35.0%±1.0%0.0%±0.0%24.7%±3.1% 42.0%∗±1.7%
+Game-of-24 succ (pass@1) 28.3%±6.7%0.0%±0.0%23.0%±3.0% 29.7%±4.0%
+(b) Base LLM: Qwen2.5-Math 1.5B (best succ rate with search: 2.2% on Countdown, 8% on Game-of-24)
+SFT SimPO CPO-SimPO UFT
+CoT data(quality:20.0%)
+Countdown succ (greedy) 24.2%±0.3%0.6%±0.6%21.6%±0.6%26.1% ∗±0.6%
+Countdown succ (pass@1) 24.4%±0.4%0.6%±0.5%21.3%±0.4%26.1% ∗±0.4%
+Game-of-24 succ (greedy) 13.3%±0.6%0.0%±0.0%8.7%±1.5%14.3%±0.6%
+Game-of-24 succ (pass@1) 9.3%±2.5%0.0%±0.0%7.3%±2.1%14.0% ∗±2.0%
+BFS+DFS data(quality:86.2%)
+Countdown succ (greedy) 50.8%±0.7%0.0%±0.0%50.5%±1.4% 53.7%∗±1.2%
+Countdown succ (pass@1) 47.5%±0.8%0.0%±0.0%47.4%±1.6% 51.2%∗±1.1%
+Game-of-24 succ (greedy) 29.7%±3.2%0.0%±0.0%27.3%±3.8% 32.0%±4.6%
+Game-of-24 succ (pass@1) 23.0%±7.0%0.0%±0.0%20.3%±2.5%23.0%±5.2%
+CoT+BFS+DFS data(quality:86.3%)
+Countdown succ (greedy) 51.1%±0.9%0.0%±0.0%48.9%±0.8%51.5%±0.7%
+Countdown succ (pass@1) 47.1%±1.1%0.0%±0.0%45.3%±1.2%46.5%±1.3%
+Game-of-24 succ (greedy) 26.3%±1.5%0.0%±0.0%24.7%±2.9%26.0%±2.6%
+Game-of-24 succ (pass@1) 24.0%±2.0%0.0%±0.0%20.7%±2.1% 25.0%±5.3%
+Game-of-24 than models fine-tuneddirectlyon Game-of-24 CoT data (37% vs 28.2% for Q7B and 29.7% vs
+14.5% for Q1.5B). This highlights the importance of incorporating high-quality training data, rather than
+relying solely on CoT data, as is common practice.
+Unpaired learning and forgetting is more robust than paired one.Lastly, we analyze the effect
+of forgetting loss to SFT. UFT achieves the highest mean (ignoring variance) in 26 out of 36 evaluation
+settings, and is statistically significantly better than baselines in 7 cases. Given the limited number of seeds
+(3–4), these results may underestimate the true significance, and we expect the evidence to strengthen with
+additional runs. In terms of magnitude, UFT yields an average improvement of1.3%(with a maximum of
+4%) in Table 3, and an average of1.5%(with a maximum of7%) in Table 2.
+In contrast, CPO-SimPO shows mixed results. While it improves over SFT with an average gain of 1.2%
+and maximum of 5% in Table 3, it underperforms SFT in most scenarios in Table 2, with an averagedrop
+of 3.5%. We believe several factors contribute to the contrasting behavior of CPO-SimPO relative to SFT
+(and UFT) when fine-tuned on Countdown versus Game-of-24. First, as shown in Appendix Table 5, the
+pairedpreference requirement in CPO-SimPO results in the exclusion of 0.1% to 5.8% of correct data on
+Countdown, while no such filtering occurs for Game-of-24. Since correct data determines data quality, this
+reduction likely contributes to CPO-SimPO’s weaker performance on Countdown. Second, the exclusion
+
+[TABLE page=8 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | SFT SimPO | CPO-SimPO | UFT
+Row 1: Unnamed: 0: CoT data (quality: | Unnamed: 1: 37.6%) | Unnamed: 2: | SFT SimPO: | CPO-SimPO: | UFT:
+Row 2: Unnamed: 0: Countdown succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 32.5%±0.3% 0.0%±0.0% | CPO-SimPO: 27.8%±0.5% | UFT: 33.5%±1.0%
+Row 3: Unnamed: 0: Countdown succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 32.2%±0.6% 0.0%±0.0% | CPO-SimPO: 25.9%±1.3% | UFT: 32.5%±1.7%
+Row 4: Unnamed: 0: Game-of-24 succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 16.0%±1.0% 0.0%±0.0% | CPO-SimPO: 11.7%±3.1% | UFT: 16.7%±2.9%
+Row 5: Unnamed: 0: Game-of-24 succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 12.3%±2.3% 0.0%±0.0% | CPO-SimPO: 10.3%±4.0% | UFT: 14.7%±4.6%
+Row 6: Unnamed: 0: BFS+DFS data (quality: | Unnamed: 1: 86.2%) | Unnamed: 2: | SFT SimPO: | CPO-SimPO: | UFT:
+Row 7: Unnamed: 0: Countdown succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 56.1% ∗±0.4% 0.0% ±0.0% | CPO-SimPO: 51.4%±0.6% | UFT: 57.1% ±0.3%
+Row 8: Unnamed: 0: Countdown succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 53.1%±2.6% 0.0%±0.0% | CPO-SimPO: 48.6%±1.3% | UFT: 54.4%±1.1%
+Row 9: Unnamed: 0: Game-of-24 succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 37.0%±1.0% 0.0%±0.0% | CPO-SimPO: 31.7%±2.5% | UFT: 39.7%±2.5%
+Row 10: Unnamed: 0: Game-of-24 succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 28.3%±4.0% 0.0%±0.0% | CPO-SimPO: 28.3%±4.0% | UFT: 24.7%±5.7%
+Row 11: Unnamed: 0: CoT+BFS+DFS data | Unnamed: 1: (quality: | Unnamed: 2: 86.9%) | SFT SimPO: | CPO-SimPO: | UFT:
+Row 12: Unnamed: 0: Countdown succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 55.4%±1.9% 0.0%±0.0% | CPO-SimPO: 50.6%±0.6% | UFT: 57.4%±0.4%
+Row 13: Unnamed: 0: Countdown succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 51.8%±2.4% 0.0%±0.0% | CPO-SimPO: 45.7%±0.4% | UFT: 53.5%±0.5%
+Row 14: Unnamed: 0: Game-of-24 succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 35.0%±1.0% 0.0%±0.0% | CPO-SimPO: 24.7%±3.1% | UFT: 42.0%∗±1.7%
+Row 15: Unnamed: 0: Game-of-24 succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 28.3%±6.7% 0.0%±0.0% | CPO-SimPO: 23.0%±3.0% | UFT: 29.7%±4.0%
+Row 16: Unnamed: 0: Base LLM: Qwen2.5-Math 1.5B (best succ rate with search: | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 2.2% on Countdown, 8% on Game-of | CPO-SimPO: | UFT:
+Row 17: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | SFT SimPO: SFT SimPO | CPO-SimPO: CPO-SimPO | UFT: UFT
+Row 18: Unnamed: 0: CoT data (quality: | Unnamed: 1: 20.0%) | Unnamed: 2: | SFT SimPO: | CPO-SimPO: | UFT:
+Row 19: Unnamed: 0: Countdown succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 24.2%±0.3% 0.6%±0.6% | CPO-SimPO: 21.6%±0.6% | UFT: 26.1%∗±0.6%
+Row 20: Unnamed: 0: Countdown succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 24.4%±0.4% 0.6% ∗±0.5% | CPO-SimPO: 21.3%±0.4% | UFT: 26.1% ±0.4%
+Row 21: Unnamed: 0: Game-of-24 succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 13.3%±0.6% 0.0%±0.0% | CPO-SimPO: 8.7%±1.5% | UFT: 14.3%±0.6%
+Row 22: Unnamed: 0: Game-of-24 succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 9.3% ∗±2.5% 0.0%±0.0% | CPO-SimPO: 7.3%±2.1% | UFT: 14.0% ±2.0%
+Row 23: Unnamed: 0: BFS+DFS data (quality: | Unnamed: 1: 86.2%) | Unnamed: 2: | SFT SimPO: | CPO-SimPO: | UFT:
+Row 24: Unnamed: 0: Countdown succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 50.8% ∗±0.7% 0.0%±0.0% | CPO-SimPO: 50.5%±1.4% | UFT: 53.7% ±1.2%
+Row 25: Unnamed: 0: Countdown succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 47.5% ∗±0.8% 0.0%±0.0% | CPO-SimPO: 47.4%±1.6% | UFT: 51.2% ±1.1%
+Row 26: Unnamed: 0: Game-of-24 succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 29.7%±3.2% 0.0%±0.0% | CPO-SimPO: 27.3%±3.8% | UFT: 32.0%±4.6%
+Row 27: Unnamed: 0: Game-of-24 succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 23.0%±7.0% 0.0%±0.0% | CPO-SimPO: 20.3%±2.5% | UFT: 23.0%±5.2%
+Row 28: Unnamed: 0: CoT+BFS+DFS data | Unnamed: 1: (quality: | Unnamed: 2: 86.3%) | SFT SimPO: | CPO-SimPO: | UFT:
+Row 29: Unnamed: 0: Countdown succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 51.1%±0.9% 0.0%±0.0% | CPO-SimPO: 48.9%±0.8% | UFT: 51.5%±0.7%
+Row 30: Unnamed: 0: Countdown succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 47.1%±1.1% 0.0%±0.0% | CPO-SimPO: 45.3%±1.2% | UFT: 46.5%±1.3%
+Row 31: Unnamed: 0: Game-of-24 succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 26.3%±1.5% 0.0%±0.0% | CPO-SimPO: 24.7%±2.9% | UFT: 26.0%±2.6%
+Row 32: Unnamed: 0: Game-of-24 succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 24.0%±2.0% 0.0%±0.0% | CPO-SimPO: 20.7%±2.1% | UFT: 25.0%±5.3%
+[/TABLE]
+
+[PAGE 9]
+Published in Transactions on Machine Learning Research (10/2025)
+Table 3:CoT reasoning performance of LLMs fine-tunedandevaluated on Game-of-24.Each row shows
+the averaged result (4 seeds) of an LLM fine-tuned on data from specified sources. We highlightour two contributions
+(incorporating search-derived data and the fine-tuning method UFT) andthe best cellfor each (test set, CoT
+inference) pair.Boldindicates the highest mean for each row. A superscript∗marks results that are statistically
+significant according to a Welch’s t-test (p < 0.05).
+(a) Base LLM: Qwen2.5-Math 7B (best succ rate with search: 28%)
+SFT SimPO CPO-SimPO UFT
+CoT data(quality:92.9%)
+succ (greedy) 28.2%±1.7%2.2%±1.3%28.5%±1.9%28.2%±3.6%
+succ (pass@1) 22.5%±3.4%2.2%±1.5%27.5%∗±2.4%23.2%±3.4%
+T oT+RAP data(quality:69.3%)
+succ (greedy) 13.2%±3.6%0.0%±0.0%16.5%±2.9%15.2%±2.2%
+succ (pass@1) 13.2%±2.8%0.0%±0.0%15.0%±4.1%17.2%±1.0%
+CoT+T oT+RAP data(quality:95.3%)
+succ (greedy) 27.5%±4.2%0.2%±0.5%26.8%±5.7% 30.2%±2.1%
+succ (pass@1) 24.2%±5.2%0.2%±0.5%22.8%±1.7%26.2%±2.2%
+(b) Base LLM: Qwen2.5-Math 1.5B (best succ rate with search: 8%)
+SFT SimPO CPO-SimPO UFT
+CoT data(quality:82.1%)
+succ (greedy) 14.5%±3.8%0.0%±0.0%18.5%±1.9%18.2%±3.2%
+succ (pass@1) 17.8%±3.4%0.0%±0.0%17.3%±0.5%18.5%±3.5%
+T oT+RAP data(quality:44.7%)
+succ (greedy) 9.5%±0.6%0.0%±0.0%10.3%±1.9%8.0%±1.4%
+succ (pass@1) 10.0%±1.4%0.0%±0.0%9.5%±1.3%9.5%±2.6%
+CoT+T oT+RAP data(quality:87.6%)
+succ (greedy) 20.0%±2.7%0.0%±0.0% 21.8%±1.7%20.5%±3.7%
+succ (pass@1) 17.0%±2.2%0.0%±0.0%18.0%±2.6% 18.8%±1.3%
+of unpaired failed data, along with the challenge of balancing preference and NLL objectives, may have a
+greater impact on the more difficult Countdown task.
+5.3 Mitigating Forgetting in Search-based Reasoning
+We investigate whether fine-tuned LLMs can retain search-based reasoning abilities (e.g., ToT, RAP), a
+question that remains underexplored in the absence of continued pretraining. Evaluating this retention is
+analogous to measuringbackward transfer(Lopez-Paz & Ranzato, 2017) in continual learning, i.e., whether
+performance on a prior task (search-based reasoning) degrades after fine-tuning on a new one (CoT-style
+data). We focus on Q7B, which exhibits strong search-based reasoning performance and a clear gap over
+CoT baselines (Table 1). For completeness, the results of Q1.5B is shown in Appendix B.
+Although learning rate decay is employed following the alignment handbook, we find that using a peak
+learning rate of 2e-5, as in the original Qwen2.5-Math setup (Yang et al., 2024), leads tocatastrophic
+forgetting(McCloskey & Cohen, 1989), with near-zero performance in inference-time search. We hypothesize
+that this degradation stems from the lack of reward modeling in CoT-style supervision, which would be
+essential for search-based reasoning (see Sec. C.4 for details).
+A very low (peak) learning rate is crucial to retaining search capability.Inspired by continual
+learning (Mirzadeh et al., 2020), we adopt a much smaller learning rate to keep parameters within the “basic
+capability basin” (Chen et al., 2025), preserving pretrained knowledge. Fig. 3 and Fig. 5 shows the effects
+of (peak) learning rate in standard SFT on Q7B. As we reduce the learning rate from 5e-6 to 1e-6 (an
+exceptionally low value for SFT), we observe a clear trade-off: CoT reasoning performance declines rapidly
+(although it remains above the baseline), while inference-time search improves significantly (although often
+remains below the baseline). This behavior is similar to learning rate effects seen in reference-free preference
+optimization (Meng et al., 2024b).
+CoT training data is more effective for preserving search capability.An interesting observation
+from Fig. 3 to Fig. 5 is that in both Countdown and Game-of-24 training settings, CoT data leads to better
+inference-time search than search-derived data, although CoT data hasmuch lowerquality compared to
+
+[TABLE page=9 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | SFT SimPO | CPO-SimPO | Unnamed: 3 | UFT
+Row 1: Unnamed: 0: CoT data (quality: 92.9%) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: | CPO-SimPO: | Unnamed: 3: | UFT:
+Row 2: Unnamed: 0: succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 28.2%±1.7% 2.2%±1.3% | CPO-SimPO: 28.5%±1.9% | Unnamed: 3: | UFT: 28.2%±3.6%
+Row 3: Unnamed: 0: succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 22.5% ∗±3.4% 2.2%±1.5% | CPO-SimPO: 27.5% ±2.4% | Unnamed: 3: | UFT: 23.2%±3.4%
+Row 4: Unnamed: 0: ToT+RAP data (quality: | Unnamed: 1: 69.3%) | Unnamed: 2: | SFT SimPO: | CPO-SimPO: | Unnamed: 3: | UFT:
+Row 5: Unnamed: 0: succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 13.2%±3.6% 0.0%±0.0% | CPO-SimPO: 16.5%±2.9% | Unnamed: 3: | UFT: 15.2%±2.2%
+Row 6: Unnamed: 0: succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 13.2%±2.8% 0.0%±0.0% | CPO-SimPO: 15.0%±4.1% | Unnamed: 3: | UFT: 17.2%±1.0%
+Row 7: Unnamed: 0: CoT+ToT+RAP data | Unnamed: 1: (quality: | Unnamed: 2: 95.3%) | SFT SimPO: | CPO-SimPO: | Unnamed: 3: | UFT:
+Row 8: Unnamed: 0: succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 27.5%±4.2% 0.2%±0.5% | CPO-SimPO: 26.8%±5.7% | Unnamed: 3: | UFT: 30.2%±2.1%
+Row 9: Unnamed: 0: succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 24.2%±5.2% 0.2%±0.5% | CPO-SimPO: 22.8%±1.7% | Unnamed: 3: | UFT: 26.2%±2.2%
+Row 10: Unnamed: 0: (b) Base LLM: Qwen2.5-Math 1.5B (best succ rate with search: | Unnamed: 1: | Unnamed: 2: | SFT SimPO: | CPO-SimPO: 8%) | Unnamed: 3: | UFT:
+Row 11: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | SFT SimPO: SFT SimPO | CPO-SimPO: CPO-SimPO | Unnamed: 3: | UFT: UFT
+Row 12: Unnamed: 0: CoT data (quality: 82.1%) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: | CPO-SimPO: | Unnamed: 3: | UFT:
+Row 13: Unnamed: 0: succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 14.5%±3.8% 0.0%±0.0% | CPO-SimPO: 18.5%±1.9% | Unnamed: 3: | UFT: 18.2%±3.2%
+Row 14: Unnamed: 0: succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 17.8%±3.4% 0.0%±0.0% | CPO-SimPO: 17.3%±0.5% | Unnamed: 3: | UFT: 18.5%±3.5%
+Row 15: Unnamed: 0: ToT+RAP data (quality: | Unnamed: 1: 44.7%) | Unnamed: 2: | SFT SimPO: | CPO-SimPO: | Unnamed: 3: | UFT:
+Row 16: Unnamed: 0: succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 9.5%±0.6% 0.0%±0.0% | CPO-SimPO: 10.3%±1.9% | Unnamed: 3: | UFT: 8.0%±1.4%
+Row 17: Unnamed: 0: succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 10.0%±1.4% 0.0%±0.0% | CPO-SimPO: 9.5%±1.3% | Unnamed: 3: | UFT: 9.5%±2.6%
+Row 18: Unnamed: 0: CoT+ToT+RAP data | Unnamed: 1: (quality: | Unnamed: 2: 87.6%) | SFT SimPO: | CPO-SimPO: | Unnamed: 3: | UFT:
+Row 19: Unnamed: 0: succ (greedy) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 20.0%±2.7% 0.0%±0.0% | CPO-SimPO: 21.8%±1.7% | Unnamed: 3: | UFT: 20.5%±3.7%
+Row 20: Unnamed: 0: succ (pass@1) | Unnamed: 1: | Unnamed: 2: | SFT SimPO: 17.0%±2.2% 0.0%±0.0% | CPO-SimPO: 18.0%±2.6% | Unnamed: 3: | UFT: 18.8%±1.3%
+[/TABLE]
+
+[PAGE 10]
+Published in Transactions on Machine Learning Research (10/2025)
+0.2
+0.4Success Rate
+CoT (greedy)
+0.2
+0.4
+CoT (pass@1)
+0.1
+0.2
+Search: ToT
+0.05
+0.10
+0.15
+Search: RAP
+2 4
+Peak lr
+1e 6
+0.1
+0.2
+0.3Success Rate
+2 4
+Peak lr
+1e 6
+0.1
+0.2
+0.3
+2 4
+Peak lr
+1e 6
+0.0
+0.1
+0.2
+0.3
+2 4
+Peak lr
+1e 6
+0.0
+0.1
+0.2
+0.3
+(a) Trained on Countdown and Tested on Countdown
+(b) Trained on Countdown and Tested on Game-of-24
+BFS+DFS data CoT data CoT+BFS+DFS data Qwen2.5-Math-7B
+Figure 3:Impact of (peak) learning rate and data sources on CoT vs. search-based reasoningfor
+standard SFT (α=0) using Qwen2.5-Math 7B as the base model. Learning rate mediates a trade-off between CoT and
+search performance; CoT data better preserves search capability in most cases.
+BFS+DFS data. Both CoT and search-derived data fall under CoT-style paths, but the latter is generated by
+a search algorithm rather than directly by the LLM. This suggests that CoT data, being more aligned with
+the LLM’s on-policy distribution, induces less distribution shift during SFT, thereby reducing forgetting.
+0.1
+0.2
+0.3
+0.4
+0.5Success Rate
+CoT (greedy)
+0.1
+0.2
+0.3
+0.4
+CoT (pass@1)
+0.0
+0.1
+0.2
+0.3
+Search: ToT
+0.10
+0.15
+0.20
+0.25
+0.30
+Search: RAP
+0 10 6
+10 5
+10 4
+10 3
+Unlikelihood
+0.1
+0.2
+0.3Success Rate
+0 10 6
+10 5
+10 4
+10 3
+Unlikelihood
+0.05
+0.10
+0.15
+0.20
+0.25
+0 10 6
+10 5
+10 4
+10 3
+Unlikelihood
+0.0
+0.1
+0.2
+0.3
+0 10 6
+10 5
+10 4
+10 3
+Unlikelihood
+0.0
+0.1
+0.2
+0.3
+0.4
+(a) Trained on Countdown and Tested on Countdown
+(b) Trained on Countdown and Tested on Game-of-24
+BFS+DFS data CoT data CoT+BFS+DFS data Qwen2.5-Math-7B
+Figure 4:Effects of unlikelihood loss and data sources on CoT vs. search-based reasoningusing Qwen2.5Math 7B as the base model, with the peak learning rate as 1e-6. Unlikelihood loss leads to greater improvements in
+search performance than in CoT inference in most cases.
+Unlikelihood auxiliary loss can significantly improve search capability.Building on the findings
+in Fig. 3, we observe that the effect of a low learning rate extends to UFT and CPO-SimPO as well. Here,
+we examine the impact of the unlikelihood loss specifically at the lowest learning rate of 1e-6. Consistent
+with Sec. 5.2, UFT provides marginal improvements over SFT in CoT reasoning, regardless of the choice
+of α. However, withα=1e-4, inference-time search improves considerably compared to SFT (α=0) in most
+cases. For example, with the same CoT data, ToT achieves 28.6% vs. 22.2% under SFT, and RAP reaches
+28.9% vs. 17.5% – far exceeding the RAP baseline of 10.2%. This indicates that learning to forget incorrect
+CoT-style paths could generalize to forgetting incorrect intermediate search steps.
+6 Conclusion and Future Work
+We propose a simple and effective method for improving reasoning on arithmetic puzzle domains, addressing
+three underexplored challenges: (1) augmenting training data by unifying mixed data formats from diverse
+
+[TABLE page=10 index=1]
+Columns: 0.4 | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | 0.4 Success Rate | 0.15Success Rate | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 | Unnamed: 9 | Unnamed: 10 | Success Rate | Success Rate.1
+Row 1: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: 0.10 | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 2: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.1 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 3: 0.4: 0.2 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.2 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 4: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: 0.05 | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 5: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: (b) Trained on Countdown and Tested on Game-of-24 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 6: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: 0.3 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 7: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.3 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 8: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.3 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 9: 0.4: 0.3 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 10: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.2 | 0.15Success Rate: | Unnamed: 4: 0.2 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 11: 0.4: 0.2 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.2 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 12: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.1 | 0.15Success Rate: | Unnamed: 4: 0.1 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 13: 0.4: 0.1 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.1 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 14: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.0 | 0.15Success Rate: | Unnamed: 4: 0.0 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 15: 0.4: 2 | Unnamed: 0: 4 | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 2 4 | 0.15Success Rate: 2 4 | Unnamed: 4: 2 | Unnamed: 5: | Unnamed: 6: 4 | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 16: 0.4: Peak lr | Unnamed: 0: | Unnamed: 1: 1e | Unnamed: 2: 6.0 | Unnamed: 3: | 0.4 Success Rate: Peak lr 1e 6 | 0.15Success Rate: Peak lr 1e 6 | Unnamed: 4: Peak lr | Unnamed: 5: | Unnamed: 6: 1e | Unnamed: 7: 6.0 | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 17: 0.4: Impact | Unnamed: 0: of (peak) | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: learning rate and data sources | 0.15Success Rate: on CoT vs. | Unnamed: 4: search-based | Unnamed: 5: | Unnamed: 6: reasoning | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: for | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 18: 0.4: FT (α=0) using Qwen2.5-Math 7B as the base model. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: Learning rate mediates a trade-off between CoT and | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 19: 0.4: formance; CoT data better preserves search capability in most cases. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 20: 0.4: data. Both CoT and search-derived data fall under CoT-style paths, but the latter is generated by | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 21: 0.4: lgorithm rather than directly by the LLM. This suggests that CoT data, being more aligned with | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 22: 0.4: s on-policy distribution, induces less distribution shift during SFT, thereby reducing forgetting. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 23: 0.4: | Unnamed: 0: BFS+DFS data | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: CoT data CoT+BFS+DFS data | 0.15Success Rate: Qwen2.5-Math-7B | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 24: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: (a) Trained on Countdown and Tested on Countdown | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 25: 0.4: CoT (greedy) | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: CoT (pass@1) | 0.15Success Rate: Search: ToT | Unnamed: 4: Search: RAP | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 26: 0.4: 0.5 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 27: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.3 | 0.15Success Rate: 0.30 | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 28: 0.4: 0.40.4 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 29: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: 0.25 | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 30: 0.4: 0.3 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.3 0.2 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 31: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: 0.20 | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 32: 0.4: 0.2 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.2 0.1 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 33: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: 0.15 | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 34: 0.4: 0.1 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.1 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 35: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.0 | 0.15Success Rate: 0.10 | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 36: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: (b) Trained on Countdown and Tested on Game-of-24 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 37: 0.4: 0.3 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: 0.4 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 38: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.25 0.3 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 39: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: | 0.15Success Rate: | Unnamed: 4: 0.3 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 40: 0.4: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.20 | 0.15Success Rate: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+Row 41: 0.4: 0.2 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | 0.4 Success Rate: 0.2 | 0.15Success Rate: | Unnamed: 4: 0.2 | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: | Unnamed: 10: | Success Rate: | Success Rate.1:
+[/TABLE]
+
+[PAGE 11]
+Published in Transactions on Machine Learning Research (10/2025)
+reasoners into a CoT-style format, (2) leveraging unpaired correct and failed paths via unlikelihood fine-tuning,
+and (3) mitigating loss of search capability using a small learning rate. Experiments on Countdown and
+Game-of-24 show that data quality, unlikelihood loss, and learning rate are key to balancing CoT efficiency
+and search capability. Future work can explore more advanced unlearning objectives (Tamirisa et al., 2024;
+Huang et al., 2024), incorporate stabilization techniques (Meng et al., 2024b), and extend the framework to
+other reasoning-oriented LLMs.
+References
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida,
+Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical report.arXiv preprint arXiv:2303.08774,
+2023. 1
+Yuntao Bai, Saurav Kadavath, Sandipan Kundu, Amanda Askell, Jackson Kernion, Andy Jones, Anna Chen, Anna
+Goldie, Azalia Mirhoseini, Cameron McKinnon, et al. Constitutional ai: Harmlessness from ai feedback.arXiv
+preprint arXiv:2212.08073, 2022. 2
+Bernd Bohnet, Azade Nova, Aaron T Parisi, Kevin Swersky, Katayoon Goshvadi, Hanjun Dai, Dale Schuurmans, Noah
+Fiedel, and Hanie Sedghi. Exploring and benchmarking the planning capabilities of large language models, 2024. 2
+Zhepeng Cen, Yao Liu, Siliang Zeng, Pratik Chaudhari, Huzefa Rangwala, George Karypis, and Rasool Fakoor.
+Bridging the training-inference gap in LLMs by leveraging self-generated tokens.Transactions on Machine Learning
+Research, 2025. ISSN 2835-8856. 4
+Huanran Chen, Yinpeng Dong, Zeming Wei, Yao Huang, Yichi Zhang, Hang Su, and Jun Zhu. Understanding
+pre-training and fine-tuning from loss landscape perspectives.arXiv preprint arXiv:2505.17646, 2025. 9
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De Oliveira Pinto, Jared Kaplan, Harri
+Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et al. Evaluating large language models trained on code.
+arXiv preprint arXiv:2107.03374, 2021. 3
+Sijia Chen, Yibo Wang, Yi-Feng Wu, Qingguo Chen, Zhao Xu, Weihua Luo, Kaifu Zhang, and Lijun Zhang. Advancing
+tool-augmented large language models: Integrating insights from errors in inference trees.Advances in Neural
+Information Processing Systems, 37:106555–106581, 2024a. 3, 5
+Xingyu Chen, Jiahao Xu, Tian Liang, Zhiwei He, Jianhui Pang, Dian Yu, Linfeng Song, Qiuzhi Liu, Mengfei Zhou,
+Zhuosheng Zhang, et al. Do not think that much for 2+ 3=? on the overthinking of o1-like llms.arXiv preprint
+arXiv:2412.21187, 2024b. 1
+Ziru Chen, Michael White, Raymond Mooney, Ali Payani, Yu Su, and Huan Sun. When is tree search useful for llm
+planning? it depends on the discriminator.arXiv preprint arXiv:2402.10890, 2024c. 1, 2
+Francois Chollet, Mike Knoop, Gregory Kamradt, and Bryan Landers. Arc prize 2024: Technical report.arXiv
+preprint arXiv:2412.04604, 2024. 1
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert,
+Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training verifiers to solve math word problems.arXiv preprint
+arXiv:2110.14168, 2021. 3
+Yilun Du, Shuang Li, Antonio Torralba, Joshua B Tenenbaum, and Igor Mordatch. Improving factuality and reasoning
+in language models through multiagent debate.arXiv preprint arXiv:2305.14325, 2023. 2
+Kawin Ethayarajh, Winnie Xu, Niklas Muennighoff, Dan Jurafsky, and Douwe Kiela. Kto: Model alignment as
+prospect theoretic optimization.arXiv preprint arXiv:2402.01306, 2024. 3, 17
+Rasool Fakoor, Pratik Chaudhari, and Alexander J. Smola. P3o: Policy-on policy-off policy optimization. In
+Proceedings of The 35th Uncertainty in Artificial Intelligence Conference, volume 115 ofProceedings of Machine
+Learning Research, pp. 1017–1027. PMLR, 22–25 Jul 2020. 4
+Xidong Feng, Ziyu Wan, Muning Wen, Stephen Marcus McAleer, Ying Wen, Weinan Zhang, and Jun Wang. Alphazerolike tree-search can guide large language model decoding and training.arXiv preprint arXiv:2309.17179, 2023. 2,
+
+[PAGE 12]
+Published in Transactions on Machine Learning Research (10/2025)
+Kanishk Gandhi, Denise Lee, Gabriel Grand, Muxin Liu, Winson Cheng, Archit Sharma, and Noah D Goodman.
+Stream of search (sos): Learning to search in language.arXiv preprint arXiv:2404.03683, 2024. 2, 3, 6, 23, 26
+Zitian Gao, Boye Niu, Xuzheng He, Haotian Xu, Hongzhang Liu, Aiwei Liu, Xuming Hu, and Lijie Wen. Interpretable
+contrastive monte carlo tree search reasoning.arXiv preprint arXiv:2410.01707, 2024. 2
+Elliot Glazer, Ege Erdil, Tamay Besiroglu, Diego Chicharro, Evan Chen, Alex Gunning, Caroline Falkman Olsson,
+Jean-Stanislas Denain, Anson Ho, Emily de Oliveira Santos, et al. Frontiermath: A benchmark for evaluating
+advanced mathematical reasoning in ai.arXiv preprint arXiv:2411.04872, 2024. 1
+Etash Guha, Ryan Marten, Sedrick Keh, Negin Raoof, Georgios Smyrnis, Hritik Bansal, Marianna Nezhurina, Jean
+Mercat, Trung Vu, Zayne Sprague, et al. Openthoughts: Data recipes for reasoning models.arXiv preprint
+arXiv:2506.04178, 2025. 27
+Caglar Gulcehre, Tom Le Paine, Srivatsan Srinivasan, Ksenia Konyushkova, Lotte Weerts, Abhishek Sharma, Aditya
+Siddhant, Alex Ahern, Miaosen Wang, Chenjie Gu, et al. Reinforced self-training (rest) for language modeling.
+arXiv preprint arXiv:2308.08998, 2023. 2, 4
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi
+Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning.arXiv
+preprint arXiv:2501.12948, 2025. 3, 27
+Shibo Hao, Yi Gu, Haodi Ma, Joshua Jiahua Hong, Zhen Wang, Daisy Zhe Wang, and Zhiting Hu. Reasoning with
+language model is planning with world model.arXiv preprint arXiv:2305.14992, 2023. 1, 2, 3, 6, 25, 26
+Shibo Hao, Yi Gu, Haotian Luo, Tianyang Liu, Xiyan Shao, Xinyuan Wang, Shuhua Xie, Haodi Ma, Adithya
+Samavedhi, Qiyue Gao, et al. Llm reasoners: New evaluation, library, and analysis of step-by-step reasoning with
+large language models.arXiv preprint arXiv:2404.05221, 2024. 2, 3, 6, 25
+Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob
+Steinhardt. Measuring mathematical problem solving with the math dataset.NeurIPS, 2021. 27
+Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. Distilling the knowledge in a neural network.arXiv preprint
+arXiv:1503.02531, 2015. 2
+Jiwoo Hong, Noah Lee, and James Thorne. Orpo: Monolithic preference optimization without reference model.arXiv
+preprint arXiv:2403.07691, 2024. 3
+Arian Hosseini, Xingdi Yuan, Nikolay Malkin, Aaron Courville, Alessandro Sordoni, and Rishabh Agarwal. V-star:
+Training verifiers for self-taught reasoners.arXiv preprint arXiv:2402.06457, 2024. 3
+Tiansheng Huang, Sihao Hu, Fatih Ilhan, Selim Furkan Tekin, and Ling Liu. Booster: Tackling harmful fine-tuning
+for large language models via attenuating harmful perturbation.arXiv preprint arXiv:2409.01586, 2024. 11
+AQ Jiang, A Sablayrolles, A Mensch, C Bamford, DS Chaplot, D de las Casas, F Bressand, G Lengyel, G Lample,
+L Saulnier, et al. Mistral 7b (2023).arXiv preprint arXiv:2310.06825, 2023. 26
+Nitish Shirish Keskar, Bryan McCann, Lav R Varshney, Caiming Xiong, and Richard Socher. Ctrl: A conditional
+transformer language model for controllable generation.arXiv preprint arXiv:1909.05858, 2019. 3
+Levente Kocsis and Csaba Szepesvári. Bandit based monte-carlo planning. InEuropean conference on machine
+learning, pp. 282–293. Springer, 2006. 3, 26
+Jing Yu Koh, Stephen McAleer, Daniel Fried, and Ruslan Salakhutdinov. Tree search for language model agents.
+arXiv preprint arXiv:2407.01476, 2024. 2
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph Gonzalez, Hao Zhang,
+and Ion Stoica. Efficient memory management for large language model serving with pagedattention. InProceedings
+of the 29th Symposium on Operating Systems Principles, pp. 611–626, 2023. 6, 25
+Lucas Lehnert, Sainbayar Sukhbaatar, DiJia Su, Qinqing Zheng, Paul Mcvay, Michael Rabbat, and Yuandong Tian.
+Beyond a*: Better planning with transformers via search dynamics bootstrapping.arXiv preprint arXiv:2402.14083,
+2024. 2, 3
+
+[PAGE 13]
+Published in Transactions on Machine Learning Research (10/2025)
+Jia Li, Edward Beeching, Lewis Tunstall, Ben Lipkin, Roman Soletskyi, Shengyi Huang, Kashif Rasul, Longhui
+Yu, Albert Q Jiang, Ziju Shen, et al. Numinamath: The largest public dataset in ai4maths with 860k pairs of
+competition math problems and solutions.Hugging Face repository, 13(9):9, 2024. 27
+Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman,
+Ilya Sutskever, and Karl Cobbe. Let’s verify step by step.arXiv preprint arXiv:2305.20050, 2023. 1, 3
+Ruibo Liu, Jerry Wei, Fangyu Liu, Chenglei Si, Yanzhe Zhang, Jinmeng Rao, Steven Zheng, Daiyi Peng, Diyi Yang,
+Denny Zhou, et al. Best practices and lessons learned on synthetic data.arXiv preprint arXiv:2404.07503, 2024. 2
+David Lopez-Paz and Marc’Aurelio Ranzato. Gradient episodic memory for continual learning.Advances in neural
+information processing systems, 30, 2017. 9
+Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon, Nouha Dziri,
+Shrimai Prabhumoye, Yiming Yang, et al. Self-refine: Iterative refinement with self-feedback.Advances in Neural
+Information Processing Systems, 36, 2024. 2
+Michael McCloskey and Neal J Cohen. Catastrophic interference in connectionist networks: The sequential learning
+problem. InPsychology of learning and motivation, volume 24, pp. 109–165. Elsevier, 1989. 9
+Silin Meng, Yiwei Wang, Cheng-Fu Yang, Nanyun Peng, and Kai-Wei Chang. Llm-a*: Large language model enhanced
+incremental heuristic search on path planning.arXiv preprint arXiv:2407.02511, 2024a. 2
+Yu Meng, Mengzhou Xia, and Danqi Chen. Simpo: Simple preference optimization with a reference-free reward.
+Advances in Neural Information Processing Systems, 37:124198–124235, 2024b. 3, 6, 7, 9, 11, 17, 18
+Seyed Iman Mirzadeh, Mehrdad Farajtabar, Razvan Pascanu, and Hassan Ghasemzadeh. Understanding the role of
+training regimes in continual learning.Advances in Neural Information Processing Systems, 33:7308–7320, 2020. 9
+Ludovico Mitchener, Jon M Laurent, Benjamin Tenmann, Siddharth Narayanan, Geemi P Wellawatte, Andrew
+White, Lorenzo Sani, and Samuel G Rodriques. Bixbench: a comprehensive benchmark for llm-based agents
+in computational biology.arXiv preprint arXiv:2503.00096, Feb 2025. doi: 10.48550/arXiv.2503.00096. URL
+https://arxiv.org/abs/2503.00096. 1
+Reiichiro Nakano, Jacob Hilton, Suchir Balaji, Jeff Wu, Long Ouyang, Christina Kim, Christopher Hesse, Shantanu
+Jain, Vineet Kosaraju, William Saunders, et al. Webgpt: Browser-assisted question-answering with human feedback.
+arXiv preprint arXiv:2112.09332, 2021. 2
+Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin, Chong Zhang, Sandhini
+Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens,
+Amanda Askell, Peter Welinder, Paul Christiano, Jan Leike, and Ryan Lowe. Training language models to follow
+instructions with human feedback, 2022. 4, 6
+Arka Pal, Deep Karkhanis, Samuel Dooley, Manley Roberts, Siddartha Naidu, and Colin White. Smaug: Fixing
+failure modes of preference optimisation with dpo-positive.arXiv preprint arXiv:2402.13228, 2024. 3, 7, 18
+Richard Yuanzhe Pang, Weizhe Yuan, He He, Kyunghyun Cho, Sainbayar Sukhbaatar, and Jason Weston. Iterative
+reasoning preference optimization.Advances in Neural Information Processing Systems, 37:116617–116637, 2024. 3,
+4, 7, 17, 18
+Yujia Qin, Shihao Liang, Yining Ye, Kunlun Zhu, Lan Yan, Yaxi Lu, Yankai Lin, Xin Cong, Xiangru Tang, Bill Qian,
+et al. Toolllm: Facilitating large language models to master 16000+ real-world apis.arXiv preprint arXiv:2307.16789,
+2023. 2
+Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. Direct
+preference optimization: Your language model is secretly a reward model.Advances in Neural Information Processing
+Systems, 36:53728–53741, 2023. 2, 3, 17
+Domenic Rosati, Jan Wehner, Kai Williams, Lukasz Bartoszcze, Robie Gonzales, Subhabrata Majumdar, Hassan
+Sajjad, Frank Rudzicz, et al. Representation noising: A defence mechanism against harmful finetuning.Advances
+in Neural Information Processing Systems, 37:12636–12676, 2024. 20, 21
+Amrith Setlur, Saurabh Garg, Xinyang Geng, Naman Garg, Virginia Smith, and Aviral Kumar. Rl on incorrect
+synthetic data scales the efficiency of llm math reasoning by eight-fold.Advances in Neural Information Processing
+Systems, 37:43000–43031, 2024. 3, 5
+
+[PAGE 14]
+Published in Transactions on Machine Learning Research (10/2025)
+Noah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. Reflexion: Language agents
+with verbal reinforcement learning.Advances in Neural Information Processing Systems, 36:8634–8652, 2023. 2
+Avi Singh, John D Co-Reyes, Rishabh Agarwal, Ankesh Anand, Piyush Patil, Xavier Garcia, Peter J Liu, James
+Harrison, Jaehoon Lee, Kelvin Xu, et al. Beyond human data: Scaling self-training for problem-solving with
+language models.arXiv preprint arXiv:2312.06585, 2023. 2, 4
+Charlie Snell, Jaehoon Lee, Kelvin Xu, and Aviral Kumar. Scaling llm test-time compute optimally can be more
+effective than scaling model parameters.arXiv preprint arXiv:2408.03314, 2024. 1, 2
+Kaya Stechly, Karthik Valmeekam, and Subbarao Kambhampati. Chain of thoughtlessness: An analysis of cot in
+planning.arXiv preprint arXiv:2405.04776, 2024. 2
+Richard S Sutton, Andrew G Barto, et al.Reinforcement learning: An introduction, volume 1. MIT press Cambridge,
+1998. 3
+Rishub Tamirisa, Bhrugu Bharathi, Long Phan, Andy Zhou, Alice Gatti, Tarun Suresh, Maxwell Lin, Justin Wang,
+Rowan Wang, Ron Arel, et al. Tamper-resistant safeguards for open-weight llms.arXiv preprint arXiv:2408.00761,
+2024. 11
+Ye Tian, Baolin Peng, Linfeng Song, Lifeng Jin, Dian Yu, Lei Han, Haitao Mi, and Dong Yu. Toward self-improvement
+of llms via imagination, searching, and criticizing.Advances in Neural Information Processing Systems, 37:
+52723–52748, 2024. 2, 3
+Yi-Lin Tuan and William Yang Wang. A gradient analysis framework for rewarding good and penalizing bad examples
+in language models.arXiv preprint arXiv:2408.16751, 2024. 3
+Lewis Tunstall, Edward Beeching, Nathan Lambert, Nazneen Rajani, Shengyi Huang, Kashif Rasul, Alvaro Bartolome,
+Alexander M. Rush, and Thomas Wolf. The Alignment Handbook, 2024. URLhttps://github.com/huggingface/
+alignment-handbook. 7, 17
+Jonathan Uesato, Nate Kushman, Ramana Kumar, Francis Song, Noah Siegel, Lisa Wang, Antonia Creswell, Geoffrey
+Irving, and Irina Higgins. Solving math word problems with process-and outcome-based feedback.arXiv preprint
+arXiv:2211.14275, 2022. 2, 3, 6
+Karthik Valmeekam, Matthew Marquez, Sarath Sreedharan, and Subbarao Kambhampati. On the planning abilities of
+large language models-a critical investigation.Advances in Neural Information Processing Systems, 36:75993–76005,
+2023. 2
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+Polosukhin. Attention is all you need.Advances in neural information processing systems, 30, 2017. 1
+Leandro von Werra, Younes Belkada, Lewis Tunstall, Edward Beeching, Tristan Thrush, Nathan Lambert, Shengyi
+Huang, Kashif Rasul, and Quentin Gallouédec. Trl: Transformer reinforcement learning.https://github.com/
+huggingface/trl, 2020. 17
+Changsheng Wang, Chongyu Fan, Yihua Zhang, Jinghan Jia, Dennis Wei, Parikshit Ram, Nathalie Baracaldo, and
+Sijia Liu. Reasoning model unlearning: Forgetting traces, not just answers, while preserving reasoning skills.arXiv
+preprint arXiv:2506.12963, 2025. 3
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery, and Denny
+Zhou. Self-consistency improves chain of thought reasoning in language models.arXiv preprint arXiv:2203.11171,
+2022. 2
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al.
+Chain-of-thought prompting elicits reasoning in large language models.Advances in neural information processing
+systems, 35:24824–24837, 2022. 1, 3, 6, 23
+Sean Welleck, Ilia Kulikov, Stephen Roller, Emily Dinan, Kyunghyun Cho, and Jason Weston. Neural text generation
+with unlikelihood training.arXiv preprint arXiv:1908.04319, 2019. 3, 5
+Ronald J Williams. Simple statistical gradient-following algorithms for connectionist reinforcement learning.Machine
+learning, 8:229–256, 1992. 4
+
+[PAGE 15]
+Published in Transactions on Machine Learning Research (10/2025)
+Yuxi Xie, Kenji Kawaguchi, Yiran Zhao, James Xu Zhao, Min-Yen Kan, Junxian He, and Michael Xie. Self-evaluation
+guided beam search for reasoning.Advances in Neural Information Processing Systems, 36:41618–41650, 2023. 2
+Yuxi Xie, Anirudh Goyal, Wenyue Zheng, Min-Yen Kan, Timothy P Lillicrap, Kenji Kawaguchi, and Michael Shieh.
+Monte carlo tree search boosts reasoning via iterative preference learning.arXiv preprint arXiv:2405.00451, 2024. 2
+Haoran Xu. The joint of contrastive preference optimization (cpo) & simple preference optimization (simpo), 2024.
+URLhttps://github.com/fe1ixxu/CPO_SIMPO. 2, 6, 7, 17, 18
+Haoran Xu, Amr Sharaf, Yunmo Chen, Weiting Tan, Lingfeng Shen, Benjamin Van Durme, Kenton Murray, and
+Young Jin Kim. Contrastive preference optimization: Pushing the boundaries of llm performance in machine
+translation.arXiv preprint arXiv:2401.08417, 2024. 3, 17, 18
+An Yang, Beichen Zhang, Binyuan Hui, Bofei Gao, Bowen Yu, Chengpeng Li, Dayiheng Liu, Jianhong Tu, Jingren
+Zhou, Junyang Lin, et al. Qwen2. 5-math technical report: Toward mathematical expert model via self-improvement.
+arXiv preprint arXiv:2409.12122, 2024. 2, 6, 9, 17
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang,
+Chenxu Lv, et al. Qwen3 technical report.arXiv preprint arXiv:2505.09388, 2025. 27
+Mengjiao Sherry Yang, Dale Schuurmans, Pieter Abbeel, and Ofir Nachum. Chain of thought imitation with procedure
+cloning.Advances in Neural Information Processing Systems, 35:36366–36381, 2022. 3
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan. Tree of
+thoughts: Deliberate problem solving with large language models.Advances in Neural Information Processing
+Systems, 36, 2023a. 1, 2, 3, 6, 23, 25
+Yuanshun Yao, Xiaojun Xu, and Yang Liu. Large language model unlearning.arXiv preprint arXiv:2310.10683, 2023b.
+3, 5, 20
+Jiacheng Ye, Jiahui Gao, Shansan Gong, Lin Zheng, Xin Jiang, Zhenguo Li, and Lingpeng Kong. Beyond autoregression:
+Discrete diffusion for complex reasoning and planning.arXiv preprint arXiv:2410.14157, 2024. 7
+Hongyi Yuan, Zheng Yuan, Chuanqi Tan, Wei Wang, Songfang Huang, and Fei Huang. Rrhf: Rank responses to align
+language models with human feedback.Advances in Neural Information Processing Systems, 36:10935–10950, 2023a.
+Zheng Yuan, Hongyi Yuan, Chengpeng Li, Guanting Dong, Keming Lu, Chuanqi Tan, Chang Zhou, and Jingren
+Zhou. Scaling relationship on learning mathematical reasoning with large language models.arXiv preprint
+arXiv:2308.01825, 2023b. 2, 4
+Yang Yue, Zhiqi Chen, Rui Lu, Andrew Zhao, Zhaokai Wang, Shiji Song, and Gao Huang. Does reinforcement learning
+really incentivize reasoning capacity in llms beyond the base model?arXiv preprint arXiv:2504.13837, 2025. 27
+Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah Goodman. Star: Bootstrapping reasoning with reasoning.Advances
+in Neural Information Processing Systems, 35:15476–15488, 2022. 2, 4
+Eric Zelikman, Georges Harik, Yijia Shao, Varuna Jayasiri, Nick Haber, and Noah D Goodman. Quiet-star: Language
+models can teach themselves to think before speaking.arXiv preprint arXiv:2403.09629, 2024. 2
+Dan Zhang, Sining Zhoubian, Ziniu Hu, Yisong Yue, Yuxiao Dong, and Jie Tang. Rest-mcts*: Llm self-training via
+process reward guided tree search.arXiv preprint arXiv:2406.03816, 2024a. 2, 3
+Ruiqi Zhang, Licong Lin, Yu Bai, and Song Mei. Negative preference optimization: From catastrophic collapse to
+effective unlearning.arXiv preprint arXiv:2404.05868, 2024b. 3, 5, 21
+Xuan Zhang, Chao Du, Tianyu Pang, Qian Liu, Wei Gao, and Min Lin. Chain of preference optimization: Improving
+chain-of-thought reasoning in llms.Advances in Neural Information Processing Systems, 37:333–356, 2024c. 3, 4, 5
+Zhexin Zhang, Junxiao Yang, Pei Ke, Shiyao Cui, Chujie Zheng, Hongning Wang, and Minlie Huang. Safe unlearning: A
+surprisingly effective and generalizable solution to defend against jailbreak attacks.arXiv preprint arXiv:2407.02855,
+2024d. 5
+Yao Zhao, Rishabh Joshi, Tianqi Liu, Misha Khalman, Mohammad Saleh, and Peter J Liu. Slic-hf: Sequence likelihood
+calibration with human feedback.arXiv preprint arXiv:2305.10425, 2023. 3
+
+[PAGE 16]
+Published in Transactions on Machine Learning Research (10/2025)
+Zirui Zhao, Wee Sun Lee, and David Hsu. Large language models as commonsense knowledge for large-scale task
+planning.Advances in Neural Information Processing Systems, 36, 2024. 2
+Huaixiu Steven Zheng, Swaroop Mishra, Hugh Zhang, Xinyun Chen, Minmin Chen, Azade Nova, Le Hou, Heng-Tze
+Cheng, Quoc V Le, Ed H Chi, et al. Natural plan: Benchmarking llms on natural language planning.arXiv preprint
+arXiv:2406.04520, 2024. 2
+Andy Zhou, Kai Yan, Michal Shlapentokh-Rothman, Haohan Wang, and Yu-Xiong Wang. Language agent tree search
+unifies reasoning acting and planning in language models.arXiv preprint arXiv:2310.04406, 2023. 2
+Yuchen Zhuang, Xiang Chen, Tong Yu, Saayan Mitra, Victor Bursztyn, Ryan A Rossi, Somdeb Sarkhel, and Chao
+Zhang. Toolchain*: Efficient action space navigation in large language models with a* search.arXiv preprint
+arXiv:2310.13227, 2023. 2
+Terry Yue Zhuo, Minh Chien Vu, Jenny Chim, Han Hu, Wenhao Yu, Ratnadira Widyasari, Imam Nur Bani Yusuf,
+Haolan Zhan, Junda He, Indraneil Paul, et al. Bigcodebench: Benchmarking code generation with diverse function
+calls and complex instructions.arXiv preprint arXiv:2406.15877, 2024. 1
+
+[PAGE 17]
+Published in Transactions on Machine Learning Research (10/2025)
+A Fine-tuning Details
+We follow the alignment handbook8 (Tunstall et al., 2024) to fine-tune two base LLMs with full parameters,
+Qwen2.5-Math 1.5B (Q1.5B)9 and Qwen2.5-Math 7B (Q7B)10 (Yang et al., 2024). Below are common setups
+for all the methods (i.e., SFT, UFT, and preference-based methods).
+We disable sequence packing to prevent cross-contamination11 and set a context length of 256 tokens. which
+is sufficient for our tasks. Training is performed inbfloat16 precision, and model checkpoints are saved
+every 5% epochs for later evaluation.
+The learning rate followscosine_with_min_lr schedule12: it linearly warms up from 0 toηover the first
+10% epochs, then decays to a minimum of 7e-8 via cosine function for the rest epochs. In Sec. 5.2, we use
+a peak learning rateηof 1e-5 for Q1.5B and 5e-6 for Q7B, while in Sec. 5.3, we decreaseηto much lower
+values, as discussed in the main paper.
+A.1 SFT Baseline and UFT
+Following Sec. 4.2, in our implementation, Unlikelihood Fine-Tuning (UFT) and Supervised Fine-Tuning
+(SFT) differ only by the unlikelihood loss coefficientα. A batch sizeB = 128is used for both successful and
+failed data batches (after gradient accumulation) in UFT.
+A.2 Preference-based (Reference-free) Baselines: SimPO and CPO-SimPO
+Background.In addition to SFT, we compare UFT against offline preference-based methods:
+SimPO(Meng et al., 2024b) andCPO-SimPO(Xu, 2024), both designed to align LLMs with human
+preferences. While UFT is not a preference-based method per se, our reasoning task can be interpreted
+through the lens of preference alignment, where successful reasoning paths are preferred over failed ones.
+Like preference-based approaches, UFT learns from both successful and failed paths, making these methods
+natural baselines for comparison. The implementations of these methods follow the TRL library13 (von Werra
+et al., 2020).
+SimPO and CPO-SimPO build on DPO (Rafailov et al., 2023) and CPO (Xu et al., 2024), requiringpreference
+pairsbut eliminating the need for a reference model used in KL regularization (i.e., reference-free). This
+results in improved training efficiency and reduced GPU memory usage. By contrast, while KTO (Ethayarajh
+et al., 2024) like UFT operates onunpaireddata, it still requires a reference model during training. In our
+preliminary experiments, running KTO using the same global batch size as UFT necessitated precomputing
+reference model logits and offloading the optimizer to the CPU, resulting in a3×increase in training time
+on the Game-of-24 dataset and out-of-memory errors on the Countdown dataset. Consequently, we exclude
+KTO from our baselines and instead focus on reference-free approaches such as SimPO.
+Table 4 summarizes the comparison between UFT and several offline preference-based methods. Notably,
+UFT is both reference-free and does not require preference pairs.
+Table 4:Brief comparison of selected offline preference-based methods and UFT.
+Offline fine-tuning method Preference data Reference-free?
+DPO (Rafailov et al., 2023), (non-iterative) RPO (Pang et al., 2024) Paired No
+CPO (Xu et al., 2024), SimPO (Meng et al., 2024b), CPO-SimPO (Xu, 2024) Paired Yes
+KTO (Ethayarajh et al., 2024) Unpaired No
+UFT (Ours) Unpaired Yes
+8https://github.com/huggingface/alignment-handbook
+9https://huggingface.co/Qwen/Qwen2.5-Math-1.5B
+10https://huggingface.co/Qwen/Qwen2.5-Math-7B
+11https://github.com/huggingface/transformers/issues/25452
+12https://github.com/huggingface/transformers/blob/a22a4378d97d06b7a1d9abad6e0086d30fdea199/src/transformers/
+optimization.py#L338C5-L338C48
+13https://huggingface.co/docs/trl/en/cpo_trainer
+
+[TABLE page=17 index=1]
+Columns: Offline fine-tuning method | Preference data | Reference-free?
+Row 1: Offline fine-tuning method: DPO (Rafailov et al., 2023), (non-iterative) RPO (Pang et al., 2024) | Preference data: Paired | Reference-free?: No
+Row 2: Offline fine-tuning method: CPO (Xu et al., 2024), SimPO (Meng et al., 2024b), CPO-SimPO (Xu, 2024) | Preference data: Paired | Reference-free?: Yes
+Row 3: Offline fine-tuning method: KTO (Ethayarajh et al., 2024) | Preference data: Unpaired | Reference-free?: No
+Row 4: Offline fine-tuning method: UFT (Ours) | Preference data: Unpaired | Reference-free?: Yes
+[/TABLE]
+
+[PAGE 18]
+Published in Transactions on Machine Learning Research (10/2025)
+Simple Preference Optimization with a Reference-Free Reward (SimPO) (Meng et al., 2024b).
+SimPO relies onpairedpreference data, denoted asDpaired ={(x, y+, y−)}, where(y +, y−)are successful
+and failed reasoning paths for the same inputx, respectively. To constructDpaired from our original dataset
+D, we first filter for inputs that have both successful and failed paths. For each successful path(x, y+), we
+generate E preference pairs by randomly samplingE failed paths(x, y−)corresponding to the same input,
+treating them as rejected responses. This sampling strategy ensures that the resulting dataset is similar in
+size to that used for UFT and captures as much diversity as possible within the constraint of pairing.
+The training objective is defined as:
+min
+θ
+JSimPO(θ;Dpaired) =−E(x,y+,y−)∼Dpaired
+[
+logσ
+( β
+|y+|logπθ(y+|x)−β
+|y−|logπθ(y−|x)−γ
+)]
+,(7)
+whereσis the sigmoid function,β= 0.1is a scaling factor, andγ= 0.5is the target reward margin, following
+default values in TRL. The length normalization terms (|y+|,|y−|) help reduce bias toward longer responses.
+This normalization could also be explored in UFT as future work. The marginγenforces a minimum
+separation between the preferred and rejected log-probabilities.
+CPO-SimPO (Xu, 2024).Althoughpurepreference-based methods (e.g., DPO, SimPO) perform well in
+alignment tasks, they have been found to underperform on reasoning tasks that require explicit maximization
+of preferred responses (Meng et al., 2024b; Pal et al., 2024; Pang et al., 2024). While CPO-SimPO was not
+originally motivated by reasoning tasks, we adopt it because CPO-SimPO addresses this issue by augmenting
+SimPO with the NLL term from CPO (Xu et al., 2024):
+min
+θ
+JCPO-SimPO(θ;Dpaired)
+=−E(x,y+,y−)∼Dpaired
+[
+logσ
+( β
+|y+|logπθ(y+|x)−β
+|y−|logπθ(y−|x)−γ
+)
++λlogπθ(y+|x)
+]
+,
+(8)
+where the NLL coefficientλ= 1.0following the TRL.
+Connection with RPO (Pang et al., 2024).CPO-SimPO (Xu, 2024) resembles a non-iterative version
+of Iterative Reasoning Preference Optimization (IRPO) (Pang et al., 2024), which we call RPO:
+min
+θ
+JRPO(θ;Dpaired)
+=−E(x,y+,y−)∼Dpaired
+[
+logσ
+(
+βlogπθ(y+|x)
+πref(y+|x)−βlogπθ(y−|x)
+πref(y−|x)
+)
++ λ
+|y+|logπθ(y+|x)
+]
+,
+(9)
+where πref is the reference model (i.e., the base LLM). CPO-SimPO becomes equivalent to RPO when a
+reference model is introduced, the length normalization and reward margin in the preference term are removed,
+and length normalization is applied in the NLL term instead. However, since RPO, like DPO and KTO,
+depends on a reference model, we exclude it from our baseline comparisons.
+B Additional Results on Countdown and Game-of-24
+B.1 Training Dataset Statistics
+For Countdown, we train for 2 epochs due to the large dataset size, shown as in Table 5. On an instance
+with 8×A100 GPUs (40GB), total training time on CoT+BFS+DFS data is under 5 hours for Q1.5B and
+under 30 hours for Q7B using UFT. For Game-of-24, we train for 10 epochs. Total training time is under 0.5
+hours for Q1.5B and under 2.5 hours for Q7B using UFT. SimPO and CPO-SimPO only require a single
+dataloader over paired data, resulting in roughly 2×shorter training time compared to UFT.
+We emphasize that our goal is to reduceinference timein reasoning. While training may be relatively
+expensive, it is performed offline and does not impact deployment efficiency or user-facing latency.
+
+[PAGE 19]
+Published in Transactions on Machine Learning Research (10/2025)
+Table 5: Statistics of training datasets:totalcorrect paths are used by SFT and UFT, whilepairedcorrect
+paths are used by SimPO and CPO-SimPO (shown as a percentage of total). Data quality refers to the
+best-of-n success rate reported in Table 2 and Table 3.
+Training data (task, base, reasoner)#Total correct paths#Paired correct paths Quality
+Countdown, Q7B, CoT 428.0k 97.50% 37.6%
+Countdown, N/A, BFS+DFS 614.2k 97.55% 86.2%
+Countdown, Q7B, CoT+BFS+DFS 985.3k 99.88% 86.9%
+Countdown, Q1.5B, CoT 147.9k 94.22% 20.0%
+Countdown, Q1.5B, CoT+BFS+DFS 734.3k 99.86% 86.3%
+Game-of-24, Q7B, CoT 9.1k 100% 92.9%
+Game-of-24, Q7B, ToT+RAP 5.1k 100% 69.3%
+Game-of-24, Q7B, CoT+ToT+RAP 13.7k 100% 95.3%
+Game-of-24, Q1.5B, CoT 4.4k 100% 82.1%
+Game-of-24, Q1.5B, ToT+RAP 1.7k 100% 44.7%
+Game-of-24, Q1.5B, CoT+ToT+RAP 6.0k 100% 87.6%
+B.2 Additional Results with SFT and UFT
+2 4
+Peak lr
+1e 6
+0.1
+0.2
+0.3Success Rate
+CoT (greedy)
+2 4
+Peak lr
+1e 6
+0.10
+0.15
+0.20
+0.25
+0.30
+CoT (pass@1)
+2 4
+Peak lr
+1e 6
+0.1
+0.2
+0.3
+Search: ToT
+2 4
+Peak lr
+1e 6
+0.05
+0.10
+0.15
+0.20
+0.25
+Search: RAP
+Trained on Game-of-24 and Tested on Game-of-24
+ToT+RAP data CoT data CoT+ToT+RAP data Qwen2.5-Math-7B
+Figure 5: Results of standard SFT (α=0) usingQwen2.5-Math 7Bas the base model forGame-of-24.
+The same conclusion in Fig. 3 holds.
+For completeness, we provide fine-tuning results based on Qwen2.5-Math 1.5B in Fig. 6 and Fig. 7. Given its
+weak search-based reasoning performance as a base model (e.g., success rate≈2% in Countdown) shown in
+Table 6, the effects of learning rate, CoT data, and unlikelihood loss are minimal, likely due to its poor initial
+capability. This suggests that the observed benefits depend on the model capability.
+Table 6: Performance on Countdown and Game-of-24 test sets, usingQwen2.5-Math 1.5Bas the base
+model. Due to its weak search capability, we omit fine-tuning results here (please see Table 2 and Table 3 for
+fine-tuning results on CoT inference).
+Test set
+& Inference Base LLM
+Countdown(1000 cases)
+CoT (greedy) 2.2% / 0.6m
+CoT (pass@1) 2.1% / 3.2m
+search: ToT 2.2% / 68m
+search: RAP 1.4% / 143m
+Game-of-24(100 cases)
+CoT (greedy) 2.0% /<0.1m
+CoT (pass@1) 3.0% / 0.5m
+search: ToT 8.0% / 5.4m
+search: RAP 4.0% / 11.3m
+
+[TABLE page=19 index=1]
+Columns: Training data (task, base, reasoner) | # Total correct paths | # Paired correct paths | Quality
+Row 1: Training data (task, base, reasoner): | # Total correct paths: | # Paired correct paths: Success Rate | Quality:
+Row 2: Training data (task, base, reasoner): Countdown, Q7B, CoT | # Total correct paths: 428.0k | # Paired correct paths: 97.50% | Quality: 37.6%
+Row 3: Training data (task, base, reasoner): Countdown, N/A, BFS+DFS | # Total correct paths: 614.2k | # Paired correct paths: 97.55% | Quality: 86.2%
+Row 4: Training data (task, base, reasoner): Countdown, Q7B, CoT+BFS+DFS | # Total correct paths: 985.3k | # Paired correct paths: 99.88% | Quality: 86.9%
+Row 5: Training data (task, base, reasoner): Countdown, Q1.5B, CoT | # Total correct paths: 147.9k | # Paired correct paths: 94.22% | Quality: 20.0%
+Row 6: Training data (task, base, reasoner): Countdown, Q1.5B, CoT+BFS+DFS | # Total correct paths: 734.3k | # Paired correct paths: 99.86% | Quality: 86.3%
+Row 7: Training data (task, base, reasoner): Game-of-24, Q7B, CoT | # Total correct paths: 9.1k | # Paired correct paths: 100% | Quality: 92.9%
+Row 8: Training data (task, base, reasoner): Game-of-24, Q7B, ToT+RAP | # Total correct paths: 5.1k | # Paired correct paths: 100% | Quality: 69.3%
+Row 9: Training data (task, base, reasoner): Game-of-24, Q7B, CoT+ToT+RAP | # Total correct paths: 13.7k | # Paired correct paths: 100% | Quality: 95.3%
+Row 10: Training data (task, base, reasoner): Game-of-24, Q1.5B, CoT | # Total correct paths: 4.4k | # Paired correct paths: 100% | Quality: 82.1%
+Row 11: Training data (task, base, reasoner): Game-of-24, Q1.5B, ToT+RAP | # Total correct paths: 1.7k | # Paired correct paths: 100% | Quality: 44.7%
+Row 12: Training data (task, base, reasoner): Game-of-24, Q1.5B, CoT+ToT+RAP | # Total correct paths: 6.0k | # Paired correct paths: 100% | Quality: 87.6%
+[/TABLE]
+
+[PAGE 20]
+Published in Transactions on Machine Learning Research (10/2025)
+0.0
+0.2
+0.4Success Rate
+CoT (greedy)
+0.0
+0.2
+0.4
+CoT (pass@1)
+0.000
+0.005
+0.010
+0.015
+0.020
+Search: ToT
+0.025
+0.050
+0.075
+0.100
+Search: RAP
+0.25 0.50 0.75 1.00
+Peak lr
+1e 5
+0.1
+0.2
+0.3Success Rate
+0.25 0.50 0.75 1.00
+Peak lr
+1e 5
+0.1
+0.2
+0.3
+0.25 0.50 0.75 1.00
+Peak lr
+1e 5
+0.00
+0.02
+0.04
+0.06
+0.08
+0.25 0.50 0.75 1.00
+Peak lr
+1e 5
+0.00
+0.02
+0.04
+(a) Trained on Countdown and Tested on Countdown
+(b) Trained on Countdown and Tested on Game-of-24
+BFS+DFS data CoT data CoT+BFS+DFS data Qwen2.5-Math-1.5B
+0.25 0.50 0.75 1.00
+Peak lr
+1e 5
+0.05
+0.10
+0.15
+0.20Success Rate
+CoT (greedy)
+0.25 0.50 0.75 1.00
+Peak lr
+1e 5
+0.05
+0.10
+0.15
+0.20
+CoT (pass@1)
+0.25 0.50 0.75 1.00
+Peak lr
+1e 5
+0.00
+0.02
+0.04
+0.06
+0.08
+Search: ToT
+0.25 0.50 0.75 1.00
+Peak lr
+1e 5
+0.00
+0.02
+0.04
+Search: RAP
+Trained on Game-of-24 and Tested on Game-of-24
+ToT+RAP data CoT data CoT+ToT+RAP data Qwen2.5-Math-1.5B
+Figure 6: Results of standard SFT (α=0) usingQwen2.5-Math 1.5Bas the base model forCountdown
+(top) andGame-of-24(bottom). Due to the base model’s weak search ability, learning rate and data source
+have little observable effect.
+0.0
+0.2
+0.4Success Rate
+CoT (greedy)
+0.0
+0.2
+0.4
+CoT (pass@1)
+0.00
+0.01
+0.02
+Search: ToT
+0.00
+0.05
+0.10
+Search: RAP
+0 10 6
+10 5
+10 4
+10 3
+Unlikelihood
+0.1
+0.2
+0.3Success Rate
+0 10 6
+10 5
+10 4
+10 3
+Unlikelihood
+0.1
+0.2
+0.3
+0 10 6
+10 5
+10 4
+10 3
+Unlikelihood
+0.00
+0.02
+0.04
+0.06
+0.08
+0 10 6
+10 5
+10 4
+10 3
+Unlikelihood
+0.00
+0.02
+0.04
+(a) Trained on Countdown and Tested on Countdown
+(b) Trained on Countdown and Tested on Game-of-24
+BFS+DFS data CoT data CoT+BFS+DFS data Qwen2.5-Math-1.5B
+Figure 7: Results of UFT usingQwen2.5-Math 1.5Bas the base model forCountdown, with the peak
+learning rate as 1e-5. Due to the base model’s weak search ability, unlikelihood loss has little observable
+effect.
+B.3 Additional Results with Alternative Unlearning Methods
+Gradient Ascent and RepNoise.To further evaluate our framework, we conduct additional experiments
+by replacing the unlikelihood (UL) lossJUL in Eq. 5 with other established unlearning objectives, while
+keeping all other settings identical. In particular, we examine Gradient Ascent (GA) (Yao et al., 2023b) and
+RepNoise (Rosati et al., 2024).
+
+[PAGE 21]
+Published in Transactions on Machine Learning Research (10/2025)
+GA is a simple baseline for unlearning that aims to minimize the probability of failed paths:
+JGA(θ;D−) :=E (x,y−)∼D−
+[
+logπθ(y−|x)
+]
+.(10)
+Although GA is shown to be unstable during optimization (Zhang et al., 2024b), we mitigate this issue by
+using a small loss coefficient ofα=1e-5, which is on a similar magnitude as that used for UL. This choice
+substantially improves numerical stability in our experiments.
+Representation Noising (RepNoise) (Rosati et al., 2024), on the other hand, is a recent advanced unlearning
+method designed for enhancing LLM safety. It combines Gradient Ascent with removing harmful representations, encouraging the model’s representations (per-layer hidden states) for negative inputs to align with
+random noise. Within our framework, its objective is written as:
+JRepNoise(θ;D−)
+:= log
+(
+L E(x,y−)∼D−
+[ L∑
+l=1
+logπθhead (y−|hpost
+l (x))
+])
++ β
+L Ex∼D−
+[ L∑
+l=1
+MMD(hpre
+l (x),N(0,I))
+]
+.
+(11)
+The first term acts as a generalized gradient-ascent objective (with an additional log-transformation), reducing
+the likelihood of undesired outputs based on the per-layer post-residual hidden stateshpost
+l (x)passed into
+the model’s output headπθhead, whereL = 28denotes the total number of layers. The second term enforces
+that the pre-residual hidden stateshpre
+l (x)to be close to Gaussian noise according to the maximum mean
+discrepancy (MMD). Following the original implementation, we set the RepNoise loss coefficient toα= 0.5
+and its coefficient for the MMD termβ=1e-3.
+CoT reasoning results for Gradient Ascent and RepNoise.Table 7 shows results for CoT reasoning
+with the same learning rate for all unlearning methods on Game-of-24. GA achieves performance comparable
+to SFT and UFT, with slightly lower averages than UFT. RepNoise, which places strong emphasis on the
+unlearning objective (via equal weighting and representation-level forgetting), performs consistently worse
+than the other methods. These observations suggest that directly applying unlearning methods originally
+designed for LLM safety may require additional design considerations.
+Across all unlearning methods, our results consistently support the claim that higher training data quality,
+regardless of whether the data originate from CoT or search-based algorithms, leads to better fine-tuning
+performance.
+Search-based reasoning results for Gradient Ascent and RepNoise.Table 8 further examines the
+impact of learning rate and dataset source on CoT and search-based reasoning. Following the previous setup,
+we sweep learning rates over{1e-6, 2e-6, 5e-6}for the 7B base model.
+For GA, our key findings for SFT and UFT (Sec. 5.3) remain valid. A smaller learning rate slightly reduces
+CoT reasoning performance but can substantially preserve, or even improve, the base model’s search capability
+(e.g., 31% in ToT and 28% in RAP). Moreover, CoT training is more effective for maintaining search ability
+compared to mixed data (CoT+ToT+RAP), suggesting that using more on-policy data reduces distribution
+shift and mitigates forgetting, as discussed in Sec. 5.3.
+In contrast, RepNoise exhibits a drastic drop in search-based performance (ToT and RAP), reaching 0.0%
+regardless of the learning rate, even though its CoT reasoning improves over the base LLM. We hypothesize
+that this degradation arises from the large default coefficient (α= 0.5) in the RepNoise loss, which amplifies
+the effective learning rate for unlearning far beyond those used in other methods such as UFT and GA
+(≤10−3). This aggressive unlearning, coupled with representation-level regularization toward random noise,
+likely disrupts internal representations crucial for search behaviors (e.g., hypothesis branching and reward
+estimation), even when the training objective (CoT reasoning) itself remains stable. These results underscore
+the importance of carefully tuning the learning rate and loss coefficient when extending unlearning objectives
+to LLM reasoning domains.
+
+[PAGE 22]
+Published in Transactions on Machine Learning Research (10/2025)
+Table 7:Additional results with alternative unlearning methods: CoT reasoning performance of
+LLMs fine-tuned and evaluated on Game-of-24.Each cell shows the averaged result (4 seeds) of an LLM
+fine-tuned on data from specified sources. We highlightour two contributions(incorporating search-derived data
+and the fine-tuning method UFT).
+(a) Base LLM: Qwen2.5-Math 7B (best succ rate with search: 28%)
+SFT UFT GA RepNoise
+CoT data(quality:92.9%)
+succ (greedy) 28.2%±1.7%28.2%±3.6%26.8%±2.1%20.5%±3.7%
+succ (pass@1) 22.5%±3.4%23.2%±3.4%25.5%±2.4%17.2%±1.0%
+T oT+RAP data(quality:69.3%)
+succ (greedy) 13.2%±3.6%15.2%±2.2%13.5%±5.1%12.8%±3.0%
+succ (pass@1) 13.2%±2.8%17.2%±1.0%15.8%±2.1%13.2%±5.1%
+CoT+T oT+RAP data(quality:95.3%)
+succ (greedy) 27.5%±4.2%30.2%±2.1%28.5%±1.7%20.8%±2.1%
+succ (pass@1) 24.2%±5.2%26.2%±2.2%25.5%±3.1%19.0%±2.2%
+(b) Base LLM: Qwen2.5-Math 1.5B (best succ rate with search: 8%)
+SFT UFT GA RepNoise
+CoT data(quality:82.1%)
+succ (greedy) 14.5%±3.8%18.2%±3.2%15.8%±2.8%12.2%±3.3%
+succ (pass@1) 17.8%±3.4%18.5%±3.5%17.0%±2.2%12.0%±2.2%
+T oT+RAP data(quality:44.7%)
+succ (greedy) 9.5%±0.6%8.0%±1.4%9.2%±3.8%5.5%±0.6%
+succ (pass@1) 10.0%±1.4%9.5%±2.6%9.0%±1.8%6.2%±1.5%
+CoT+T oT+RAP data(quality:87.6%)
+succ (greedy) 20.0%±2.7%20.5%±3.7%20.8%±2.1%10.3%±3.6%
+succ (pass@1) 17.0%±2.2%18.8%±1.3%20.0%±3.4%12.8%±3.6%
+Table 8:Additional results with alternative unlearning methods: CoT and search-based reasoning
+performance of LLMs fine-tuned and evaluated on Game-of-24.Each cell shows the averaged result (4
+seeds) of an LLM fine-tuned on data from specified sources. We highlight the best results for each pair of training
+data and inference method.
+(a) Gradient Ascent
+Learning rate CoT (greedy) ToT RAP
+Base LLM (Qwen2.5-Math 7B) N/A 6.0% 28.0% 27.0%
+CoT data(quality:92.9%) 5e-626.8%±2.1%15.5%±4.1%11.2%±1.7%
+2e-623.0%±0.8%31.0%±8.8%22.8%±4.5%
+1e-620.2%±1.0%24.2%±3.5%28.0%±2.6%
+T oT+RAP data(quality:69.3%) 5e-613.5%±5.1%6.8%±2.9%6.2%±2.2%
+2e-69.8%±1.5%20.0%±0.8%18.8%±7.6%
+1e-611.8%±1.7%20.8%±5.9%18.5%±3.3%
+CoT+T oT+RAP data(quality:95.3%) 5e-628.5%±1.7%14.8%±2.5%12.0%±1.8%
+2e-620.2%±1.9%29.5%±3.3%21.8%±2.5%
+1e-617.5%±1.3%23.8%±3.8%13.5%±3.1%
+(b) RepNoise
+Learning rate CoT (greedy) ToT RAP
+Base LLM (Qwen2.5-Math 7B) N/A 6.0% 28.0% 27.0%
+CoT data(quality:92.9%) 5e-620.5%±3.7%0.0%±0.0%0.0%±0.0%
+2e-613.5%±0.6%0.0%±0.0%0.0%±0.0%
+1e-68.0%±0.8%0.0%±0.0%0.0%±0.0%
+T oT+RAP data(quality:69.3%) 5e-612.8%±3.0%0.0%±0.0%0.0%±0.0%
+2e-68.2%±1.3%0.0%±0.0%0.0%±0.0%
+1e-66.0%±1.4%0.0%±0.0%0.0%±0.0%
+CoT+T oT+RAP data(quality:95.3%) 5e-620.8%±2.1%0.0%±0.0%0.0%±0.0%
+2e-617.8%±1.0%0.0%±0.0%0.0%±0.0%
+1e-614.5%±3.4%0.0%±0.0%0.0%±0.0%
+
+[TABLE page=22 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | SFT UFT | GA | RepNoise | Unnamed: 4
+Row 1: Unnamed: 0: | Unnamed: 1: CoT data (quality: 92.9%) | Unnamed: 2: | Unnamed: 3: | SFT UFT: | GA: | RepNoise: | Unnamed: 4:
+Row 2: Unnamed: 0: | Unnamed: 1: succ (greedy) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 28.2%±1.7% 28.2%±3.6% | GA: 26.8%±2.1% | RepNoise: 20.5%±3.7% | Unnamed: 4:
+Row 3: Unnamed: 0: | Unnamed: 1: succ (pass@1) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 22.5%±3.4% 23.2%±3.4% | GA: 25.5%±2.4% | RepNoise: 17.2%±1.0% | Unnamed: 4:
+Row 4: Unnamed: 0: | Unnamed: 1: ToT+RAP data (quality: | Unnamed: 2: 69.3%) | Unnamed: 3: | SFT UFT: | GA: | RepNoise: | Unnamed: 4:
+Row 5: Unnamed: 0: | Unnamed: 1: succ (greedy) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 13.2%±3.6% 15.2%±2.2% | GA: 13.5%±5.1% | RepNoise: 12.8%±3.0% | Unnamed: 4:
+Row 6: Unnamed: 0: | Unnamed: 1: succ (pass@1) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 13.2%±2.8% 17.2%±1.0% | GA: 15.8%±2.1% | RepNoise: 13.2%±5.1% | Unnamed: 4:
+Row 7: Unnamed: 0: | Unnamed: 1: CoT+ToT+RAP data | Unnamed: 2: (quality: | Unnamed: 3: 95.3%) | SFT UFT: | GA: | RepNoise: | Unnamed: 4:
+Row 8: Unnamed: 0: | Unnamed: 1: succ (greedy) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 27.5%±4.2% 30.2%±2.1% | GA: 28.5%±1.7% | RepNoise: 20.8%±2.1% | Unnamed: 4:
+Row 9: Unnamed: 0: | Unnamed: 1: succ (pass@1) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 24.2%±5.2% 26.2%±2.2% | GA: 25.5%±3.1% | RepNoise: 19.0%±2.2% | Unnamed: 4:
+Row 10: Unnamed: 0: | Unnamed: 1: (b) Base LLM: Qwen2.5-Math 1.5B (best succ rate with search: | Unnamed: 2: | Unnamed: 3: | SFT UFT: | GA: 8%) | RepNoise: | Unnamed: 4:
+Row 11: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: SFT UFT | GA: GA | RepNoise: RepNoise | Unnamed: 4:
+Row 12: Unnamed: 0: | Unnamed: 1: CoT data (quality: 82.1%) | Unnamed: 2: | Unnamed: 3: | SFT UFT: | GA: | RepNoise: | Unnamed: 4:
+Row 13: Unnamed: 0: | Unnamed: 1: succ (greedy) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 14.5%±3.8% 18.2%±3.2% | GA: 15.8%±2.8% | RepNoise: 12.2%±3.3% | Unnamed: 4:
+Row 14: Unnamed: 0: | Unnamed: 1: succ (pass@1) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 17.8%±3.4% 18.5%±3.5% | GA: 17.0%±2.2% | RepNoise: 12.0%±2.2% | Unnamed: 4:
+Row 15: Unnamed: 0: | Unnamed: 1: ToT+RAP data (quality: | Unnamed: 2: 44.7%) | Unnamed: 3: | SFT UFT: | GA: | RepNoise: | Unnamed: 4:
+Row 16: Unnamed: 0: | Unnamed: 1: succ (greedy) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 9.5%±0.6% 8.0%±1.4% | GA: 9.2%±3.8% | RepNoise: 5.5%±0.6% | Unnamed: 4:
+Row 17: Unnamed: 0: | Unnamed: 1: succ (pass@1) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 10.0%±1.4% 9.5%±2.6% | GA: 9.0%±1.8% | RepNoise: 6.2%±1.5% | Unnamed: 4:
+Row 18: Unnamed: 0: | Unnamed: 1: CoT+ToT+RAP data | Unnamed: 2: (quality: | Unnamed: 3: 87.6%) | SFT UFT: | GA: | RepNoise: | Unnamed: 4:
+Row 19: Unnamed: 0: | Unnamed: 1: succ (greedy) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 20.0%±2.7% 20.5%±3.7% | GA: 20.8%±2.1% | RepNoise: 10.3%±3.6% | Unnamed: 4:
+Row 20: Unnamed: 0: | Unnamed: 1: succ (pass@1) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 17.0%±2.2% 18.8%±1.3% | GA: 20.0%±3.4% | RepNoise: 12.8%±3.6% | Unnamed: 4:
+Row 21: Unnamed: 0: : | Unnamed: 1: Additional results with | Unnamed: 2: alternative | Unnamed: 3: | SFT UFT: unlearning methods: | GA: CoT and search-based | RepNoise: | Unnamed: 4: re
+Row 22: Unnamed: 0: | Unnamed: 1: ance of LLMs fine-tuned | Unnamed: 2: and | Unnamed: 3: evaluated | SFT UFT: on Game-of-24. Each cell | GA: shows the averaged | RepNoise: | Unnamed: 4:
+Row 23: Unnamed: 0: f an LLM fine-tuned on data from specified sources. | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: We highlight the best results for each pair of | GA: | RepNoise: | Unnamed: 4:
+Row 24: Unnamed: 0: | Unnamed: 1: inference method. | Unnamed: 2: | Unnamed: 3: | SFT UFT: | GA: | RepNoise: | Unnamed: 4:
+Row 25: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: (a) Gradient Ascent | SFT UFT: | GA: | RepNoise: | Unnamed: 4:
+Row 26: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: Learning rate CoT (greedy) | GA: ToT | RepNoise: RAP | Unnamed: 4:
+Row 27: Unnamed: 0: Base LLM (Qwen2.5-Math 7B) | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: N/A 6.0% | GA: 28.0% | RepNoise: 27.0% | Unnamed: 4:
+Row 28: Unnamed: 0: CoT data | Unnamed: 1: (quality: 92.9%) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 5e-6 26.8%±2.1% | GA: 15.5%±4.1% | RepNoise: 11.2%±1.7% | Unnamed: 4:
+Row 29: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 2e-6 23.0%±0.8% | GA: 31.0%±8.8% | RepNoise: 22.8%±4.5% | Unnamed: 4:
+Row 30: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 1e-6 20.2%±1.0% | GA: 24.2%±3.5% | RepNoise: 28.0%±2.6% | Unnamed: 4:
+Row 31: Unnamed: 0: ToT+RAP data | Unnamed: 1: (quality: 69.3%) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 5e-6 13.5%±5.1% | GA: 6.8%±2.9% | RepNoise: 6.2%±2.2% | Unnamed: 4:
+Row 32: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 2e-6 9.8%±1.5% | GA: 20.0%±0.8% | RepNoise: 18.8%±7.6% | Unnamed: 4:
+Row 33: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 1e-6 11.8%±1.7% | GA: 20.8%±5.9% | RepNoise: 18.5%±3.3% | Unnamed: 4:
+Row 34: Unnamed: 0: CoT+ToT+RAP data | Unnamed: 1: (quality: | Unnamed: 2: 95.3%) | Unnamed: 3: | SFT UFT: 5e-6 28.5%±1.7% | GA: 14.8%±2.5% | RepNoise: 12.0%±1.8% | Unnamed: 4:
+Row 35: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 2e-6 20.2%±1.9% | GA: 29.5%±3.3% | RepNoise: 21.8%±2.5% | Unnamed: 4:
+Row 36: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 1e-6 17.5%±1.3% | GA: 23.8%±3.8% | RepNoise: 13.5%±3.1% | Unnamed: 4:
+Row 37: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: (b) RepNoise | GA: | RepNoise: | Unnamed: 4:
+Row 38: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: Learning rate CoT (greedy) | GA: ToT | RepNoise: RAP | Unnamed: 4:
+Row 39: Unnamed: 0: | Unnamed: 1: Base LLM (Qwen2.5-Math 7B) | Unnamed: 2: | Unnamed: 3: | SFT UFT: N/A 6.0% | GA: 28.0% | RepNoise: 27.0% | Unnamed: 4:
+Row 40: Unnamed: 0: | Unnamed: 1: CoT data (quality: 92.9%) | Unnamed: 2: | Unnamed: 3: | SFT UFT: 5e-6 20.5%±3.7% | GA: 0.0%±0.0% | RepNoise: 0.0%±0.0% | Unnamed: 4:
+Row 41: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 2e-6 13.5%±0.6% | GA: 0.0%±0.0% | RepNoise: 0.0%±0.0% | Unnamed: 4:
+Row 42: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 1e-6 8.0%±0.8% | GA: 0.0%±0.0% | RepNoise: 0.0%±0.0% | Unnamed: 4:
+Row 43: Unnamed: 0: | Unnamed: 1: ToT+RAP data (quality: | Unnamed: 2: 69.3%) | Unnamed: 3: | SFT UFT: 5e-6 12.8%±3.0% | GA: 0.0%±0.0% | RepNoise: 0.0%±0.0% | Unnamed: 4:
+Row 44: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 2e-6 8.2%±1.3% | GA: 0.0%±0.0% | RepNoise: 0.0%±0.0% | Unnamed: 4:
+Row 45: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 1e-6 6.0%±1.4% | GA: 0.0%±0.0% | RepNoise: 0.0%±0.0% | Unnamed: 4:
+Row 46: Unnamed: 0: | Unnamed: 1: CoT+ToT+RAP data (quality: | Unnamed: 2: | Unnamed: 3: 95.3%) | SFT UFT: 5e-6 20.8%±2.1% | GA: 0.0%±0.0% | RepNoise: 0.0%±0.0% | Unnamed: 4:
+Row 47: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 2e-6 17.8%±1.0% | GA: 0.0%±0.0% | RepNoise: 0.0%±0.0% | Unnamed: 4:
+Row 48: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | SFT UFT: 1e-6 14.5%±3.4% | GA: 0.0%±0.0% | RepNoise: 0.0%±0.0% | Unnamed: 4:
+[/TABLE]
+
+[PAGE 23]
+Published in Transactions on Machine Learning Research (10/2025)
+C Reasoner Details
+C.1 The Problems
+This section provides details on the two math games not covered in the main paper.
+Game-of-24.We randomly split the first 900 cases (rank #1-900 by human average performance in the
+dataset14) intoX train (720 cases) andXvalid (180 cases). TheX test are the next 100 cases (rank #901-1000)
+following the setup in ToT (Yao et al., 2023a). As a result, the validation set evaluates in-distribution (ID)
+generalization, while the test set evaluates out-of-distribution (OOD) generalization based on human difficulty
+levels. Each case is guaranteed to be solvable using the four input numbers, which range from 1 to 13.
+Countdown.We follow SoS codebase 15 (Gandhi et al., 2024) to randomly generate 500k training cases, 1k
+validation cases, and 1k test cases. The training and validation sets share the same distribution of target
+numbers, while the test set includes distinct target numbers (including the number 24). Each problem consists
+of four input numbers sampled from 1 to 99, with a target number between 10 and 100. All generated
+problems are guaranteed to have at least one valid solution path using only integer intermediate results.
+C.2 CoT Reasoner
+Listing 1:Few-shot CoT templateon Countdown (5-shot prompt; only 2 shown for brevity), used indata
+generation. Here, <input> denotes a placeholder for the input numbers,<target> for the target number, and
+<response>for the LLM’s output.
+Use numbers and basic a r i t h m e t i c o p e r a t i o n s (+ - * /) to obtain the target number . Each step
+, you are only allowed to choose two of the r e m a i n i n g numbers to obtain a new number .
+Input : 25 5 5 33 Target : 27
+Steps :
+25 + 5 = 30 ( left : 5 33 30)
+30 / 5 = 6 ( left : 33 6)
+33 - 6 = 27 ( left : 27)
+Answer : 33 - ((25 + 5) / 5) = 27
+Input : 45 10 11 70 Target : 94
+Steps :
+10 + 11 = 21 ( left : 45 70 21)
+45 + 70 = 115 ( left : 21 115)
+115 - 21 = 94 ( left : 94)
+Answer : (45 + 70) - (10 + 11) = 94
+Input : < input > Target : < target >
+Steps : < re spo ns e >
+Listing 2:Zero-shot CoT templateon Countdown, used infine-tuning and evaluation.
+Use numbers and basic a r i t h m e t i c o p e r a t i o n s (+ - * /) to obtain the target number .
+Input : < input > Target : < target >
+Steps : < re spo ns e >
+Chain-of-Thought (Wei et al., 2022) uses the few-shot prompting template (see Listing 1 for Countdown;
+Game-of-24 template follows the same format) for data generation and the zero-shot template (see Listing 2)
+for fine-tuning and evaluation. The “greedy-decoding” evaluation uses zero temperature. The “pass@1”
+evaluation uses a temperature of 0.7 and top_p of 0.8 to sample 8 paths (n=8) for Countdown and 20 paths
+(n=20) for Game-of-24, then calculates the average success rate.
+14https://github.com/maitrix-org/llm-reasoners/blob/main/examples/ToT/game24/data/24.csv
+15https://github.com/kanishkg/stream-of-search
+
+[PAGE 24]
+Published in Transactions on Machine Learning Research (10/2025)
+C.3 ToT and RAP Reasoners
+Listing 3:Proposed prompt templateused for search-based reasoners on Countdown (6-shot prompt; only 3
+shown for brevity).
+Perform a basic a r i t h m e t i c o p e r a t i o n (+ , -, * , /) on any two of the given numbers , r e p l a c i n g
+them with the result . Your goal is to explore c o m b i n a t i o n s that may lead to a final
+result of the target number .
+Input : 25 5 5 33 Target : 27
+Po ss ibl e next steps :
+25 + 5 = 30 ( left : 5 33 30)
+25 * 5 = 125 ( left : 5 33 125)
+25 / 5 = 5 ( left : 5 33 5)
+25 + 33 = 58 ( left : 5 5 58)
+5 * 5 = 25 ( left : 25 33 25)
+5 + 33 = 38 ( left : 25 5 38)
+33 - 25 = 8 ( left : 5 5 8)
+33 - 5 = 28 ( left : 25 5 28)
+Input : 9 25 2 Target : 43
+Po ss ibl e next steps :
+9 + 25 = 34 ( left : 34 2)
+9 * 2 = 18 ( left : 25 18)
+9 + 2 = 11 ( left : 25 11)
+25 * 2 = 50 ( left : 9 50)
+25 + 2 = 27 ( left : 9 27)
+Input : 21 115 Target : 94
+Po ss ibl e next steps :
+115 - 21 = 94 ( left : 94)
+115 + 21 = 136 ( left : 136)
+Input : < input > Target : < target >
+Po ss ibl e next steps : < r es pon se >
+Listing 4:Intermediate reward prompt templateused for search-based reasoners on Countdown (11-shot
+prompt; only 6 shown for brevity).
+Ev al uat e if given number ( s ) can reach the target number ( sure / likely / i m p o s s i b l e )
+Input : 27 Target : 27
+sure
+Input : 25 18 Target : 43
+25 + 18 = 43
+sure
+Input : 31 10 Target : 52
+31 + 10 = 41
+31 - 10 = 21
+31 * 10 = 310
+31 / 10 = 3.1
+i m p o s s i b l e
+Input : 45 70 21 Target : 94
+45 + 70 + 21 = 115 + 21 = 136
+-45 + 70 + 21 = 25 + 21 = 46
+45 + 70 - 21 = 115 - 21 = 94
+sure
+Input : 15 16 16 Target : 43
+15 + 16 + 16 = 47
+(16 - 15) * 16 = 1 * 16 = 16
+I cannot obtain 43 now , but numbers are within a r e a s o n a b l e range
+likely
+Input : 90 108 97 Target : 27
+
+[TABLE page=24 index=1]
+Columns: 25 + 5 = | 30 | (left: 5 | 33 | 30) | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6
+Row 1: 25 + 5 =: 25 * 5 = | 30: 125 | (left: 5: ( left: | 33: 5 33 | 30): 125) | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 2: 25 + 5 =: 25 / 5 = | 30: 5 (left: | (left: 5: 5 | 33: 33 5) | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 3: 25 + 5 =: 25 + 33 = | 30: 58 | (left: 5: ( left: | 33: 5 5 | 30): 58) | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 4: 25 + 5 =: 5 * 5 = 25 | 30: (left: | (left: 5: 25 | 33: 33 | 30): 25) | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 5: 25 + 5 =: 5 + 33 = | 30: 38 | (left: 5: (left: 25 | 33: 5 | 30): 38) | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 6: 25 + 5 =: 33 - 25 = | 30: 8 | (left: 5: (left: 5 | 33: 5 8) | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 7: 25 + 5 =: 33 - 5 = | 30: 28 | (left: 5: (left: 25 | 33: 5 | 30): 28) | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 8: 25 + 5 =: Input : 9 | 30: 25 | (left: 5: 2 Target : | 33: 43 | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 9: 25 + 5 =: Possible | 30: next | (left: 5: steps : | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 10: 25 + 5 =: 9 + 25 = | 30: 34 | (left: 5: (left: 34 | 33: 2) | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 11: 25 + 5 =: 9 * 2 = 18 | 30: (left: | (left: 5: 25 | 33: 18) | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 12: 25 + 5 =: 9 + 2 = 11 | 30: (left: | (left: 5: 25 | 33: 11) | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 13: 25 + 5 =: 25 * 2 = | 30: 50 | (left: 5: (left: 9 | 33: 50) | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 14: 25 + 5 =: 25 + 2 = | 30: 27 | (left: 5: (left: 9 | 33: 27) | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 15: 25 + 5 =: Input : 21 | 30: 115 | (left: 5: Target : | 33: 94 | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 16: 25 + 5 =: Possible | 30: next | (left: 5: steps : | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 17: 25 + 5 =: 115 - 21 | 30: = 94 | (left: 5: (left: | 33: 94) | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 18: 25 + 5 =: 115 + 21 | 30: = 136 | (left: 5: (left: | 33: 136) | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 19: 25 + 5 =: Input : <input > | 30: | (left: 5: Target : | 33: <target > | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 20: 25 + 5 =: Possible | 30: next | (left: 5: steps : | 33: <response > | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 21: 25 + 5 =: Listing 4: | 30: Intermediate | (left: 5: | 33: reward | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: prompt | Unnamed: 3: template used | Unnamed: 4: for | Unnamed: 5: search-based | Unnamed: 6:
+Row 22: 25 + 5 =: prompt; only 6 shown for brevity). | 30: | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 23: 25 + 5 =: Evaluate | 30: if | (left: 5: given number (s) | 33: | 30): | Unnamed: 0: | Unnamed: 1: can | Unnamed: 2: reach | Unnamed: 3: the | Unnamed: 4: target number | Unnamed: 5: (sure/ lik | Unnamed: 6:
+Row 24: 25 + 5 =: Input : 27 | 30: Target : | (left: 5: 27 | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 25: 25 + 5 =: sure | 30: | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 26: 25 + 5 =: Input : 25 | 30: 18 | (left: 5: Target : | 33: 43 | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 27: 25 + 5 =: 25 + 18 = | 30: 43 | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 28: 25 + 5 =: sure | 30: | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 29: 25 + 5 =: Input : 31 | 30: 10 | (left: 5: Target : | 33: 52 | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 30: 25 + 5 =: 31 + 10 = | 30: 41 | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 31: 25 + 5 =: 31 - 10 = | 30: 21 | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 32: 25 + 5 =: 31 * 10 = | 30: 310 | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 33: 25 + 5 =: 31 / 10 = | 30: 3.1 | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 34: 25 + 5 =: impossible | 30: | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 35: 25 + 5 =: Input : 45 | 30: 70 | (left: 5: 21 Target : | 33: | 30): 94 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 36: 25 + 5 =: 45 + 70 + | 30: 21 | (left: 5: = 115 + | 33: 21 | 30): = 136 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 37: 25 + 5 =: -45 + 70 | 30: + 21 | (left: 5: = 25 + | 33: 21 | 30): = 46 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 38: 25 + 5 =: 45 + 70 - | 30: 21 | (left: 5: = 115 - | 33: 21 | 30): = 94 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 39: 25 + 5 =: sure | 30: | (left: 5: | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 40: 25 + 5 =: Input : 15 | 30: 16 | (left: 5: 16 Target : | 33: | 30): 43 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 41: 25 + 5 =: 15 + 16 + | 30: 16 | (left: 5: = 47 | 33: | 30): | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 42: 25 + 5 =: (16 - 15) | 30: * | (left: 5: 16 = 1 * | 33: 16 | 30): = 16 | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6:
+Row 43: 25 + 5 =: I cannot | 30: obtain | (left: 5: 43 now , | 33: | 30): but | Unnamed: 0: | Unnamed: 1: numbers | Unnamed: 2: | Unnamed: 3: are | Unnamed: 4: within a reasonable | Unnamed: 5: | Unnamed: 6: range
+[/TABLE]
+
+[PAGE 25]
+Published in Transactions on Machine Learning Research (10/2025)
+90 + 108 + 97 = 295
+90 - 108 + 97 = 79
+90 108 97 are all too big
+i m p o s s i b l e
+Input : < input > Target : < target >
+< re spo ns e >
+Listing 5:Terminal reward prompt templateused for search-based reasoners on Countdown (6-shot prompt;
+only 4 shown for brevity). Here,<answer>is a given equation.
+Use numbers and basic a r i t h m e t i c o p e r a t i o n s (+ - * /) to obtain the target number . Given an
+input and an answer , give a j u d g e m e n t ( sure / i m p o s s i b l e ) if the answer is correct , i . e .
+it uses each input exactly once and no other numbers , and reach the target number .
+Input : 25 5 5 33 Target : 27
+Answer : 33 - ((25 + 5) / 5) = 27
+Judge : sure
+Input : 92 91 23 54 Target : 78
+Answer : 92 + 91 - (23 + 54) = 106
+Judge : i m p o s s i b l e
+Input : 45 13 11 70 Target : 94
+Answer : 13 + 11 + 70 = 94
+Judge : i m p o s s i b l e
+Input : 25 5 5 33 Target : 27
+Answer : (33 - 5) * (25 / 5) = 27
+Judge : i m p o s s i b l e
+Input : < input > Target : < target >
+Answer : < answer >
+Judge : < re spo ns e >
+The search-based reasoners (ToT (Yao et al., 2023a) and RAP (Hao et al., 2023)) are implemented using
+the LLM-reasoners codebase (Hao et al., 2024). Both use the same prompt templates but differ in their
+underlying search algorithm.
+Tree-of-Thought (Yao et al., 2023a).ToT employs a beam search strategy. It begins with an empty
+set of nodes (the beam). At each search step, the LLM is prompted using thepropose prompt(Listing 3)
+to generate plausible next steps for each node in the beam. Each proposed step is then evaluated with the
+intermediate reward prompt(Listing 4), which labels responses as “sure”, “likely”, or “impossible”. Following
+the original ToT setup, these labels are mapped to heuristic scores of 1, 0.1, and 0.0001, respectively. To
+reduce variance, we sample three responses for each reward step, and compute the average heuristic reward.
+The beam is updated by selecting the top candidate nodes based on these heuristic scores, maintaining the
+predefined beam size. Since both Countdown and Game-of-24 tasks involve four steps in chain-of-thought
+reasoning, this process is repeated for four iterations. At the final search step, theterminal reward prompt
+(Listing 5) is used to assign a terminal reward to each node in the final beam. The path with the highest
+terminal reward is selected as the final reasoning path for evaluation, while all paths in the final beam are
+retained for training data.
+To improve efficiency, we optimize the codebase using vLLM (Kwon et al., 2023), which enables batched
+inference across≈1000 cases at the same time. In total, the ToT process requires4×2 = 8passes (i.e., 8 calls
+to llm.generate() in vLLM) per batch. This batched approach significantly accelerates the search process,
+achievingover 100×speedupcompared to the original for-loop execution in the LLM-Reasoners codebase.
+In practice, we vary the beam size between 5 and 16 while keeping all other search parameters fixed during
+training data generation. Empirically, we find that a beam size of 5 for Countdown and 6 for Game-of-24
+yields the best performance on Qwen2.5-Math 7B, while beam sizes of 8 and 10 perform best for the respective
+
+[PAGE 26]
+Published in Transactions on Machine Learning Research (10/2025)
+tasks on Qwen2.5-Math 1.5B. Accordingly, we adopt these optimal beam sizes for evaluating both the base
+LLMs and the improved models fine-tuned from them.
+Reasoning-via-Planning (Hao et al., 2023).RAP employs a Monte Carlo Tree Search (MCTS) strategy,
+maintaining a search tree initialized as empty. At each iteration, a node is selected for expansion using the
+Upper Confidence Bound applied to Trees (UCT) algorithm (Kocsis & Szepesvári, 2006), where the exploration
+parameter balances exploitation and exploration. The selected node is then expanded by simulating a full
+rollout: thepropose promptgenerates plausible next steps, andreward promptsare used to assign scores to
+each step along the way. Steps are sampled proportionally to their rewards throughout the rollout. After
+completing the rollout, the terminal reward is backpropagated through the tree to update the value estimates
+of the visited nodes.
+We run this process for 100 iterations, resulting in up to100×4×2 = 800passes. This is a loose upper bound,
+as many selected nodes are leaf nodes or near-terminal, leading to shorter rollouts in practice. While the
+original LLM-Reasoners implementation uses only 10 iterations, we increase it to 100 to improve performance,
+made feasible by our use of batched inference. At the end of the search, the path with the highest terminal
+reward is selected for evaluation, and all explored paths are extracted for training data.
+In practice, we vary the exploration parameter over (1.0, 2.0, 4.0, 6.0, 8.0, 10.0) while keeping all other search
+parameters fixed during training data generation. Empirically, we find that an exploration parameter of 1.0
+yields the best performance for both Countdown and Game-of-24 on Qwen2.5-Math 7B, whereas a value of
+2.0 performs best for both tasks on Qwen2.5-Math 1.5B. Accordingly, we adopt these optimal exploration
+parameters for evaluating both the base LLMs and the improved models fine-tuned from them.
+C.4 Loss of Search Capability after CoT Fine-Tuning: A Planning Perspective
+An important insight emerges when comparing the prompting strategies used in CoT reasoning versus
+search-based methods like ToT and RAP: although they aim to solve the same task, they frame the role of
+the LLM in fundamentally different ways.
+CoT treats the LLM as anopen-loop controller, generating complete reasoning paths in a single pass (Listing 1)
+without any feedback or evaluation. In contrast, search-based methods integrates the LLM into aclosed-loop
+system, where the LLM serves two interconnected roles: a policy that proposes next steps (Listing 3) and a
+reward model that evaluates them (Listing 4, Listing 5). This interaction between proposal and intermediate
+feedback is central to structured planning and search.
+This difference has meaningful consequences for fine-tuning. When an LLM is fine-tuned on CoT-style paths
+that strip away reward signals, it may weaken its ability to perform reward modeling, which is critical in
+search-based reasoning. This observation offers a planning-theoretic explanation for why models fine-tuned
+on CoT-style paths may struggle with inference-time search.
+C.5 Classic BFS and DFS Reasoners
+We also employ classic search algorithms, Breadth-First Search (BFS) and Depth-First Search (DFS), to
+generate training data for the Countdown task. We adopt the implementation from SoS (Gandhi et al., 2024)
+without modification. These symbolic reasoners are significantly faster than LLM reasoners and achieve high
+success rates of 65.4% (BFS) and 81.5% (DFS) on the training set (due to the use of pruning heuristics, they
+do not guarantee a solution in all cases). However, unlike LLM reasoners, these methods rely on external
+tools such as calculators and goal checkers to guide the search process.
+D Limitation
+This paper focuses on improvingreasoning language models. Preliminary experiments on one generic language
+model, Mistral 7B (Jiang et al., 2023), show that while diverse reasoners still provide benefits, small learning
+rate and the forgetting objective offer limited improvement. We suspect these effects depend more on the
+base model’s reasoning ability than size, similar to observations in RL that performance is bounded by base
+
+[PAGE 27]
+Published in Transactions on Machine Learning Research (10/2025)
+model capability (Yue et al., 2025). Extending our method to other reasoning-oriented LLMs is a valuable
+direction for future work.
+E Results on Standardized Math Benchmarks
+For completeness, we also report results on standardized math benchmarks. These evaluations are not the
+main focus of our work, which centers on math puzzles such as Countdown and Game-of-24.
+The training problems for our standardized math experiments are drawn from the OpenThoughts-114k-math
+dataset16(Guha et al., 2025), which itself is extracted from NuminaMath-CoT (Li et al., 2024). This corpus
+integrates problems from many high-school math competitions, including the Olympiad, MATH (Hendrycks
+et al., 2021), AoPS forums, and AMC/AIME competitions. From this collection, we curated a subset of 38k
+problems withnumericalgold answers, which we used as our training problems.
+The training CoTs are constructed from three sources: (1) human-written CoTs containing gold answers in
+OpenThoughts, (2) self-generated CoTs whose final answers match the gold answers, and (3) self-generated
+CoTs whose final answers do not match the gold answers. Since OpenThoughts, like many other public datasets,
+does not include negative CoTs, we generate them ourselves. To verify correctness, we employmath-verify17
+to check the answers wrapped by\\boxed{}in CoTs, following common practice. The instruction used for both
+training and testing is:Please reason step by step, and put your final answer within \\boxed{} .
+SFT is trained only on CoTs (1) and (2), while the other methods are trained with CoTs (1)–(3). It is worth
+noting that although CoTs in category (2) contain gold answers, their reasoning steps may still be incorrect,
+since no process-based verifier exists for general math problems.
+Due to computational resource limits, we train each method for 2 epochs with a context length of 2048, using
+4 random seeds. The training time for the 7B models is around 15 hours on 8 A100 GPUs (40GB each).
+We evaluate each fine-tuned LLM on the held-out test datasets using real math competitions AMC-12
+(2023 and 2024)18. We do not include more advanced contests in our evaluation, as they typically require
+substantially longer context lengths (exceeding 4k tokens (Yang et al., 2025)) and large-scale online RL (Guo
+et al., 2025), which go beyond the scope of offline fine-tuning considered in this work.
+Table 9:CoT reasoning performance of LLMs fine-tuned on 38k high-school math problems
+and evaluated on AMC-12 datasets.Each method is trained with 4 seeds. The evaluation metrics
+are pass@1 success rate, estimated from 32 sampled paths for each problem.
+(a) Base LLM: Qwen2.5-Math 7B
+Base SFT SimPO CPO-SimPO UFT
+AMC 2023 56.3%61.5%±0.9%0%±0%59.3%±2.2%61.6%±0.8%
+AMC 2024 29.5%30.1%±0.7%0%±0%30.6%±2.2%29.8%±0.6%
+(b) Base LLM: Qwen2.5-Math 1.5B
+Base SFT SimPO CPO-SimPO UFT
+AMC 2023 38.3%50.0%±2.2%0%±0%50.9%±3.2%50.2%±1.2%
+AMC 2024 18.6%28.8%±0.5%0%±0%28.6%±0.6%28.7%±0.5%
+Table 9 shows the results. Except for SimPO, all other methods are not statistically distinguishable. Moreover,
+the improvements over the base LLM are minor for all 7B models. This likely reflects the noisier nature of
+human-written general math training data compared to the synthetic, structured data in our math puzzles. In
+math competitions, test problems differ substantially in style and content from training problems across years,
+making it harder to generalize from failed reasoning paths. By contrast, in our math puzzles, training and
+test problems share the same synthetic structure, which facilitates generalization. The weaker performance
+16https://huggingface.co/datasets/open-r1/OpenThoughts-114k-math
+17https://github.com/huggingface/Math-Verify
+18https://artofproblemsolving.com/wiki/index.php/AMC_12_Problems_and_Solutions
+
+[TABLE page=27 index=1]
+Columns: Unnamed: 0 | Base | SFT SimPO | CPO-SimPO | Unnamed: 1 | UFT
+Row 1: Unnamed: 0: AMC 2023 | Base: 56.3% | SFT SimPO: 61.5%±0.9% 0%±0% | CPO-SimPO: 59.3%±2.2% | Unnamed: 1: | UFT: 61.6%±0.8%
+Row 2: Unnamed: 0: AMC 2024 | Base: 29.5% | SFT SimPO: 30.1%±0.7% 0%±0% | CPO-SimPO: 30.6%±2.2% | Unnamed: 1: | UFT: 29.8%±0.6%
+Row 3: Unnamed: 0: | Base: | SFT SimPO: (b) Base LLM: Qwen2.5-Math 1.5B | CPO-SimPO: | Unnamed: 1: | UFT:
+Row 4: Unnamed: 0: | Base: Base | SFT SimPO: SFT SimPO | CPO-SimPO: CPO-SimPO | Unnamed: 1: | UFT: UFT
+Row 5: Unnamed: 0: AMC 2023 | Base: 38.3% | SFT SimPO: 50.0%±2.2% 0%±0% | CPO-SimPO: 50.9%±3.2% | Unnamed: 1: | UFT: 50.2%±1.2%
+Row 6: Unnamed: 0: AMC 2024 | Base: 18.6% | SFT SimPO: 28.8%±0.5% 0%±0% | CPO-SimPO: 28.6%±0.6% | Unnamed: 1: | UFT: 28.7%±0.5%
+[/TABLE]
+
+[PAGE 28]
+Published in Transactions on Machine Learning Research (10/2025)
+may also stem from our limited training setup (38k problems, 2048 context length). Nevertheless, unlike
+SimPO, our method UFT, which also leverages negative paths, remains as stable as SFT, underscoring its
+robustness under limited training conditions.

@@ -1,0 +1,1355 @@
+[PAGE 1]
+Fake News Detection: Comparative Evaluation of
+BERT-like Models and Large Language Models
+with Generative AI-Annotated Data
+Shaina Raza 1*, Drai Paulen-Patterson 2 and Chen Ding 2
+1*AI Engineering, Vector Institute, College Street, Toronto, M5G 0C6.,
+ON, Canada.
+2Department of Computer Science, Toronto Metropolitan University,
+350 Victoria St, Toronto, M5B 2K3, ON, Canada.
+*Corresponding author(s). E-mail(s): shaina.raza@torontomu.ca;
+Contributing authors: dpaulen@torontomu.ca; cding@torontomu.ca;
+Abstract
+Fake news poses a significant threat to public opinion and social stability in
+modern society. This study presents a comparative evaluation of BERT-like
+encoder-only models and autoregressive decoder-only large language models
+(LLMs) for fake news detection. We introduce a dataset of news articles labeled
+with GPT-4 assistance (an AI-labeling method) and verified by human experts
+to ensure reliability. Both BERT-like encoder-only models and LLMs were finetuned on this dataset. Additionally, we developed an instruction-tuned LLM
+approach with majority voting during inference for label generation. Our analysis reveals that BERT-like models generally outperform LLMs in classification
+tasks, while LLMs demonstrate superior robustness against text perturbations.
+Compared to weak labels (distant supervision) data, the results show that AI
+labels with human supervision achieve better classification results. This study
+highlights the effectiveness of combining AI-based annotation with human oversight and demonstrates the performance of different families of machine learning
+models for fake news detection.
+Keywords: Fake news, Large Language Models, BERT models, Annotations
+arXiv:2412.14276v2 [cs.CL] 20 Dec 2024
+
+[PAGE 2]
+1 Introduction
+Fake news is defined as false or misleading information intended to deceive or manipulate [1]. It spreads through various media, including print and social platforms.
+Fabricated stories, distorted facts, sensationalized headlines, and selectively edited
+content all fall under the category of fake news [2]. The motives behind its spread
+range from financial gain to advancing particular agendas that influence public opinion and sow confusion. Significant societal impacts of fake news are evident in events
+such as the December 2016 incident at Comet Ping Pong in Washington, D.C., where
+a violent act was incited by a false conspiracy theory 1. Additionally, during the 2016
+U.S. presidential campaign, manipulated visual evidence was used to spread fake news
+about Hillary Clinton’s health to influence voter behavior2. Widespread deepfakes and
+false news are also influencing voter behavior in the 2024 U.S. Election.
+Research indicates that altering people political opinions is challenging [3]; however, strategies aimed at nudging their behaviors are more achievable and are currently
+being explored. These efforts combine collaborative strategies in journalism with technologies, where artificial intelligence (AI) can play an important role. Advances in
+machine learning (ML) and deep learning (DL) are also seen in the classification of
+fake news [4, 5] in the last decade. The development of transformer-based models, such
+as BERT-like models [1, 6, 7], has further advanced this research. The recent advent
+of generative (gen.) AI, particularly large language models (LLMs) provides advanced
+methods for mitigating misinformation [8]. However, these models also paradoxically
+facilitate the spread of misinformation by generating plausible but false content [9].
+A primary challenge in using ML-based methods for fake news detection is the
+availability of accurate and reliable labeling of data. Related works in this field is seen
+on the datasets such as LIAR [10], FakeNewsNet [7], Snopes [11], CREDBANK [12],
+the COVID-19 Fake News Dataset 3, Fakeddit [13], MM-COVID [14], and NELA-GT
+[15]. These datasets are either labeled through crowdsourcing [12], or are available
+in small samples due to proprietary reasons [7]. Additionally, utilizing distant labeling [16], which leverages source-level information from fact-checking websites to label
+news articles, is a common practice in fake news detection research. This approach is
+evident in datasets such as NELA-GT [15] and Fakeddit [13]. These distant labeling
+methods are robust but can still introduce source-level biases (e.g., news source they
+are obtained from) and may not capture the nuanced context of the news articles.
+Experts’ annotations typically offer high accuracy but are costly and not scalable
+for production environments, whereas crowd-sourced methods are labor-intensive and
+often suffer from inconsistent quality control. Recent explorations into using gen. AI
+for labeling [17, 18] have demonstrated potential in accelerating annotation efforts
+with improved accuracy. However, without human oversight, this approach carries the
+risk of introducing biases inherent in the AI itself during the labeling process [19].
+In this work, we introduce a fake news detection approach that combines an automated, but human-supervised, annotation process with DL and gen. AI techniques to
+identify fake news. Our goal is to raise societal awareness of fake news through the use
+1https://www.marubeni.com/en/research/potomac/backnumber/19.html
+2https://libguides.lib.cwu.edu/c.php?g=625394&p=4391900
+3https://competitions.codalab.org/competitions/26655
+
+[PAGE 3]
+of AI detection methods with its responsible use that are robust and capable of processing large volumes of data. Following the annotation process, we establish baselines
+by comparing two leading families of models: BERT-like encoder-only models, which
+excel in classification tasks, and autoregressive decoder-only LLMs such as Mistral7B [20] and Llama2-7B [21], which are recognized for their strong performance across
+a range of NLP tasks. This comparison aims to determine which model family offers
+superior classification capabilities and under what conditions one may outperform the
+other.
+Contributions
+The specific contributions of this work are:
+• We release a dataset consisting of 10,000 news articles curated from various sources,
+collected between May and October 2023, and labeled for fake news detection using
+a state-of-the-art LLM, such as OpenAI GPT-4 [22]. We utilized prompts with
+two demonstrations (examples) for binary labeling. We verified the gen. AI labels
+through human expert reviews to ensure accuracy and reliability.
+• We conduct a comparative analysis of the performance of BERT-like models and
+LLMs for the task of fake news detection. BERT-like models typically use a softmax
+layer over the transformer output to generate probabilistic outputs for classification
+tasks. In contrast, LLMs, which are not inherently designed for classification, require
+an adapted approach. We implement a label extraction process that involves computing the model confidence score for each label. This process is repeated multiple
+times to determine the final classification outcome.
+• We evaluate the performance of our classifiers using an AI- and human-supervised
+annotated dataset, alongside another dataset with weak supervision (distant /
+source-level labeling). This comparison helps determine which setting yields better
+classification results.
+Our empirical analysis demonstrates that an AI- and human-supervised labels are more
+accurate than those obtained through source-level distant supervision for this task of
+fake news classification (Table 6). Our findings reveal that while BERT-like models
+generally excel as classifiers, LLMs demonstrate superior robustness and maintain
+performance more effectively under perturbations or adversarial testing (Table 8).
+2 Related Works
+Fake NewsFake news can be broadly defined as fabricated information that resembles
+legitimate news content but lacks the editorial standards and processes necessary to
+ensure accuracy and credibility[23]. The problem of detecting fake news is an important
+branch of text classification [24], which focuses on distinguishing real news from fake
+content. The term “fake news” refers to any misinformation or deceptive content
+presented as legitimate news, often with the intent to mislead the audience [1, 25–
+27]. This includes various forms such as disinformation, which is intentionally false,
+misinformation, which may be unintentional, and other categories like hoaxes, satires,
+and clickbait as described in [26].
+
+[PAGE 4]
+Deep Learning based Models and Transformer Architecture Recent
+advancements have significantly leveraged ML and DL to improve the accuracy and
+speed of fake news detection[25]. For instance, some studies [25] demonstrate the effectiveness of DL in enhancing the capabilities of fake news classifiers. Other studies [28],
+[29, 30] show the benefits of countering misinformation through AI, but they also point
+to persistent challenges such as dataset quality, feature extraction, and the integration
+of diverse data types [5].
+Related works [31] show that transformer- based models like BERT-based models
+have demonstrated strong performance in fake news detection. The evolution of language styles [32], the role of visual elements [33], and critical contextual details [34]
+also play a significant role in enhancing fake news detection accuracy. Some approaches
+leverage transformer models to analyze both the news content and its social context
+[1, 34] for a more comprehensive understanding of misinformation patterns.
+Multi-platform and multi-lingual challenges have been addressed to detect fake
+news across varied contexts [35], while credibility assessment through ML has demonstrated its role in verification [36]. Sentiment analysis techniques leverage emotional
+tone to infer falsity [37, 38], and dual transformer models combine content and
+social context for enhanced detection [1]. Multi-modal integration, incorporating
+text, images, and publisher features, has shown improved performance in social
+media contexts [39]. Hybrid models, such as transformers model with traditional
+ML methods also optimize classification precision and adaptability [40, 41]. Semantic
+relationships captured through embeddings [42] and transformer-based models, such
+as BERT and GPT are shown to facilitate processing of long text sequences [43].
+Techniques like sentence and document embeddings [44, 45], ensemble deep neural
+networks [2], and real-time misinformation detection algorithms [46] show better detection methods. Beyond detection, strategies for social network immunization [47] and
+community-targeted interventions [48] offer effective tools for mitigating the spread of
+misinformation.
+Recent advancements in fake news detection also emphasize leveraging various
+embedding techniques and transformer models. For example, word embeddings [42]
+have been used to capture semantic relationships, while transformer-based models like
+BERT and GPT have shown remarkable accuracy in processing long and complex
+texts [43]. Sentence transformers [44], and document embeddings [45] further enhance
+detection by capturing deeper contextual nuances at both sentence and document
+levels. Additionally, studies have highlighted the integration of network information
+[2], such as social graph features, to improve the robustness and accuracy of fake news
+detection.
+Knowledge Graphs Some other work has focused on incorporating external
+knowledge, for example, knowledge graphs have been used to provide additional context for assessing news veracity [49]. Graph neural networks that can reason over
+knowledge graphs have also been applied to fake news detection [50]. There is also
+growing interest in developing interpretable fake news detection models. For example,
+visualization techniques have been proposed to explain model predictions to end users
+[31].
+
+[PAGE 5]
+Network Immunization for Misinformation Mitigation : The discussion on
+network immunization requires a more comprehensive exploration of existing methods.
+Proactive immunization strategies [47] identify and protect key nodes within social
+networks to prevent the spread of misinformation. The tree-based approaches [51] like
+MCWDST prioritize influential nodes based on hierarchical structures. Communitybased methods [52] such as ContCommRTD, [53] target susceptible clusters within the
+network for localized interventions. Real-time algorithms CONTAIN [52] dynamically
+detect and mitigate misinformation as it propagates through the network. Incorporating these strategies provide a holistic framework for fake news detection and
+mitigation.
+Multimodal Fake News Detection There are also multimodal fake news detection methods [23] that can detect the correlation between image regions and text
+fragments. Combining information from various modalities, such as textual content
+[7], user metadata [54], and network structures [55], and using language models [6] can
+make fake news detection systems more efficient and robust. Our work draws inspiration from prior research, with a particular emphasis on labeling tasks and classification
+through different methods. The adoption of multimodal methods [56] emphasizes the
+necessity to analyze both text and visual content together. Training models to recognize deceptive images is also crucial, as demonstrated by datasets designed for image
+analysis [6, 57, 58].
+Table 1: Comparison of our work with state-of-the-art approaches.
+Topic Key Contributions Reference
+Multi-platform Fake
+News Detection
+Fake news detection across multiple platforms and languages. Addressed multi-lingual challenges.
+[35]
+Credibility-based News
+Verification
+Assessed credibility of news articles using ML. -Role in
+fake news detection demonstrated.
+[36]
+Sentiment Analysis
+Techniques
+Emotional tone analysis in text. Used ML for falsity inference.
+[37]
+Content-Social Dual
+Transformer Models
+Combined content and social context via dual transformers. Enhanced detection precision.
+[1]
+Multi-modal Integration
+in Social Media
+Integrated text, images, and publisher features. Improved
+social media fake news detection.
+[39]
+Hybrid BERTLightGBM Model
+Hybridized BERT and LightGBM for classification.
+Improved precision and adaptability.
+[40]
+Fuzzy Set Theory in
+News Analysis
+Applied fuzzy set theory for fake news identification.
+Comparative analysis conducted.
+[41]
+Semantic Relationships
+and Word Embeddings
+Captured semantic word relationships. Distinguished
+deceptive content.
+[42]
+Transformers for Fake
+News Detection
+Used transformers (e.g., BERT, GPT) for long text
+sequences. Enhanced detection accuracy.
+[43]
+Sentence and Document
+Embeddings
+Uncovered inconsistencies in sentences. Developed holistic
+document representations.
+[44, 45]
+Deep Neural Network
+Ensembles
+Combined multiple models to detect diverse characteristics.
+[2]
+Social Network Immunization
+Strengthened key nodes to reduce misinformation spread. [47]
+Real-Time Misinformation Detection
+Tracked propagation patterns in real-time. Mitigated fake
+news dynamically.
+[46]
+Community Detection
+for Network Immunization
+Identified susceptible clusters. Designed targeted misinformation interventions.
+[48]
+Our Work Dataset, Comparative analysis between BERT-like vs.
+LLM .
+This
+Study
+
+[TABLE page=5 index=1]
+Columns: Topic | Unnamed: 0 | Key Contributions | Reference
+Row 1: Topic: Multi-platform Fake | Unnamed: 0: | Key Contributions: Fake news detection across multiple platforms and lan- | Reference: [35]
+Row 2: Topic: News Detection | Unnamed: 0: | Key Contributions: guages. Addressed multi-lingual challenges. | Reference:
+Row 3: Topic: Credibility-based News | Unnamed: 0: | Key Contributions: Assessed credibility of news articles using ML. -Role in | Reference: [36]
+Row 4: Topic: Verification | Unnamed: 0: | Key Contributions: fake news detection demonstrated. | Reference:
+Row 5: Topic: Sentiment Analysis | Unnamed: 0: | Key Contributions: Emotional tone analysis in text. Used ML for falsity infer- | Reference: [37]
+Row 6: Topic: Techniques | Unnamed: 0: | Key Contributions: ence. | Reference:
+Row 7: Topic: Content-Social Dual | Unnamed: 0: | Key Contributions: Combined content and social context via dual transform- | Reference: [1]
+Row 8: Topic: Transformer Models | Unnamed: 0: | Key Contributions: ers. Enhanced detection precision. | Reference:
+Row 9: Topic: Multi-modal Integration | Unnamed: 0: | Key Contributions: Integrated text, images, and publisher features. Improved | Reference: [39]
+Row 10: Topic: in Social Media | Unnamed: 0: | Key Contributions: social media fake news detection. | Reference:
+Row 11: Topic: Hybrid BERT- | Unnamed: 0: | Key Contributions: Hybridized BERT and LightGBM for classification. | Reference: [40]
+Row 12: Topic: LightGBM Model | Unnamed: 0: | Key Contributions: Improved precision and adaptability. | Reference:
+Row 13: Topic: Fuzzy Set Theory in | Unnamed: 0: | Key Contributions: Applied fuzzy set theory for fake news identification. | Reference: [41]
+Row 14: Topic: News Analysis | Unnamed: 0: | Key Contributions: Comparative analysis conducted. | Reference:
+Row 15: Topic: Semantic Relationships | Unnamed: 0: | Key Contributions: Captured semantic word relationships. Distinguished | Reference: [42]
+Row 16: Topic: and Word Embeddings | Unnamed: 0: | Key Contributions: deceptive content. | Reference:
+Row 17: Topic: Transformers for Fake | Unnamed: 0: | Key Contributions: Used transformers (e.g., BERT, GPT) for long text | Reference: [43]
+Row 18: Topic: News Detection | Unnamed: 0: | Key Contributions: sequences. Enhanced detection accuracy. | Reference:
+Row 19: Topic: Sentence and Document | Unnamed: 0: | Key Contributions: Uncovered inconsistencies in sentences. Developed holistic | Reference: [44, 45]
+Row 20: Topic: Embeddings | Unnamed: 0: | Key Contributions: document representations. | Reference:
+Row 21: Topic: Deep Neural Network | Unnamed: 0: | Key Contributions: Combined multiple models to detect diverse characteris- | Reference: [2]
+Row 22: Topic: Ensembles | Unnamed: 0: | Key Contributions: tics. | Reference:
+Row 23: Topic: Social Network Immu- | Unnamed: 0: | Key Contributions: Strengthened key nodes to reduce misinformation spread. | Reference: [47]
+Row 24: Topic: nization | Unnamed: 0: | Key Contributions: | Reference:
+Row 25: Topic: Real-Time Misinforma- | Unnamed: 0: | Key Contributions: Tracked propagation patterns in real-time. Mitigated fake | Reference: [46]
+Row 26: Topic: tion Detection | Unnamed: 0: | Key Contributions: news dynamically. | Reference:
+Row 27: Topic: Community Detection | Unnamed: 0: | Key Contributions: Identified susceptible clusters. Designed targeted misin- | Reference: [48]
+Row 28: Topic: for Network Immuniza- | Unnamed: 0: | Key Contributions: formation interventions. | Reference:
+Row 29: Topic: tion | Unnamed: 0: | Key Contributions: | Reference:
+Row 30: Topic: Our Work | Unnamed: 0: | Key Contributions: Dataset, Comparative analysis between BERT-like vs. | Reference: This
+Row 31: Topic: | Unnamed: 0: | Key Contributions: LLM . | Reference: Study
+[/TABLE]
+
+[PAGE 6]
+Large Language Models (LLMs) in Detection Utilizing natural language
+processing (NLP) techniques to analyze linguistic features has been a key strategy
+in improving fake news detection [59], [33, 60]. LLMs have emerged as useful methods in the fight against fake news. A related LLM-based fake news detection work
+[61] made use of direct prompting of LLMs with models like GPT-3.5 to provide
+multi-perspective rationales. This study proposed hybrid approaches to combine the
+strengths of LLMs and smaller language models to improve detection accuracy. Some
+works [62] have leveraged LLMs to generate style-diverse reframings of news articles,
+with the goal of enhancing the robustness of fake news detectors against stylistic variations. The potential of online-enabled LLMs like GPT-4, Claude, and Gemini for
+real-time fake news detection is also explored in a related work [63] to show different
+results in adapting to emerging misinformation patterns.
+Studies have also investigated the use of LLMs in generating explanations and
+reactions to support misinformation detection [64]. Multimodal approaches combining LLMs with image analysis capabilities have been proposed to tackle cross-domain
+misinformation [65, 66]. Despite these advancements, challenges remain. LLMs can
+sometimes struggle with fact verification tasks, and their performance can vary
+depending on the specific model and dataset used.
+Datasets The development of robust fake news detection systems relies heavily on
+the diversity and representativeness of the training datasets. It is critical that these
+datasets encapsulate the complexity of fake news to ensure the models can generalize
+effectively in real scenarios [67]. Popular benchmarks include FakeNewsNet [7], Fakeddit [13], and NELA-GT [15]. Election-related misinformation also continues to get
+attention, prompting the creation of specialized datasets to tackle misinformation in
+electoral contexts [15, 27, 68]. In light of the misinformation challenges posed by the
+COVID-19 pandemic, studies like [69] have applied transformer models to this new
+domain of fake news.
+LLM as Annotator The integration of LLMs for text annotation has been
+explored through various methodologies, as demonstrated in several recent studies
+[18, 19, 70–72]. MEGAnno+ [70] presents a human-LLM collaborative system where
+LLMs, both proprietary (GPT4) and open-source (Llama, Mistral), initiate the annotation process which is then verified and corrected by humans. AnnoLLM [19] is
+another method that leverages crowdsourcing to enhance the performance of LLMs
+like GPT-3.5, which shows that carefully designed prompts can significantly improve
+LLM annotation quality, often matching human-level annotation. One related study
+on ChatGPT highlights that GPT-3.5 can outperform human crowd-workers in annotation tasks [17]. These studies collectively suggest that LLMs hold promise for
+automating annotation processes. In this work, we also utilize LLMs as annotators to
+label data related to fake news. After initial labeling by the LLMs, we subjected our
+data to human reviews to ensure reliable labels.
+Comparison of our work with state-of-the-art work Our research contributes to the study of comparing the effectiveness of smaller language models, like
+those based on BERT, with LLMs in autoregressive settings. We have annotated data
+using LLMs, but we added the process of human reviews to ensure the validity of our
+results. Unlike weak supervision or distant labeling that relies on source level news
+
+[PAGE 7]
+labels, we provided article level labeling to have more reliable ground truth labels.
+The comparison of our work with related works is briefly depicted in Table 1
+3 Methodology
+3.1 Dataset Construction
+We implemented a data annotation and model training pipeline in this work, shown in
+Figure 1. Figure 1 illustrates a workflow for processing and utilizing unlabelled data
+to create a labeled dataset through LLM based annotations and with human experts’
+review. Once labeled, the data is stored in a data repository. This labeled dataset is
+then used to benchmark two families of ML models: BERT-like encoder only models
+and autoregressive decoder only LLMs. The models are then deployed for practical
+applications. We release our annotation method and classification of main models
+available here 4.
+Fig. 1: Data Annotation and Model Training Pipeline
+3.1.1 Data Source
+We curated about 30,000 news articles using Google RSS based on political news
+from time period May 2023-Oct 2023. This portion of the dataset is compiled through
+Google RSS feeds using the ‘feedparser‘ and the ‘newspaper.Article‘ API, which facilitate the extraction of article texts, publication dates, news outlets, and URLs. This
+collection features articles from a diverse array of political news sources, including
+4Code
+
+[PAGE 8]
+Fig. 2: Fake news annotation prompt.
+‘The Daily Chronicle’, ‘Global Times News’, ‘Liberty Voice’, ‘New Age Politics’, and
+‘The Public Perspective’. We selected a sample of 10,000 news articles, focusing on
+those with more than 150 words and covering a variety of topics identified during data
+curation, for labeling using AI.
+3.1.2 Annotation
+To label the selected 10,000 data points curated from Google RSS feeds, we employed
+the GPT-4 Turbo [73] for binary labeling (fake/real news) annotation. This LLM-based
+annotation method draws inspiration from recent research works [17, 74], which suggest that annotations from LLMs like ChatGPT are more reliable than those obtained
+from crowd-sourced workers. In particular, we utilized the GPT-4 Turbo model in a
+two-shot demonstration mode to assign labels, as illustrated in Figure 2. The decision
+to focus on a relatively smaller, manageable dataset of 10,000 articles was driven by
+cost considerations associated with the use of GPT-4 and our aim to achieve highly
+reliable labels.
+3.1.3 Data Quality Assurance
+To ensure the accuracy of the annotations generated by the LLM, we implemented
+a human review system. Over a period of four weeks, each of the 10,000 news articles labeled by the AI was independently reviewed by eight reviewers. The review
+team comprised of four experts and four students. These reviewers, who come from
+diverse demographics and disciplines (such as computer science and psychology), were
+provided with initial guidelines for review. In cases where reviewers disagreed on a
+label, the article was brought to a team meeting where discrepancies were resolved
+through consensus to determine the final label. The effectiveness of this collaborative verification process was quantified using an Inter-Rater Reliability Score, which
+
+[PAGE 9]
+is approximately 72%. This score reflects a substantial level of agreement among
+reviewers.
+Dataset Schema
+The curated dataset consists of 40,000 news articles labeled for fake news detection
+and the labeled dataset is 10,000. The schema for dataset is given in Table 2.
+Table 2: Schema for the Dataset. Both the unlabeled curated data and labeled
+data are available upon request.
+Field Description Dataset Part
+Content Full text, avg. 132.8k chars. Available in both unannotated
+& annotated
+Source Origin, avg. 13,857 chars. Unannotated
+Date
+Published
+Publication date, 203 unique
+dates.
+Unannotated
+Keyword
+Category
+Articles categorized by keywords, 20 categories.
+Unannotated
+Outlet Media outlet, avg. length not
+specified.
+Unannotated
+Label GPT-4 Turbo assigns real/fake
+based on title & content.
+Annotated
+3.2 Classification Methods
+We define the task of fake news classification as:
+y = f(x; θ)
+where x represents the input features derived from news articles, y is the binary label
+indicating fake or real news, and θ denotes the parameters of our BERT-like models.
+The goal is to optimize θ such that the prediction f(x) closely matches the true label y.
+We have developed a classification system for detecting fake news, integrating models
+from two model families: BERT-like encoder-only architectures and auto-regressive
+decoder-only LLMs. The goal is to leverage and compare the unique strengths of each
+model family to enhance the accuracy and efficiency of fake news detection.
+3.2.1 BERT-like Models
+An encoder-only model, such as BERT, focuses on understanding the input data by
+encoding its contextual information without generating new content. These models
+are particularly useful at understanding context in text, which make them a popular
+approach for distinguishing between real and fake content.
+Specifically, a BERT-like model processes the input text x through a series of
+transformer layers to produce a contextualized representation h. This representation
+is then used to calculate the probability of the news being fake as follows:
+
+[TABLE page=9 index=1]
+Columns: Field | Description | Dataset Part
+Row 1: Field: Content | Description: Full text, avg. 132.8k chars. | Dataset Part: Available in both unannotated
+Row 2: Field: | Description: | Dataset Part: & annotated
+Row 3: Field: Source | Description: Origin, avg. 13,857 chars. | Dataset Part: Unannotated
+Row 4: Field: Date | Description: Publication date, 203 unique | Dataset Part: Unannotated
+Row 5: Field: Published | Description: dates. | Dataset Part:
+Row 6: Field: Keyword | Description: Articles categorized by key- | Dataset Part: Unannotated
+Row 7: Field: Category | Description: words, 20 categories. | Dataset Part:
+Row 8: Field: Outlet | Description: Media outlet, avg. length not | Dataset Part: Unannotated
+Row 9: Field: | Description: specified. | Dataset Part:
+Row 10: Field: Label | Description: GPT-4 Turbo assigns real/fake | Dataset Part: Annotated
+Row 11: Field: | Description: based on title & content. | Dataset Part:
+[/TABLE]
+
+[PAGE 10]
+h = BERT(x; θ)
+p(fake|x; θ) = σ(WTh + b)
+where σ is the sigmoid activation function, and W and b are the parameters of
+a fully connected layer (classification layer) trained to predict the likelihood of the
+article being fake. The output p(fake|x; θ) represents the probability that the input
+x is classified as fake news. In this work, we utilize encoder-only models such as
+DistilBERT, BERT, and RoBERTa, which are fine-tuned on our dataset.
+3.2.2 Autoregressive LLMs
+Autoregressive decoder-only LLMs, such as the GPT series, Llama, and Mistral models, are trained to predict the next token in a sequence based on the preceding context.
+For fake news classification, we employ a two-stage approach: fine-tuning and inference with majority voting. The training process begins with data preparation, where
+we convert our dataset into an instruction format suitable for instruction fine-tuning.
+We then proceed with instruction fine-tuning, using two-shot demonstrations to provide examples to the model. During training, the model is presented with prompts
+and correct classifications, allowing it to learn the task of distinguishing between real
+and fake news articles. The instruction dataset is defined as follows:
+1 <s >[INST ] C l a s s i f y the f o l l o w i n g news a r t i c l e s as e i t h e r ’REAL’ or ’FAKE
+’ :
+3 1 . A r t i c l e : ”A recent study published in the Journal of Happiness
+Research claims that consuming chocolate can s i g n i f i c a n t l y i n c r e a s e
+happiness l e v e l s . Researchers surveyed 1 ,000 p a r t i c i p a n t s and found a
+strong c o r r e l a t i o n between chocolate consumption and reported
+happiness ” .
+4 C l a s s i f i c a t i o n : REAL
+6 2 . A r t i c l e : ” In an unprecedented event , a group of a l i e n s r e p o r t e d l y
+landed in Times Square , demanding to meet with President Biden to
+d i s c u s s i n t e r g a l a c t i c trade . Eyewitnesses claim the a l i e n s looked
+l i k e giant green octopuses . ”
+7 C l a s s i f i c a t i o n : FAKE
+9 Now c l a s s i f y the f o l l o w i n g a r t i c l e :
+11 A r t i c l e : ” Breaking News : S c i e n t i s t s Discover Unicorns in the Amazon
+R a i n f o r e s t . In a groundbreaking expedition , a team of r e s e a r c h e r s
+from the University of Mythical Studies has stumbled upon a herd of
+unicorns deep in the Amazon r a i n f o r e s t . Dr . Jane Fantasia , lead
+researcher , stated , ’We were a b s o l u t e l y stunned . These majestic
+c r e a t u r e s were ex ac tl y as described in ancient legends − white horses
+with s p i r a l i n g horns on t h e i r foreheads ’ . ”
+13 [ / INST ]
+The training configuration involves setting the number of epochs, typically up to
+5 for fine-tuning tasks (more epochs led to overfitting), and choosing an appropriate
+learning rate with a linear decay schedule. Throughout the training process, we regularly evaluate the model on a validation set to monitor performance and prevent
+
+[PAGE 11]
+overfitting, tracking the metrics such as accuracy, precision, recall, and F1-score specific to this fake news classification task. We save checkpoints throughout training and
+select the best-performing model based on the lowest validation loss.
+After the training process, we utilize a majority voting mechanism during inference to improve classification reliability and robustness. For each news article, the
+fine-tuned LLM (e.g., Llama2-7B-Chat or Mistral-7B-Instruct-v0.2) is independently
+prompted five times with the same input. Each prompt results in a classification
+(’REAL’ or ’FAKE’) along with an associated confidence score. The final classification is determined through majority voting, where the most frequently occurring label
+across the five predictions is selected as the output:
+Majority Label = mode( {label1, label2, . . . ,labeln})
+Additionally, we compute the average confidence score from the five responses:
+Average Confidence =
+Pn
+i=1 confidencei
+n
+If the average confidence score exceeds a predefined threshold (e.g., 0.8), we adopt
+the majority label as the final classification. This mechanism addresses the inherent stochasticity of probabilistic LLM outputs by aggregating multiple predictions,
+thereby reducing the impact of potential outlier responses. Moreover, the ensemble-like
+effect of majority voting enhances reliability by synthesizing the model probabilistic
+behavior into a single, consistent prediction.
+The choice of five prompts was guided by empirical evaluations, balancing computational efficiency with prediction stability. Similarly, the confidence threshold (0.8)
+was determined through experiments to ensure robust classification while minimizing
+false positives and negatives. This method was applied to our instruction fine-tuned
+versions of Llama2-7B-Chat [21] and Mistral-7B-Instruct-v0.2 [20] for the task of fake
+news classification. The workflow for classification using Llama2 and Mistral models
+is outlined below:
+NEWS ARTICLE
+Submit Article to LLM
+and ask for fake news classification
+(Multiple Times)
+Collect Labels
+and Confidence Scores
+Majority Voting
+on Labels
+Determine
+FINAL LABEL
+Output
+FINAL LABEL
+We fine-tuned these LLMs using parameter-efficient techniques [75] and 4-bit quantization via QLoRA [76] to effectively manage GPU memory constraints. While some
+studies indicate that QLoRA can slightly impact model performance [77], related
+works on LLM quantization [76] suggest that any performance loss due to quantization can be fully recovered through adapter fine-tuning post-quantization. This is the
+approach we adopted to ensure our models maintained high accuracy and robustness
+in fake news detection.
+
+[PAGE 12]
+4 Experimental Setting
+4.1 Evaluation Data
+The dataset developed and used in this study is detailed in Section 3.1. It includes
+10,000 annotated samples, initially labeled by GPT-4 Turbo and subsequently
+reviewed by human annotators. This dataset was used for fine-tuning both BERT-like
+models and LLMs. The data is divided into training, validation, and test sets with an
+80-10-10 split ratio.
+We also utilized the NELA-GT-2022 dataset [78], a multi-labeled benchmark news
+corpus designed for studying misinformation, containing 1,778,361 articles from 361
+outlets between January 1, 2022, and December 31, 2022. This dataset employs distant
+supervision for labeling, where article veracity is inferred from the reliability ratings
+of sources as per the Media Bias/Fact Check (MBFC) database5. We selected a subset
+of 10,000 articles from NELA-GT-2022, aiming for a balance of fake and real labels
+and ensuring each article has a minimum length of 50 words to provide substantial
+content for analysis. For our study, we utilized the news body and source-level label
+fields provided by the dataset and followed an 80-20 train-test split 6.
+To address potential issues arising from data imbalance in our dataset, we implemented the SMOTE (Synthetic Minority Over-sampling Technique) method [79]. This
+approach increases the frequency of the underrepresented class in the training dataset
+to match that of the more common class, helping to prevent models from being biased
+towards the majority class and enhancing their ability to generalize to unseen data.
+While LLMs are known for their effectiveness at capturing complex patterns even with
+a limited number of samples [80], their performance can still be affected by imbalanced
+data. Therefore, we applied the same SMOTE technique for both BERT-like models
+and LLMs to ensure a fair and consistent experimental setup.
+4.2 Settings and Hyperparameters
+We used a computing cluster equipped with GPUs, including one NVIDIA A100 and
+four NVIDIA A40s, each with a RAM capacity of 32GB, to ensure efficient data
+handling and computation. LLMs such as Llama2-7B and Mistral-7B were trained
+using Parameter-Efficient Fine-Tuning (PEFT) and 4-bit quantization via QLoRA to
+effectively manage GPU memory constraints.
+Our implementation utilizes PyTorch and the Hugging Face Transformers library
+to efficiently incorporate the BERT encoder layers. For QLoRA [76], we employed
+the bitsandbytes library along with the Hugging Face Transformers Trainer. We finetuned the Llama2-7B-Chat and Mistral-7B-Instruct-v0.2 models on both our dataset
+and the chosen sample of NELA-GT-2022. The QLoRA configuration included 4-bit
+NormalFloat (NF4) representation, double quantization, and paged optimizers.
+Details of the general hyperparameters and specific QLoRA parameters are
+provided in Table 3.
+5https://mediabiasfactcheck.com/
+6Access to the NELA-GT dataset is available through the dataset’s official source or authors, according
+to their guidelines.
+
+[PAGE 13]
+Table 3: Hyperparameters for fine-tuning BERT-like models and LLM variants for fake news detection.
+BERT-like Models LLM Variants
+Models:
+DistilBERT (base, uncased), BERT (large,
+uncased), RoBERTa (large)
+Models:
+Llama2-7B-chat, Mistral-7B-Instruct-v0.2
+Learning Rate:
+2e-5 to 5e-5 (DistilBERT, BERT), 1e-5 to 4e5 (RoBERTa)
+Learning Rate:
+1e-5 to 3e-5
+Batch Size:
+16-32
+Batch Size:
+8 (Training), 16 (Evaluation)
+Epochs:
+20 (early stopping)
+Epochs:
+5 (early stopping at 1; more led to overfitting)
+Optimizer: AdamW Optimizer: AdamW
+Weight Decay:
+0.01
+Weight Decay:
+0.01
+Warm-up Steps:
+6% of total steps (RoBERTa only)
+Classification Threshold:
+0.5 (default for all)
+QLoRA Parameters
+Parameter: lora r = 64, lora alpha = 16, lora dropout = 0.2
+Task Type: CAUSAL LM Bias: None
+BitsandBytes: use 4bit = True, bnb 4bit dtype = float16, bnb 4bit quant = nf4,
+use nested quant = True
+Table 4: Model Performance: Inference Time, Throughput, and Training
+Time
+Model Inference
+Time (ms)
+Throughput
+(examples/sec)
+Training
+Time (hrs)
+BERTBase-Uncased 5 200.0 0.5
+DistilBERTBase-Uncased 3 333.3 0.3
+RoBERTaBase-Uncased 6 166.7 0.7
+Llama2-7B (Zero-Shot) 15 66.7 Llama2-7B (5-Shots) 20 50.0 Llama2-7B (Fine-Tuned) 12 83.3 3.0
+Mistral-7B-v0.2 (Zero-Shot) 14 71.4 Mistral-7B-v0.2 (5-Shots) 18 55.6 Mistral-7B-v0.2 (Fine-Tuned) 10 100.0 2.5
+The results were obtained using 5-fold cross-validation, with models trained for up
+to 20 iterations using early stopping for BERT-like models. For LLMs, we used 5 epochs
+with early stopping. Our earlier results show that increasing the number of epochs in
+these LLMs leads to overfitting, as also observed in the Llama-2 paper [21]. The mean
+and standard deviation for each evaluation metric (Accuracy, Precision, Recall, and
+F1-score) on the test set are reported. While LLMs typically require more resources,
+we managed to fine-tune each one in approximately 50 minutes using quantization
+techniques, with an additional 30 minutes for overall inference. In contrast, BERTlike models completed the process in about minutes in our setup, shown in Table 4.
+Running multiple epochs revealed only slight variations.
+
+[PAGE 14]
+4.3 Evaluation Metrics
+We use the standard evaluation metrics used for classification models [38], which are:
+Accuracy = T P + T N
+T P + T N + F P + F N (1)
+P recision = T P
+T P + F P (2)
+Recall = T P
+T P + F N (3)
+F 1 score = 2 × P recision × Recall
+P recision + Recall (4)
+where TP stands for true positive, TN for true negatives, FN for false positives, and
+FP for false positives.
+For probability-based models like BERT, we use the predicted probabilities
+directly. A threshold of 0.8 is applied to these probabilities to determine the final
+classification (REAL or FAKE), allowing us to compute the evaluation metrics.
+For LLMs such as Llama2-7B and Mistral-7B, which provide confidence scores
+rather than probabilities, we adapt our evaluation approach. For each news article,
+we obtain five classifications with their associated confidence scores. We then use
+majority voting to determine the final label. The average confidence score is calculated,
+and if it exceeds our predetermined threshold of 0.8, we accept the majority label as
+the final classification. All these predictions are compared against the ground truth
+labels from the testset to compute the final evaluation metrics. We evaluated the
+LLMs in two different setups: instruction fine-tuning, and promting with zero to few
+shots demonstrations. This comprehensive evaluation allows us to compare the models’
+performance across different learning paradigms.
+4.4 Exploratory Analysis on our Dataset
+In this section, we present an exploratory analysis on our annotated data (detailed in
+Section 3.1). Figure 3a shows a histogram with the distribution of sentiment scores for
+all news articles. The sentiment scores in our annotated dataset range from -1 (most
+negative) to 1 (most positive). The distribution is bimodal, with peaks around -1 and
+1, indicating that many articles have either very positive or very negative sentiments.
+Figure 3b shows the stacked histogram that illustrates the sentiment distribution
+separated by labels (REAL and FAKE). Both real and fake news articles exhibit
+similar bimodal distributions. Figure 3c is a bar plot that shows the count of real and
+fake news articles in the dataset.
+Figure 3d shows a box plot that compares the sentiment scores for real and fake
+news articles. Both real and fake news articles have a median sentiment score around
+0.5. The interquartile range is also similar, indicating that the sentiment distribution
+for both labels is quite alike. Figure 3e shows a box plot that shows the distribution
+of text lengths for real and fake news articles. Real and fake news articles generally
+have similar text lengths. However, there are some outliers with significantly longer
+
+[PAGE 15]
+text lengths in both categories. Figure 3f shows a word cloud that highlights the
+most frequently used words in fake news articles. Words like “RUSSIAN”, “LOSERS”,
+“PUTIN” and “COWARD” are prominent, suggesting a focus on sensational and
+provocative language in fake news articles. We also present main topics derived from
+our dataset in Table 5.
+Table 5: Topical Keyword Distribution from Dataset Analysis
+Category Keywords
+General Discussions said, people, just, like, new, time, news, years, health, police
+Russia and Conflict russian, weak, losers, coward, putin, stupid, redline, russia, army, bad
+Global Affairs said, ukraine, russia, war, china, world, military, biden, energy, united
+US Politics trump,president, biden, state, court, republican, election, republicans
+Political Parties and
+Elections
+party, political, government, election, conservative, democratic, minister,
+voters, left
+Some of our observations on the topics are: Climate Change and Pandemic
+Response: Our dataset includes discussions on the environmental impacts of COVID19 lockdowns. This observation links to studies indicating significant changes in
+climate patterns during global lockdown periods. The Information War in Ukraine
+We explore the details in the dataset concerning the conflict in Ukraine. Developments in Cryptocurrency Markets The dataset covers topics like fluctuations in the
+cryptocurrency markets, with an increased focus on central bank digital currencies
+(CBDCs). Policy on Transgender Athletes: Analysis from our dataset also sheds some
+light on the sports sector for inclusivity, especially concerning FINA’s policies on
+transgender athletes’ participation in competitive swimming.
+5 Results and Analysis
+In our study, we aim to address the following research questions (RQ):
+1. RQ1: Which families of models, BERT-like models or LLMs, perform better for the
+task of fake news detection?
+2. RQ2: Are GPT-powered labels more accurate compared to source-level labels?
+3. RQ3: How do different families of models perform under adversarial perturbations,
+and which models demonstrate better robustness?
+5.1 Overall Performance
+The main findings from Table 6 indicate that BERT-like models, specifically
+BERTBase-Uncased and RoBERTaBase-Uncased, outperform autoregressive LLMs such as
+Llama2-7B and Mistral-7B-v0.2 across all metrics. RoBERTa, in particular, demonstrates the best performance with a precision of 89.23% and recall of 90.14% on our
+dataset with GPT-powered labels, which shows the capability of BERT-like models to
+provide accurate and reliable predictions in such classification tasks. The BERT and
+
+[TABLE page=15 index=1]
+Columns: Category | Keywords
+Row 1: Category: General Discussions | Keywords: said, people, just, like, new, time, news, years, health, police
+Row 2: Category: Russia and Conflict | Keywords: russian, weak, losers, coward, putin, stupid, redline, russia, army, bad
+Row 3: Category: Global Affairs | Keywords: said, ukraine, russia, war, china, world, military, biden, energy, united
+Row 4: Category: US Politics | Keywords: trump,president, biden, state, court, republican, election, republicans
+Row 5: Category: Political Parties and | Keywords: party, political, government, election, conservative, democratic, minister,
+Row 6: Category: Elections | Keywords: voters, left
+[/TABLE]
+
+[PAGE 16]
+1.00
+0.75
+0.50
+0.25
+0.00 0.25 0.50 0.75 1.00
+Sentiment Score
+1600Frequency
+Sentiment Distribution of News Articles
+(a) Sentiment Distribution of News Articles
+1.00
+0.75
+0.50
+0.25
+0.00 0.25 0.50 0.75 1.00
+Sentiment Score
+1600Frequency
+Sentiment Distribution by Label
+label
+REAL
+FAKE
+(b) Sentiment Distribution by Label
+REAL FAKE
+Label
+7000Count
+Class Distribution of News Articles
+(c) Class Distribution of News Articles
+REAL FAKE
+Label
+1.00
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+Sentiment Score
+Box Plot of Sentiment Scores by Label (d) Box Plot of Sentiment Scores by Label
+REAL FAKE
+Label
+350000T ext Length
+Box Plot of T ext Length by Label
+(e) Box Plot of Text Length by Label
+Most Common Words in Fake News (f) Most Common Words in Fake News
+Fig. 3: Comprehensive Analysis of News Article Sentiment, Distribution, and Content
+DistilBERT models also show strong performance, and offer a balance between accuracy and computational efficiency. This makes these encoder only models suitable for
+resource-constrained environments for the classification task.
+The use of GPT-powered labeling with human supervision proves to be more
+effective in detecting fake news than source-level distant labeling. This suggests that
+human insights significantly enhance the labeling process. On the NELA-GT-2022
+dataset with source-level labels, the performance of all models slightly decreases, which
+indicates that the GPT-powered labels are generally more accurate.
+Within the LLMs, instruction fine-tuning shows the best results, followed by fewshot learning, and then zero-shot learning. This result shows that task-specific finetuning can perform better and that more data points are good than just prompting.
+However, some underperformance of LLMs compared to BERT-like models suggests
+
+[PAGE 17]
+Table 6: Performance Comparison of Models (in percentages) using 5-fold crossvalidation across Precision (P), Recall (R), and F1-score (F1). Evaluations are
+conducted on our test set with GPT-powered labels and on NELA-GT-2022 with
+source-level labels. Models include fine-tuned BERT-like models and LLMs. The
+LLMs used are Llama2-7B-chat (Llama2-7B) and Mistral-7B-v0.2-instruct (Mistral7B-v0.2), assessed under zero-shot, few-shot (5 examples), and instruction fine-tuning
+settings. Higher scores ( ↑) indicate better performance, with the best scores highlighted in bold.
+Model Our Dataset (GPT labels) NELA-GT (Source labels)
+P (%) R (%) F1 (%) P (%) R (%) F1 (%)
+BER T-like Models
+BERTBase-Uncased 84.12 86.34 85.22 78.27 79.43 78.84
+DistilBERTBase-Uncased 84.10 84.05 84.08 77.21 76.45 76.83
+RoBERTaBase-Uncased 89.23 90.14 89.68 83.12 84.09 83.60
+LLMs
+Llama2-7B (Zero-Shot) 42.15 55.37 47.75 45.27 51.48 48.16
+Llama2-7B (5-Shots) 53.22 58.43 55.67 49.14 52.35 50.69
+Llama2-7B (Fine-Tuned) 76.45 78.32 77.37 70.25 71.37 70.81
+Mistral-7B-v0.2 (Zero-Shot) 53.11 57.24 55.00 45.18 48.27 46.67
+Mistral-7B-v0.2 (5-Shots) 63.14 69.28 66.05 58.21 59.35 58.78
+Mistral-7B-v0.2 (Fine-Tuned) 79.33 81.14 80.23 73.12 74.19 73.65
+that the generative nature of LLMs, which are often trained for text generation rather
+than classification.
+Discussion: Overall, the results demonstrate that GPT-powered labels offer superior accuracy, and that the BERT-like fine-tuned models are quite effective classifiers
+for this task of fake news detection. The results answer that for the task of fake
+news detection, LLMs outperform BERT-like models (RQ1), and GPT-powered labels
+demonstrate higher accuracy compared to source-level labels (RQ2).
+Given the better performance of our dataset with GPT-powered labels (over weak
+labels by NELA-GT dataset), further results will focus on this dataset.
+5.2 Ablation Study of BERT-like Models
+The ablation study in Table 7 examines the performance of BERT, RoBERTa, and
+DistilBERT models under varying batch sizes, learning rates, and training epochs
+with early stopping. This analysis focuses on encoder-only models, known for their
+effectiveness in classification tasks, to understand the impact of hyperparameters.
+LLMs, being autoregressive and designed for generative tasks, are excluded from this
+study due to their distinct training and evaluation requirements.
+Table 7 presents an ablation study demonstrating that BERT-like models achieve
+optimal performance with a batch size of 16 and a learning rate of 3e-5 in this
+setup. This configuration yields the highest accuracy and F1-scores, particularly for
+RoBERTa, which achieves 92.12% accuracy and 89.47% F1-score.
+
+[TABLE page=17 index=1]
+Columns: Model | Our Dataset (GPT labels) | NELA-GT (Source labels)
+Row 1: Model: | Our Dataset (GPT labels): P (%) R (%) F1 (%) | NELA-GT (Source labels): P (%) R (%) F1 (%)
+Row 2: Model: BERT-like Models | Our Dataset (GPT labels): | NELA-GT (Source labels):
+Row 3: Model: BERTBase-Uncased | Our Dataset (GPT labels): 84.12 86.34 85.22 | NELA-GT (Source labels): 78.27 79.43 78.84
+Row 4: Model: DistilBERTBase-Uncased | Our Dataset (GPT labels): 84.10 84.05 84.08 | NELA-GT (Source labels): 77.21 76.45 76.83
+Row 5: Model: RoBERTaBase-Uncased | Our Dataset (GPT labels): 89.23 90.14 89.68 | NELA-GT (Source labels): 83.12 84.09 83.60
+Row 6: Model: LLMs | Our Dataset (GPT labels): | NELA-GT (Source labels):
+Row 7: Model: Llama2-7B (Zero-Shot) | Our Dataset (GPT labels): 42.15 55.37 47.75 | NELA-GT (Source labels): 45.27 51.48 48.16
+Row 8: Model: Llama2-7B (5-Shots) | Our Dataset (GPT labels): 53.22 58.43 55.67 | NELA-GT (Source labels): 49.14 52.35 50.69
+Row 9: Model: Llama2-7B (Fine-Tuned) | Our Dataset (GPT labels): 76.45 78.32 77.37 | NELA-GT (Source labels): 70.25 71.37 70.81
+Row 10: Model: Mistral-7B-v0.2 (Zero-Shot) | Our Dataset (GPT labels): 53.11 57.24 55.00 | NELA-GT (Source labels): 45.18 48.27 46.67
+Row 11: Model: Mistral-7B-v0.2 (5-Shots) | Our Dataset (GPT labels): 63.14 69.28 66.05 | NELA-GT (Source labels): 58.21 59.35 58.78
+Row 12: Model: Mistral-7B-v0.2 (Fine-Tuned) | Our Dataset (GPT labels): 79.33 81.14 80.23 | NELA-GT (Source labels): 73.12 74.19 73.65
+[/TABLE]
+
+[PAGE 18]
+Table 7: Performance of BERT, RoBERTa, and DistilBERT models
+with varying batch sizes and learning rates (LR). Results are shown
+for Accuracy (Acc) and F1-score (F1). Best model scores are inbold,
+second-best italic, and third-best as underline .
+Batch LR BER T RoBER T a Distil-BER T
+Size Acc F1 Acc F1 Acc F1
+5e-5 81.24 81.19 82.37 82.45 80.12 80.34
+3e-5 84.49 83.27 85.31 84.22 83.29 82.15
+2e-5 82.03 82.14 83.22 83.33 81.48 81.29
+5e-5 83.15 83.08 84.27 84.31 82.29 82.45
+3e-5 88.16 85.38 92.12 89.47 85.19 84.21
+2e-5 83.22 83.11 84.34 84.25 82.01 82.09
+5e-5 80.18 80.23 81.41 81.29 79.14 79.22
+3e-5 83.11 83.02 84.19 84.11 82.33 82.25
+2e-5 81.12 81.18 82.24 82.35 80.22 80.14
+Discussion: The study highlights the importance of optimizing batch size, learning
+rate, and other hyperparameters to enhance the performance of BERT-like models in
+classification tasks.
+5.3 Analysis of Few-Shot Learning Versus Fine-Tuning with
+Large Language Models
+To evaluate the performance of LLMs, we conducted experiments across zero-shot,
+few-shot, and fine-tuning scenarios. These experiments help illustrate how well the
+models can generalize with varying amounts of task-specific information and training
+data. The results are shown in Figure 4.
+The results in Table 4 demonstrate that increasing the number of demonstrations
+in prompts leads to better performance for both Llama2-7B-chat and Mistral-7B-v0.2instruct. For instance, 10 demonstrations per class outperform 5 demonstrations, with
+this trend continuing as more examples are added. While these models show the ability
+to perform reasonably well with limited examples, fine-tuning with task-specific data
+shows the best results for both models.
+Discussion: The results indicate that fine-tuning is a superior approach for classification tasks compared to few-shot demonstrations, although both methods show
+improvements over zero-shot performance.
+5.4 Impact of Text Perturbations on Model Predictions
+To assess the robustness of various fake news detection models, we conducted experiments using the TextAttack7 library to apply several text perturbations. Our goal was
+to determine how minor textual modifications affect the predictive accuracy of BERT,
+RoBERTa, DistilBERT, Llama2-7B, and Mistral-7B models. These tests simulated
+7TextAttack Library
+
+[TABLE page=18 index=1]
+Columns: Batch | LR | Unnamed: 0 | BERT | RoBERTa | Distil-BERT
+Row 1: Batch: Size | LR: | Unnamed: 0: Acc | BERT: F1 | RoBERTa: Acc F1 | Distil-BERT: Acc F1
+Row 2: Batch: | LR: 5e-05 | Unnamed: 0: 81.24 | BERT: 81.19 | RoBERTa: 82.37 82.45 | Distil-BERT: 80.12 80.34
+Row 3: Batch: 8 | LR: 3e-05 | Unnamed: 0: 84.49 | BERT: 83.27 | RoBERTa: 85.31 84.22 | Distil-BERT: 83.29 82.15
+Row 4: Batch: | LR: 2e-05 | Unnamed: 0: 82.03 | BERT: 82.14 | RoBERTa: 83.22 83.33 | Distil-BERT: 81.48 81.29
+Row 5: Batch: | LR: 5e-05 | Unnamed: 0: 83.15 | BERT: 83.08 | RoBERTa: 84.27 84.31 | Distil-BERT: 82.29 82.45
+Row 6: Batch: 16 | LR: 3e-05 | Unnamed: 0: 88.16 | BERT: 85.38 | RoBERTa: 92.12 89.47 | Distil-BERT: 85.19 84.21
+Row 7: Batch: | LR: 2e-05 | Unnamed: 0: 83.22 | BERT: 83.11 | RoBERTa: 84.34 84.25 | Distil-BERT: 82.01 82.09
+Row 8: Batch: | LR: 5e-05 | Unnamed: 0: 80.18 | BERT: 80.23 | RoBERTa: 81.41 81.29 | Distil-BERT: 79.14 79.22
+Row 9: Batch: 32 | LR: 3e-05 | Unnamed: 0: 83.11 | BERT: 83.02 | RoBERTa: 84.19 84.11 | Distil-BERT: 82.33 82.25
+Row 10: Batch: | LR: 2e-05 | Unnamed: 0: 81.12 | BERT: 81.18 | RoBERTa: 82.24 82.35 | Distil-BERT: 80.22 80.14
+[/TABLE]
+
+[PAGE 19]
+(a) Performance of Llama2-7B
+(b) Performance Metrics of Mistral-7B-v0.2
+Fig. 4: Comparative analysis of performance metrics for Llama2-7B and Mistral-7BInstruct-v0.2 across various prompt settings and fine-tuning ccenarios
+real-world scenarios where news titles might have subtle but significant variations.
+Table 8 presents key examples of our findings.
+The results in Table 8 reveal significant variations in model responses to text
+perturbations. For example, ‘Drop’ and ‘Insertion’ perturbations caused some models
+to misclassify real news as fake, while ‘Swap’ and ‘Rephrase’ perturbations generally
+maintained high accuracy across models, indicating robustness against straightforward
+syntactic changes.
+BERT-like models demonstrated high accuracy, particularly with ‘Swap’ and
+‘Rephrase’ perturbations. However, they showed vulnerabilities to ‘Drop’ and ‘Insertion’ perturbations, likely due to their reliance on specific word patterns learned during
+
+[PAGE 20]
+training. In contrast, LLMs (Llama2-7B and Mistral-7B) showed better consistency
+across all perturbation types, maintaining high accuracy even with challenging perturbations like ‘Drop’ and ‘Insertion’. This robustness can be attributed to their extensive
+pre-training on large, diverse datasets, equipping them to handle a variety of text
+manipulations effectively.
+Discussion: Our findings indicate that LLMs are more adept at handling text
+perturbations in fake news classification tasks compared to BERT-like models. This
+superior performance likely stems from their advanced contextual understanding and
+generative capabilities, allowing them to adapt more effectively to data variations.
+The result answers our RQ3 and reveals that LLMs exhibit superior performance and
+robustness under adversarial perturbations compared to other model families.
+Table 8: Impact of Text Perturbations on Fake News Detection Models
+Perturbation
+Example Text Original
+Label
+BERT RoBERTa Distil
+BERT
+Llama27B
+Mistral7B
+Original CDC confirms
+new treatment
+effective against
+flu
+Real Real Real Real Real Real
+Swap New treatment
+confirmed effective against flu by
+CDC
+Real Real Real Real Real Real
+Drop New treatment
+effective against
+flu
+Real Fake Fake Fake Real Real
+Insertion CDC rumor:
+new treatment
+might be effective
+against flu
+Real Fake Fake Real Real Real
+Rephrase CDC states treatment can combat
+flu effectively
+Real Real Real Real Real Real
+Negation CDC confirms
+new treatment
+not effective
+against flu
+Real Fake Fake Fake Real Real
+Synonym CDC verifies new
+remedy effective
+against flu
+Real Real Real Real Real Real
+Antonym CDC denies
+new treatment
+effective against
+flu
+Real Fake Fake Fake Real Real
+Typo CDC confirms
+nuw treatment
+effective against
+flu
+Real Fake Fake Fake Real Real
+Paraphrase CDC announces
+effectiveness of
+new flu treatment
+Real Real Real Real Real Real
+Shuffle Treatment new
+CDC confirms
+effective against
+flu
+Real Fake Fake Fake Real Real
+PunctuationCDC confirms
+new treatment:
+effective against
+flu
+Real Real Real Real Real Real
+Continued on next page
+
+[TABLE page=20 index=1]
+Columns: Perturb- Example Text | Unnamed: 0 | Original | BERT | RoBERTa | Distil | Llama2- MistralRow 1: Perturb- Example Text: ation | Unnamed: 0: | Original: Label | BERT: | RoBERTa: | Distil: BERT | Llama2- Mistral-: 7B 7B
+Row 2: Perturb- Example Text: Original CDC confirms | Unnamed: 0: | Original: Real | BERT: Real | RoBERTa: Real | Distil: Real | Llama2- Mistral-: Real Real
+Row 3: Perturb- Example Text: new treatment | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 4: Perturb- Example Text: effective against | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 5: Perturb- Example Text: flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 6: Perturb- Example Text: Swap New treatment | Unnamed: 0: | Original: Real | BERT: Real | RoBERTa: Real | Distil: Real | Llama2- Mistral-: Real Real
+Row 7: Perturb- Example Text: confirmed effec- | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 8: Perturb- Example Text: tive against flu by | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 9: Perturb- Example Text: CDC | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 10: Perturb- Example Text: Drop New treatment | Unnamed: 0: | Original: Real | BERT: Fake | RoBERTa: Fake | Distil: Fake | Llama2- Mistral-: Real Real
+Row 11: Perturb- Example Text: effective against | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 12: Perturb- Example Text: flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 13: Perturb- Example Text: Insertion CDC rumor: | Unnamed: 0: | Original: Real | BERT: Fake | RoBERTa: Fake | Distil: Real | Llama2- Mistral-: Real Real
+Row 14: Perturb- Example Text: new treatment | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 15: Perturb- Example Text: might be effective | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 16: Perturb- Example Text: against flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 17: Perturb- Example Text: Rephrase CDC states treat- | Unnamed: 0: | Original: Real | BERT: Real | RoBERTa: Real | Distil: Real | Llama2- Mistral-: Real Real
+Row 18: Perturb- Example Text: ment can combat | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 19: Perturb- Example Text: flu effectively | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 20: Perturb- Example Text: Negation CDC confirms | Unnamed: 0: | Original: Real | BERT: Fake | RoBERTa: Fake | Distil: Fake | Llama2- Mistral-: Real Real
+Row 21: Perturb- Example Text: new treatment | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 22: Perturb- Example Text: not effective | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 23: Perturb- Example Text: against flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 24: Perturb- Example Text: Synonym CDC verifies new | Unnamed: 0: | Original: Real | BERT: Real | RoBERTa: Real | Distil: Real | Llama2- Mistral-: Real Real
+Row 25: Perturb- Example Text: remedy effective | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 26: Perturb- Example Text: against flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 27: Perturb- Example Text: Antonym CDC denies | Unnamed: 0: | Original: Real | BERT: Fake | RoBERTa: Fake | Distil: Fake | Llama2- Mistral-: Real Real
+Row 28: Perturb- Example Text: new treatment | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 29: Perturb- Example Text: effective against | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 30: Perturb- Example Text: flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 31: Perturb- Example Text: Typo CDC confirms | Unnamed: 0: | Original: Real | BERT: Fake | RoBERTa: Fake | Distil: Fake | Llama2- Mistral-: Real Real
+Row 32: Perturb- Example Text: nuw treatment | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 33: Perturb- Example Text: effective against | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 34: Perturb- Example Text: flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 35: Perturb- Example Text: Paraphrase CDC announces | Unnamed: 0: | Original: Real | BERT: Real | RoBERTa: Real | Distil: Real | Llama2- Mistral-: Real Real
+Row 36: Perturb- Example Text: effectiveness of | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 37: Perturb- Example Text: new flu treatment | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 38: Perturb- Example Text: Shuffle Treatment new | Unnamed: 0: | Original: Real | BERT: Fake | RoBERTa: Fake | Distil: Fake | Llama2- Mistral-: Real Real
+Row 39: Perturb- Example Text: CDC confirms | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 40: Perturb- Example Text: effective against | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 41: Perturb- Example Text: flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 42: Perturb- Example Text: PunctuationCDC confirms | Unnamed: 0: | Original: Real | BERT: Real | RoBERTa: Real | Distil: Real | Llama2- Mistral-: Real Real
+Row 43: Perturb- Example Text: new treatment: | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 44: Perturb- Example Text: effective against | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 45: Perturb- Example Text: flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-:
+Row 46: Perturb- Example Text: | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2- Mistral-: Continued on next page
+[/TABLE]
+
+[PAGE 21]
+Table 8: (continued)
+Perturbation
+Example Text Original
+Label
+BERT RoBERTa Distil
+BERT
+Llama27B
+Mistral7B
+Case cdc confirms
+new treatment
+effective against
+flu
+Real Real Real Real Real Real
+ContractionCDC’s new treatment effective
+against flu
+Real Real Real Real Real Real
+Emphasis CDC confirms
+new treatment
+effective against
+flu
+Real Real Real Real Real Real
+Correct
+per
+Model
+15 examples 10 10 10 14 14
+6 Discussion
+Our study is aimed to determine whether BERT-like models or LLMs enhance fake
+news detection and how their advantages can be effectively utilized for this task. The
+results indicate that while LLMs such as Llama and Mistral offer valuable tools for
+annotation and provide insightful analyses, BERT-like models generally outperform
+LLMs in classification tasks. However, LLMs perform better in handling perturbations,
+they demonstrate robust performance under varying conditions.
+These findings suggest that BERT-like models, despite not as robust as LLMs can
+be good classifiers, and can complement them when cost and compute is a challenge.
+However, LLMs can provide much resilience against data perturbations and attacks.
+This dual approach leverages the strengths of both model types: the precision of BERTlike models in stable environments [81] and the adaptability of LLMs in different
+scenarios.
+Limitations and Future Directions
+Like any research endeavor, this study has some limitations too, which are discussed
+below:
+As we employ quantization techniques, such as 4-bit quantization via QLoRA, to
+manage GPU memory constraints in our autoregressive LLMs, there may be some
+performance degradation compared to their full-precision BERT-like models counterparts. This might result in slightly lower accuracy or reliability in some instances, but
+these reductions are typically nominal, as discussed in the state-of-the-art also [82].
+Conversely, BERT-like models in our setup are utilized without such memory management techniques, which allow these models to operate at full capacity. The results
+suggests that BERT-like models may demonstrate high performance in certain contexts, it does not necessarily mean they will outperform LLMs in all scenarios. Our
+goal in this study just to provide a balanced comparison, where we highlight where
+each model family performs better and where it may face limitations.
+Our study did not evaluate other well-known LLMs, such as Claude or GPT-3.4/4,
+for fake news classification due to two main reasons: firstly, we utilized GPT-4 Turbo
+as an annotator, which precluded its use as a classifier in our experiments; secondly,
+
+[TABLE page=21 index=1]
+Columns: Perturb- Example Text | Unnamed: 0 | Original | BERT | RoBERTa | Distil | Llama2- | MistralRow 1: Perturb- Example Text: ation | Unnamed: 0: | Original: Label | BERT: | RoBERTa: | Distil: BERT | Llama2-: 7B | Mistral-: 7B
+Row 2: Perturb- Example Text: Case cdc confirms | Unnamed: 0: | Original: Real | BERT: Real | RoBERTa: Real | Distil: Real | Llama2-: Real | Mistral-: Real
+Row 3: Perturb- Example Text: new treatment | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+Row 4: Perturb- Example Text: effective against | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+Row 5: Perturb- Example Text: flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+Row 6: Perturb- Example Text: ContractionCDC’s new treat- | Unnamed: 0: | Original: Real | BERT: Real | RoBERTa: Real | Distil: Real | Llama2-: Real | Mistral-: Real
+Row 7: Perturb- Example Text: ment effective | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+Row 8: Perturb- Example Text: against flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+Row 9: Perturb- Example Text: Emphasis CDC confirms | Unnamed: 0: | Original: Real | BERT: Real | RoBERTa: Real | Distil: Real | Llama2-: Real | Mistral-: Real
+Row 10: Perturb- Example Text: new treatment | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+Row 11: Perturb- Example Text: effective against | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+Row 12: Perturb- Example Text: flu | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+Row 13: Perturb- Example Text: Correct 15 examples | Unnamed: 0: | Original: | BERT: 10 | RoBERTa: 10 | Distil: 10 | Llama2-: 14 | Mistral-: 14
+Row 14: Perturb- Example Text: per | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+Row 15: Perturb- Example Text: Model | Unnamed: 0: | Original: | BERT: | RoBERTa: | Distil: | Llama2-: | Mistral-:
+[/TABLE]
+
+[PAGE 22]
+the weights for these models are not publicly accessible. Our aim was to focus on
+classifiers that are both open-source and freely available, such as Llama and Mistral.
+Our study is limited to analyzing perspectives derived solely from the LLMs’
+responses. We did not explore other prompting techniques, such as chain-of-thought
+methods, which may give different insights. Additionally, while we utilized the instruction versions of Llama and Mistral models, their non-instruction versions, which are
+capable of sequence classification, were not examined in this research.
+While our annotation method shows promise, it currently has limitations for
+production-level annotation. One potential enhancement could involve integrating
+active learning [83], a ML approach where the model iteratively queries a human annotator [83] or utilizes an LLM as an annotator [84]. This method focuses on labeling
+new data points that the model deems most informative, thereby iteratively and efficiently improving its performance. These limitations suggest that there is significant
+potential for enhancing the operational effectiveness of LLMs.
+In our evaluation of LLMs, the confidence scores provided by LLMs, which are
+often treated as continuous values indicative of model certainty, differ from the discrete probability scores produced by BERT-like models. This discrepancy can lead to
+challenges in interpreting and integrating the outputs of these models within traditional ML frameworks. We have not explored potential of LLMs in multilingual and
+multimodal contexts, which could significantly expand their applicability in global
+fake news detection scenarios.
+Overall, our findings highlight the need for continued exploration of BERT-like
+models and LLM capabilities and the development of strategies to effectively integrate
+these models with task-specific models.
+7 Conclusion
+This study investigates the capabilities of BERT-like models and LLMs in the detection
+of fake news, using a novel dataset annotated by GPT-4-turbo and verified by human
+reviewers. Our findings indicate that BERT-like models, in general, perform better
+in classification tasks due to their precision and computational efficiency. However,
+LLMs demonstrate resilience in handling text perturbations, which is attributed to
+their advanced contextual understanding and generative capabilities. The integration
+of gen. AI for annotation, combined with human oversight, proves to be a robust
+approach for enhancing the accuracy of fake news detection. Future research should
+explore optimizing prompting techniques for LLMs and integrating multimodal data
+to further improve fake news detection system.
+Declarations
+Funding: The second author was supported by NSERC University Student Research
+Award and the third author is supported by NSERC (Grant 2020-04760)
+Conflict of interest/Competing interests: The authors declare no conflict of
+interest.
+Ethics approval and consent to participate: Research Ethics Board approval
+is not required because no human participants were involved in this work.
+
+[PAGE 23]
+Consent for publication: Not applicable.
+Data availability: The data used in this work can be obtained from the first
+author.
+Code availability: The code used in this work is made available at Code.
+Author contributions: S.R. conceptualized the problem and work plan. S.R. and
+D.P. annotated the data. D.P. prepared the data and performed BERT baselines. S.R.
+prepared LLM baselines. C.D. reviewed the results. S.R. wrote the first version and
+revised, and all authors reviewed it.
+References
+[1] Raza, S., Ding, C.: Fake news detection based on news content and social contexts: a transformer-based approach. International Journal of Data Science and
+Analytics 13, 335–362 (2022) https://doi.org/10.1007/s41060-021-00302-z
+[2] Truic˘ a, C.-O., Apostol, E.-S., Karras, P.: Danes: Deep neural network ensemble
+architecture for social and textual context-aware fake news detection. KnowledgeBased Systems 294, 111715 (2024)
+[3] Adam, D.: Misinformation might sway elections-but not in the way that you
+think. Nature (2024)
+[4] Sharma, K., Qian, F., Jiang, H., Ruchansky, N., Zhang, M., Liu, Y.: Combating fake news: A survey on identification and mitigation techniques. ACM
+Transactions on Intelligent Systems and Technology (TIST) 10(3), 1–42 (2019)
+[5] Hamed, S.K., Ab Aziz, M.J., Yaakub, M.R.: A review of fake news detection
+approaches: A critical analysis of relevant studies and highlighting key challenges
+associated with the dataset, feature representation, and data fusion. Heliyon
+9(10), 20382 (2023) https://doi.org/10.1016/j.heliyon.2023.e20382
+[6] Kaliyar, R.K., Goswami, A., Narang, P.: FakeBERT: Fake news detection in social
+media with a BERT-based deep learning approach. Multimedia Tools and Applications 80(8), 11765–11788 (2021) https://doi.org/10.1007/s11042-020-10183-2
+[7] Shu, K., Mahudeswaran, D., Wang, S., Lee, D., Liu, H.: Fakenewsnet: A data
+repository with news content, social context, and spatiotemporal information for
+studying fake news on social media. Big data 8(3), 171–188 (2020)
+[8] Wang, Z., Hershcovich, D.: On Evaluating Multilingual Compositional Generalization with Translated Datasets. In: Rogers, A., Boyd-Graber, J., Okazaki,
+N. (eds.) Proceedings of the 61st Annual Meeting of the Association for
+Computational Linguistics (Volume 1: Long Papers), pp. 1669–1687. Association for Computational Linguistics, Toronto, Canada (2023). https://doi.org/
+10.18653/v1/2023.acl-long.93 . https://aclanthology.org/2023.acl-long.93 Accessed
+2023-11-17
+
+[PAGE 24]
+[9] Longpre, S., Yauney, G., Reif, E., Lee, K., Roberts, A., Zoph, B., Zhou, D.,
+Wei, J., Robinson, K., Mimno, D., et al.: A pretrainer’s guide to training data:
+Measuring the effects of data age, domain coverage, quality, & toxicity. arXiv
+preprint arXiv:2305.13169 (2023)
+[10] Wang, W.Y.: ” liar, liar pants on fire”: A new benchmark dataset for fake news
+detection. arXiv preprint arXiv:1705.00648 (2017)
+[11] Vo, N., Lee, K.: Where are the facts? searching for fact-checked information
+to alleviate the spread of fake news. In: Webber, B., Cohn, T., He, Y., Liu,
+Y. (eds.) Proceedings of the 2020 Conference on Empirical Methods in Natural
+Language Processing (EMNLP), pp. 7717–7731. Association for Computational
+Linguistics, Online (2020). https://doi.org/10.18653/v1/2020.emnlp-main.621 .
+https://aclanthology.org/2020.emnlp-main.621
+[12] Mitra, T., Gilbert, E.: Credbank: A large-scale social media corpus with
+associated credibility annotations. In: Proceedings of the International AAAI
+Conference on Web and Social Media, vol. 9, pp. 258–267 (2015)
+[13] Nakamura, K., Levy, S., Wang, W.Y.: r/fakeddit: A new multimodal benchmark
+dataset for fine-grained fake news detection. arXiv preprint arXiv:1911.03854
+(2019)
+[14] Li, Y., Jiang, B., Shu, K., Liu, H.: Mm-covid: A multilingual and multimodal data repository for combating covid-19 disinformation. arXiv preprint
+arXiv:2011.04088 (2020)
+[15] Gruppi, M., Horne, B.D., Adalı, S.: NELA-GT-2019: A Large Multi-Labelled
+News Dataset for The Study of Misinformation in News Articles (2020)
+[16] Mintz, M., Bills, S., Snow, R., Jurafsky, D.: Distant supervision for relation
+extraction without labeled data. In: Proceedings of the Joint Conference of the
+47th Annual Meeting of the ACL and the 4th International Joint Conference on
+Natural Language Processing of the AFNLP, pp. 1003–1011 (2009)
+[17] Gilardi, F., Alizadeh, M., Kubli, M.: Chatgpt outperforms crowd-workers for textannotation tasks. arXiv preprint arXiv:2303.15056 (2023)
+[18] Tan, Z., Beigi, A., Wang, S., Guo, R., Bhattacharjee, A., Jiang, B., Karami, M.,
+Li, J., Cheng, L., Liu, H.: Large language models for data annotation: A survey.
+arXiv preprint arXiv:2402.13446 (2024)
+[19] He, X., Lin, Z., Gong, Y., Jin, A., Zhang, H., Lin, C., Jiao, J., Yiu, S.M.,
+Duan, N., Chen, W., et al.: Annollm: Making large language models to be better
+crowdsourced annotators. arXiv preprint arXiv:2303.16854 (2023)
+[20] Jiang, A.Q., Sablayrolles, A., Mensch, A., Bamford, C., Chaplot, D.S., Casas,
+
+[PAGE 25]
+D.d.l., Bressand, F., Lengyel, G., Lample, G., Saulnier, L., et al.: Mistral 7b.
+arXiv preprint arXiv:2310.06825 (2023)
+[21] Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux, M.-A., Lacroix, T.,
+Rozi` ere, B., Goyal, N., Hambro, E., Azhar, F., Rodriguez, A., Joulin, A., Grave,
+E., Lample, G.: LLaMA: Open and Efficient Foundation Language Models (2023)
+[22] OpenAI: GPT-3.5. https://openai.com/. Accessed: 2023-12-24 (2023)
+[23] Tufchi, S., Yadav, A., Ahmed, T.: A comprehensive survey of multimodal fake
+news detection techniques: advances, challenges, and opportunities. International
+Journal of Multimedia Information Retrieval 12(2), 28 (2023)
+[24] Liu, C., Wu, X., Yu, M., Li, G., Jiang, J., Huang, W., Lu, X.: A Two-Stage Model
+Based on BERT for Short Fake News Detection. In: Douligeris, C., Karagiannis, D., Apostolou, D. (eds.) Knowledge Science, Engineering and Management.
+Lecture Notes in Computer Science, pp. 172–183. Springer, Cham (2019). https:
+//doi.org/10.1007/978-3-030-29563-9 17
+[25] Lu, M.F., Renaldy, Ciptadi, V., Nathanael, R., Andaria, K.S., Girsang,
+A.S.: Fake News Classifier with Deep Learning. In: 2022 International Conference on Informatics Electrical and Electronics (ICIEE),
+pp. 1–4 (2022). https://doi.org/10.1109/ICIEE55596.2022.10010120 .
+https://ieeexplore.ieee.org/abstract/document/10010120 Accessed 2023-11-20
+[26] Zhou, X., Zafarani, R.: A Survey of Fake News: Fundamental Theories, Detection
+Methods, and Opportunities. ACM Computing Surveys 53 (2020) https://doi.
+org/10.1145/3395046
+[27] Allcott, H., Gentzkow, M.: Social media and fake news in the 2016 election.
+Journal of economic perspectives 31(2), 211–236 (2017)
+[28] Arora, Y., Sikka, S.: Reviewing Fake News Classification Algorithms. In: Goyal,
+D., Kumar, A., Piuri, V., Paprzycki, M. (eds.) Proceedings of the Third International Conference on Information Management and Machine Intelligence.
+Algorithms for Intelligent Systems, pp. 425–429. Springer, Singapore (2023).
+https://doi.org/10.1007/978-981-19-2065-3 46
+[29] Bonny, A.J., Bhowmik, P., Mahmud, M.S., Sattar, A.: Detecting Fake News
+in Benchmark English News Dataset Using Machine Learning Classifiers. In:
+2022 13th International Conference on Computing Communication and Networking Technologies (ICCCNT), pp. 1–8 (2022). https://doi.org/10.1109/
+ICCCNT54827.2022.9984461 . https://ieeexplore.ieee.org/document/9984461
+Accessed 2023-11-20
+
+[PAGE 26]
+[30] Raza, S.: Automatic Fake News Detection in Political Platforms - A Transformerbased Approach. In: H¨ urriyeto˘ glu, A. (ed.) Proceedings of the 4th Workshop on Challenges and Applications of Automated Extraction of Sociopolitical Events from Text (CASE 2021), pp. 68–78. Association for Computational Linguistics, Online (2021). https://doi.org/10.18653/v1/2021.case-1.10 .
+https://aclanthology.org/2021.case-1.10 Accessed 2023-11-20
+[31] Szczepa´ nski, M., Pawlicki, M., Kozik, R., Chora´ s, M.: New explainability method
+for bert-based model in fake news detection. Scientific reports11(1), 23705 (2021)
+[32] Raza, S., Ding, C.: News recommender system considering temporal dynamics
+and news taxonomy. In: 2019 IEEE International Conference on Big Data (big
+Data), pp. 920–929 (2019). IEEE
+[33] Qi, P., Cao, J., Yang, T., Guo, J., Li, J.: Exploiting multi-domain visual information for fake news detection. In: 2019 IEEE International Conference on Data
+Mining (ICDM), pp. 518–527 (2019). IEEE
+[34] Hamed, S.K., Ab Aziz, M.J., Yaakub, M.R.: A review of fake news detection
+approaches: A critical analysis of relevant studies and highlighting key challenges
+associated with the dataset, feature representation, and data fusion. Heliyon9(10)
+(2023) https://doi.org/10.1016/j.heliyon.2023.e20382
+[35] Faustini, P.H.A., Covoes, T.F.: Fake news detection in multiple platforms and
+languages. Expert Systems with Applications 158, 113503 (2020)
+[36] Sitaula, N., Mohan, C.K., Grygiel, J., Zhou, X., Zafarani, R.: Credibility-Based
+Fake News Detection, pp. 163–182. Springer, ??? (2020). https://doi.org/10.1007/
+978-3-030-42699-6 9
+[37] Alonso, M.A., Vilares, D., G´ omez-Rodr´ ıguez, C., Vilares, J.: Sentiment analysis for fake news detection. Electronics 10 (2021) https://doi.org/10.3390/
+electronics10111348
+[38] Truica, C.-O., Leordeanu, C.A.: Classification of an imbalanced data set using
+decision tree algorithms. Univ. Politech. Bucharest Sci. Bull. Ser. C Electr. Eng.
+Comput. Sci 79, 69–84 (2017)
+[39] Jarrahi, A., Safari, L.: Evaluating the effectiveness of publishers’ features in fake
+news detection on social media. Multimedia Tools and Applications 82 (2022)
+https://doi.org/10.1007/s11042-022-12668-8
+[40] Essa, E., Omar, K., Alqahtani, A.: Fake news detection based on a hybrid bert
+and lightgbm models. Complex & Intelligent Systems 9 (2023) https://doi.org/
+10.1007/s40747-023-01098-0
+[41] Olan, F., Jayawickrama, U., Arakpogun, E.O., Suklan, J., Liu, S.: Fake news on
+
+[PAGE 27]
+social media: the impact on society. Information Systems Frontiers26(2), 443–458
+(2024)
+[42] Ilie, V.-I., Truic˘ a, C.-O., Apostol, E.-S., Paschke, A.: Context-aware misinformation detection: A benchmark of deep learning architectures using word
+embeddings. IEEE Access 9, 162122–162146 (2021)
+[43] Truic˘ a, C.-O., Apostol, E.-S.: Misrobærta: transformers versus misinformation.
+Mathematics 10(4), 569 (2022)
+[44] Truic˘ a, C.-O., Apostol, E.-S., Paschke, A.: Awakened at checkthat! 2022: Fake
+news detection using bilstm and sentence transformer. In: CEUR Workshop Proc,
+vol. 3180, pp. 749–757 (2022)
+[45] Truic˘ a, C.-O., Apostol, E.-S.: It’s all in the embedding! fake news detection using
+document embeddings. Mathematics 11(3), 508 (2023)
+[46] Jain, S., Sharma, V., Kaushal, R.: Towards automated real-time detection of
+misinformation on twitter. In: 2016 International Conference on Advances in
+Computing, Communications and Informatics (ICACCI), pp. 2015–2020 (2016).
+IEEE
+[47] Petrescu, A., Truic˘ a, C.-O., Apostol, E.-S., Karras, P.: Sparse shield: Social
+network immunization vs. harmful speech. In: Proceedings of the 30th ACM International Conference on Information & Knowledge Management, pp. 1426–1436
+(2021)
+[48] Zhao, Y., Da, J., Yan, J.: Detecting health misinformation in online health
+communities: Incorporating behavioral features into machine learning based
+approaches. Information Processing & Management 58(1), 102390 (2021)
+[49] Yuan, L., Jiang, H., Shen, H., Shi, L., Cheng, N.: Sustainable development of
+information dissemination: A review of current fake news detection research and
+practice. Systems 11(9), 458 (2023)
+[50] Phan, H.T., Nguyen, N.T., Hwang, D.: Fake news detection: A survey of graph
+neural network methods. Applied Soft Computing 139, 110235 (2023)
+[51] Truic˘ a, C.-O., Apostol, E.-S., Nicolescu, R.-C., Karras, P.: Mcwdst: a minimumcost weighted directed spanning tree algorithm for real-time fake news mitigation
+in social media. IEEE Access 11, 125861–125873 (2023)
+[52] Apostol, E.-S., Coban, ¨O., Truic˘ a, C.-O.: Contain: A community-based algorithm
+for network immunization. arXiv preprint arXiv:2303.01934 (2023)
+[53] Apostol, E.-S., Truic˘ a, C.-O., Paschke, A.: Contcommrtd: A distributed contentbased misinformation-aware community detection system for real-time disaster
+
+[PAGE 28]
+reporting. IEEE Transactions on Knowledge and Data Engineering (2024)
+[54] Raza, S., Ding, C.: Fake news detection based on news content and social contexts: a transformer-based approach. International Journal of Data Science and
+Analytics 13(4), 335–362 (2022)
+[55] A¨ ımeur, E., Amri, S., Brassard, G.: Fake news, disinformation and misinformation
+in social media: a review. Social Network Analysis and Mining 13(1), 30 (2023)
+https://doi.org/10.1007/s13278-023-01028-5
+[56] Bang, Y., Cahyawijaya, S., Lee, N., Dai, W., Su, D., Wilie, B., Lovenia, H.,
+Ji, Z., Yu, T., Chung, W., et al.: A multitask, multilingual, multimodal evaluation of chatgpt on reasoning, hallucination, and interactivity. arXiv preprint
+arXiv:2302.04023 (2023)
+[57] Heller, S., Rossetto, L., Schuldt, H.: The ps-battles dataset-an image collection
+for image manipulation detection. arXiv preprint arXiv:1804.04866 (2018)
+[58] Yang, H., Zhang, J., Hu, Z., Zhang, L., Cheng, X.: Multimodal relationship-aware
+attention network for fake news detection. In: 2023 International Conference on
+Data Security and Privacy Protection (DSPP), pp. 143–149 (2023). IEEE
+[59] Verma, P.K., Agrawal, P., Amorim, I., Prodan, R.: Welfake: word embedding over
+linguistic features for fake news detection. IEEE Transactions on Computational
+Social Systems 8(4), 881–893 (2021)
+[60] Gaillard, S., Ol´ ah, Z.A., Venmans, S., Burke, M.: Countering the cognitive, linguistic, and psychological underpinnings behind susceptibility to fake news: A
+review of current literature with special focus on the role of age and digital
+literacy. Frontiers in Communication 6, 661801 (2021)
+[61] Wu, J., Guo, J., Hooi, B.: Fake news in sheep’s clothing: Robust fake news
+detection against llm-empowered style attacks. In: Proceedings of the 30th ACM
+SIGKDD Conference on Knowledge Discovery and Data Mining, pp. 3367–3378
+(2024)
+[62] Chen, C., Shu, K.: Combating misinformation in the age of llms: Opportunities
+and challenges. arXiv preprint arXiv:2311.05656 (2023)
+[63] Xu, R., Li, G.: A comparative study of offline models and online llms in fake news
+detection. arXiv preprint arXiv:2409.03067 (2024)
+[64] Wu, G., Wu, W., Liu, X., Xu, K., Wan, T., Wang, W.: Cheap-fake detection
+with llm using prompt engineering. In: 2023 IEEE International Conference on
+Multimedia and Expo Workshops (ICMEW), pp. 105–109 (2023). IEEE
+[65] Xuan, K., Yi, L., Yang, F., Wu, R., Fung, Y.R., Ji, H.: Lemma: Towards
+
+[PAGE 29]
+lvlm-enhanced multimodal misinformation detection with external knowledge
+augmentation. arXiv preprint arXiv:2402.11943 (2024)
+[66] Qi, P., Yan, Z., Hsu, W., Lee, M.L.: Sniffer: Multimodal large language model
+for explainable out-of-context misinformation detection. In: Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 13052–
+13062 (2024)
+[67] Raza, S., Schwartz, B.: Constructing a disease database and using natural
+language processing to capture and standardize free text clinical information.
+Scientific Reports 13(1), 8591 (2023)
+[68] Grinberg, N., Joseph, K., Friedland, L., Swire-Thompson, B., Lazer, D.: Fake news
+on twitter during the 2016 us presidential election. Science 363(6425), 374–378
+(2019)
+[69] Alghamdi, J., Lin, Y., Luo, S.: Towards COVID-19 fake news detection using
+transformer-based models. Knowledge-Based Systems 274, 110642 (2023) https:
+//doi.org/10.1016/j.knosys.2023.110642
+[70] Kim, H., Mitra, K., Chen, R.L., Rahman, S., Zhang, D.: Meganno+: A human-llm
+collaborative annotation system. arXiv preprint arXiv:2402.18050 (2024)
+[71] Ni, J., Shi, M., Stammbach, D., Sachan, M., Ash, E., Leippold, M.: Afacta: Assisting the annotation of factual claim detection with reliable llm annotators. arXiv
+preprint arXiv:2402.11073 (2024)
+[72] Ozdemir, S.: Quick Start Guide to Large Language Models: Strategies and Best
+Practices for Using ChatGPT and Other LLMs. Addison-Wesley Professional, ???
+(2023)
+[73] OpenAI: OpenAI GPT-4. https://openai.com/index/gpt-4/. Accessed: 2024-0622
+[74] White, J., Fu, Q., Hays, S., Sandborn, M., Olea, C., Gilbert, H., Elnashar, A.,
+Spencer-Smith, J., Schmidt, D.C.: A prompt pattern catalog to enhance prompt
+engineering with chatgpt. arXiv preprint arXiv:2302.11382 (2023)
+[75] Ding, N., Qin, Y., Yang, G., Wei, F., Yang, Z., Su, Y., Hu, S., Chen, Y., Chan,
+C.-M., Chen, W., et al. : Parameter-efficient fine-tuning of large-scale pre-trained
+language models. Nature Machine Intelligence 5(3), 220–235 (2023)
+[76] Dettmers, T., Pagnoni, A., Holtzman, A., Zettlemoyer, L.: Qlora: Efficient finetuning of quantized llms. Advances in Neural Information Processing Systems 36
+(2024)
+[77] Raschka, S.: Finetuning llms with lora and qlora: Insights from hundreds of
+
+[PAGE 30]
+experiments (2023)
+[78] Gruppi, M., Horne, B.D., Adalı, S.: NELA-GT-2022: A Large Multi-Labelled
+News Dataset for The Study of Misinformation in News Articles (2023)
+[79] Chawla, N.V., Bowyer, K.W., Hall, L.O., Kegelmeyer, W.P.: Smote: synthetic
+minority over-sampling technique. Journal of artificial intelligence research 16,
+321–357 (2002)
+[80] Chang, Y., Wang, X., Wang, J., Wu, Y., Zhu, K., Chen, H., Yang, L., Yi, X.,
+Wang, C., Wang, Y., et al.: A survey on evaluation of large language models.
+arXiv preprint arXiv:2307.03109 (2023)
+[81] Raza, S., Garg, M., Reji, D.J., Bashir, S.R., Ding, C.: Nbias: A natural language processing framework for bias identification in text. Expert Systems with
+Applications 237, 121542 (2024)
+[82] Ranasinghe, T., Zampieri, M.: MUDES: Multilingual Detection of Offensive
+Spans. In: Sil, A., Lin, X.V. (eds.) Proceedings of the 2021 Conference of the North
+American Chapter of the Association for Computational Linguistics: Human Language Technologies: Demonstrations, pp. 144–152. Association for Computational
+Linguistics, Online (2021). https://doi.org/10.18653/v1/2021.naacl-demos.17 .
+https://aclanthology.org/2021.naacl-demos.17 Accessed 2023-12-07
+[83] Settles, B.: Active learning literature survey (2009)
+[84] Rouzegar, H., Makrehchi, M.: Enhancing text classification through llm-driven
+active learning and human annotation. In: Proceedings of The 18th Linguistic
+Annotation Workshop (LAW-XVIII), pp. 98–111 (2024)

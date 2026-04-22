@@ -1,0 +1,1169 @@
+[PAGE 1]
+Adsorb-Agent: Autonomous Identiﬁcation of
+Stable Adsorption Conﬁgurations via Large
+Language Model Agent
+Janghoon Ock, Radheesh Sharma Meda,! Tirtha Vinchurkar, Yayati Jadhav,!
+and Amir Barati Farimani∗,!
+Department of Chemical Engineering, Carnegie Mellon University, 5000 Forbes Ave,
+Pittsburgh, PA 15213, USA
+! Department of Mechanical Engineering, Carnegie Mellon University, 5000 Forbes Ave,
+Pittsburgh, PA 15213, USA
+E-mail: barati@cmu.edu
+Abstract
+Adsorption energy is a key reactivity descriptor in catalysis. Deter mining adsorption energy requires evaluating numerous adsorbate-catalyst conﬁgurati ons, making it
+computationally intensive. Current methods rely on exhaustive sam pling, which does
+not guarantee the identiﬁcation of the global minimum energy. To address t his, we
+introduce Adsorb-Agent, a Large Language Model (LLM) agent designed to eﬃcient ly
+identify stable adsorption conﬁgurations corresponding to the global min imum energy.
+Adsorb-Agent leverages its built-in knowledge and reasoning to strategi cally explore
+conﬁgurations, signiﬁcantly reducing the number of initial setups r equired while improving energy prediction accuracy. In this study, we also evaluate d the performance of
+diﬀerent LLMs—GPT-4o, GPT-4o-mini, Claude-3.7-Sonnet, and Deepseek-C hat—as
+the reasoning engine for Adsorb-Agent, with GPT-4o showing the stronges t overall
+arXiv:2410.16658v4 [cs.CL] 8 Jul 2025
+
+[PAGE 2]
+performance. Tested on twenty diverse systems, Adsorb-Agent ident iﬁes comparable
+adsorption energies for 84% of cases and achieves lower energies for 35%, parti cularly
+excelling in complex systems. It identiﬁes lower energies in 47% of intermetallic systems
+and 67% of systems with large adsorbates. These ﬁndings demonstrate Adsorb- Agent’s
+potential to accelerate catalyst discovery by reducing computational costs and enhancing prediction reliability compared to exhaustive search methods .
+Introduction
+The design of optimal catalyst materials for targeted react ion processes plays an essential role
+in advancing chemical processes. 1–3 In particular, addressing the dual challenge of meeting
+the growing global energy demand while combating climate ch ange necessitates the development of eﬃcient, low-cost catalysts to enable the broader us e of renewable energy sources. 3
+Traditionally, the search for optimal catalysts has relied on either labor-intensive experimental methods or computationally expensive quantum chemistr y calculations. Because of the
+vast material design space, screening strategies often foc us on identifying key descriptors
+that eﬀectively predict catalytic performance.
+Adsorption energy, deﬁned as the change in energy upon the bin ding of a molecule to a
+catalytic surface, is one of the most widely used descriptor s in computational catalysis due
+to its direct correlation with catalytic reactivity. 4,5 The adsorption energy, corresponding to
+the most stable adsorption conﬁguration, serves as a key des criptor of catalyst performance
+and plays a crucial role in estimating the reactivity of vari ous catalysts. 4,6–8 Furthermore,
+adsorption energy is a foundational parameter in construct ing free energy diagrams, which
+are used to identify the energetically preferred reaction p athways on catalyst surfaces.
+The adsorption energy, ∆ Eads, is mathematically deﬁned as the global minimum energy
+among all possible adsorption conﬁgurations. 9,10 It is calculated as the diﬀerence between
+the total energy of the adsorbate-catalyst system ( Esys,i), the energy of the clean surface
+(slab) ( Eslab), and the energy of the gas-phase adsorbate or reference spe cies ( Egas):
+
+[PAGE 3]
+∆Ei = Esys,i− Eslab− Egas (1a)
+∆Eads = min
+i
+(∆Ei) (1b)
+Accurately determining adsorption energy presents signiﬁca nt challenges. The complex
+electron-level interactions that govern chemical bonding make it impractical to predict the
+most stable conﬁguration based solely on atomic-level info rmation. As a result, determining
+the global minimum adsorption energy typically requires en umerating and evaluating a vast
+number of possible conﬁgurations. 10–12 This process becomes computationally prohibitive
+when using quantum chemistry methods such as density functi onal theory (DFT). 10,13 The
+diﬃculty is further compounded by the combinatorial explos ion of potential binding sites,
+variations in surface geometries, and diverse orientation s the adsorbate can adopt. Despite
+exhaustive conﬁguration searches, there is no guarantee of reliably identifying the true global
+minimum energy conﬁguration. These challenges underscore the need for more eﬃcient and
+accurate approaches to streamline adsorption energy deter mination, paving the way for faster
+and more reliable catalyst design.
+Recent advances in machine learning (ML) have introduced pr omising alternatives to conventional quantum chemistry methods, signiﬁcantly improv ing the eﬃciency of adsorption
+energy prediction tasks. In particular, Graph Neural Network s (GNNs) have demonstrated
+exceptional performance in predicting energy and forces fo r atomic systems. For adsorbatecatalyst systems, 14 GNNs achieve a high level of precision, predicting adsorption energies
+with an error of approximately 0.2 eV and forces with an error of 0.013 eV/ ˚
+A. 15,16 These
+capabilities make GNNs eﬀective surrogates for DFT calculatio ns in tasks such as geometry
+optimization and energy prediction. Building on this found ation, Lan et al. introduced
+the AdsorbML method, which achieved a 2000 × speedup in adsorption energy determination while retaining 87.36% of the accuracy of full DFT calcul ations by integrating GNNs
+
+[PAGE 4]
+with DFT. 10 In their approach, GNNs are used to relax structures from initi al adsorption
+conﬁgurations, after which DFT is employed for further relax ation or single-point energy
+calculations to obtain DFT-validated adsorption energies. Despite this progress, the placement of adsorbates on the surface and the sampling of adsorpt ion sites remain reliant on
+exhaustive enumeration, posing a signiﬁcant challenge in r educing the initial search space
+and improving computational eﬃciency.
+Moving forward, large language models (LLMs) are emerging a s transformative tools
+in scientiﬁc problem-solving by leveraging their pre-trai ned knowledge and planning capabilities, as well as their seamless human-machine interact ion. 17 LLM agents, powered by
+LLMs, have demonstrated remarkable potential in reshaping scientiﬁc workﬂows. For example, Boiko et al. proposed Coscientist, an LLM agent that aut omates experimental design
+and execution, signiﬁcantly enhancing productivity while reducing manual eﬀort. 18 Similarly,
+Szymanski et al. demonstrated the application of LLMs in an a utonomous laboratory framework for proposing synthesis recipes. 19 In the ﬁeld of additive manufacturing, Jadhav et al.
+introduced the LLM-3D Print framework, which streamlines t he design-to-manufacturing
+process by autonomously generating, validating, and optim izing 3D printing instructions
+with an LLM agent at its core. 20 These breakthroughs demonstrate how LLMs are reshaping the landscape of scientiﬁc discovery and innovation.
+In this study, we introduce the Adsorb-Agent, an LLM-based age nt designed to eﬃciently
+determine adsorption energy. The Adsorb-Agent predicts init ial adsorption conﬁgurations
+that are likely to be close to the most stable conﬁguration an d relaxes them to identify the
+minimum energy state. While human researchers can propose pl ausible stable adsorption
+conﬁgurations for speciﬁc systems based on domain knowledg e—such as chemical bonding
+and surface science—it remains exceedingly diﬃcult to deri ve a universal theorem for predicting the most stable conﬁguration across diverse adsorb ate-catalyst systems. Moreover,
+in high-throughput screening, where millions of candidate systems must be evaluated, it
+is infeasible to manually propose stable conﬁgurations for each individual system. 21 The
+
+[PAGE 5]
+Adsorb-Agent addresses these challenges by autonomously der iving stable conﬁgurations,
+relying solely on the LLM’s built-in knowledge and emergent reasoning capabilities. Because it operates purely through inference from pre-traine d models, it is readily applicable
+to large-scale tasks.
+This study has two primary objectives: ﬁrst, to reduce the co mputational cost of adsorption energy identiﬁcation by minimizing the number of i nitial conﬁgurations required;
+and second, to enhance the accuracy of adsorption energy pre dictions by generating reﬁned
+initial conﬁgurations that are closer to the global minimum , while maintaining human interpretability. By bridging state-of-the-art LLM capabil ities with catalytic conﬁguration
+challenges, the Adsorb-Agent represents a signiﬁcant step to ward broader adoption of AIdriven methods in materials science and catalysis, acceler ating the discovery and design of
+optimal catalysts. Furthermore, when integrated with othe r LLM models and tools for catalyst design, 13,22,23 the Adsorb-Agent can be extended to a wider range of applicatio ns in
+optimal catalyst development.
+Agentic Framework
+Workﬂow Overview
+The Adsorb-Agent is an LLM-powered agent designed to identify the most stable adsorption conﬁguration and its corresponding adsorption energy . It consists of three core LLM
+modules—the Solution Planner, Critic, and Binding Indexer— all powered by LLMs, as illustrated in Fig. 1a. The process begins with a user query that speciﬁes the adsorbate’s
+SMILES, the catalyst’s chemical symbol, and the surface ori entation. The core functionality of Adsorb-Agent is to narrow the conﬁguration search spa ce by identifying promising
+adsorption candidates for the speciﬁed adsorbate-catalys t system. The agent retrieves the
+adsorbate molecule and catalyst surface structure from a da tabase, places the adsorbate
+according to the predicted conﬁguration, and then relaxes t he system using designated com5
+
+[PAGE 6]
+putational tools to calculate the adsorption energy. By com paring the relaxed energies, the
+agent identiﬁes the conﬁguration with the lowest energy, wh ich serves as a key reactivity
+descriptor in catalysis.
+{'system': ['NNH9, 'CuPd39, '(1,1,1)', 'mp-11841199, 0.063, True9],
+'solution9: {
+'site_type': 'hollow9,
+8site_atoms': ['Pd', 'Pd', 'Cu9],
+'ads_bind_atoms': ['N', 'N9],
+'orient': 'side-on9,
+'reasoning': 'The hollow site on the CuPd3 (1,1,1) surface provides
+a stable configuration for NNH adsorption by involving two Pd atoms and one
+Cu atom in the binding. This arrangement maximizes the interaction between
+the nitrogen atoms in NNH and the metal surface, enhancing adsorption
+stability. The side-on orientation allows both nitrogen atoms to interact
+effectively with the surface, providing optimal orbital overlap and electronic
+interactions. This configuration also takes advantage of the mixed-metal
+environment, where the presence of Pd and Cu offers balanced interactions,
+optimizing charge transfer and adsorption energy.9}
+}
+N N
+H Binding
+index
+Atomic
+number
+1 7 N
+1 7 N
+0 1 H
+a c
+d
+b
+Solution
+&
+Atomic numbers
+Binding
+indices
+Binding
+Indexer
+LLM Module
+Initial Configurations
+ï
+The most stable
+configuration (&㗆㗈㗈㗉)
+min E ï
+Relaxed Configurations
+1.59 eV 0.74 eV 1.50 eV
+Solution
+Planner
+LLM Module
+Critic
+LLM Module
+Binding
+Indexer
+LLM Module
+GNN Relaxation
+(EquiformerV2)
+Learnable Tool
+Derive the most stable adsorption
+configurations for {adsorbate}-
+{catalytic surface} system
+Input Query
+Structure
+Retriever
+Programmed Tool
+Anomaly Filter
+Programmed Tool
+Solution
+(1) Site type
+(2) Surface binding atoms
+(3) Adsorbate binding atoms
+(4) Adsorbate orientation
+Output Prompt
+Adsorbate binding index
+Assign 1 to surface-bound atoms,
+0 otherwise
+Output Prompt
+Input Query
+Reasoning
+Questions
+Knowledge
+Prompts
+Coherent?
+False
+TrueSolution
+Planner
+LLM Module
+Binding
+Indexer
+LLM Module
+Critic
+LLM Module
+Solution
+Output Prompt
+Figure 1: Adsorb-Agent Framework. a. Overall process for identifying the most stable
+conﬁguration by combining the LLM modules and tools. The lef t yellow box represents the
+part where the LLM modules are involved, comprising three co mponents—Solution Planner,
+Critic, and Binding Indexer. These modules are powered by LL M APIs such as GPT4o, GPT-4o-mini, Claude-3.7-Sonnet, and Deepseek-Chat. b. Illustration of the iterative
+interaction between the Solution Planner and Critic module s. c. Example solution for the
+NNH-CuPd3 (1,1,1) system. The system metadata comprises the followin g, in order: the
+SMILES representation of the adsorbate molecule, the chemi cal composition of the bulk
+catalyst, the Miller index, the Materials Project ID, the sh ift, and the top. d. Example of
+binding index derivation from the Binding Indexer module.
+In this work, LangChain is used to manage interactions betwe en the LLM and the various
+modules of the Adsorb-Agent framework. LangChain enables eﬃc ient handling of complex
+
+[PAGE 7]
+workﬂows involving LLMs by organizing prompts, processing responses, and integrating
+external tools or APIs. 24
+Conﬁguration Candidates
+Based on the natural language input query, the Solution Plan ner derives the description for
+the most probable stable adsorption conﬁguration. This pro cess is primarily conducted based
+on the LLM’s built-in knowledge and reasoning capability. T he solution output includes four
+pieces of information: the type of adsorption site, the bind ing atoms on both the surface and
+the adsorbate, and the orientation of the adsorbate. This de rivation is guided by a structured
+list of reasoning questions provided by the user, as shown in Fig. 1b. These questions reﬂect
+the typical thought process of human researchers—for examp le, “Are the bonds between
+the adsorbate and surface strong enough to ensure stability ?”—while deliberately excluding
+system-speciﬁc knowledge to ensure general applicability (see Supplementary Fig. S1). The
+Solution Planner can also provide reasoning statements tha t explain how it arrived at its
+prediction, as illustrated in Figure 1c. A full set of outputs for 20 systems is included in the
+Supplementary Information.
+To ensure the logical coherence of the solution output, the C ritic module evaluates the
+initial solution generated by the Solution Planner. It take s the solution as input and uses
+a knowledge prompt that clariﬁes the terms within the soluti on to guide its review (see
+Fig. 1b). Details of the knowledge prompt are provided in Supp lementary Fig. S1. The
+module focuses on two aspects: (1) the coherence between the adsorption site type and the
+binding atoms on the surface, and (2) the alignment between t he adsorbate’s binding atoms
+and its orientation. For instance, if the solution speciﬁes a bridge site, it must involve two
+binding surface atoms. Similarly, for adsorbate orientati on, if the adsorbate is described as
+end-on, it should have only one binding adsorbate atom. If an y incoherence is identiﬁed,
+the Critic rebuts the solution, and the Solution Planner is r e-initialized to produce a revised
+solution. This iterative interaction ensures the ﬁnal adso rption conﬁguration is logically
+
+[PAGE 8]
+coherent and self-consistent.
+Once a coherent solution is generated, the Binding Indexer m odule assigns indices to the
+adsorbate’s binding atoms based on the solution. This step t ranslates the human-readable
+conﬁguration into a numerical format suitable for computat ional processing. As illustrated
+in Fig. 1d, the Binding Indexer takes the identiﬁed binding at oms and orientation from the
+solution, along with the adsorbate’s atomic number array, t o generate a binding index array.
+This array speciﬁes which atoms in the adsorbate are involve d in binding to the surface.
+Using this array, the adsorbate can be positioned on the catal ytic surface, reﬂecting both
+the surface orientation and binding atom information. This automation removes the need for
+manually pre-deﬁning binding atoms—commonly required in d atasets like the Open Catalyst
+Project, which explicitly mark binding atoms with asterisk s (e.g., NNH). In addition, we
+introduce a new placement strategy capable of handling side -on adsorbates (see Methods
+section).
+Energy Determination
+The following steps are carried out without the involvement of the LLM modules, but using the pre-written computation scripts. The catalytic sur face and adsorbate molecule are
+retrieved using the Open Catalyst Project demo API, based on t he adsorbate SMILES, catalyst bulk composition, and Miller indices provided in the u ser query. Details about the
+Open Catalyst Project demo are provided in the Methods secti on. The adsorbate is then
+placed onto the catalytic surface to generate initial adsor bate–catalyst structures, guided by
+the predicted conﬁguration and the binding index array. As il lustrated in the atomic visualization in Fig. 1, multiple initial conﬁgurations remain p ossible; however, their number is
+signiﬁcantly reduced compared to conventional conﬁgurati on enumeration approaches.
+These initial structures are subsequently relaxed to deter mine the minimum energy conﬁguration, as relaxed energies are necessary for meaningfu l comparison. In this study, we employ a GNN model, speciﬁcally EquiformerV2 trained on the Open Catalyst 2020 dataset, 14,16
+
+[PAGE 9]
+although other machine learning models or qunantum chemist ry simulations could also be
+used. Details of the GNN-based relaxation process are provide d in the Methods section.
+During the relaxation process, anomalies such as extensive surface reconstruction, adsorbate
+dissociation, or desorption may occur, and any structures e xhibiting these anomalies are
+ﬁltered out. 10,25,26 Among the remaining valid conﬁgurations, the one with the low est energy
+is identiﬁed as the most stable conﬁguration. This energy is recognized as the adsorption
+energy, which serves as a critical reactivity descriptor fo r the adsorbate-catalyst combination.
+Performance Evaluation
+Theoretically, the most stable adsorption conﬁguration co rresponds to the global minimum
+energy among all possible conﬁgurations. However, due to the vast conﬁgurational space, it
+is practically impossible to exhaustively identify the tru e global minimum. Conventional approaches instead rely on enumeration algorithms, such as random and heuristic algorithms,
+which sample numerous conﬁgurations to approximate the glo bal minimum adsorption energy. Details of these enumeration procedures are provided in the Methods section.
+The Adsorb-Agent’s ability to identify the most stable conﬁgu ration is evaluated against
+conventional enumeration strategies. Performance is asse ssed based on three key criteria: (i)
+eﬃciency in reducing the conﬁguration search space, (ii) ac curacy in identifying adsorption
+conﬁgurations with energies comparable to those found by en umeration algorithms, and (iii)
+consistency of results across independent trials.
+The evaluation is conducted on 20 adsorbate–catalyst syste ms selected for their practical
+importance, particularly in nitrogen production and fuel c ell applications. 27–29 For example,
+the electrocatalytic nitrogen reduction reaction (NRR) oﬀe rs a potential route for sustainable
+nitrogen ﬁxation. However, its performance is often limited by the high activation energy required to cleave the inert N−
+−
+− N bond and by strong competition from the hydrogen evolution
+reaction (HER). 30 Likewise, the oxygen reduction reaction (ORR) is a vital rea ction process
+in fuel cell operation and holds a central position in the bro ader ﬁeld of electrocatalysis. 29
+
+[PAGE 10]
+Eight of the selected systems are associated with NRR and HER. T hese include four
+catalysts proposed by Zhou et al., 30 each interacting with two key adsorbates: NNH for
+NRR and H for HER, resulting in a total of eight systems. An additi onal six systems
+are associated with ORR, with OH as the key adsorbate, select ed from the experimentally
+veriﬁed sets reported by Kulkarni et al. 29,31,32 To broaden the evaluation beyond simple
+adsorbates, six more systems featuring larger molecules—s uch as CH 2CH2OH, OCHCH 3,
+and ONN(CH 3)2—and intermetallic catalysts were included. These complex systems were
+randomly selected from the Open Catalyst 2020-Dense (OC20- Dense) dataset. 10 A complete
+list of the adsorbate–catalyst systems is provided in Table 1, with detailed slab information
+available in Supplementary Table S1.
+Results and discussion
+Search Space Reduction Demonstration
+The Adsorb-Agent eﬀectively reduces the search space for furt her energy determination by
+specifying both the adsorption site and the binding atoms, t hereby limiting the number
+of initial conﬁgurations to evaluate. In search problems, b eginning from an initial point
+proximal to the optimal solution is essential, as this can si gniﬁcantly reduce the search
+space and improve convergence eﬃciency. 33 Fig. 2 illustrates three example cases: NNHCuPd3 (111), OH-Pt (111), and OCHCH 3-HfZn3 (110), which represent NRR-related, ORRrelated, and large adsorbate-containing systems, respect ively. Among these, the OCHCH 3HfZn3 system serves as an example of a monometallic surface, which is more homogeneous
+compared to intermetallic surfaces. In the atomic visualiz ations, blue dots denote the initial
+adsorption sites, while red stars mark the relaxed adsorpti on sites corresponding to the most
+stable conﬁgurations.
+The Adsorb-Agent signiﬁcantly reduces the number of initial c onﬁgurations by focusing
+on likely adsorption sites, compared to the exhaustive enum eration algorithmic approaches.
+
+[PAGE 11]
+{'system': ['NNH', 'CuPd39, '(1,1,1)9,
+'mp-11841199, 0.063, True],
+'solution': {'site_type': 'bridge9,
+'site_atoms': ['Cu', 'Pd9],
+'ads_bind_atoms': ['N', 'N9],
+'orient': 'side-on''}
+{'system': ['OH', 8Pt9, '(1,1,1)9,
+'mp-1269, 0.167, True],
+'solution': {'site_type': 'hollow9,
+'site_atoms': ['Pt', 'Pt', 'Pt9],
+'ads_bind_atoms': ['O9],
+'orient': 'end-on'}
+{'system9: ['OCHCH3', 'HfZn39, (1, 1, 0),
+'mp-8661089, 0.12, True],
+'solution': {'site_type': 'bridge9,
+'site_atoms': ['Zn', 'Hf9],
+'ads_bind_atoms': ['O', 'C9],
+'orient': 'side-on9}
+a
+b
+c
+Algorithms Adsorb-Agent
+Site: 78 / &㗃!"#: 0.950 eV Site: 20 / &㗃!"#: 0.753 eV
+Algorithms Adsorb-Agent
+Site: 54 / &㗃!"#: 0.988 eV Site: 7 / &㗃!"#: 0.989 eV
+Algorithms Adsorb-Agent
+Site: 67 / &㗃!"#: -5.486 eV Site: 19 / &㗃!"#: -6.066 eV
+Figure 2: Comparison of Search Space Between the Algorithmic Ap proach and the AdsorbAgent. Left panels show solutions derived by the Adsorb-Agent, while right panels present
+atomic visualizations of surfaces with initial adsorption sites for a. NNH-CuPd3 (111), b.
+OH-Pt (111), and c. OCHCH3-HfZn3 (110). (Blue dots: initial sites; red stars: relaxed
+stable sites)
+For example, the Adsorb-Agent predicts the bridge site at the i ntersection of Cu and Pd
+atoms as the primary adsorption site for NNH-CuPd 3 (111). Similarly, it identiﬁes the
+hollow site of the Pt (111) surface as the optimal adsorption site for OH and the bridge site
+between Zn and Hf atoms for the OCHCH 3-HfZn3 (110) system. Occasional deviations from
+the predicted solutions arise due to the distance margin use d to deﬁne targeted adsorption
+sites. By focusing on speciﬁc sites, the Adsorb-Agent eﬀectiv ely reduces the search space.
+For the NNH-CuPd 3 (111) and OCHCH 3-HfZn3 (110) systems, the relaxed adsorption
+sites of the most stable conﬁgurations precisely match the s olutions proposed by the AdsorbAgent. In both cases, the Adsorb-Agent achieves adsorption ene rgies lower than those obtained via algorithmic approaches. However, for the OH-Pt (11 1) system, the adsorption
+
+[PAGE 12]
+site of the most stable relaxed conﬁguration identiﬁed by bo th the algorithmic methods and
+the Adsorb-Agent is an ontop site, diﬀering from the initial Ads orb-Agent prediction. Despite this discrepancy, the initial site suggested by the Ads orb-Agent successfully guided the
+system to the most stable conﬁguration during the relaxatio n process.
+Adsorption Energy Identiﬁcation
+The Adsorb-Agent eﬃciently identiﬁes the most stable conﬁgur ations while signiﬁcantly
+reducing the size of the search space. Its performance was ev aluated against conventional
+algorithmic approaches ( random and heuristic), as summarized in Table 1.
+Table 1: Comparison of Adsorb-Agent and Algorithmic Approach. T he adsorption energy
+corresponds to the minimum energy among conﬁgurations. Res ults for individual runs are
+provided in Supplementary Table S1.
+No. Adsorbate Catalyst Adsorption Energy [eV] Number of Initial Sets
+Adsorb-Agent (³) Algorithm Adsorb-Agent ( ³) Algorithm
+1 H Mo 3Pd (111) -0.764 ± 0.113 -0.941 ± 0.002 6.7 ± 2.1 59
+2 NNH Mo 3Pd (111) -1.265 ± 0.158 -0.903 ± 0.117 9.3 ± 3.7 51
+3 H CuPd 3 (111) -0.380 ± 0.003 -0.398 ± 0.017 16.7 ± 1.2 98
+4 NNH CuPd 3 (111) 0.745 ± 0.006 0.867 ± 0.072 17.3 ± 3.1 78
+5 H Cu 3Ag (111) -0.019 ± 0.041 -0.072 ± 0.002 21.3 ± 4.1 98
+6 NNH Cu 3Ag (111) 1.504 ± 0.057 1.500 ± 0.002 16.7 ± 2.6 56
+7 H Ru 3Mo (111) -0.587 ± 0.002 -0.586 ± 0.050 17.0 ± 2.2 94
+8 NNH Ru 3Mo (111) -0.498 ± 0.013 -0.276 ± 0.003 18.7 ± 0.5 81
+9 OH Pt (111) 0.990 ± 0.001 0.990 ± 0.071 7.0 ± 1.6 54
+10 OH Pt (100) 0.991 ± 0.001 0.991 ± 0.001 10.3 ± 4.2 54
+11 OH Pd (111) 0.814 ± 0.000 0.814 ± 0.001 20.0 ± 5.7 54
+12 OH Au (111) 1.408 ± 0.002 1.409 ± 0.002 23.3 ± 5.2 54
+13 OH Ag (100) 0.440 ± 0.001 0.463 ± 0.009 23.7 ± 4.5 53
+14 OH CoPt (111) -0.208 ± 0.015 -0.166 ± 0.046 41.3 ± 1.2 120
+15 CH 2CH2OH Cu 6Ga2 (100) -2.338 ± 0.833 -3.077 ± 0.062 28.7 ± 15.5 66
+16 CH 2CH2OH Au 2Hf (102) -2.761 ± 0.592 -3.761 ± 0.129 28.0 ± 4.5 78
+17 OCHCH 3 Rh2Ti2 (111) -4.561 ± 0.007 -4.275 ± 0.086 29.0 ± 4.3 62
+18 OCHCH 3 Al3Zr (101) -4.616 ± 0.014 -4.325 ± 0.052 22.0 ± 2.4 68
+19 OCHCH 3 Hf2Zn6 (110) -5.922 ± 0.209 -5.443 ± 0.037 18.0 ± 2.2 67
+20 ONN(CH 3)2 Bi2Ti6 (211) -3.454 ± 0.337 -2.441 ± 0.103 33.0 ± 3.6 139
+To quantify the eﬀectiveness of the Adsorb-Agent in identifyi ng adsorption energies,
+three key metrics are deﬁned, with their mathematical formu lations provided in the Methods
+section. Success Ratio (SR) assesses the ability of the Adsor b-Agent to identify adsorption
+
+[TABLE page=12 index=1]
+Columns: No. | Adsorbate | Catalyst | Adsorption Energy [eV] | Number of Initial Sets
+Row 1: No.: | Adsorbate: | Catalyst: | Adsorption Energy [eV]: Adsorb-Agent (3) Algorithm | Number of Initial Sets: Adsorb-Agent (3) Algorithm
+Row 2: No.: 1.0 | Adsorbate: H | Catalyst: Mo3Pd (111) | Adsorption Energy [eV]: -0.764 ± 0.113 -0.941 ± 0.002 | Number of Initial Sets: 6.7 ± 2.1 59
+Row 3: No.: 2.0 | Adsorbate: NNH | Catalyst: Mo3Pd (111) | Adsorption Energy [eV]: -1.265 ± 0.158 -0.903 ± 0.117 | Number of Initial Sets: 9.3 ± 3.7 51
+Row 4: No.: 3.0 | Adsorbate: H | Catalyst: CuPd3 (111) | Adsorption Energy [eV]: -0.380 ± 0.003 -0.398 ± 0.017 | Number of Initial Sets: 16.7 ± 1.2 98
+Row 5: No.: 4.0 | Adsorbate: NNH | Catalyst: CuPd3 (111) | Adsorption Energy [eV]: 0.745 ± 0.006 0.867 ± 0.072 | Number of Initial Sets: 17.3 ± 3.1 78
+Row 6: No.: 5.0 | Adsorbate: H | Catalyst: Cu3Ag (111) | Adsorption Energy [eV]: -0.019 ± 0.041 -0.072 ± 0.002 | Number of Initial Sets: 21.3 ± 4.1 98
+Row 7: No.: 6.0 | Adsorbate: NNH | Catalyst: Cu3Ag (111) | Adsorption Energy [eV]: 1.504 ± 0.057 1.500 ± 0.002 | Number of Initial Sets: 16.7 ± 2.6 56
+Row 8: No.: 7.0 | Adsorbate: H | Catalyst: Ru3Mo (111) | Adsorption Energy [eV]: -0.587 ± 0.002 -0.586 ± 0.050 | Number of Initial Sets: 17.0 ± 2.2 94
+Row 9: No.: 8.0 | Adsorbate: NNH | Catalyst: Ru3Mo (111) | Adsorption Energy [eV]: -0.498 ± 0.013 -0.276 ± 0.003 | Number of Initial Sets: 18.7 ± 0.5 81
+Row 10: No.: 9.0 | Adsorbate: OH | Catalyst: Pt (111) | Adsorption Energy [eV]: 0.990 ± 0.001 0.990 ± 0.071 | Number of Initial Sets: 7.0 ± 1.6 54
+Row 11: No.: 10.0 | Adsorbate: OH | Catalyst: Pt (100) | Adsorption Energy [eV]: 0.991 ± 0.001 0.991 ± 0.001 | Number of Initial Sets: 10.3 ± 4.2 54
+Row 12: No.: 11.0 | Adsorbate: OH | Catalyst: Pd (111) | Adsorption Energy [eV]: 0.814 ± 0.000 0.814 ± 0.001 | Number of Initial Sets: 20.0 ± 5.7 54
+Row 13: No.: 12.0 | Adsorbate: OH | Catalyst: Au (111) | Adsorption Energy [eV]: 1.408 ± 0.002 1.409 ± 0.002 | Number of Initial Sets: 23.3 ± 5.2 54
+Row 14: No.: 13.0 | Adsorbate: OH | Catalyst: Ag (100) | Adsorption Energy [eV]: 0.440 ± 0.001 0.463 ± 0.009 | Number of Initial Sets: 23.7 ± 4.5 53
+Row 15: No.: 14.0 | Adsorbate: OH | Catalyst: CoPt (111) | Adsorption Energy [eV]: -0.208 ± 0.015 -0.166 ± 0.046 | Number of Initial Sets: 41.3 ± 1.2 120
+Row 16: No.: 15.0 | Adsorbate: CH2CH2OH | Catalyst: Cu6Ga2 (100) | Adsorption Energy [eV]: -2.338 ± 0.833 -3.077 ± 0.062 | Number of Initial Sets: 28.7 ± 15.5 66
+Row 17: No.: 16.0 | Adsorbate: CH2CH2OH | Catalyst: Au2Hf (102) | Adsorption Energy [eV]: -2.761 ± 0.592 -3.761 ± 0.129 | Number of Initial Sets: 28.0 ± 4.5 78
+Row 18: No.: 17.0 | Adsorbate: OCHCH3 | Catalyst: Rh2Ti2 (111) | Adsorption Energy [eV]: -4.561 ± 0.007 -4.275 ± 0.086 | Number of Initial Sets: 29.0 ± 4.3 62
+Row 19: No.: 18.0 | Adsorbate: OCHCH3 | Catalyst: Al3Zr (101) | Adsorption Energy [eV]: -4.616 ± 0.014 -4.325 ± 0.052 | Number of Initial Sets: 22.0 ± 2.4 68
+Row 20: No.: 19.0 | Adsorbate: OCHCH3 | Catalyst: Hf2Zn6 (110) | Adsorption Energy [eV]: -5.922 ± 0.209 -5.443 ± 0.037 | Number of Initial Sets: 18.0 ± 2.2 67
+Row 21: No.: 20.0 | Adsorbate: ONN(CH3)2 | Catalyst: Bi2Ti6 (211) | Adsorption Energy [eV]: -3.454 ± 0.337 -2.441 ± 0.103 | Number of Initial Sets: 33.0 ± 3.6 139
+[/TABLE]
+
+[PAGE 13]
+energies comparable to those found by the algorithmic appro aches. Lower Energy Discovery
+Ratio (LEDR) measures the capability of the Adsorb-Agent to di scover adsorption energies
+lower than those identiﬁed by the algorithmic approaches. R educed Search Space Ratio
+(RSR) quantiﬁes the reduction in the number of initial conﬁg urations required by the AdsorbAgent compared to the algorithmic approaches.
+These metrics provide a comprehensive framework for evalua ting the Adsorb-Agent’s
+eﬀectiveness in identifying the most stable conﬁgurations relative to conventional methods.
+Speciﬁcally, RSR reﬂects the eﬃciency of the search process , while SR and LEDR reﬂect the
+accuracy of energy identiﬁcation. Notably, an increase in th e number of initial conﬁgurations,
+as reﬂected by a higher RSR, often corresponds to improvemen ts in SR and LEDR values.
+Therefore, all three metrics should be considered collecti vely to thoroughly assess the AdsorbAgent’s performance in comparison to algorithmic approache s.
+As shown in Fig. 3a, the Adsorb-Agent successfully identiﬁes ads orption energies comparable to those found by the algorithmic approach in 83.7% o f cases and discovers lower
+energies in 35.0% of cases. Remarkably, it achieved these re sults while using only 6.8–63.6%
+of the initial conﬁgurations required by the algorithmic me thods (see Fig. 3b). As discussed
+earlier, increasing the number of initial conﬁgurations is likely to improve both the SR and
+LEDR. To ensure a fair comparison in this study, the number of initial conﬁgurations used
+by the Adsorb-Agent was scaled relative to the algorithmic app roach, resulting in a reduction to 6.8–63.6% of the original, with an average of 26.9%. F or practical applications, the
+number of initial conﬁgurations can be further increased, p articularly for systems with lower
+RSRs, to improve the performance of adsorption energy deter mination.
+An analysis of speciﬁc system categories reveals that the res ults vary with system complexity, as shown in Fig. 3a. The systems are categorized base d on the composition of the
+catalytic surface (monometallic and intermetallic) and th e size of the adsorbate molecule
+(small and large molecules). Large adsorbates are deﬁned as those with more than three
+atoms, such as CH 2CH2OH, OCHCH 3, and ONN(CH 3)2.
+
+[PAGE 14]
+a c
+b
+Figure 3: Quantitative Analysis of Adsorb-Agent Results. a. Success Rate (SR) and Lower
+Energy Discovery Rate (LEDR) across diﬀerent categories; b. Reduced Search Space Rate
+(RSR) for the ﬁrst run as an example; c. Consistency Rate across independent runs.
+For systems with monometallic catalysts, the Adsorb-Agent c onsistently identiﬁes adsorption energies comparable to those found by the algorith mic approach across all three
+trials. However, it does not achieve lower adsorption energi es, indicating that the algorithmic approach successfully identiﬁes the adsorption conﬁgu ration with the global minimum
+energy. This outcome is likely due to the relatively homogen eous nature of monometallic
+surfaces, which consist of a single atom type (see Fig. 2b). Th ese ﬁndings suggest that
+extensive site enumeration is unnecessary for monotonous s urfaces.
+In contrast, for systems with intermetallic catalysts, the Adsorb-Agent demonstrates a
+distinct advantage. While the SR slightly decreases to 82.2% compared to monometallic sys14
+
+[PAGE 15]
+tems, the LEDR signiﬁcantly improves to 46.7%. This highlig hts the ability of the AdsorbAgent to uncover new global minima through targeted searches , which the algorithmic approach cannot achieve through simple enumeration because o f the increased complexity and
+heterogeneity of intermetallic surfaces.
+A similar trend is observed when analyzing systems based on a dsorbate complexity. Systems with large adsorbates exhibit a lower SR but a signiﬁcan tly higher LEDR compared
+to those with small adsorbates. Notably, systems with large a dsorbates achieve the highest
+LEDR of 66.7%, underscoring the eﬀectiveness of the targete d search approach employed by
+the Adsorb-Agent. These results suggest that simple enumerat ion is relatively less eﬀective
+at identifying the global minimum in systems containing com plex adsorbates. Furthermore,
+this ﬁnding reinforces the eﬀectiveness of the Adsorb-Agent i n addressing these challenges.
+Consistency Across Independent Trials
+As LLMs are inherently non-deterministic, ensuring consist ent and reproducible outputs is
+important. The energy distribution panels in Fig. 4 demonstr ate that the Adsorb-Agent
+consistently identiﬁes lower-energy conﬁgurations, rath er than doing so by chance Notably,
+for the NNH-CuPd 3 (111) and OCHCH 3-Hf2Zn6 (110) systems, the frequency of identifying
+lower-energy conﬁgurations is signiﬁcantly higher compar ed to the algorithmic approach.
+This suggests that the Adsorb-Agent eﬀectively targets adsor ption conﬁgurations closer to
+the global minimum. For the OH-Pt (111) system, where the algo rithmic approach already
+exhibits a high frequency of lower-energy identiﬁcations, the Adsorb-Agent preserves this
+trend. These results indicate that the Adsorb-Agent systemat ically identiﬁes conﬁgurations
+with energies near the global minimum, demonstrating its ca pability rather than relying on
+chance.
+Furthermore, as shown in Table 1, the standard deviations of adsorption energies across
+multiple implementations of the Adsorb-Agent remain within a n acceptable range for most
+systems. The only exceptions are two systems involving CH 2CH2OH, where higher deviations
+
+[PAGE 16]
+OH-Pt (111)
+Algorithms Adsorb-Agent
+0.988 eV 0.989 eV
+NNH-CuPd3 (111)
+Algorithms Adsorb-Agent
+0.950 eV 0.753 eV
+OCHCH3-Hf2Zn6 (110)
+Algorithms Adsorb-Agent
+-5.486 eV -6.066 eV
+a b c
+Figure 4: Comparison of Relaxed Adsorption Conﬁgurations (up per panels) and Energy
+Distributions (lower panels). a. NNH-CuPd3 (111); b. OH-Pt (111); c. OCHCH3-Hf2Zn5
+(110). The energy distributions are generated by combining results from all three independent runs.
+are observed. This variability highlights the need for furt her reﬁnement in handling complex
+adsorbates while aﬃrming the overall robustness of the Adsor b-Agent.
+To quantitatively evaluate consistency across independen t trials, we introduce the Consistency Ratio, which measures the proportion of systems th at yield consistent solutions
+across three independent trials. The Consistency Ratio is d eﬁned as:
+Consistency Ratio[%] =
+∑N
+i=1 ⊮ (Strial1,i = Strial2,i = Strial3,i)
+N (2)
+Here, N represents the total number of systems evaluated, which is s et to 20, and Strialj ,i
+denotes the solution obtained for the i-th system in the j-th trial.
+Consistency is evaluated separately for surface-related a nd adsorbate-related information.
+A solution is deemed consistent if the binding atom arrays ac ross the three trials either match
+exactly or diﬀer by no more than one atom, with the shorter arr ay being a subset of the
+longer array. This criterion is applied to both surface bind ing atoms and adsorbate binding
+atoms using the algorithm detailed in Algorithm 1. A solution is considered fully consistent
+
+[PAGE 17]
+only if both surface-related and adsorbate-related informa tion meet these criteria.
+Algorithm 1 Consistency Check Algorithm
+Initialize: Ãs← True ▷ Ã : consistency ﬂag
+for all a, b ∈ S do ▷ S : list of binding atom groups
+if a̸= b then
+if|len(a)− len(b)|> 1 then
+Ã← False
+end if
+shorter, longer← min(a, b ), max(a, b ) ▷ Based on length
+if set(shorter)̸¦set(longer) then
+Ã← False
+end if
+end if
+end for
+The Adsorb-Agent demonstrates reasonable reliability, prod ucing consistent solutions
+for 17 out of 20 systems when the Critic module is applied. Spe ciﬁcally, only one system fails to achieve consistency in adsorbate-related solu tions, while two systems fail in
+surface-related solutions. This highlights the Adsorb-Agen t’s strong performance in generating reliable adsorbate-related solutions. Without the Cr itic module, one additional system
+fails to achieve consistency in surface-related solutions , indicating the Critic module’s potential role in enhancing solution reliability. Although th e limited size of the test set makes
+it challenging to generalize the eﬀectiveness of the Critic module, these results suggest that
+the Critic module may help improve consistency by ﬁltering o ut incoherent solutions within
+the tested systems.
+Comparison Across Language Models
+We evaluated the performance of various LLMs, including GPT -4o, GPT-4o-mini, Claude3.7-Sonnet, and Deepseek-Chat, serving as the “brain” of Ads orb-Agent. Among them,
+GPT-4o demonstrated the strongest overall performance for both SR and LEDR, as shown
+in Fig. 5a, although its improvements over Claude-3.7-Sonne t and Deepseek-Chat were
+marginal. In contrast, GPT-4o-mini exhibited the weakest p erformance, with an average
+
+[PAGE 18]
+SR of 77% and an LEDR of 16.7%. Deepseek-Chat showed the most a ggressive reduction of
+the conﬁguration space, achieving the lowest average RSR of 20.8%, while the other models
+yielded average RSR values in the range of 26–28%, as illustr ated in Fig. 5b. Here, the
+average RSR refers to the mean value calculated across 20 sam ples over three iterations.
+Both GPT-4o and Deepseek-Chat attained a high consistency r atio of 85%, whereas GPT4o-mini displayed a substantially lower consistency ratio of 65%, as shown in Fig. 5c. In
+summary, GPT-4o consistently delivered the best overall pe rformance, while GPT-4o-mini
+underperformed relative to the other models. Notably, despi te being a free and open-source
+model, Deepseek-Chat achieved performance comparable to t he proprietary LLMs.
+a b c
+Figure 5: Comparison of Adsorb-Agent performance using diﬀere nt language models. a.
+Success Rate (SR) and Lower Energy Discovery Rate (LEDR) acr oss models; b. Box plots
+of Reduced Search Space Rate (RSR) for each language model ov er three iterations, where
+the red line indicates the median, the box represents the int erquartile range (IQR), and
+the whiskers extend to the minimum and maximum values within 1.5 times the IQR; c.
+Consistency ratios for total (surface and adsorbate catego ries) across independent runs.
+Conclusion
+We introduced Adsorb-Agent, an LLM-powered agent designed to eﬃciently explore adsorption conﬁguration spaces and accurately identify adso rption energies. Adsorb-Agent
+streamlines the computational process by signiﬁcantly red ucing the number of initial conﬁgurations required while improving the eﬃciency and accurac y of minimum adsorption energy
+
+[PAGE 19]
+predictions, thereby mitigating the computational cost of extensive DFT simulations. By
+leveraging its built-in understanding of chemical bonding , surface chemistry, and emergent
+reasoning capabilities, Adsorb-Agent autonomously propose s plausible adsorption conﬁgurations tailored to speciﬁc systems. Adsorb-Agent demonstra tes a strong ability to identify
+conﬁgurations with energies closer to the global minimum, p articularly in complex systems
+such as intermetallic surfaces and large adsorbate molecul es. This capability highlights a
+critical advantage of our approach in addressing computati onally intensive and chemically
+complex scenarios. Our framework underscores the transfor mative potential of LLM agents
+in catalysis research, demonstrating how LLMs trained on va st natural language data can
+eﬀectively assist in solving domain-speciﬁc problems.
+Methods
+GPT-4o
+The GPT-4o model is an optimized variant of OpenAI’s GPT-4, wh ich builds on the advancements of the Generative Pretrained Transformer (GPT) series. 34,35 Like its predecessors, GPT-4 is a large-scale language model based on the tran sformer architecture, utilizing self-attention mechanisms 36 to eﬀectively model long-range dependencies in text. The
+GPT-4o model retains the core advantages of GPT-4, includin g its powerful transformer
+architecture that ensures high accuracy in language-based tasks. Additionally, GPT-4o has
+been optimized for more eﬃcient processing, making it well- suited for tasks that demand reduced computational resources without compromising its ab ility to understand and generate
+human-like text. This optimization is especially valuable for multi-step reasoning, problemsolving, and decision-making applications. In this study, we used GPT-4o with its default
+settings: a temperature of 1.0 and top
+p of 1.0.
+
+[PAGE 20]
+GPT-4o-mini
+GPT-4o-mini is a smaller and more lightweight variant of Ope nAI’s GPT-4o model. While
+it shares the same underlying transformer architecture and core design principles as GPT-4
+and GPT-4o, 34,35 GPT-4o-mini is speciﬁcally optimized for faster inference and lower computational costs. This makes it suitable for resource-constr ained environments or applications
+requiring rapid response times. Despite its smaller size, G PT-4o-mini retains the essential
+capabilities of its larger counterparts, including the abi lity to perform multi-step reasoning
+and language understanding tasks. However, its reduced para meter count may lead to tradeoﬀs in accuracy and reasoning depth compared to the full GPT- 4o model. In this study, we
+used GPT-4o-mini with its default settings: a temperature o f 1.0 and top
+p of 1.0.
+Claude-3.7-Sonnet
+Claude-3.7-Sonnet is a large language model developed by Ant hropic as part of the Claude 3
+family. 37 It is based on a transformer architecture, similar to other s tate-of-the-art language
+models, and is designed for tasks such as reasoning, summari zation, and dialogue. Claude3.7-Sonnet is positioned as a mid-sized model in the Claude 3 lineup, balancing performance
+and speed. While its exact number of parameters is not publicl y disclosed, it is intended to
+oﬀer strong capabilities for multi-step reasoning and code generation, with faster responses
+compared to larger models like Claude-3.7-Opus. Claude-3. 7-Sonnet is trained using Anthropic’s reinforcement learning from human feedback (RLHF) framework, with particular
+emphasis on controllability and safety to reduce harmful or biased outputs. In this study, we
+used Claude-3.7-Sonnet through the Anthropic API with its def ault settings: a temperature
+of 1.0 and a top
+p value of 0.999.
+
+[PAGE 21]
+Deepseek-Chat
+Deepseek-Chat is an open-source large language model devel oped by DeepSeek AI, released
+as part of the DeepSeek LLM series. 38 It is based on a transformer decoder-only architecture,
+similar to models like GPT, and is trained on large-scale int ernet datasets to handle a wide
+range of natural language tasks, including text generation , reasoning, and dialogue. The
+version used in this study is DeepSeek-V3-0324 7B, which cont ains approximately 7 billion
+parameters. Deepseek-Chat adopts techniques such as group ed-query attention and multiquery attention to improve inference eﬃciency, along with r otary positional embeddings
+for better generalization to longer sequences. It is traine d with supervised ﬁne-tuning and
+reinforcement learning from human feedback (RLHF) to enhance its instruction-following
+capabilities. 39 In this study, we used Deepseek-Chat via the Hugging Face Tran sformers
+library with its default generation settings: a temperatur e of 1.0 and a top
+p value of 1.0.
+Adsorbate Placement
+A commonly used adsorbate placement involves the heuristic site enumeration algorithm,
+which leverages surface symmetry. 11,12 Using Pymatgen’s AdsorbateSiteFinder, this algorithm identiﬁes the most energetically favorable sites, su ch as ontop, bridge, or hollow sites.
+The adsorbate is then placed at the selected sites with a rand om rotation about the z-axis
+and minor adjustments along the x- and y-axes, ensuring the b inding atom is positioned at
+the site. 14
+To expand the conﬁguration space beyond the heuristic algorithm, Janice et al. proposed a random algorithm. 10 This method uniformly samples surface sites at random. After
+performing a Delaunay triangulation of the surface atoms, r andom sites are selected within
+each triangle. At each randomly selected site, the adsorbat e is placed with random rotations
+about the x-, y-, and z-axes, ensuring alignment of the cente r of mass with the target site. 14
+In this paper, we introduce a new placement strategy speciﬁc ally designed to accommodate side-on oriented adsorbates, oﬀering a key diﬀerentia tion from the above methods. Our
+
+[PAGE 22]
+approach determines the placement center as the weighted ce nter of the binding atoms and
+orients the adsorbate to maximize the exposure of its bindin g atoms to the surface. This
+method diﬀers from the above placement strategies, which po sition a single binding atom at
+the site and apply stochastic rotations. Although our strate gy operates similarly to existing
+methods for adsorbates with a single binding atom, it speciﬁ cally enables side-on placement
+for bidentate adsorbates.
+GNN Relaxation
+To evaluate the ground-state properties of an atomic struct ure, it is necessary to optimize
+its geometry by minimizing the system’s energy. This optimi zation is typically achieved by
+calculating interatomic forces and adjusting atomic posit ions accordingly, while minimizing
+the total energy of the system. Traditionally, this process is performed using quantum
+chemistry methods, such as DFT. However, GNNs have recently emer ged as a fast and
+cost-eﬀective surrogate for DFT-based relaxation. 10,14
+In GNN-based relaxation, the atomic system is represented as a graph, where atoms
+are treated as nodes and interatomic bonds or interactions as edges. The GNN iteratively
+performs message passing, where neighboring atoms exchang e information, allowing the network to capture local chemical environments. Through these learned representations, the
+GNN predicts both the system’s energy and the atomic forces. T he atomic positions are
+then updated using optimization algorithms based on the pre dicted forces, and this process
+is repeated until the system converges to a stable, low-ener gy conﬁguration.
+Several GNN models, such as DimeNet++, 40 EquiformerV2, 16 and GemNet-OC, 41 have
+advanced the ﬁeld by incorporating higher-order equivaria nt representations and scalable
+optimization techniques. These architectures enable more accurate predictions of energies
+and forces, resulting in improved relaxation performance a cross a wide range of molecular
+and material systems.
+After the GNN relaxation, the energy of the adsorbate-catalys t system can be predicted.
+
+[PAGE 23]
+Since a single adsorbate-surface system may have multiple p ossible adsorption conﬁgurations,
+it is necessary to evaluate the energies of all candidate con ﬁgurations to identify the most
+stable one. The adsorption energy is determined by selectin g the conﬁguration with the
+lowest energy, oﬀering insights into the energetically fav orable conﬁguration. The calculation
+is deﬁned as:
+Open Catalyst Demo
+The Open Catalyst demo (OC-demo) is an interactive platform that allows users to explore
+and optimize binding sites for adsorbates on catalyst surfa ces. 42 It supports 11,427 catalyst
+materials and 86 adsorbates, with the catalyst crystal stru ctures sourced from the Materials Project 43 and the Open Quantum Materials Database. 44 The OC-demo helps identify
+the adsorption energy of the selected adsorbate and catalyt ic surface by generating multiple initial conﬁgurations and evaluating them using state- of-the-art graph neural networks,
+like GemNet-OC and EquiformerV2. These models predict forces for geometry optimization, oﬀering faster results compared to DFT. With support for over 11,000 catalysts and
+86 adsorbates, the OC-demo can explore 100 million surface- adsorbate combinations and
+perform 10 billion structure relaxations. 42 In this study, the results from the algorithmic
+approach were obtained using this platform, with Equiforme rV2 serving as the model for
+both structure relaxation and energy prediction.
+While the GNNs used in the OC-demo represent the state of the art, they show notable
+discrepancies compared to DFT. However, DFT itself has inheren t limitations, including
+self-interaction errors, challenges in accurately treati ng strongly correlated systems, underestimation of band gaps, and diﬃculties in modeling van der Waa ls interactions. 45,46 Moreover,
+additional discrepancies can arise when computational pre dictions are compared to experimental data, as these models do not explicitly incorporate k ey factors such as electrochemical
+charges, solvent eﬀects, temperature ﬂuctuations, or surf ace imperfections. 47,48
+
+[PAGE 24]
+Evaluation Metrics
+The Success Ratio (SR), estimates the Adsorb-Agent’s ability to identify adsorption energies
+comparable to those found by the algorithmic approach. Give n the inherent error margins
+in the energy and force predictions by EquiformerV2, a succes sful identiﬁcation is deﬁned as
+the adsorption energy predicted by the Adsorb-Agent falling w ithin a predeﬁned tolerance
+(ϵ) of the algorithmic approach. The SR is mathematically expr essed as:
+SR[%] =
+∑N
+i=1 ⊮ (|Eagent,i− Ealgorithm|f ϵ)
+N × 100 (3)
+Here, N is the total number of adsorbate-catalyst systems evaluate d, set to 20 in this
+study. The threshold ϵ is deﬁned as 0.1 eV, approximately half the energy prediction error of
+EquiformerV2. 16 Ealgorithm is computed as the average of three independent trials condu cted
+using the algorithmic approaches. The indicator function ⊮ (·) evaluates to 1 if the condition
+inside is satisﬁed and 0 otherwise.
+The Lower Energy Discovery Ratio (LEDR), assesses the Adsorb -Agent’s ability to identify adsorption energies that are lower than those found by t he algorithmic approaches. It
+is deﬁned as:
+LEDR[%] =
+∑N
+i=1 ⊮ (Eagent,if Ealgorithm− ϵ)
+N × 100 (4)
+The Reduced Search Space Ratio (RSR), quantiﬁes the reducti on in the number of initial conﬁgurations required by the Adsorb-Agent ( Ninit, agent ) compared to the algorithmic
+approaches ( Ninit, algorithm ). A lower RSR indicates a greater reduction in the search spa ce.
+It is deﬁned as:
+RSR[%] = Ninit, agent
+Ninit, algorithm
+× 100 (5)
+
+[PAGE 25]
+Technology Use Disclosure
+ChatGPT was utilized in preparing the preprint version of th is manuscript, speciﬁcally
+for assistance with grammar and typographical corrections . All authors have thoroughly
+reviewed, veriﬁed, and approved the content of the manuscri pt to ensure its accuracy and
+integrity.
+Code Availability Statement
+The code supporting the ﬁndings of this study is publicly ava ilable at the following GitHub
+repository: https://github.com/hoon-ock/CatalystAIgent.
+Acknowledgement
+The authors gratefully acknowledge support from the H. Rober t Sharbaugh Presidential
+Fellowship. We extend our gratitude to Meta Fundamental AI Re search (F AIR) Chemistry
+team for making the Open Catalyst demo service and the Open Ca talyst Project dataset
+publicly available.
+Author declarations
+Conﬂict of Interest
+The authors have no conﬂicts to disclose.
+Author Contributions
+J.O., R.S.M., T.V., Y.J., and A.B.F. designed the research study. J.O., R.S.M., and T.V.,
+developed the method, wrote the code, and performed the anal ysis. All authors wrote and
+approved the manuscript.
+
+[PAGE 26]
+References
+(1) Nørskov, J.; Studt, F.; Abild-Pedersen, F.; Bligaard, T. Fundamental Concepts in Heterogeneous Catalysis; John Wiley & Sons, Ltd, 2014.
+(2) Dumesic, J. A.; Huber, G. W.; Boudart, M. Handbook of Heterogeneous Catalysis; John
+Wiley & Sons, Ltd, 2008.
+(3) Zitnick, C. L. et al. An Introduction to Electrocatalyst D esign using Machine Learning
+for Renewable Energy Storage. 2020; https://arxiv.org/abs/2010.09435.
+(4) Nørskov, J.; Bligaard, T.; Rossmeisl, J.; Christensen, C. T owards the Computational
+Design of Solid Catalysts. Nature chemistry 2009, 1, 37–46.
+(5) Yang, B.; Burch, R.; Hardacre, C.; Headdock, G.; Hu, P. Unders tanding the Optimal
+Adsorption Energies for Catalyst Screening in Heterogeneous Catalysis. ACS Catalysis
+2014, 4, 182–186.
+(6) Wang, S.; Temel, B.; Shen, J.; Jones, G.; Grabow, L. C.; Stud t, F.; Bligaard, T.; AbildPedersen, F.; Christensen, C. H.; Nørskov, J. K. Universal Brønst ed-Evans-Polanyi
+Relations for C–C, C–O, C–N, N–O, N–N, and O–O Dissociation React ions. Catalysis
+Letters 2011, 141, 370–373.
+(7) Sutton, J. E.; Vlachos, D. G. A Theoretical and Computation al Analysis of Linear Free
+Energy Relations for the Estimation of Activation Energies. ACS Catalysis 2012, 2,
+1624–1634.
+(8) Ulissi, Z. W.; Medford, A. J.; Bligaard, T.; Nørskov, J. K. To Addr ess Surface Reaction
+Network Complexity Using Scaling Relations Machine Learning and DFT Calculations.
+Nature Communications 2017, 8, 14621.
+(9) Ock, J.; Tian, T.; Kitchin, J.; Ulissi, Z. Beyond independen t error assumptions in large
+GNN atomistic models. The Journal of Chemical Physics 2023, 158, 214702.
+
+[PAGE 27]
+(10) Lan, J.; Palizhati, A.; Shuaibi, M.; Wood, B. M.; Wander, B .; Das, A.; Uyttendaele, M.;
+Zitnick, C. L.; Ulissi, Z. W. AdsorbML: a leap in eﬃciency for ads orption energy calculations using generalizable machine learning potential s. npj Computational Materials
+2023, 9, 172.
+(11) Boes, J. R.; Mamun, O.; Winther, K.; Bligaard, T. Graph The ory Approach to HighThroughput Surface Adsorption Structure Generation. The Journal of Physical Chemistry A 2019, 123, 2281–2285.
+(12) Ong, S. P.; Richards, W. D.; Jain, A.; Hautier, G.; Kocher, M. ; Cholia, S.; Gunter, D.;
+Chevrier, V. L.; Persson, K. A.; Ceder, G. Python Materials Gen omics (Pymatgen): A
+Robust, Open-source Python Library for Materials Analysis. Computational Materials
+Science 2013, 68, 314–319.
+(13) Kolluru, A.; Kitchin, J. R. AdsorbDiﬀ: Adsorbate Placement via Conditional Denoising
+Diﬀusion. 2024; https://arxiv.org/abs/2405.03962.
+(14) Chanussot, L. et al. Open Catalyst 2020 (OC20) Dataset a nd Community Challenges.
+ACS Catalysis 2021, 11, 6059–6072.
+(15) Open Catalyst Project Leaderboard. https://opencatalystproject.org/
+leaderboard.html, Accessed: 2024-10-18.
+(16) Liao, Y.-L.; Wood, B.; Das, A.; Smidt, T. EquiformerV2: Imp roved Equivariant Transformer for Scaling to Higher-Degree Representations. 2023; https://arxiv.org/abs/
+2306.12059.
+(17) Lu, C.; Lu, C.; Lange, R. T.; Foerster, J.; Clune, J.; Ha, D. T he AI Scientist: Towards
+Fully Automated Open-Ended Scientiﬁc Discovery. 2024; https://arxiv.org/abs/
+2408.06292.
+
+[PAGE 28]
+(18) Boiko, D. A.; MacKnight, R.; Kline, B.; Gomes, G. Autonomo us chemical research with
+large language models. Nature 2023, 624, 570–578.
+(19) Szymanski, N. J.; Rendy, B.; Fei, Y.; Kumar, R. E.; He, T.; Mil sted, D.; McDermott, M. J.; Gallant, M.; Cubuk, E. D.; Merchant, A.; others An au tonomous laboratory for the accelerated synthesis of novel materials. Nature 2023, 624, 86–91.
+(20) Jadhav, Y.; Pak, P.; Farimani, A. B. LLM-3D Print: Large Lan guage Models To Monitor and Control 3D Printing. 2024; https://arxiv.org/abs/2408.14307.
+(21) Wander, B.; Broderick, K.; Ulissi, Z. W. Catlas: an automa ted framework for catalyst
+discovery demonstrated for direct syngas conversion. Catal. Sci. Technol. 2022, 12,
+6256–6267.
+(22) Ock, J.; Guntuboina, C.; Barati Farimani, A. Catalyst Ene rgy Prediction with CatBERTa: Unveiling Feature Exploration Strategies through La rge Language Models.
+ACS Catalysis 2023, 13, 16032–16044.
+(23) Ock, J.; Badrinarayanan, S.; Magar, R.; Antony, A.; Barat i Farimani, A. Multimodal
+language and graph learning of adsorption conﬁguration in c atalysis. Nature Machine
+Intelligence 2024, 1–11.
+(24) Chase, H. LangChain. 2022; https://github.com/langchain-ai/langchain, Date
+released: 2022-10-17.
+(25) Peterson, A. A. Global optimization of adsorbate–surfac e structures while preserving
+molecular identity. Topics in Catalysis 2014, 57, 40–53.
+(26) Jung, H.; Sauerland, L.; Stocker, S.; Reuter, K.; Margraf , J. T. Machine-learning driven
+global optimization of surface adsorbate geometries. npj Computational Materials 2023,
+9, 114.
+
+[PAGE 29]
+(27) Wang, F.; Guo, J.; Quan, Y.; Wang, S.; Wang, Q. Recent Advance s in Electrocatalytic Nitrogen Reduction to Produce Ammonia Under Ambient Cond itions. Nature
+Environment & Pollution Technology 2022, 21 .
+(28) Montoya, J. H.; Tsai, C.; Vojvodic, A.; Nørskov, J. K. The chal lenge of electrochemical ammonia synthesis: a new perspective on the role of nitr ogen scaling relations.
+ChemSusChem 2015, 8, 2180–2186.
+(29) Kulkarni, A.; Siahrostami, S.; Patel, A.; Nørskov, J. K. Unde rstanding Catalytic Activity Trends in the Oxygen Reduction Reaction. Chemical Reviews 2018, 118, 2302–2312.
+(30) Zhou, J.; Chen, X.; Guo, M.; Hu, W.; Huang, B.; Yuan, D. Enhance d catalytic activity
+of bimetallic ordered catalysts for nitrogen reduction rea ction by perturbation of scaling
+relations. ACS Catalysis 2023, 13, 2190–2201.
+(31) Friebel, D.; Viswanathan, V.; Miller, D. J.; Anniyev, T.; Og asawara, H.; Larsen, A. H.;
+O’Grady, C. P.; Nørskov, J. K.; Nilsson, A. Balance of Nanostructu re and Bimetallic
+Interactions in Pt Model Fuel Cell Catalysts: In Situ XAS and DFT Study. Journal of
+the American Chemical Society 2012, 134, 9664–9671, PMID: 22616917.
+(32) Mayrhofer, K. J. J.; Blizanac, B. B.; Arenz, M.; Stamenkovi c, V. R.; Ross, P. N.;
+Markovic, N. M. The Impact of Geometric and Surface Electroni c Properties of PtCatalysts on the Particle Size Eﬀect in Electrocatalysis. The Journal of Physical Chemistry B 2005, 109, 14433–14440, PMID: 16852816.
+(33) Ock, J.; Mollaei, P.; Barati Farimani, A. GradNav: Accelera ted Exploration of Potential
+Energy Surfaces with Gradient-Based Navigation. Journal of Chemical Theory and
+Computation 2024, 20, 4088–4098.
+(34) Radford, A.; Narasimhan, K. Improving Language Understan ding by Generative PreTraining. 2018; https://api.semanticscholar.org/CorpusID:49313245.
+
+[PAGE 30]
+(35) OpenAI GPT-4 Technical Report. 2023; https://cdn.openai.com/papers/gpt-4.
+pdf.
+(36) Vaswani, A. Attention is all you need. Advances in Neural Information Processing Systems 2017,
+(37) Anthropic Introducing Claude 3 Models. 2024; https://www.anthropic.com/news/
+claude-3-family.
+(38) Lu, H.; Liu, W.; Zhang, B.; Wang, B.; Dong, K.; Liu, B.; Sun, J.; Ren, T.; Li, Z.;
+Sun, Y.; Deng, C.; Xu, H.; Xie, Z.; Ruan, C. DeepSeek-VL: Towards Re al-World VisionLanguage Understanding. 2024.
+(39) DeepSeek-AI et al. DeepSeek-R1: Incentivizing Reasoni ng Capability in LLMs via Reinforcement Learning. 2025; https://arxiv.org/abs/2501.12948.
+(40) Klicpera, J.; Giri, S.; Margraf, J. T.; G¨ unnemann, S. Fas t and Uncertainty-Aware
+Directional Message Passing for Non-Equilibrium Molecules . 2020; https://arxiv.
+org/abs/2011.14115.
+(41) Gasteiger, J.; Shuaibi, M.; Sriram, A.; G¨ unnemann, S.; Ulissi, Z.; Zitnick, C. L.; Das, A.
+GemNet-OC: Developing Graph Neural Networks for Large and Dive rse Molecular Simulation Datasets. 2022; https://arxiv.org/abs/2204.02782.
+(42) Open Catalyst Project - Demo. https://open-catalyst.metademolab.com/, Accessed: 2025-04-17.
+(43) Jain, A.; Ong, S. P.; Hautier, G.; Chen, W.; Richards, W. D.; Da cek, S.; Cholia, S.;
+Gunter, D.; Skinner, D.; Ceder, G.; Persson, K. A. Commentary : The Materials Project:
+A materials genome approach to accelerating materials inno vation. APL Materials
+2013, 1, 011002.
+
+[PAGE 31]
+(44) Kirklin, S.; Saal, J. E.; Meredig, B.; Thompson, A.; Doak, J. W.; Aykol, M.; R¨ uhl, S.;
+Wolverton, C. The Open Quantum Materials Database (OQMD): assessing the accuracy
+of DFT formation energies. npj Computational Materials 2015, 1, 15010.
+(45) Verma, P.; Truhlar, D. G. Status and challenges of densi ty functional theory. Trends in
+Chemistry 2020, 2, 302–318.
+(46) Burke, K. Perspective on density functional theory. The Journal of Chemical Physics
+2012, 136 .
+(47) Divanis, S.; Frandsen, A. M.; Kutlusoy, T.; Rossmeisl, J. Lifting the discrepancy between experimental results and the theoretical prediction s for the catalytic activity of
+RuO2(110) towards oxygen evolution reaction. Phys. Chem. Chem. Phys. 2021, 23,
+19141–19145.
+(48) Kiely, E.; Zwane, R.; Fox, R.; Reilly, A. M.; Guerin, S. Den sity functional theory
+predictions of the mechanical properties of crystalline ma terials. CrystEngComm 2021,
+23, 5697–5710.
+
+[PAGE 32]
+Supporting Information:
+Adsorb-Agent: Autonomous Identiﬁcation of
+Stable Adsorption Conﬁgurations via Large
+Language Model Agent
+Janghoon Ock, † Radheesh Sharma Meda, ‡ Tirtha Vinchurkar, † Yayati Jadhav,‡
+and Amir Barati Farimani ∗,‡
+†Department of Chemical Engineering, Carnegie Mellon University, 5000 Forbes Ave,
+Pittsburgh, PA 15213, USA
+‡Department of Mechanical Engineering, Carnegie Mellon University, 5000 Forbes Ave,
+Pittsburgh, PA 15213, USA
+E-mail: barati@cmu.edu
+Contents
+S1 Auxiliary Prompts S2
+S2 LLM Modules S4
+S3 Results Across Multiple Runs S5
+S4 System-speciﬁc Solutions S6
+S1
+
+[PAGE 33]
+S1 Auxiliary Prompts
+We incorporated two types of auxiliary prompts into the Adsor b-Agent: a reasoning question
+list for the Solution Planner module and a knowledge prompt f or the Critic module. The
+reasoning question list consists of questions that a human r esearcher might ask when determining stable adsorption conﬁgurations. This list guides t he Solution Planner to generate
+solutions tailored to the task. To ensure the generalizabil ity of the method and to fairly
+implement the Adsorb-Agent, we intentionally exclude explic it knowledge related to surface
+chemistry, chemical bonding, or system-speciﬁc character istics. The knowledge prompt, on
+the other hand, provides terminology clariﬁcations for the Critic module. Its purpose is
+to ensure that the Critic module can make accurate and contex tually appropriate revisions
+during the solution reﬁnement process.
+S2
+
+[PAGE 34]
+" Are the adsorption sites providing the adsorbate with sufficient metal atoms to bond with?
+" Is the coordination number appropriate for the adsorbate, considering its bonding preferences and the type of
+metal surface?
+" Are the bonds between the adsorbate and the surface strong enough to ensure stability?
+" Does the adsorbate align in such a way that maximizes overlap with the metal's d-orbitals?
+" Is there effective charge transfer between the adsorbate and the surface?
+" Does the site provide a favorable electronic environment for adsorption, considering factors like work function
+and electron density?
+" Does the local arrangement of metal atoms enhance or diminish the charge transfer between the adsorbate and the
+surface?
+" Are there any charge redistribution effects that could stabilize or destabilize the adsorbate?
+" Are there significant differences in reactivity between the possible adsorption sites (e.g., sites dominated by
+one metal versus another)?
+" Does the adsorbate prefer to bind to a more reactive metal atom or a specific combination of metals on the
+surface?
+" Is the top site or bridge site surrounded by similar or different metal atoms, and how does this affect adsorption
+strength?
+" Are mixed-metal environments (involving different metals) providing a balanced interaction, or is one metal type
+dominating the adsorption behavior?
+" Does the adsorbate align in a way that maximizes favorable interactions with the surface atoms?
+" Is the side-on or end-on orientation better suited for the type of bonds the adsorbate can form with the metal
+surface?
+" Is the adsorbate able to form bonds with multiple atoms on the surface, enhancing stability?
+" Does the chosen site allow for a symmetric and balanced interaction across multiple metal atoms?
+" Is the adsorption energy negative and large enough to suggest that the configuration is thermodynamically stable?
+" Are there any nearby sites with similar energy, indicating the presence of multiple stable configurations?
+" Are there existing studies or data on similar adsorbates on similar surfaces that support this configuration?
+" Does the adsorbate behave similarly on other intermetallic or monometallic surfaces, providing a basis for
+comparison?
+" On-top Site: The adsorbate binds directly to a single surface atom.
+" Bridge Site: The adsorbate simultaneously binds to two adjacent surface atoms.
+" Hollow Site: The adsorbate interacts with three or more surface atoms, typically forming a triangular arrangement.
+" End-on Orientation: The adsorbate molecule attaches to the surface through one of its terminal atoms.
+" Side-on Orientation: The adsorbate interacts with the surface via multiple atoms along its side.
+" Site Matching: The adsorption site should correspond to the number of surface atoms available for binding.
+" Orientation Alignment: The binding atoms in the adsorbate should match its orientation on the surface.
+" The side-on orientation requires multiple binding atoms.
+" The end-on orientation requires just one binding atom.
+a
+b
+Figure S1: Auxiliary Prompts: a. Reasoning question list, b. Knowledge prompt.
+S3
+
+[PAGE 35]
+S2 LLM Modules
+The Adsorb-Agent consists of three modules powered by GPT-4o, with user-deﬁned templates implemented through prompt engineering. Code snipp ets illustrating these templates
+are provided in Figure S2. Notably, the Critic module is furthe r divided into two sub-critics:
+one focused on reviewing surface-related information and t he other on adsorbate-related
+information.
+A signiﬁcant challenge in eﬀectively utilizing an LLM agent is ensuring determinism
+in the output of a non-deterministic generative LLM. To addr ess this, we incorporated a
+parser adapter into each module. This adapter modiﬁes the ou tput prompts and extracts
+the required target information, enabling precise and cons istent control over the outputs for
+our speciﬁc applications.
+def solution_planner(model, parser=AdaptSolutionParser):
+solution_planner_prompt = PromptTemplate(
+input_variables=[Ósystem", "reasoning_questions"],
+template=(
+"You are an expert in catalyst and surface chemistry.\n"
+"Your task is to find the most stable adsorption configuration "
+"of an adsorbate on the catalytic surface, "
+"including adsorption site type (ontop, bridge, hollow), "
+"binding atoms in the adsorbate and surface, their numbers, "
+"and the orientation of adsorbate (side-on, end-on, etc). "
+"Given the system:
+{system}, you must operationalize "
+"the reasoning modules {reasoning_questions} to derive Ó
+"the most stable configuration for adsorption energy identification.\n"
+"You need to provide the most stable adsorption site & configuration "
+"with the adsorption site type, binding atoms "
+"in the adsorbate and surface, the number of those binding atoms, "
+"and the connection of those binding atoms.
+\n"
+"NOTE: The adsorption site can be surrounded by atoms of the same element "
+"or a combination of different elements. Ó
+"Avoid generating binding surface atoms by merely listing all atom types.
+\n"
+"Instead, determine the binding surface atoms "
+"based on the actual atomic arrangement of the surface.
+\n"
+"Ensure the derived configuration is very specific "
+"and not semantically repetitive,and provide a rationale.\n"
+"Note: Do not produce invalid content. "
+"Do not repeat the same or semantically similar configuration. Ó
+"Stick to the given adsorbate and catalyst surface."
+))
+recon = solution_planner_prompt | model.with_structured_output(parser)
+return recon
+def surface_critic(model, parser=AdaptCriticParser):
+site_type_prompt = PromptTemplate(
+input_variables=[Ósystem", "adsorption_site_type",\
+"binding_atoms_on_surface","knowledge_prompt"],
+template=(
+"You are an expert in catalyst and surface chemistry.\n"
+"Observations: {system}\n"
+"Adsorption Site Type: {adsorption_site_type}\n"
+"Binding Atoms on Surface: {binding_atoms_on_surface}\n"
+"Knowledge: {knowledge_prompt}\n"
+"Determine whether the site type matches the number of binding surface atoms.\n"
+"If the site type matches, return 1; otherwise, return 0.\n"
+))
+adapter = site_type_prompt | model.with_structured_output(parser)
+return adapter
+def adsorbate_critic(model, parser=AdaptCriticParser):
+orientation_prompt = PromptTemplate(
+input_variables=[Ósystem", "binding_atoms_in_adsorbate",\
+"orientation_of_adsorbate","knowledge"],
+template=(
+"You are an expert in catalyst and surface chemistry.\n"
+"Observation: {system}\n"
+"Binding Atoms in Adsorbate: {binding_atoms_in_adsorbate}\n"
+"Orientation: {orientation_of_adsorbate}\n"
+"Knowledge: {knowledge_prompt}\n"
+"Determine whether the orientation matches the binding atoms in the adsorbate.\n"
+"If the orientation fully matches, return 1; otherwise, return 0.\n"
+))
+adapter = orientation_prompt | model.with_structured_output(parser)
+return adapter
+def binding_indexer(model, parser=AdaptIndexParser):
+prompt_template = PromptTemplate(
+input_variables=[Ósolution", "atomic_numbers"],
+template=(
+"You are an expert in catalyst and surface chemistry. "
+"Based on the given description of the adsorption configuration: \n"
+"Observations: {solution}\n"
+"Atomic numbers of atoms in the adsorbate: {atomic_numbers}\n"
+"Your task is to derive the indices of the binding atoms in the adsorbate. "
+"Provide the answers for the following questions (only answers, do not include the questions in the output):\n"
+"1. What are the atom indices of the adsorbate that bind to the site? (Answer: list of indices)\n"
+"Please stick to the provided answer form and keep it concise.\n"
+"Note: The indices should be 0-based."
+)
+)
+adapter = prompt_template | (model).with_structured_output(parser)
+return adapter
+a b
+c
+Figure S2: Code Snippets Illustrating the Implementation of the Adsorb-Agent Modules. a.
+Solution Planner; b. Critic; and c. Binding Indexer.
+S4
+
+[PAGE 36]
+S3 Results Across Multiple Runs
+Table S1 summarizes the results of individual Adsorb-Agent ru ns alongside detailed slab
+metadata. The catalyst bulks are obtained from the Material s Project and are identiﬁed by
+their unique Materials Project ID (mpid). Using the pymatge n package, the selected bulks
+are sliced along speciﬁed Miller indices to generate slab su rfaces. The shift parameter determines the position of the cut during slab generation, which d eﬁnes the surface termination.
+The top site availability indicates whether adsorption sit es are accessible on the topmost
+layer of the slab.
+Table S1: System metadata and adsorption energies for indiv idual Adsorb-Agent runs. The
+table provides detailed system metadata, including the ads orbate SMILES, catalyst chemical
+symbol, Miller index, bulk Materials Project ID (mpid), and key structural parameters (e.g.,
+shift and top site availability). The “Run” columns display the results from individual
+Adsorb-Agent runs.
+No. Adsorbate Catalyst Bulk mpid Shift Top Adsorption Energy [eV] (↓) Number of Initial Sets (↓)
+Run 1 Run 2 Run 3 Algorithm Run 1 Run 2 Run 3 Algorithm
+1 H Mo 3Pd (111) mp-1186014 0.167 True -0.687 -0.682 -0.925 -0.941 ± 0.002 9 4 7 59
+2 NNH Mo 3Pd (111) mp-1186014 0.167 True -1.370 -1.041 -1.383 -0.903 ± 0.117 14 5 9 51
+3 H Pd 3Cu (111) mp-1184119 0.063 True -0.379 -0.384 -0.377 -0.398 ± 0.017 18 15 17 98
+4 NNH Pd 3Cu (111) mp-1184119 0.063 True 0.741 0.753 0.740 0.867 ± 0.072 19 20 13 78
+5 H Cu 3Ag (111) mp-1184011 0.063 True 0.030 -0.069 -0.017 -0.072 ± 0.002 22 26 16 98
+6 NNH Cu 3Ag (111) mp-1184011 0.063 True 1.456 1.583 1.472 1.500 ± 0.002 18 13 19 56
+7 H Ru 3Mo (111) mp-975834 0.167 True -0.587 -0.587 -0.584 -0.586 ± 0.050 15 16 20 94
+8 NNH Ru 3Mo (111) mp-975834 0.167 True -0.491 -0.491 -0.487 -0.276 ± 0.003 19 18 19 81
+9 OH Pt (111) mp-126 0.167 True 0.989 0.991 0.991 0.990 ± 0.071 7 9 5 54
+10 OH Pt (100) mp-126 0.250 True 0.993 0.990 0.990 0.991 ± 0.001 9 16 6 54
+11 OH Pd (111) mp-2 0.167 True 0.814 0.813 0.813 0.814 ± 0.001 28 15 17 54
+12 OH Au (111) mp-81 0.167 True 1.407 1.406 1.410 1.409 ± 0.002 28 16 26 54
+13 OH Ag (100) mp-124 0.250 True 0.438 0.441 0.440 0.463 ± 0.009 30 21 20 53
+14 OH CoPt (111) mp-1225998 0.042 True -0.218 -0.188 -0.220 - 0.166 ± 0.046 43 41 40 120
+15 CH 2CH2OH Cu 6Ga2 (100) mp-865798 0.248 False -2.864 -2.989 -1.163 -3.077 ± 0.062 42 7 37 66
+16 CH 2CH2OH Au 2Hf (102) mp-1018153 0.028 False -1.924 -3.184 -3.176 -3.761 ± 0.129 34 27 23 78
+17 OCHCH 3 Rh2Ti2 (111) mp-2583 0.083 True -4.570 -4.562 -4.552 -4.275 ± 0.086 23 33 31 62
+18 OCHCH 3 Al3Zr (101) mp-1065309 0.375 False -4.600 -4.615 -4.634 -4.325 ± 0.052 19 22 25 68
+19 OCHCH 3 Hf2Zn6 (110) mp-866108 0.120 True -6.066 -5.627 -6.073 -5.443 ± 0.037 19 15 20 67
+20 ONN(CH 3)2 Bi2Ti6 (211) mp-866201 0.000 True -3.558 -3.806 -3.000 -2.441 ± 0.103 35 36 28 139
+S5
+
+[TABLE page=36 index=1]
+Columns: No. | Adsorbate | Catalyst | Bulk mpid | Shift | Top | Adsorption Energy [eV] (↓) | Number of Initial Sets (↓)
+Row 1: No.: | Adsorbate: | Catalyst: | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): Run 1 Run 2 Run 3 Algorithm | Number of Initial Sets (↓): Run 1 Run 2 Run 3 Algorithm
+Row 2: No.: 1.0 | Adsorbate: H | Catalyst: Mo Pd (111) | Bulk mpid: mp-1186014 | Shift: 0.167 | Top: True | Adsorption Energy [eV] (↓): -0.687 -0.682 -0.925 -0.941 ± 0.002 | Number of Initial Sets (↓): 9 4 7 59
+Row 3: No.: | Adsorbate: | Catalyst: 3 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 4: No.: 2.0 | Adsorbate: NNH | Catalyst: Mo Pd (111) | Bulk mpid: mp-1186014 | Shift: 0.167 | Top: True | Adsorption Energy [eV] (↓): -1.370 -1.041 -1.383 -0.903 ± 0.117 | Number of Initial Sets (↓): 14 5 9 51
+Row 5: No.: | Adsorbate: | Catalyst: 3 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 6: No.: 3.0 | Adsorbate: H | Catalyst: Pd Cu (111) | Bulk mpid: mp-1184119 | Shift: 0.063 | Top: True | Adsorption Energy [eV] (↓): -0.379 -0.384 -0.377 -0.398 ± 0.017 | Number of Initial Sets (↓): 18 15 17 98
+Row 7: No.: | Adsorbate: | Catalyst: 3 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 8: No.: 4.0 | Adsorbate: NNH | Catalyst: Pd Cu (111) | Bulk mpid: mp-1184119 | Shift: 0.063 | Top: True | Adsorption Energy [eV] (↓): 0.741 0.753 0.740 0.867 ± 0.072 | Number of Initial Sets (↓): 19 20 13 78
+Row 9: No.: | Adsorbate: | Catalyst: 3 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 10: No.: 5.0 | Adsorbate: H | Catalyst: Cu Ag (111) | Bulk mpid: mp-1184011 | Shift: 0.063 | Top: True | Adsorption Energy [eV] (↓): 0.030 -0.069 -0.017 -0.072 ± 0.002 | Number of Initial Sets (↓): 22 26 16 98
+Row 11: No.: | Adsorbate: | Catalyst: 3 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 12: No.: 6.0 | Adsorbate: NNH | Catalyst: Cu Ag (111) | Bulk mpid: mp-1184011 | Shift: 0.063 | Top: True | Adsorption Energy [eV] (↓): 1.456 1.583 1.472 1.500 ± 0.002 | Number of Initial Sets (↓): 18 13 19 56
+Row 13: No.: | Adsorbate: | Catalyst: 3 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 14: No.: 7.0 | Adsorbate: H | Catalyst: Ru Mo (111) | Bulk mpid: mp-975834 | Shift: 0.167 | Top: True | Adsorption Energy [eV] (↓): -0.587 -0.587 -0.584 -0.586 ± 0.050 | Number of Initial Sets (↓): 15 16 20 94
+Row 15: No.: | Adsorbate: | Catalyst: 3 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 16: No.: 8.0 | Adsorbate: NNH | Catalyst: Ru Mo (111) | Bulk mpid: mp-975834 | Shift: 0.167 | Top: True | Adsorption Energy [eV] (↓): -0.491 -0.491 -0.487 -0.276 ± 0.003 | Number of Initial Sets (↓): 19 18 19 81
+Row 17: No.: | Adsorbate: | Catalyst: 3 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 18: No.: 9.0 | Adsorbate: OH | Catalyst: Pt (111) | Bulk mpid: mp-126 | Shift: 0.167 | Top: True | Adsorption Energy [eV] (↓): 0.989 0.991 0.991 0.990 ± 0.071 | Number of Initial Sets (↓): 7 9 5 54
+Row 19: No.: 10.0 | Adsorbate: OH | Catalyst: Pt (100) | Bulk mpid: mp-126 | Shift: 0.25 | Top: True | Adsorption Energy [eV] (↓): 0.993 0.990 0.990 0.991 ± 0.001 | Number of Initial Sets (↓): 9 16 6 54
+Row 20: No.: 11.0 | Adsorbate: OH | Catalyst: Pd (111) | Bulk mpid: mp-2 | Shift: 0.167 | Top: True | Adsorption Energy [eV] (↓): 0.814 0.813 0.813 0.814 ± 0.001 | Number of Initial Sets (↓): 28 15 17 54
+Row 21: No.: 12.0 | Adsorbate: OH | Catalyst: Au (111) | Bulk mpid: mp-81 | Shift: 0.167 | Top: True | Adsorption Energy [eV] (↓): 1.407 1.406 1.410 1.409 ± 0.002 | Number of Initial Sets (↓): 28 16 26 54
+Row 22: No.: 13.0 | Adsorbate: OH | Catalyst: Ag (100) | Bulk mpid: mp-124 | Shift: 0.25 | Top: True | Adsorption Energy [eV] (↓): 0.438 0.441 0.440 0.463 ± 0.009 | Number of Initial Sets (↓): 30 21 20 53
+Row 23: No.: 14.0 | Adsorbate: OH | Catalyst: CoPt (111) | Bulk mpid: mp-1225998 | Shift: 0.042 | Top: True | Adsorption Energy [eV] (↓): -0.218 -0.188 -0.220 -0.166 ± 0.046 | Number of Initial Sets (↓): 43 41 40 120
+Row 24: No.: 15.0 | Adsorbate: CH CH OH | Catalyst: Cu Ga (100) | Bulk mpid: mp-865798 | Shift: 0.248 | Top: False | Adsorption Energy [eV] (↓): -2.864 -2.989 -1.163 -3.077 ± 0.062 | Number of Initial Sets (↓): 42 7 37 66
+Row 25: No.: | Adsorbate: 2 2 | Catalyst: 6 2 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 26: No.: 16.0 | Adsorbate: CH CH OH | Catalyst: Au Hf (102) | Bulk mpid: mp-1018153 | Shift: 0.028 | Top: False | Adsorption Energy [eV] (↓): -1.924 -3.184 -3.176 -3.761 ± 0.129 | Number of Initial Sets (↓): 34 27 23 78
+Row 27: No.: | Adsorbate: 2 2 | Catalyst: 2 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 28: No.: 17.0 | Adsorbate: OCHCH | Catalyst: Rh Ti (111) | Bulk mpid: mp-2583 | Shift: 0.083 | Top: True | Adsorption Energy [eV] (↓): -4.570 -4.562 -4.552 -4.275 ± 0.086 | Number of Initial Sets (↓): 23 33 31 62
+Row 29: No.: | Adsorbate: 3 | Catalyst: 2 2 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 30: No.: 18.0 | Adsorbate: OCHCH | Catalyst: Al Zr (101) | Bulk mpid: mp-1065309 | Shift: 0.375 | Top: False | Adsorption Energy [eV] (↓): -4.600 -4.615 -4.634 -4.325 ± 0.052 | Number of Initial Sets (↓): 19 22 25 68
+Row 31: No.: | Adsorbate: 3 | Catalyst: 3 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 32: No.: 19.0 | Adsorbate: OCHCH | Catalyst: Hf Zn (110) | Bulk mpid: mp-866108 | Shift: 0.12 | Top: True | Adsorption Energy [eV] (↓): -6.066 -5.627 -6.073 -5.443 ± 0.037 | Number of Initial Sets (↓): 19 15 20 67
+Row 33: No.: | Adsorbate: 3 | Catalyst: 2 6 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+Row 34: No.: 20.0 | Adsorbate: ONN(CH ) | Catalyst: Bi Ti (211) | Bulk mpid: mp-866201 | Shift: 0.0 | Top: True | Adsorption Energy [eV] (↓): -3.558 -3.806 -3.000 -2.441 ± 0.103 | Number of Initial Sets (↓): 35 36 28 139
+Row 35: No.: | Adsorbate: 3 2 | Catalyst: 2 6 | Bulk mpid: | Shift: | Top: | Adsorption Energy [eV] (↓): | Number of Initial Sets (↓):
+[/TABLE]
+
+[PAGE 37]
+S4 System-speciﬁc Solutions
+Table S2: Solutions for the Complete Set of Systems. One tria l from three independent runs
+is shown as an example.
+No. Adsorbate Catalyst Site Type Surf. Binding Atoms Ads. Binding Atoms Ads . Orientation
+1 H Mo 3Pd (111) hollow Mo, Mo, Pd H end-on
+2 NNH Mo 3Pd (111) hollow Mo, Mo, Pd N, N side-on
+3 H Pd 3Cu (111) hollow Cu, Pd, Pd H end-on
+4 NNH Pd 3Cu (111) hollow Pd, Pd, Cu N, N side-on
+5 H Cu 3Ag (111) hollow Cu, Ag, Cu H end-on
+6 NNH Cu 3Ag (111) bridge Cu, Ag N, H end-on
+7 H Ru 3Mo (111) hollow Ru, Mo, Mo H end-on
+8 NNH Ru 3Mo (111) bridge Ru, Mo N, N side-on
+9 OH Pt (111) hollow Pt, Pt, Pt O end-on
+10 OH Pt (100) hollow Pt, Pt, Pt O end-on
+11 OH Pd (111) hollow Pd, Pd, Pd O, H end-on
+12 OH Au (111) ontop Au O end-on
+13 OH Ag (100) ontop Ag O end-on
+14 OH CoPt (111) bridge Co, Pt O end-on
+15 CH 2CH2OH Cu 6Ga2 (100) bridge Cu, Ga C, O side-on
+16 CH 2CH2OH Au 2Hf (102) bridge Hf, Au C, O end-on
+17 OCHCH 3 Rh2Ti2 (111) bridge Ti, Rh O, C side-on
+18 OCHCH 3 Al3Zr (101) bridge Zr, Al O, C side-on
+19 OCHCH 3 Hf2Zn6 (110) bridge Zn, Hf O, C side-on
+20 ONN(CH 3)2 Bi2Ti6 (211) bridge Bi, Ti N, N side-on
+S6
+
+[TABLE page=37 index=1]
+Columns: No. | Adsorbate | Catalyst | Site Type | Surf. Binding Atoms | Ads. Binding Atoms | Ads. Orientation
+Row 1: No.: 1.0 | Adsorbate: H | Catalyst: Mo Pd (111) | Site Type: hollow | Surf. Binding Atoms: Mo, Mo, Pd | Ads. Binding Atoms: H | Ads. Orientation: end-on
+Row 2: No.: | Adsorbate: | Catalyst: 3 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 3: No.: 2.0 | Adsorbate: NNH | Catalyst: Mo Pd (111) | Site Type: hollow | Surf. Binding Atoms: Mo, Mo, Pd | Ads. Binding Atoms: N, N | Ads. Orientation: side-on
+Row 4: No.: | Adsorbate: | Catalyst: 3 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 5: No.: 3.0 | Adsorbate: H | Catalyst: Pd Cu (111) | Site Type: hollow | Surf. Binding Atoms: Cu, Pd, Pd | Ads. Binding Atoms: H | Ads. Orientation: end-on
+Row 6: No.: | Adsorbate: | Catalyst: 3 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 7: No.: 4.0 | Adsorbate: NNH | Catalyst: Pd Cu (111) | Site Type: hollow | Surf. Binding Atoms: Pd, Pd, Cu | Ads. Binding Atoms: N, N | Ads. Orientation: side-on
+Row 8: No.: | Adsorbate: | Catalyst: 3 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 9: No.: 5.0 | Adsorbate: H | Catalyst: Cu Ag (111) | Site Type: hollow | Surf. Binding Atoms: Cu, Ag, Cu | Ads. Binding Atoms: H | Ads. Orientation: end-on
+Row 10: No.: | Adsorbate: | Catalyst: 3 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 11: No.: 6.0 | Adsorbate: NNH | Catalyst: Cu Ag (111) | Site Type: bridge | Surf. Binding Atoms: Cu, Ag | Ads. Binding Atoms: N, H | Ads. Orientation: end-on
+Row 12: No.: | Adsorbate: | Catalyst: 3 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 13: No.: 7.0 | Adsorbate: H | Catalyst: Ru Mo (111) | Site Type: hollow | Surf. Binding Atoms: Ru, Mo, Mo | Ads. Binding Atoms: H | Ads. Orientation: end-on
+Row 14: No.: | Adsorbate: | Catalyst: 3 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 15: No.: 8.0 | Adsorbate: NNH | Catalyst: Ru Mo (111) | Site Type: bridge | Surf. Binding Atoms: Ru, Mo | Ads. Binding Atoms: N, N | Ads. Orientation: side-on
+Row 16: No.: | Adsorbate: | Catalyst: 3 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 17: No.: 9.0 | Adsorbate: OH | Catalyst: Pt (111) | Site Type: hollow | Surf. Binding Atoms: Pt, Pt, Pt | Ads. Binding Atoms: O | Ads. Orientation: end-on
+Row 18: No.: 10.0 | Adsorbate: OH | Catalyst: Pt (100) | Site Type: hollow | Surf. Binding Atoms: Pt, Pt, Pt | Ads. Binding Atoms: O | Ads. Orientation: end-on
+Row 19: No.: 11.0 | Adsorbate: OH | Catalyst: Pd (111) | Site Type: hollow | Surf. Binding Atoms: Pd, Pd, Pd | Ads. Binding Atoms: O, H | Ads. Orientation: end-on
+Row 20: No.: 12.0 | Adsorbate: OH | Catalyst: Au (111) | Site Type: ontop | Surf. Binding Atoms: Au | Ads. Binding Atoms: O | Ads. Orientation: end-on
+Row 21: No.: 13.0 | Adsorbate: OH | Catalyst: Ag (100) | Site Type: ontop | Surf. Binding Atoms: Ag | Ads. Binding Atoms: O | Ads. Orientation: end-on
+Row 22: No.: 14.0 | Adsorbate: OH | Catalyst: CoPt (111) | Site Type: bridge | Surf. Binding Atoms: Co, Pt | Ads. Binding Atoms: O | Ads. Orientation: end-on
+Row 23: No.: 15.0 | Adsorbate: CH CH OH | Catalyst: Cu Ga (100) | Site Type: bridge | Surf. Binding Atoms: Cu, Ga | Ads. Binding Atoms: C, O | Ads. Orientation: side-on
+Row 24: No.: | Adsorbate: 2 2 | Catalyst: 6 2 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 25: No.: 16.0 | Adsorbate: CH CH OH | Catalyst: Au Hf (102) | Site Type: bridge | Surf. Binding Atoms: Hf, Au | Ads. Binding Atoms: C, O | Ads. Orientation: end-on
+Row 26: No.: | Adsorbate: 2 2 | Catalyst: 2 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 27: No.: 17.0 | Adsorbate: OCHCH | Catalyst: Rh Ti (111) | Site Type: bridge | Surf. Binding Atoms: Ti, Rh | Ads. Binding Atoms: O, C | Ads. Orientation: side-on
+Row 28: No.: | Adsorbate: 3 | Catalyst: 2 2 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 29: No.: 18.0 | Adsorbate: OCHCH | Catalyst: Al Zr (101) | Site Type: bridge | Surf. Binding Atoms: Zr, Al | Ads. Binding Atoms: O, C | Ads. Orientation: side-on
+Row 30: No.: | Adsorbate: 3 | Catalyst: 3 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 31: No.: 19.0 | Adsorbate: OCHCH | Catalyst: Hf Zn (110) | Site Type: bridge | Surf. Binding Atoms: Zn, Hf | Ads. Binding Atoms: O, C | Ads. Orientation: side-on
+Row 32: No.: | Adsorbate: 3 | Catalyst: 2 6 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+Row 33: No.: 20.0 | Adsorbate: ONN(CH ) | Catalyst: Bi Ti (211) | Site Type: bridge | Surf. Binding Atoms: Bi, Ti | Ads. Binding Atoms: N, N | Ads. Orientation: side-on
+Row 34: No.: | Adsorbate: 3 2 | Catalyst: 2 6 | Site Type: | Surf. Binding Atoms: | Ads. Binding Atoms: | Ads. Orientation:
+[/TABLE]

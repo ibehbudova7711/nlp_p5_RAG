@@ -1,0 +1,424 @@
+[PAGE 1]
+TRANSFORMER LAYER INJECTION : A N OVEL APPROACH FOR
+EFFICIENT UPSCALING OF LARGE LANGUAGE MODELS
+A PREPRINT
+James Vo∗
+DocumentAI Team
+AGILESODA INC.
+Seoul, 06149, South Korea
+anhdungitvn@agilesoda.ai
+October 16, 2024
+ABSTRACT
+In this paper, we propose Transformer Layer Injection (TLI), a novel method for efficiently upscaling large language models (LLMs) while minimizing computational costs and maintaining model
+performance. Model scale is a key factor in enhancing the quality of machine learning models, and
+TLI addresses the challenge of scaling by reducing initial loss, minimizing fine-tuning requirements,
+and preserving model complexity. Our approach improves upon the conventional Depth Up-Scaling
+(DUS) technique by injecting new layers into every set of K layers, enabling hidden representations to
+pass through transformer blocks with minimal disruption. We compare TLI with existing approaches,
+including Mixture of Experts (MoE) and DUS, and validate its efficiency through experiments on
+small LLMs (LLama3 1B, 3B, and 8B). Results show that TLI achieves better initialization, requires
+fewer training steps, and delivers superior accuracy on tasks such as KoBEST and KMCQA, with
+models performing effectively even without additional training. TLI is demonstrated to be both
+data-efficient and cost-effective, significantly outperforming existing methods. Its scalability and
+simplicity make it a promising solution for upscaling transformer-based models, with potential
+applications in scaling models from 10B to 405B parameters.
+Keywords Transformer Layer Injection· Efficient Model Scaling· Large Language Model Optimization· Computational
+Efficiency · Neural Network Upscaling
+1 Introduction
+In recent years, large language models (LLMs) have become foundational to advancements in natural language
+processing (NLP), powering applications such as machine translation, question answering, and text generation. These
+models, exemplified by architectures like GPT (OpenAI et al. [2024]), LLama (Dubey et al. [2024]), and Mistral (Jiang
+et al. [2023]), have demonstrated that scaling up model size directly correlates with improvements in performance across
+a wide range of tasks (Kim et al. [2024], Komatsuzaki et al. [2023], Tan and Le [2020], Fedus et al. [2022]). The growing
+consensus is that larger models, when trained on vast amounts of data, exhibit better generalization, understanding, and
+generation capabilities. However, this trend towards larger models introduces significant computational and architectural
+challenges, particularly when attempting to upscale models in a resource-efficient manner.
+Upscaling a model’s parameters from x billion to y billion, where y exceeds x, without incurring substantial computational overhead presents a central challenge. Traditional approaches to model scaling, such as increasing depth or width,
+often result in inefficient initializations, high memory demands, and extended fine-tuning processes. These challenges
+are compounded by the necessity to maintain model complexity while minimizing training costs and time, factors
+that become especially critical when scaling models beyond tens of billions of parameters. Existing methods, such as
+Mixture of Experts (MoE) (Fedus et al. [2022]) and Depth Up-Scaling (DUS) (Kim et al. [2024]), have been proposed
+∗Anh-Dung V o
+arXiv:2410.11654v1 [cs.CL] 15 Oct 2024
+
+[PAGE 2]
+Transformer Layer Injection (TLI) A PREPRINT
+to address these issues, each offering advantages and limitations. MoE models, for instance, enable sparsity in layer
+utilization, improving computational efficiency but at the cost of increased architectural complexity and fine-tuning
+requirements. DUS, on the other hand, is simple to implement but leads to suboptimal initialization due to mismatches
+in layer characteristics, resulting in increased training loss.
+In this context, we introduce Transformer Layer Injection (TLI), a novel approach aimed at efficiently upscaling LLMs
+while preserving model integrity and minimizing both computational and training demands. The TLI method enhances
+traditional upscaling techniques by injecting layers within predefined intervals of existing layers, ensuring that the
+hidden representations within the transformer blocks pass with minimal disruption. This approach provides better
+model initialization, reducing initial loss and allowing for faster convergence during training. Unlike other methods,
+TLI offers a solution that is both scalable and practical, delivering superior performance without the need for additional
+fine-tuning or increased architectural complexity.
+This paper provides a detailed exploration of the TLI method and its application to LLM upscaling. We conduct
+experiments on smaller-scale LLMs, including LLama3 models with 1B, 3B, and 8B parameters, comparing TLI with
+MoE and DUS across several benchmarks. The results demonstrate that TLI outperforms both methods in terms of
+initialization efficiency, data utilization, and model accuracy, with a significant reduction in the number of training steps
+required to reach optimal performance. Furthermore, TLI proves to be a cost-effective and scalable solution, capable of
+supporting upscaling efforts for models as large as 405B parameters.
+The remainder of this paper is structured as follows: Section 2 reviews the current state-of-the-art methods for model
+upscaling, highlighting their strengths and weaknesses. Section 3 introduces the TLI methodology, detailing its
+implementation and theoretical foundations. In Section 4, we present the experimental setup, followed by results and
+analysis in Section 5. Finally, Section 6 concludes with a discussion of the broader implications of TLI and outlines
+directions for future research.
+2 Related Work
+The rapid development of large language models (LLMs) has introduced significant advancements in natural language
+processing (NLP) tasks, with models like GPT, LLama, and Mistral demonstrating state-of-the-art performance across
+various domains. The trend toward larger models, with parameter counts extending into the hundreds of billions,
+has proven effective for improving generalization and task-specific performance. However, this scaling comes with
+significant computational and architectural challenges. As such, various techniques have been proposed to address the
+efficiency issues associated with scaling LLMs, including Mixture of Experts (MoE) and depth-wise scaling strategies.
+This section reviews the key methods that have informed the development of Transformer Layer Injection (TLI).
+One prominent approach is the Depth Up-Scaling (DUS) method introduced by Kim et al. in the SOLAR 10.7B model,
+which focuses on increasing the depth of transformers by duplicating top and bottom layers, effectively expanding
+the model’s depth while maintaining simplicity. DUS demonstrates that scaling model depth without significantly
+altering model architecture can lead to improved performance in LLMs like SOLAR 10.7B, which outperformed prior
+models on a wide range of NLP tasks (Kim et al. [2024]). Despite its simplicity, however, DUS suffers from suboptimal
+initialization, as duplicating layers with varying characteristics introduces training inefficiencies, often resulting in
+increased initial loss. This limitation is one of the key challenges that TLI seeks to address, as TLI’s method of injecting
+new layers at regular intervals mitigates the initialization issues caused by abrupt layer duplication in DUS.
+Another influential approach is the Mixture of Experts (MoE) model, which has gained traction as an efficient strategy
+for managing computational costs in LLM scaling. MoE introduces sparse model activation by routing tokens to
+specific “experts,” where each expert consists of a subset of the model’s layers (Fedus et al. [2022]). This selective
+activation allows MoE models, such as the Switch Transformer, to manage an enormous number of parameters without
+a proportional increase in computational cost. While MoE has demonstrated significant improvements in pre-training
+speed and resource efficiency, especially in large-scale multilingual settings, it introduces architectural complexity that
+makes fine-tuning and inference more difficult (Fedus et al. [2022]). The routing of tokens to experts can also result in
+instability during training, requiring careful tuning and additional communication overhead. In contrast, TLI avoids the
+architectural overhead of MoE while still providing a scalable solution to efficiently increase model size.
+The concept of sparsity is further explored in Sparse Upcycling, where pre-trained dense models are converted into
+sparse MoE models, allowing for more efficient computation without training from scratch. Sparse Upcycling reduces
+the cost of training large models by leveraging already trained dense checkpoints and converting them into sparsely
+activated experts (Komatsuzaki et al. [2023]). This method has proven effective in multiple domains, including both
+natural language and vision tasks, yielding significant efficiency improvements. However, like other sparse approaches,
+it requires complex modifications to the original dense models and involves intricate model management during the
+
+[PAGE 3]
+Transformer Layer Injection (TLI) A PREPRINT
+training and inference phases. TLI, in comparison, takes a different route by preserving the dense architecture while
+still offering an efficient mechanism for scaling LLMs through layer injection.
+In addition to these LLM-specific strategies, scaling methods developed for **Convolutional Neural Networks (CNNs)**
+provide useful insights into efficient model scaling. **EfficientNet**, a pioneering scaling strategy for CNNs, introduced
+a compound scaling method that simultaneously adjusts the network’s depth, width, and resolution (Tan and Le [2020]).
+This balanced scaling approach demonstrated that improvements in one dimension often require corresponding
+adjustments in others to optimize performance. While EfficientNet is designed for CNNs, the principle of balanced
+scaling is analogous to LLM scaling efforts, where depth and width adjustments must be carefully managed to avoid
+inefficiencies. TLI’s approach to layer injection takes inspiration from such balanced scaling efforts by ensuring that
+new layers are introduced systematically across the model to minimize disruption to hidden representations.
+Switch Transformers have also significantly advanced the scaling of language models to the trillion-parameter level
+by leveraging sparse MoE techniques to decouple parameter size from computational cost. Fedus et al. (Fedus et al.
+[2022]) demonstrated how sparsely activated models could be trained faster and at a lower cost than dense models,
+achieving up to a 7x increase in pre-training speed. However, as with other MoE approaches, Switch Transformers
+require sophisticated routing mechanisms that introduce complexity into both the training and inference stages. In
+contrast, TLI’s method offers a simpler alternative by focusing on the injection of layers into dense transformer models,
+achieving efficiency without increasing architectural complexity.
+Overall, these methods represent important advancements in the field of LLM scaling, but each approach comes with
+trade-offs in terms of complexity, initialization efficiency, and computational demands. TLI builds upon the strengths of
+these prior methods while addressing their limitations, offering a more straightforward and effective solution for scaling
+LLMs. By systematically injecting layers within transformer blocks, TLI ensures better initialization, reduces training
+steps, and provides a scalable framework for expanding LLMs to hundreds of billions of parameters without the need
+for extensive fine-tuning or increased architectural complexity.
+3 Methodology
+In this section, we describe the Transformer Layer Injection (TLI) method, detailing its core motivation, problem
+statement, and the implementation steps involved in achieving efficient model upscaling. TLI is designed to mitigate the
+challenges associated with traditional upscaling approaches, such as Depth Up-Scaling (DUS) and Mixture of Experts
+(MoE), by ensuring better initialization, minimal computational overhead, and effective training performance.
+3.1 Motivation
+Scaling up large language models (LLMs) is essential for improving performance in various natural language processing
+tasks. However, the conventional scaling techniques often require extensive computational resources and time. The
+motivation behind TLI is to introduce a method that allows for efficient model expansion by systematically injecting
+layers into the transformer architecture. By strategically inserting new layers at predefined intervals, TLI minimizes
+disruption to hidden representations, resulting in better model initialization and reduced training requirements.
+3.2 Problem Statement
+The challenge lies in scaling a given model from x billion parameters to y billion parameters, where y exceeds x, in a
+resource-efficient manner. This requires maintaining model performance, minimizing computational costs, and avoiding
+extensive fine-tuning. Traditional approaches like DUS result in suboptimal initialization and increased training loss,
+while MoE introduces architectural complexity. The objective of TLI is to provide a scalable, efficient method to
+upscale LLMs without these drawbacks.
+3.3 Definition of Efficiency
+Efficiency in the context of LLM upscaling is defined by the following criteria:
+1. Minimal computational overhead : The method should not significantly increase memory or computational
+requirements.
+2. Reduced initial loss: The new layers should integrate smoothly with the existing layers, ensuring minimal loss
+during initialization.
+3. Limited fine-tuning requirements: The model should achieve high performance with minimal additional training.
+
+[PAGE 4]
+Transformer Layer Injection (TLI) A PREPRINT
+4. Preservation of model complexity: TLI aims to maintain the original architecture’s simplicity while improving
+scalability and performance.
+3.4 Transformer Layer Injection (TLI) Approach
+3.4.1 Layer Injection Strategy
+The central idea of TLI is to inject new layers within a set of existing layers. For every K layers in the original model, a
+new layer is introduced by duplicating the previous transformer layer. This approach allows hidden representations
+to pass through the model with minimal disruption, enabling a smoother transition between layers and avoiding the
+initialization problems seen in DUS.
+The process involves the following steps:
+1. Identifying layer injection points: The model is divided into intervals, where every K layers a new layer is injected.
+2. Duplicating transformer layers: For each injection point, the previous transformer layer is duplicated, preserving
+the model’s hidden representations.
+3. Ensuring model stability: The new layers are initialized to ensure that the model remains stable during training and
+requires fewer fine-tuning steps.
+3.4.2 How It Works
+The TLI is illustrated in Figure 1 and formally presented in Algorithm 1, which outlines its key steps.
+Figure 1: Proposed Transformer Layer Injection (TLI) Method
+3.4.3 Training-wise Strategy
+It is important to note that the output model generated by the TLI method is capable of functioning effectively without
+the need for additional training. However, in scenarios where further training is required, such as 1) enhancing model
+performance for a specific task, or 2) incorporating new knowledge related to a novel task by adjusting the newly
+
+[PAGE 5]
+Transformer Layer Injection (TLI) A PREPRINT
+Algorithm 1 Transformer Layer Injection (TLI)
+1: Input: Model M, original number of layers Lorig, desired number of layers Lnew, checkpoint ckpt
+2: Initialize layer injection interval: split = Lorig
+Lnew−Lorig
+3: Initialize requires_grad_layers = [], layer_cnt = 0
+4: Initialize empty dictionary output to store modified state dict
+5: for each layer i = 0, 1, ..., Lorig − 1 do
+6: for each key k in ckpt do
+7: if k contains layers.i then
+8: Replace i with layer_cnt in k and store in output
+9: end if
+10: end for
+11: Increment layer_cnt
+12: if (i + 1)%split == 0 then
+13: for each key k in ckpt do
+14: if k contains layers.i then
+15: if k contains ’down_proj’ or ’o_proj’then
+16: Insert a zero tensor for the new layer in output
+17: else
+18: Copy the original layer’s parameters to the new layer inoutput
+19: end if
+20: end if
+21: end for
+22: Append layer_cnt to requires_grad_layers
+23: Increment layer_cnt
+24: end if
+25: end for
+26: Verify layer_cnt == Lnew
+27: for each key k in ckpt not containing ’layers’do
+28: Copy the key-value pair to output
+29: end for
+30: Save the modified model to output_dir
+31: Update model config: set new layer count, requires_grad_layers, and other parameters
+32: Save the updated model configuration
+introduced N/K layers, we propose a cost-effective, training-wise strategy that facilitates rapid optimization of the
+model.
+As depicted in Figure 1, the TLI method employs a transformer-based model with N transformer layers as input and
+produces an augmented model comprising N + N/K layers, where K is a parameter that defines the Injection Layer
+Points. Crucially, within the N + N/K layers, only N/K layers are subject to new weight initialization, while the majority
+of the N layers are transferred from the original pretrained model.
+1. Step 1: Training of the new N/K layers: The first step involves freezing the entire model, with the exception of the
+newly injected N/K layers. These newly introduced layers are then trained to ensure efficient adaptation to the specific
+requirements of the task.
+1. Step 2: Training the entire model: In the second step, the entire model (N + N/K layers) is fine-tuned using efficient
+techniques, such as LoRA (Hu et al. [2021]) or QLoRA (Dettmers et al. [2023]), which allow for rapid convergence to
+an optimal state.
+3.4.4 Computational Advantages
+By injecting new layers at regular intervals rather than duplicating entire sections of the model, TLI reduces the number
+of additional computations required compared to DUS. Additionally, since the injected layers are derived from the
+existing transformer architecture, the method avoids the architectural complexities introduced by MoE.
+
+[TABLE page=5 index=1]
+Columns: Algorithm 1 Transformer Layer Injection (TLI)
+Row 1: Algorithm 1 Transformer Layer Injection (TLI): 1: Input: Model M , original number of layers Lorig, desired number of layers Lnew, checkpoint ckpt
+Row 2: Algorithm 1 Transformer Layer Injection (TLI): L
+Row 3: Algorithm 1 Transformer Layer Injection (TLI): 2: Initialize layer injection interval: origsplit =
+Row 4: Algorithm 1 Transformer Layer Injection (TLI): Lnew−Lorig
+Row 5: Algorithm 1 Transformer Layer Injection (TLI): 3: Initialize requires_grad_layers = [], layer_cnt = 0
+Row 6: Algorithm 1 Transformer Layer Injection (TLI): 4: Initialize empty dictionary output to store modified state dict
+Row 7: Algorithm 1 Transformer Layer Injection (TLI): 5: for each layer i = 0, 1, ..., Lorig − 1 do
+Row 8: Algorithm 1 Transformer Layer Injection (TLI): 6: for each key k in ckpt do
+Row 9: Algorithm 1 Transformer Layer Injection (TLI): 7: if k contains layers.i then
+Row 10: Algorithm 1 Transformer Layer Injection (TLI): 8: Replace i with layer_cnt in k and store in output
+Row 11: Algorithm 1 Transformer Layer Injection (TLI): 9: end if
+Row 12: Algorithm 1 Transformer Layer Injection (TLI): 10: end for
+Row 13: Algorithm 1 Transformer Layer Injection (TLI): 11: Increment layer_cnt
+Row 14: Algorithm 1 Transformer Layer Injection (TLI): 12: if (i+ 1)%split == 0 then
+Row 15: Algorithm 1 Transformer Layer Injection (TLI): 13: for each key k in ckpt do
+Row 16: Algorithm 1 Transformer Layer Injection (TLI): 14: if k contains layers.i then
+Row 17: Algorithm 1 Transformer Layer Injection (TLI): 15: if k contains ’down_proj’ or ’o_proj’ then
+Row 18: Algorithm 1 Transformer Layer Injection (TLI): 16: Insert a zero tensor for the new layer in output
+[/TABLE]
+
+[PAGE 6]
+Transformer Layer Injection (TLI) A PREPRINT
+3.5 Strategy for Experimental Setup
+We evaluate the performance of TLI using LLama3 models of varying sizes, specifically focusing on models with
+1B, 3B, and 8B parameters. The experiments were conducted by applying both TLI and DUS methods to scale these
+models, followed by a comparison of training steps, initialization loss, and overall performance.
+Strategy for Scaling the Model
+For each model, the following steps were executed:
+1. Model Initialization: The base model was loaded, and the original number of layers was identified.
+2. Layer Injection: TLI was applied by injecting layers at predefined intervals, resulting in upscaled models with a
+higher number of parameters.
+3. Performance Evaluation: The modified models were fine-tuned using tasks such as KoBEST (Kim et al. [2022]) and
+KMCQA (Korean Multi-Choice Question Answering reference being updated) to assess performance improvements.
+3.6 Strategy for Results and Observations
+1. Initialization Efficiency: TLI demonstrated superior initialization efficiency, with the injected layers smoothly
+integrated into the model architecture. The initialization loss was significantly lower compared to DUS, allowing for
+faster convergence during training.
+2. Reduced Training Steps: Models upscaled using TLI required fewer training steps to achieve comparable or better
+performance than those upscaled using DUS. This indicates that TLI provides better data efficiency, reducing the time
+and computational cost associated with training.
+3. Performance on Benchmark Tasks: The models upscaled using TLI consistently outperformed those using DUS
+on tasks such as KoBEST (Kim et al. [2022]) and KMCQA (Korean Multi-Choice Question Answering reference being
+updated). This was achieved without requiring additional fine-tuning, further demonstrating TLI’s efficiency in scaling
+LLMs.
+4 Experimental Results
+In the next section, we will discuss the experimental results in more detail, providing insights into the advantages of
+TLI over traditional scaling methods.
+5 Conclusion
+TLI presents a novel, efficient solution for scaling LLMs. By injecting layers at regular intervals, it ensures better model
+initialization, reduces training steps, and delivers superior performance on key NLP tasks. The simplicity and scalability
+of TLI make it a promising alternative to existing upscaling methods, offering significant improvements in terms of
+computational efficiency and model accuracy.
+References
+OpenAI, Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo
+Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, Red Avila, Igor Babuschkin, Suchir Balaji, Valerie
+Balcom, Paul Baltescu, Haiming Bao, Mohammad Bavarian, Jeff Belgum, Irwan Bello, Jake Berdine, Gabriel
+Bernadett-Shapiro, Christopher Berner, Lenny Bogdonoff, Oleg Boiko, Madelaine Boyd, Anna-Luisa Brakman,
+Greg Brockman, Tim Brooks, Miles Brundage, Kevin Button, Trevor Cai, Rosie Campbell, Andrew Cann, Brittany
+Carey, Chelsea Carlson, Rory Carmichael, Brooke Chan, Che Chang, Fotis Chantzis, Derek Chen, Sully Chen, Ruby
+Chen, Jason Chen, Mark Chen, Ben Chess, Chester Cho, Casey Chu, Hyung Won Chung, Dave Cummings, Jeremiah
+Currier, Yunxing Dai, Cory Decareaux, Thomas Degry, Noah Deutsch, Damien Deville, Arka Dhar, David Dohan,
+Steve Dowling, Sheila Dunning, Adrien Ecoffet, Atty Eleti, Tyna Eloundou, David Farhi, Liam Fedus, Niko Felix,
+Simón Posada Fishman, Juston Forte, Isabella Fulford, Leo Gao, Elie Georges, Christian Gibson, Vik Goel, Tarun
+Gogineni, Gabriel Goh, Rapha Gontijo-Lopes, Jonathan Gordon, Morgan Grafstein, Scott Gray, Ryan Greene, Joshua
+Gross, Shixiang Shane Gu, Yufei Guo, Chris Hallacy, Jesse Han, Jeff Harris, Yuchen He, Mike Heaton, Johannes
+Heidecke, Chris Hesse, Alan Hickey, Wade Hickey, Peter Hoeschele, Brandon Houghton, Kenny Hsu, Shengli Hu,
+Xin Hu, Joost Huizinga, Shantanu Jain, Shawn Jain, Joanne Jang, Angela Jiang, Roger Jiang, Haozhun Jin, Denny
+
+[PAGE 7]
+Transformer Layer Injection (TLI) A PREPRINT
+Jin, Shino Jomoto, Billie Jonn, Heewoo Jun, Tomer Kaftan, Łukasz Kaiser, Ali Kamali, Ingmar Kanitscheider,
+Nitish Shirish Keskar, Tabarak Khan, Logan Kilpatrick, Jong Wook Kim, Christina Kim, Yongjik Kim, Jan Hendrik
+Kirchner, Jamie Kiros, Matt Knight, Daniel Kokotajlo, Łukasz Kondraciuk, Andrew Kondrich, Aris Konstantinidis,
+Kyle Kosic, Gretchen Krueger, Vishal Kuo, Michael Lampe, Ikai Lan, Teddy Lee, Jan Leike, Jade Leung, Daniel Levy,
+Chak Ming Li, Rachel Lim, Molly Lin, Stephanie Lin, Mateusz Litwin, Theresa Lopez, Ryan Lowe, Patricia Lue,
+Anna Makanju, Kim Malfacini, Sam Manning, Todor Markov, Yaniv Markovski, Bianca Martin, Katie Mayer, Andrew
+Mayne, Bob McGrew, Scott Mayer McKinney, Christine McLeavey, Paul McMillan, Jake McNeil, David Medina,
+Aalok Mehta, Jacob Menick, Luke Metz, Andrey Mishchenko, Pamela Mishkin, Vinnie Monaco, Evan Morikawa,
+Daniel Mossing, Tong Mu, Mira Murati, Oleg Murk, David Mély, Ashvin Nair, Reiichiro Nakano, Rajeev Nayak,
+Arvind Neelakantan, Richard Ngo, Hyeonwoo Noh, Long Ouyang, Cullen O’Keefe, Jakub Pachocki, Alex Paino, Joe
+Palermo, Ashley Pantuliano, Giambattista Parascandolo, Joel Parish, Emy Parparita, Alex Passos, Mikhail Pavlov,
+Andrew Peng, Adam Perelman, Filipe de Avila Belbute Peres, Michael Petrov, Henrique Ponde de Oliveira Pinto,
+Michael, Pokorny, Michelle Pokrass, Vitchyr H. Pong, Tolly Powell, Alethea Power, Boris Power, Elizabeth Proehl,
+Raul Puri, Alec Radford, Jack Rae, Aditya Ramesh, Cameron Raymond, Francis Real, Kendra Rimbach, Carl
+Ross, Bob Rotsted, Henri Roussez, Nick Ryder, Mario Saltarelli, Ted Sanders, Shibani Santurkar, Girish Sastry,
+Heather Schmidt, David Schnurr, John Schulman, Daniel Selsam, Kyla Sheppard, Toki Sherbakov, Jessica Shieh,
+Sarah Shoker, Pranav Shyam, Szymon Sidor, Eric Sigler, Maddie Simens, Jordan Sitkin, Katarina Slama, Ian Sohl,
+Benjamin Sokolowsky, Yang Song, Natalie Staudacher, Felipe Petroski Such, Natalie Summers, Ilya Sutskever, Jie
+Tang, Nikolas Tezak, Madeleine B. Thompson, Phil Tillet, Amin Tootoonchian, Elizabeth Tseng, Preston Tuggle,
+Nick Turley, Jerry Tworek, Juan Felipe Cerón Uribe, Andrea Vallone, Arun Vijayvergiya, Chelsea V oss, Carroll
+Wainwright, Justin Jay Wang, Alvin Wang, Ben Wang, Jonathan Ward, Jason Wei, CJ Weinmann, Akila Welihinda,
+Peter Welinder, Jiayi Weng, Lilian Weng, Matt Wiethoff, Dave Willner, Clemens Winter, Samuel Wolrich, Hannah
+Wong, Lauren Workman, Sherwin Wu, Jeff Wu, Michael Wu, Kai Xiao, Tao Xu, Sarah Yoo, Kevin Yu, Qiming Yuan,
+Wojciech Zaremba, Rowan Zellers, Chong Zhang, Marvin Zhang, Shengjia Zhao, Tianhao Zheng, Juntang Zhuang,
+William Zhuk, and Barret Zoph. Gpt-4 technical report, 2024. URL https://arxiv.org/abs/2303.08774.
+Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil
+Mathur, Alan Schelten, Amy Yang, Angela Fan, Anirudh Goyal, Anthony Hartshorn, Aobo Yang, Archi Mitra, Archie
+Sravankumar, Artem Korenev, Arthur Hinsvark, Arun Rao, Aston Zhang, Aurelien Rodriguez, Austen Gregerson, Ava
+Spataru, Baptiste Roziere, Bethany Biron, Binh Tang, Bobbie Chern, Charlotte Caucheteux, Chaya Nayak, Chloe Bi,
+Chris Marra, Chris McConnell, Christian Keller, Christophe Touret, Chunyang Wu, Corinne Wong, Cristian Canton
+Ferrer, Cyrus Nikolaidis, Damien Allonsius, Daniel Song, Danielle Pintz, Danny Livshits, David Esiobu, Dhruv
+Choudhary, Dhruv Mahajan, Diego Garcia-Olano, Diego Perino, Dieuwke Hupkes, Egor Lakomkin, Ehab AlBadawy,
+Elina Lobanova, Emily Dinan, Eric Michael Smith, Filip Radenovic, Frank Zhang, Gabriel Synnaeve, Gabrielle Lee,
+Georgia Lewis Anderson, Graeme Nail, Gregoire Mialon, Guan Pang, Guillem Cucurell, Hailey Nguyen, Hannah
+Korevaar, Hu Xu, Hugo Touvron, Iliyan Zarov, Imanol Arrieta Ibarra, Isabel Kloumann, Ishan Misra, Ivan Evtimov,
+Jade Copet, Jaewon Lee, Jan Geffert, Jana Vranes, Jason Park, Jay Mahadeokar, Jeet Shah, Jelmer van der Linde,
+Jennifer Billock, Jenny Hong, Jenya Lee, Jeremy Fu, Jianfeng Chi, Jianyu Huang, Jiawen Liu, Jie Wang, Jiecao Yu,
+Joanna Bitton, Joe Spisak, Jongsoo Park, Joseph Rocca, Joshua Johnstun, Joshua Saxe, Junteng Jia, Kalyan Vasuden
+Alwala, Kartikeya Upasani, Kate Plawiak, Ke Li, Kenneth Heafield, Kevin Stone, Khalid El-Arini, Krithika Iyer,
+Kshitiz Malik, Kuenley Chiu, Kunal Bhalla, Lauren Rantala-Yeary, Laurens van der Maaten, Lawrence Chen, Liang
+Tan, Liz Jenkins, Louis Martin, Lovish Madaan, Lubo Malo, Lukas Blecher, Lukas Landzaat, Luke de Oliveira,
+Madeline Muzzi, Mahesh Pasupuleti, Mannat Singh, Manohar Paluri, Marcin Kardas, Mathew Oldham, Mathieu
+Rita, Maya Pavlova, Melanie Kambadur, Mike Lewis, Min Si, Mitesh Kumar Singh, Mona Hassan, Naman Goyal,
+Narjes Torabi, Nikolay Bashlykov, Nikolay Bogoychev, Niladri Chatterji, Olivier Duchenne, Onur Çelebi, Patrick
+Alrassy, Pengchuan Zhang, Pengwei Li, Petar Vasic, Peter Weng, Prajjwal Bhargava, Pratik Dubal, Praveen Krishnan,
+Punit Singh Koura, Puxin Xu, Qing He, Qingxiao Dong, Ragavan Srinivasan, Raj Ganapathy, Ramon Calderer,
+Ricardo Silveira Cabral, Robert Stojnic, Roberta Raileanu, Rohit Girdhar, Rohit Patel, Romain Sauvestre, Ronnie
+Polidoro, Roshan Sumbaly, Ross Taylor, Ruan Silva, Rui Hou, Rui Wang, Saghar Hosseini, Sahana Chennabasappa,
+Sanjay Singh, Sean Bell, Seohyun Sonia Kim, Sergey Edunov, Shaoliang Nie, Sharan Narang, Sharath Raparthy,
+Sheng Shen, Shengye Wan, Shruti Bhosale, Shun Zhang, Simon Vandenhende, Soumya Batra, Spencer Whitman,
+Sten Sootla, Stephane Collot, Suchin Gururangan, Sydney Borodinsky, Tamar Herman, Tara Fowler, Tarek Sheasha,
+Thomas Georgiou, Thomas Scialom, Tobias Speckbacher, Todor Mihaylov, Tong Xiao, Ujjwal Karn, Vedanuj
+Goswami, Vibhor Gupta, Vignesh Ramanathan, Viktor Kerkez, Vincent Gonguet, Virginie Do, Vish V ogeti, Vladan
+Petrovic, Weiwei Chu, Wenhan Xiong, Wenyin Fu, Whitney Meers, Xavier Martinet, Xiaodong Wang, Xiaoqing Ellen
+Tan, Xinfeng Xie, Xuchao Jia, Xuewei Wang, Yaelle Goldschlag, Yashesh Gaur, Yasmine Babaei, Yi Wen, Yiwen
+Song, Yuchen Zhang, Yue Li, Yuning Mao, Zacharie Delpierre Coudert, Zheng Yan, Zhengxing Chen, Zoe Papakipos,
+Aaditya Singh, Aaron Grattafiori, Abha Jain, Adam Kelsey, Adam Shajnfeld, Adithya Gangidi, Adolfo Victoria,
+Ahuva Goldstand, Ajay Menon, Ajay Sharma, Alex Boesenberg, Alex Vaughan, Alexei Baevski, Allie Feinstein,
+Amanda Kallet, Amit Sangani, Anam Yunus, Andrei Lupu, Andres Alvarado, Andrew Caples, Andrew Gu, Andrew
+
+[PAGE 8]
+Transformer Layer Injection (TLI) A PREPRINT
+Ho, Andrew Poulton, Andrew Ryan, Ankit Ramchandani, Annie Franco, Aparajita Saraf, Arkabandhu Chowdhury,
+Ashley Gabriel, Ashwin Bharambe, Assaf Eisenman, Azadeh Yazdan, Beau James, Ben Maurer, Benjamin Leonhardi,
+Bernie Huang, Beth Loyd, Beto De Paola, Bhargavi Paranjape, Bing Liu, Bo Wu, Boyu Ni, Braden Hancock, Bram
+Wasti, Brandon Spence, Brani Stojkovic, Brian Gamido, Britt Montalvo, Carl Parker, Carly Burton, Catalina Mejia,
+Changhan Wang, Changkyu Kim, Chao Zhou, Chester Hu, Ching-Hsiang Chu, Chris Cai, Chris Tindal, Christoph
+Feichtenhofer, Damon Civin, Dana Beaty, Daniel Kreymer, Daniel Li, Danny Wyatt, David Adkins, David Xu, Davide
+Testuggine, Delia David, Devi Parikh, Diana Liskovich, Didem Foss, Dingkang Wang, Duc Le, Dustin Holland,
+Edward Dowling, Eissa Jamil, Elaine Montgomery, Eleonora Presani, Emily Hahn, Emily Wood, Erik Brinkman,
+Esteban Arcaute, Evan Dunbar, Evan Smothers, Fei Sun, Felix Kreuk, Feng Tian, Firat Ozgenel, Francesco Caggioni,
+Francisco Guzmán, Frank Kanayet, Frank Seide, Gabriela Medina Florez, Gabriella Schwarz, Gada Badeer, Georgia
+Swee, Gil Halpern, Govind Thattai, Grant Herman, Grigory Sizov, Guangyi, Zhang, Guna Lakshminarayanan, Hamid
+Shojanazeri, Han Zou, Hannah Wang, Hanwen Zha, Haroun Habeeb, Harrison Rudolph, Helen Suk, Henry Aspegren,
+Hunter Goldman, Ibrahim Damlaj, Igor Molybog, Igor Tufanov, Irina-Elena Veliche, Itai Gat, Jake Weissman, James
+Geboski, James Kohli, Japhet Asher, Jean-Baptiste Gaya, Jeff Marcus, Jeff Tang, Jennifer Chan, Jenny Zhen, Jeremy
+Reizenstein, Jeremy Teboul, Jessica Zhong, Jian Jin, Jingyi Yang, Joe Cummings, Jon Carvill, Jon Shepard, Jonathan
+McPhie, Jonathan Torres, Josh Ginsburg, Junjie Wang, Kai Wu, Kam Hou U, Karan Saxena, Karthik Prasad, Kartikay
+Khandelwal, Katayoun Zand, Kathy Matosich, Kaushik Veeraraghavan, Kelly Michelena, Keqian Li, Kun Huang,
+Kunal Chawla, Kushal Lakhotia, Kyle Huang, Lailin Chen, Lakshya Garg, Lavender A, Leandro Silva, Lee Bell,
+Lei Zhang, Liangpeng Guo, Licheng Yu, Liron Moshkovich, Luca Wehrstedt, Madian Khabsa, Manav Avalani,
+Manish Bhatt, Maria Tsimpoukelli, Martynas Mankus, Matan Hasson, Matthew Lennie, Matthias Reso, Maxim
+Groshev, Maxim Naumov, Maya Lathi, Meghan Keneally, Michael L. Seltzer, Michal Valko, Michelle Restrepo,
+Mihir Patel, Mik Vyatskov, Mikayel Samvelyan, Mike Clark, Mike Macey, Mike Wang, Miquel Jubert Hermoso,
+Mo Metanat, Mohammad Rastegari, Munish Bansal, Nandhini Santhanam, Natascha Parks, Natasha White, Navyata
+Bawa, Nayan Singhal, Nick Egebo, Nicolas Usunier, Nikolay Pavlovich Laptev, Ning Dong, Ning Zhang, Norman
+Cheng, Oleg Chernoguz, Olivia Hart, Omkar Salpekar, Ozlem Kalinli, Parkin Kent, Parth Parekh, Paul Saab, Pavan
+Balaji, Pedro Rittner, Philip Bontrager, Pierre Roux, Piotr Dollar, Polina Zvyagina, Prashant Ratanchandani, Pritish
+Yuvraj, Qian Liang, Rachad Alao, Rachel Rodriguez, Rafi Ayub, Raghotham Murthy, Raghu Nayani, Rahul Mitra,
+Raymond Li, Rebekkah Hogan, Robin Battey, Rocky Wang, Rohan Maheswari, Russ Howes, Ruty Rinott, Sai Jayesh
+Bondu, Samyak Datta, Sara Chugh, Sara Hunt, Sargun Dhillon, Sasha Sidorov, Satadru Pan, Saurabh Verma, Seiji
+Yamamoto, Sharadh Ramaswamy, Shaun Lindsay, Shaun Lindsay, Sheng Feng, Shenghao Lin, Shengxin Cindy Zha,
+Shiva Shankar, Shuqiang Zhang, Shuqiang Zhang, Sinong Wang, Sneha Agarwal, Soji Sajuyigbe, Soumith Chintala,
+Stephanie Max, Stephen Chen, Steve Kehoe, Steve Satterfield, Sudarshan Govindaprasad, Sumit Gupta, Sungmin
+Cho, Sunny Virk, Suraj Subramanian, Sy Choudhury, Sydney Goldman, Tal Remez, Tamar Glaser, Tamara Best,
+Thilo Kohler, Thomas Robinson, Tianhe Li, Tianjun Zhang, Tim Matthews, Timothy Chou, Tzook Shaked, Varun
+V ontimitta, Victoria Ajayi, Victoria Montanez, Vijai Mohan, Vinay Satish Kumar, Vishal Mangla, Vítor Albiero,
+Vlad Ionescu, Vlad Poenaru, Vlad Tiberiu Mihailescu, Vladimir Ivanov, Wei Li, Wenchen Wang, Wenwen Jiang,
+Wes Bouaziz, Will Constable, Xiaocheng Tang, Xiaofang Wang, Xiaojian Wu, Xiaolan Wang, Xide Xia, Xilun Wu,
+Xinbo Gao, Yanjun Chen, Ye Hu, Ye Jia, Ye Qi, Yenda Li, Yilin Zhang, Ying Zhang, Yossi Adi, Youngjin Nam, Yu,
+Wang, Yuchen Hao, Yundi Qian, Yuzi He, Zach Rait, Zachary DeVito, Zef Rosnbrick, Zhaoduo Wen, Zhenyu Yang,
+and Zhiwei Zhao. The llama 3 herd of models, 2024. URL https://arxiv.org/abs/2407.21783.
+Albert Q. Jiang, Alexandre Sablayrolles, Arthur Mensch, Chris Bamford, Devendra Singh Chaplot, Diego de las Casas,
+Florian Bressand, Gianna Lengyel, Guillaume Lample, Lucile Saulnier, Lélio Renard Lavaud, Marie-Anne Lachaux,
+Pierre Stock, Teven Le Scao, Thibaut Lavril, Thomas Wang, Timothée Lacroix, and William El Sayed. Mistral 7b,
+2023. URL https://arxiv.org/abs/2310.06825.
+Dahyun Kim, Chanjun Park, Sanghoon Kim, Wonsung Lee, Wonho Song, Yunsu Kim, Hyeonwoo Kim, Yungi Kim,
+Hyeonju Lee, Jihoo Kim, Changbae Ahn, Seonghoon Yang, Sukyung Lee, Hyunbyung Park, Gyoungjin Gim,
+Mikyoung Cha, Hwalsuk Lee, and Sunghun Kim. Solar 10.7b: Scaling large language models with simple yet
+effective depth up-scaling, 2024. URL https://arxiv.org/abs/2312.15166.
+Aran Komatsuzaki, Joan Puigcerver, James Lee-Thorp, Carlos Riquelme Ruiz, Basil Mustafa, Joshua Ainslie, Yi Tay,
+Mostafa Dehghani, and Neil Houlsby. Sparse upcycling: Training mixture-of-experts from dense checkpoints, 2023.
+URL https://arxiv.org/abs/2212.05055.
+Mingxing Tan and Quoc V . Le. Efficientnet: Rethinking model scaling for convolutional neural networks, 2020. URL
+https://arxiv.org/abs/1905.11946.
+William Fedus, Barret Zoph, and Noam Shazeer. Switch transformers: Scaling to trillion parameter models with simple
+and efficient sparsity, 2022. URL https://arxiv.org/abs/2101.03961.
+Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen.
+Lora: Low-rank adaptation of large language models, 2021. URL https://arxiv.org/abs/2106.09685.
+
+[PAGE 9]
+Transformer Layer Injection (TLI) A PREPRINT
+Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. Qlora: Efficient finetuning of quantized llms,
+2023. URL https://arxiv.org/abs/2305.14314.
+Dohyeong Kim, Myeongjun Jang, Deuk Sin Kwon, and Eric Davis. Kobest: Korean balanced evaluation of significant
+tasks, 2022. URL https://arxiv.org/abs/2204.04541.

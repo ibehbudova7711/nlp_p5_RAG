@@ -1,0 +1,957 @@
+[PAGE 1]
+HerBERT: Efﬁciently Pretrained Transformer-based
+Language Model for Polish
+Robert Mroczkowski1 Piotr Rybak1 Alina Wróblewska2 Ireneusz Gawlik1,3
+1ML Research at Allegro.pl
+2Institute of Computer Science, Polish Academy of Sciences
+3Department of Computer Science, AGH University of Science and Technology
+{firstname.lastname}@allegro.pl, alina@ipipan.waw.pl
+Abstract
+BERT-based models are currently used for
+solving nearly all Natural Language Processing (NLP) tasks and most often achieve stateof-the-art results. Therefore, the NLP community conducts extensive research on understanding these models, but above all on designing effective and efﬁcient training procedures.
+Several ablation studies investigating how to
+train BERT-like models have been carried out,
+but the vast majority of them concerned only
+the English language. A training procedure designed for English does not have to be universal and applicable to other especially typologically different languages. Therefore, this paper presents the ﬁrst ablation study focused on
+Polish, which, unlike the isolating English language, is a fusional language. We design and
+thoroughly evaluate a pretraining procedure of
+transferring knowledge from multilingual to
+monolingual BERT-based models. In addition
+to multilingual model initialization, other factors that possibly inﬂuence pretraining are also
+explored, i.e. training objective, corpus size,
+BPE-Dropout, and pretraining length. Based
+on the proposed procedure, a Polish BERTbased language model – HerBERT – is trained.
+This model achieves state-of-the-art results on
+multiple downstream tasks.
+1 Introduction
+Recent advancements in self-supervised pretraining techniques drastically changed the way we design Natural Language Processing (NLP) systems.
+Even though, pretraining has been present in NLP
+for many years (Mikolov et al., 2013; Pennington
+et al., 2014; Bojanowski et al., 2017), only recently
+we observed a shift from task-speciﬁc to generalpurpose models. In particular, the BERT model
+(Devlin et al., 2019) proved to be a dominant architecture and obtained state-of-the-art results for
+a variety of NLP tasks.
+While most of the research related to analyzing
+and improving BERT-based models focuses on English, there is an increasing body of work aimed
+at training and evaluation of models for other languages, including Polish. Thus far, a handful of
+models speciﬁc for Polish has been released, e.g.
+Polbert1, ﬁrst version of HerBERT (Rybak et al.,
+2020), and Polish RoBERTa (Dadas et al., 2020).
+Aforementioned works lack ablation studies,
+making it difﬁcult to attribute hyperparameters
+choices to models performance. In this work, we
+ﬁll this gap by conducting an extensive set of experiments and developing an efﬁcient BERT training
+procedure. As a result, we were able to train and
+release a new BERT-based model for Polish language understanding. Our model establishes a new
+state-of-the-art on the variety of downstream tasks
+including semantic relatedness, question answering, sentiment analysis and part-of-speech tagging.
+To summarize, our contributions are:
+1. development and evaluation of an efﬁcient
+pretraining procedure for transferring knowledge from multilingual to monolingual language models based on work by Arkhipov
+et al. (2019),
+2. detailed analysis and an ablation study challenging the effectiveness of Sentence Structural Objective (SSO, Wang et al., 2020), and
+Byte Pair Encoding Dropout (BPE-Dropout,
+Provilkov et al., 2020),
+3. release of HerBERT2 – a BERT-based model
+for Polish language understanding, which
+achieves state-of-the-art results on KLEJ
+Benchmark (Rybak et al., 2020) and POS tagging task (Wróblewska, 2020).
+1https://github.com/kldarek/polbert
+2https://huggingface.co/allegro/
+herbert-large-cased
+arXiv:2105.01735v1 [cs.CL] 4 May 2021
+
+[TABLE page=1 index=1]
+Columns: Recent advancements in self-supervised pretrain- | Unnamed: 0 | Byte Pair Encoding Dropout (BPE-Dropout,
+Row 1: Recent advancements in self-supervised pretrain-: ing techniques drastically changed the way we de- | Unnamed: 0: | Byte Pair Encoding Dropout (BPE-Dropout,: Provilkov et al., 2020),
+Row 2: Recent advancements in self-supervised pretrain-: sign Natural Language Processing (NLP) systems. | Unnamed: 0: | Byte Pair Encoding Dropout (BPE-Dropout,:
+Row 3: Recent advancements in self-supervised pretrain-: Even though, pretraining has been present in NLP | Unnamed: 0: 3. | Byte Pair Encoding Dropout (BPE-Dropout,: release of HerBERT2 – a BERT-based model
+Row 4: Recent advancements in self-supervised pretrain-: for many years (Mikolov et al., 2013; Pennington | Unnamed: 0: | Byte Pair Encoding Dropout (BPE-Dropout,: for Polish language understanding, which
+Row 5: Recent advancements in self-supervised pretrain-: et al., 2014; Bojanowski et al., 2017), only recently | Unnamed: 0: | Byte Pair Encoding Dropout (BPE-Dropout,: achieves state-of-the-art results on KLEJ
+Row 6: Recent advancements in self-supervised pretrain-: we observed a shift from task-specific to general- | Unnamed: 0: | Byte Pair Encoding Dropout (BPE-Dropout,: Benchmark (Rybak et al., 2020) and POS tagRow 7: Recent advancements in self-supervised pretrain-: purpose models. In particular, the BERT model | Unnamed: 0: | Byte Pair Encoding Dropout (BPE-Dropout,: ging task (Wróblewska, 2020).
+Row 8: Recent advancements in self-supervised pretrain-: (Devlin et al., 2019) proved to be a dominant ar- | Unnamed: 0: | Byte Pair Encoding Dropout (BPE-Dropout,:
+Row 9: Recent advancements in self-supervised pretrain-: | Unnamed: 0: 1 | Byte Pair Encoding Dropout (BPE-Dropout,:
+Row 10: Recent advancements in self-supervised pretrain-: | Unnamed: 0: https://github.com/kldarek/polbert | Byte Pair Encoding Dropout (BPE-Dropout,:
+Row 11: Recent advancements in self-supervised pretrain-: chitecture and obtained state-of-the-art results for | Unnamed: 0: 2 | Byte Pair Encoding Dropout (BPE-Dropout,:
+[/TABLE]
+
+[PAGE 2]
+The rest of the paper is organized as follows. In
+Section 2, we provide an overview of related work.
+After that, Section 3 introduces the BERT-based
+language model and experimental setup used in this
+work. In Section 4, we conduct a thorough ablation
+study to investigate the impact of several design
+choices on the performance of downstream tasks.
+Next, in Section 5 we apply drawn conclusions
+and describe the training of HerBERT model. In
+Section 6, we evaluate HerBERT on a set of eleven
+tasks and compare its performance to other stateof-the-art models. Finally, we conclude our work
+in Section 7.
+2 Related Work
+The ﬁrst signiﬁcant ablation study of BERT-based
+language pretraining was described by Liu et al.
+(2019). Authors demonstrated the ineffectiveness
+of Next Sentence Prediction (NSP) objective, the
+importance of dynamic token masking, and gains
+from using both large batch size and large training
+dataset. Further large-scale studies analyzed the
+relation between the model and the training dataset
+sizes (Kaplan et al., 2020), the amount of compute
+used for training (Brown et al., 2020) and training
+strategies and objectives (Raffel et al., 2019).
+Other work focused on studying and improving BERT training objectives. As mentioned before, the NSP objective was either removed (Liu
+et al., 2019) or enhanced either by predicting the
+correct order of sentences (Sentence Order Prediction (SOP), Lan et al., 2020) or discriminating between previous, next and random sentence
+(Sentence Structural Objective (SSO), Wang et al.,
+2020). Similarly, the Masked Language Modelling
+(MLM) objective was extended to either predict
+spans of tokens (Joshi et al., 2019), re-order shufﬂed tokens (Word Structural Objective (WSO),
+Wang et al., 2020) or replaced altogether with a
+binary classiﬁcation problem using mask generation (Clark et al., 2020).
+For tokenization, the Byte Pair Encoding algorithm (BPE, Sennrich et al., 2016) is commonly
+used. The original BERT model used WordPiece
+implementation (Schuster and Nakajima, 2012),
+which was later replaced by SentencePiece (Kudo
+and Richardson, 2018). Gong et al. (2018) discovered that rare words lack semantic meaning.
+Provilkov et al. (2020) proposed a BPE-Dropout
+technique to solve this issue.
+All of the above work was conducted for English language understanding. There was little research into understanding how different pretraining techniques affect BERT-based models for other
+languages. The main research focus was to train
+BERT-based models and report their performance
+on downstream tasks. The ﬁrst such models were
+released for German3 and Chinese (Devlin et al.,
+2019), recently followed by Finnish (Virtanen et al.,
+2019), French (Martin et al., 2020; Le et al., 2020),
+Polish (Rybak et al., 2020; Dadas et al., 2020),
+Russian (Kuratov and Arkhipov, 2019), and many
+other languages4. Research on developing and investigating an efﬁcient procedure of pretraining
+BERT-based models was rather neglected in these
+languages.
+Language understanding for low-resource languages has also been addressed by training jointly
+for several languages at the same time. That approach improves performance for moderate and
+low-resource languages as showed by Conneau and
+Lample (2019). The ﬁrst model of this kind was the
+multilingual BERT trained for 104 languages (Devlin et al., 2019) followed by Conneau and Lample
+(2019) and Conneau et al. (2020).
+3 Experimental Setup
+In this section, we describe the experimental setup
+used in the ablation study. First, we introduce the
+corpora we used to train models. Then, we give an
+overview of the language model architecture and
+training procedure. In particular, we describe the
+method of transferring knowledge from multilingual to monolingual BERT-based models. Finally,
+we present the evaluation tasks.
+3.1 Training Data
+We gathered six corpora to create two datasets
+on which we trained HerBERT. The ﬁrst dataset
+(henceforth called Small) consists of corpora of
+the highest quality, i.e. NKJP, Wikipedia, and
+Wolne Lektury. The second dataset (Large) is over
+ﬁve times larger as it additionally contains texts of
+lower quality (CCNet and Open Subtitles). Below,
+we present a short description of each corpus. Additionally, we include the basic corpora statistics in
+Table 1.
+NKJP (Narodowy Korpus J˛ ezyka Polskiego, eng.
+National Corpus of Polish) (Przepiórkowski, 2012)
+is a well balanced collection of Polish texts. It
+3https://deepset.ai/german-bert
+4https://huggingface.co/models
+
+[TABLE page=2 index=2]
+Columns: After that, Section 3 introduces the BERT-based | ing techniques affect BERT-based models for other
+Row 1: After that, Section 3 introduces the BERT-based: language model and experimental setup used in this | ing techniques affect BERT-based models for other: languages. The main research focus was to train
+Row 2: After that, Section 3 introduces the BERT-based: work. In Section 4, we conduct a thorough ablation | ing techniques affect BERT-based models for other: BERT-based models and report their performance
+Row 3: After that, Section 3 introduces the BERT-based: study to investigate the impact of several design | ing techniques affect BERT-based models for other: on downstream tasks. The first such models were
+[/TABLE]
+
+[PAGE 3]
+Corpus Tokens Documents Avg len
+Source Corpora
+NKJP 1357M 3.9M 347
+Wikipedia 260M 1.4M 190
+Wolne Lektury 41M 5.5k 7447
+CCNet Head 2641M 7.0M 379
+CCNet Middle 3243M 7.9M 409
+Open Subtitles 1056M 1.1M 961
+Final Corpora
+Small 1658M 5.3M 313
+Large 8599M 21.3M 404
+Table 1: Overview of all data sources used to train HerBERT. We combine them into two corpora. The Small
+corpus consists of the highest quality text resources:
+NKJP, Wikipedia, and Wolne Lektury. The Large corpus consists of all sources. Avg len is the average number of tokens per document in each corpus.
+consists of texts from many different sources, such
+as classic literature, books, newspapers, journals,
+transcripts of conversations, and texts crawled from
+the internet.
+Wikipedia is an online encyclopedia created by
+the community of Internet users. Even though it is
+crowd-sourced, it is recognized as a high-quality
+collection of articles.
+Wolne Lektury (eng. Free Readings)5 is a collection of over ﬁve thousand books and poems,
+mostly from 19th and 20th century, which have
+already fallen in the public domain.
+CCNet (Wenzek et al., 2020) is a clean monolingual corpus extracted from Common Crawl 6
+dataset of crawled websites.
+Open Subtitles is a popular website offering
+movie and TV subtitles, which was used by Lison
+and Tiedemann (2016) to curate and release a multilingual parallel corpus from which we extracted
+its monolingual Polish part.
+3.2 Language Model
+Tokenizer We used Byte-Pair Encoding (BPE)
+tokenizer (Sennrich et al., 2016) with the vocabulary size of 50k tokens and trained it on the most
+5https://wolnelektury.pl
+6http://commoncrawl.org/
+representative parts of our corpus, i.e annotated
+subset of the NKJP, and the Wikipedia.
+Subword regularization is supposed to emphasize the semantic meaning of tokens (Gong et al.,
+2018; Provilkov et al., 2020). To verify its impact on training language model we used a BPEDropout (Provilkov et al., 2020) with a probability
+of dropping a merge equal to 10%.
+Architecture We followed the original BERT
+(Devlin et al., 2019) architectures for both BASE
+(12 layers, 12 attention heads and hidden dimension of 768) and LARGE (24 layers, 16 attention
+heads and hidden dimension of 1024) variants.
+Initialization We initialized models either randomly or by using weights from XLM-RoBERTa
+(Conneau et al., 2020). In the latter case, the parameters for all layers except word embeddings and
+token type embeddings were copied directly from
+the source model. Since XLM-RoBERTa does not
+use the NSP objective and does not have the token
+type embeddings, we took them from the original
+BERT model.
+To overcome the difference in tokenizers vocabularies we used a method similar to (Arkhipov et al.,
+2019). If a token from the target model vocabulary
+was present in the source model vocabulary then
+we directly copied its weights.
+Otherwise, it was split into smaller units and the
+embedding was obtained by averaging sub-tokens
+embeddings.
+Training Objectives We trained all models with
+an updated version of the MLM objective (Joshi
+et al., 2019; Martin et al., 2020), masking ranges
+of subsequent tokens belonging to single words instead of individual (possibly subword) tokens. We
+replaced the NSP objective with SSO. The other
+parameters were kept the same as in the original
+BERT paper. Training objective is deﬁned in Equation 1.
+L =LMLM(θ) +α·L SSO(θ) (1)
+whereα is the SSO weight.
+3.3 Tasks
+KLEJ Benchmark The standard method for
+evaluating pretrained language models is to use
+a diverse collection of tasks grouped into a single benchmark. Such benchmarks exist in many
+languages, e.g. English (GLUE, Wang et al.,
+
+[TABLE page=3 index=1]
+Columns: Corpus Tokens Documents | Unnamed: 0 | Avg len | Unnamed: 1 | representative parts of our corpus, i.e annotated
+Row 1: Corpus Tokens Documents: | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: subset of the NKJP, and the Wikipedia.
+Row 2: Corpus Tokens Documents: Source Corpora | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: Subword regularization is supposed to emphaRow 3: Corpus Tokens Documents: NKJP 1357M 3.9M | Unnamed: 0: | Avg len: 347 | Unnamed: 1: | representative parts of our corpus, i.e annotated: size the semantic meaning of tokens (Gong et al.,
+Row 4: Corpus Tokens Documents: | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: 2018; Provilkov et al., 2020). To verify its imRow 5: Corpus Tokens Documents: Wikipedia 260M 1.4M | Unnamed: 0: | Avg len: 190 | Unnamed: 1: | representative parts of our corpus, i.e annotated:
+Row 6: Corpus Tokens Documents: | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: pact on training language model we used a BPERow 7: Corpus Tokens Documents: Wolne Lektury 41M 5.5k | Unnamed: 0: | Avg len: 7447 | Unnamed: 1: | representative parts of our corpus, i.e annotated:
+Row 8: Corpus Tokens Documents: | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: Dropout (Provilkov et al., 2020) with a probability
+Row 9: Corpus Tokens Documents: CCNet Head 2641M 7.0M | Unnamed: 0: | Avg len: 379 | Unnamed: 1: | representative parts of our corpus, i.e annotated: of dropping a merge equal to 10%.
+Row 10: Corpus Tokens Documents: CCNet Middle 3243M 7.9M | Unnamed: 0: | Avg len: 409 | Unnamed: 1: | representative parts of our corpus, i.e annotated:
+Row 11: Corpus Tokens Documents: | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: Architecture We followed the original BERT
+Row 12: Corpus Tokens Documents: Open Subtitles 1056M 1.1M | Unnamed: 0: | Avg len: 961 | Unnamed: 1: | representative parts of our corpus, i.e annotated: (Devlin et al., 2019) architectures for both BASE
+Row 13: Corpus Tokens Documents: Final Corpora | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: (12 layers, 12 attention heads and hidden dimenRow 14: Corpus Tokens Documents: | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: sion of 768) and LARGE (24 layers, 16 attention
+Row 15: Corpus Tokens Documents: Small 1658M 5.3M | Unnamed: 0: | Avg len: 313 | Unnamed: 1: | representative parts of our corpus, i.e annotated: heads and hidden dimension of 1024) variants.
+Row 16: Corpus Tokens Documents: Large 8599M 21.3M | Unnamed: 0: | Avg len: 404 | Unnamed: 1: | representative parts of our corpus, i.e annotated:
+Row 17: Corpus Tokens Documents: | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: Initialization We initialized models either ranRow 18: Corpus Tokens Documents: Table 1: Overview of all data sources used to train Her- | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: domly or by using weights from XLM-RoBERTa
+Row 19: Corpus Tokens Documents: BERT. We combine them into two corpora. | Unnamed: 0: | Avg len: The Small | Unnamed: 1: | representative parts of our corpus, i.e annotated: (Conneau et al., 2020). In the latter case, the paRow 20: Corpus Tokens Documents: corpus consists of the highest quality text | Unnamed: 0: | Avg len: resources: | Unnamed: 1: | representative parts of our corpus, i.e annotated: rameters for all layers except word embeddings and
+Row 21: Corpus Tokens Documents: NKJP, Wikipedia, and Wolne Lektury. The Large cor- | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: token type embeddings were copied directly from
+Row 22: Corpus Tokens Documents: pus consists of all sources. Avg len is the average num- | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: the source model. Since XLM-RoBERTa does not
+Row 23: Corpus Tokens Documents: ber of tokens per document in each corpus. | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: use the NSP objective and does not have the token
+Row 24: Corpus Tokens Documents: | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: type embeddings, we took them from the original
+Row 25: Corpus Tokens Documents: consists of texts from many different sources, such | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: BERT model.
+Row 26: Corpus Tokens Documents: as classic literature, books, newspapers, journals, | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: To overcome the difference in tokenizers vocabuRow 27: Corpus Tokens Documents: transcripts of conversations, and texts crawled from | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: laries we used a method similar to (Arkhipov et al.,
+Row 28: Corpus Tokens Documents: the internet. | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: 2019). If a token from the target model vocabulary
+Row 29: Corpus Tokens Documents: | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: was present in the source model vocabulary then
+Row 30: Corpus Tokens Documents: Wikipedia is an online encyclopedia created by | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: we directly copied its weights.
+Row 31: Corpus Tokens Documents: the community of Internet users. Even though it is | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: Otherwise, it was split into smaller units and the
+Row 32: Corpus Tokens Documents: crowd-sourced, it is recognized as a high-quality | Unnamed: 0: | Avg len: | Unnamed: 1: | representative parts of our corpus, i.e annotated: embedding was obtained by averaging sub-tokens
+[/TABLE]
+
+[PAGE 4]
+2019), Chinese (CLUE, Xu et al., 2020), and Polish
+(KLEJ, Rybak et al., 2020).
+Following this paradigm we ﬁrst veriﬁed the
+quality of assessed models with KLEJ. It consists
+of nine tasks: name entity classiﬁcation ( NKJPNER, Przepiórkowski, 2012), semantic relatedness
+(CDSC-R, Wróblewska and Krasnowska-Kiera ´s,
+2017), natural language inference ( CDSC-E,
+Wróblewska and Krasnowska-Kiera´s, 2017), cyberbullying detection (CBD, Ptaszynski et al., 2019),
+sentiment analysis ( PolEmo2.0-IN, PolEmo2.0OUT, Koco´n et al., 2019, AR, Rybak et al., 2020),
+question answering (Czy wiesz?, Marcinczuk et al.,
+2013), and text similarity (PSC, Ogrodniczuk and
+Kope´c, 2014).
+POS Tagging and Dependency Parsing All of
+the KLEJ Benchmark tasks belong to the classiﬁcation or regression type. It is therefore difﬁcult to
+assess the quality of individual token embeddings.
+To address this issue, we further evaluated HerBERT on part-of-speech tagging and dependency
+parsing tasks.
+For tagging, we used the manually annotated subset of NKJP (Degórski and Przepiórkowski, 2012),
+converted to the CoNLL-U format by Wróblewska
+(2020). We evaluated models performance on a test
+set using accuracy and F1-Score.
+For dependency parsing, we applied Polish Dependency Bank (Wróblewska, 2018) from the Universal Dependencies repository (release 2.5, Zeman
+et al., 2019).
+In addition to three Transformer-based models,
+we also included models trained with static embeddings. The ﬁrst one did not use pretrained
+embeddings while the latter utilized fastText (Bojanowski et al., 2017) embeddings trained on Common Crawl.
+The models are evaluated with the standard metrics: UAS (unlabeled attachment score) and LAS
+(labelled attachment score). The gold-standard segmentation was preserved. We report the results on
+the test set.
+4 Ablation Study
+In this section, we analyze the impact of several
+design choices on downstream task performance of
+Polish BERT-based models. In particular, we focus
+on initialization, corpus size, training objective,
+BPE-Dropout, and the length of pretraining.
+4.1 Experimental Design
+Hyperparameters Unless stated otherwise, in
+all experiments we trained BERTBASE model initialized with XLM-RoBERTa weights for 10k iterations using a linear decay schedule of the learning
+rate with a peak value of 7· 10−4 and a warm-up
+of 500 iterations. We used a batch size of 2560.
+Evaluation Different experimental setups were
+compared using the average score on the KLEJ
+Benchmark. The validation sets are used for evaluation and we report the results corresponding to the
+median values of the ﬁve runs. Since only six tasks
+in KLEJ Benchmark have validation sets the scores
+are not directly comparable to those reported in
+Section 6. We used Welch’s t-test (Welch, 1947)
+with a p-value of 0.01 to test for statistical differences between experimental variants.
+4.2 Results
+Initialization One of the main goals of this work
+is to propose an efﬁcient strategy to train a monolingual language model. We began with investigating
+the impact of pretraining the language model itself.
+For this purpose, the following experiments were
+designed.
+Init Pretraining BPE Score
+Ablation Models
+Random No - 58.15 ± 0.33
+XLM-R No - 83.15 ± 1.22
+Random Yes No 85.65 ± 0.43
+XLM-R Yes No 88.80 ± 0.15
+Random Yes Yes 85.78 ± 0.23
+XLM-R Yes Yes 89.10± 0.19
+Original Models
+XLM-R - - 88.82 ± 0.15
+Table 2: Average scores on KLEJ Benchmark depending on the initialization scheme: Random – initialization with random weights, XLM-R – initialization with
+XLM-RoBERTa weights. We used BERT BASE model
+trained for 10k iterations with the SSO weight equal to
+1.0 on the Large corpus. The best score within each
+group is underlined, the best overall is bold.
+First, we ﬁne-tuned randomly initialized BERT
+model on KLEJ Benchmark tasks. Note that this
+model is not pretrained in any way. As expected,
+
+[TABLE page=4 index=1]
+Columns: (2020). We evaluated models performance on a test | Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3
+Row 1: (2020). We evaluated models performance on a test: | Unnamed: 0: Init | Unnamed: 1: Pretraining BPE | Unnamed: 2: | Unnamed: 3: Score
+Row 2: (2020). We evaluated models performance on a test: set using accuracy and F1-Score. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 3: (2020). We evaluated models performance on a test: For dependency parsing, we applied Polish De- | Unnamed: 0: | Unnamed: 1: Ablation Models | Unnamed: 2: | Unnamed: 3:
+Row 4: (2020). We evaluated models performance on a test: pendency Bank (Wróblewska, 2018) from the Uni- | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 5: (2020). We evaluated models performance on a test: | Unnamed: 0: Random | Unnamed: 1: No - | Unnamed: 2: | Unnamed: 3: 58.15 ± 0.33
+Row 6: (2020). We evaluated models performance on a test: versal Dependencies repository (release 2.5, Zeman | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 7: (2020). We evaluated models performance on a test: et al., 2019). | Unnamed: 0: XLM-R | Unnamed: 1: No - | Unnamed: 2: | Unnamed: 3: 83.15 ± 1.22
+Row 8: (2020). We evaluated models performance on a test: In addition to three Transformer-based models, | Unnamed: 0: Random | Unnamed: 1: Yes No | Unnamed: 2: | Unnamed: 3: 85.65 ± 0.43
+Row 9: (2020). We evaluated models performance on a test: we also included models trained with static em- | Unnamed: 0: XLM-R | Unnamed: 1: Yes No | Unnamed: 2: | Unnamed: 3: 88.80 ± 0.15
+Row 10: (2020). We evaluated models performance on a test: beddings. The first one did not use pretrained | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 11: (2020). We evaluated models performance on a test: embeddings while the latter utilized fastText (Bo- | Unnamed: 0: Random | Unnamed: 1: Yes Yes | Unnamed: 2: | Unnamed: 3: 85.78 ± 0.23
+Row 12: (2020). We evaluated models performance on a test: janowski et al., 2017) embeddings trained on Com- | Unnamed: 0: XLM-R | Unnamed: 1: Yes Yes | Unnamed: 2: | Unnamed: 3: 89.10 ± 0.19
+Row 13: (2020). We evaluated models performance on a test: mon Crawl. | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 14: (2020). We evaluated models performance on a test: | Unnamed: 0: | Unnamed: 1: Original Models | Unnamed: 2: | Unnamed: 3:
+Row 15: (2020). We evaluated models performance on a test: The models are evaluated with the standard met- | Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 16: (2020). We evaluated models performance on a test: rics: UAS (unlabeled attachment score) and LAS | Unnamed: 0: XLM-R | Unnamed: 1: - - | Unnamed: 2: | Unnamed: 3: 88.82 ± 0.15
+[/TABLE]
+
+[PAGE 5]
+the results on the KLEJ Benchmark are really poor
+with the average score equal to 58.15.
+Next, we evaluated the BERT model initialized
+with XLM-RoBERTa weights (see Table 2). It
+achieved much better average score than the randomly initialized model (83.15 vs 58.15), but it was
+still not as good as the original XLM-RoBERTa
+model (88.82%). The difference in the performance
+can be explained by the transfer efﬁciency. The
+method of transferring token embeddings between
+different tokenizers proves to retain most information, but not all of it.
+To measure the impact of initialization on pretraining optimization, we trained the aforementioned models for 10k iterations. Beside MLM
+objective, we used SSO loss with α = 1.0 and
+conducted experiments with both enabled and disabled BPE-Dropout. Models initialized with XLMRoBERTa achieve signiﬁcantly higher results than
+models initialized randomly, 89.10 vs 85.78 and
+88.80 vs 85.65 for pretraining with and without
+BPE-Dropout respectively.
+Models initialized with XLM-RoBERTa
+achieved similar results to the original XLMRoBERTa (the differences are not statistically
+signiﬁcant). It proves that it is possible to quickly
+recover from the performance drop caused by a
+tokenizer conversion procedure and obtain a much
+better model than the one initialized randomly.
+Corpus Size As mentioned in Section 2, previous research show that pretraining on a larger corpus is beneﬁcial for downstream task performance
+(Kaplan et al., 2020; Brown et al., 2020). We investigated this by pretraining BERTBASE model on
+both Small and Large corpora (see Section 3.1). To
+mitigate a possible impact of confounding variable,
+we also vary the weight of SSO loss and usage of
+BPE-Dropout (see Table 3).
+As expected, the model pretrained on a Large
+corpus performs better on downstream tasks. However, the difference is statistically signiﬁcant only
+for the experiment with SSO weight equal to 1.0
+and BPE-Dropout enabled. Therefore it’s not obvious whether a larger corpus is actually beneﬁcial.
+Sentence Structural Objective Subsequently,
+we tested SSO, i.e. the recently introduced replacement for the NSP objective, which proved to be ineffective. We compared models trained with three
+values of SSO weightα (see Section 3.2): 0.0 (no
+SSO), 0.1 (small impact of SSO), and 1.0 (SSO
+Corpus SSO BPE Score
+Small 1.0 Yes 88.73 ± 0.08
+Large 1.0 Yes 89.10 ± 0.19
+Small 0.1 Yes 88.90 ± 0.24
+Large 0.1 Yes 89.37± 0.25
+Small 0.0 Yes 89.18 ± 0.15
+Large 0.0 Yes 89.25 ± 0.21
+Small 0.0 No 89.12 ± 0.29
+Large 0.0 No 89.28 ± 0.26
+Table 3: Average scores on KLEJ Benchmark depending on a corpus size. We used BERTBASE model trained
+for 10k iterations with or without BPE-Dropout and
+with various SSO weights. The best score within each
+group is underlined, the best overall is bold.
+equally important as MLM objective) (see Table
+4).
+The experiment showed, that SSO actually hurts
+downstream task performance. The differences
+between enabled and disabled SSO are statistically
+signiﬁcant for two out of three experimental setups.
+The only scenario for which the negative effect
+of SSO is not statistically signiﬁcant is using the
+Large corpus and BPE-dropout. Overall, the best
+results are achieved using a small SSO weight but
+the differences are not signiﬁcantly different from
+disabling SSO.
+SSO Corpus BPE Score
+0.0 Small Yes 89.18 ± 0.15
+0.1 Small Yes 88.90 ± 0.24
+1.0 Small Yes 88.73 ± 0.08
+0.0 Large Yes 89.25 ± 0.21
+0.1 Large Yes 89.37 ± 0.25
+1.0 Large Yes 89.10 ± 0.19
+0.0 Large No 89.28 ± 0.26
+0.1 Large No 89.45± 0.18
+1.0 Large No 88.80 ± 0.15
+Table 4: Average scores on KLEJ Benchmark depending on a SSO weight. We used BERT BASE model
+trained for 10k iterations with BPE-Dropout. The best
+score within each group is underlined, the best overall
+is bold.
+
+[TABLE page=5 index=1]
+Columns: the results on the KLEJ Benchmark are really poor | Corpus SSO | BPE | Score | Unnamed: 0
+Row 1: the results on the KLEJ Benchmark are really poor: with the average score equal to 58.15. | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 2: the results on the KLEJ Benchmark are really poor: Next, we evaluated the BERT model initialized | Corpus SSO: Small 1.0 | BPE: Yes | Score: 88.73 ± 0.08 | Unnamed: 0:
+Row 3: the results on the KLEJ Benchmark are really poor: with XLM-RoBERTa weights (see Table 2). It | Corpus SSO: Large 1.0 | BPE: Yes | Score: 89.10 ± 0.19 | Unnamed: 0:
+Row 4: the results on the KLEJ Benchmark are really poor: achieved much better average score than the ran- | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 5: the results on the KLEJ Benchmark are really poor: | Corpus SSO: Small 0.1 | BPE: Yes | Score: 88.90 ± 0.24 | Unnamed: 0:
+Row 6: the results on the KLEJ Benchmark are really poor: domly initialized model (83.15 vs 58.15), but it was | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 7: the results on the KLEJ Benchmark are really poor: | Corpus SSO: Large 0.1 | BPE: Yes | Score: 89.37 ± 0.25 | Unnamed: 0:
+Row 8: the results on the KLEJ Benchmark are really poor: still not as good as the original XLM-RoBERTa | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 9: the results on the KLEJ Benchmark are really poor: model (88.82%). The difference in the performance | Corpus SSO: Small 0.0 | BPE: Yes | Score: 89.18 ± 0.15 | Unnamed: 0:
+Row 10: the results on the KLEJ Benchmark are really poor: can be explained by the transfer efficiency. The | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 11: the results on the KLEJ Benchmark are really poor: | Corpus SSO: Large 0.0 | BPE: Yes | Score: 89.25 ± 0.21 | Unnamed: 0:
+Row 12: the results on the KLEJ Benchmark are really poor: method of transferring token embeddings between | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 13: the results on the KLEJ Benchmark are really poor: different tokenizers proves to retain most informa- | Corpus SSO: Small 0.0 | BPE: No | Score: 89.12 ± 0.29 | Unnamed: 0:
+Row 14: the results on the KLEJ Benchmark are really poor: tion, but not all of it. | Corpus SSO: Large 0.0 | BPE: No | Score: 89.28 ± 0.26 | Unnamed: 0:
+Row 15: the results on the KLEJ Benchmark are really poor: To measure the impact of initialization on pre- | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 16: the results on the KLEJ Benchmark are really poor: training optimization, we trained the aforemen- | Corpus SSO: Table 3: Average scores on KLEJ Benchmark depend | BPE: | Score: | Unnamed: 0:
+Row 17: the results on the KLEJ Benchmark are really poor: tioned models for 10k iterations. Beside MLM | Corpus SSO: ing on a corpus size. We used BERTBASE model trained | BPE: | Score: | Unnamed: 0:
+Row 18: the results on the KLEJ Benchmark are really poor: | Corpus SSO: for 10k iterations with | BPE: or without | Score: BPE-Dropout | Unnamed: 0: and
+Row 19: the results on the KLEJ Benchmark are really poor: objective, we used SSO loss with α = 1.0 and | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 20: the results on the KLEJ Benchmark are really poor: | Corpus SSO: with various SSO weights. | BPE: The best score within each | Score: | Unnamed: 0:
+Row 21: the results on the KLEJ Benchmark are really poor: conducted experiments with both enabled and dis- | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 22: the results on the KLEJ Benchmark are really poor: | Corpus SSO: group is underlined, the best overall is bold. | BPE: | Score: | Unnamed: 0:
+Row 23: the results on the KLEJ Benchmark are really poor: abled BPE-Dropout. Models initialized with XLM- | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 24: the results on the KLEJ Benchmark are really poor: RoBERTa achieve significantly higher results than | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 25: the results on the KLEJ Benchmark are really poor: models initialized randomly, 89.10 vs 85.78 and | Corpus SSO: equally important as MLM objective) (see Table | BPE: | Score: | Unnamed: 0:
+Row 26: the results on the KLEJ Benchmark are really poor: 88.80 vs 85.65 for pretraining with and without | Corpus SSO: 4). | BPE: | Score: | Unnamed: 0:
+Row 27: the results on the KLEJ Benchmark are really poor: BPE-Dropout respectively. | Corpus SSO: The experiment showed, that SSO actually hurts | BPE: | Score: | Unnamed: 0:
+Row 28: the results on the KLEJ Benchmark are really poor: Models initialized with XLM-RoBERTa | Corpus SSO: downstream task performance. | BPE: | Score: The differences | Unnamed: 0:
+Row 29: the results on the KLEJ Benchmark are really poor: achieved similar results to the original XLM- | Corpus SSO: between enabled and disabled SSO are statistically | BPE: | Score: | Unnamed: 0:
+Row 30: the results on the KLEJ Benchmark are really poor: RoBERTa (the differences are not statistically | Corpus SSO: significant for two out of three experimental setups | BPE: | Score: | Unnamed: 0:
+Row 31: the results on the KLEJ Benchmark are really poor: significant). It proves that it is possible to quickly | Corpus SSO: The only scenario for which | BPE: | Score: the negative effect | Unnamed: 0:
+Row 32: the results on the KLEJ Benchmark are really poor: recover from the performance drop caused by a | Corpus SSO: of SSO is not statistically significant is using the | BPE: | Score: | Unnamed: 0:
+Row 33: the results on the KLEJ Benchmark are really poor: tokenizer conversion procedure and obtain a much | Corpus SSO: Large corpus and BPE-dropout. Overall, the best | BPE: | Score: | Unnamed: 0:
+Row 34: the results on the KLEJ Benchmark are really poor: better model than the one initialized randomly. | Corpus SSO: results are achieved using a small SSO weight but | BPE: | Score: | Unnamed: 0:
+Row 35: the results on the KLEJ Benchmark are really poor: | Corpus SSO: the differences are not significantly different from | BPE: | Score: | Unnamed: 0:
+Row 36: the results on the KLEJ Benchmark are really poor: Corpus Size As mentioned in Section 2, previ- | Corpus SSO: disabling SSO. | BPE: | Score: | Unnamed: 0:
+Row 37: the results on the KLEJ Benchmark are really poor: ous research show that pretraining on a larger cor- | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 38: the results on the KLEJ Benchmark are really poor: pus is beneficial for downstream task performance | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 39: the results on the KLEJ Benchmark are really poor: | Corpus SSO: SSO Corpus | BPE: BPE | Score: Score | Unnamed: 0:
+Row 40: the results on the KLEJ Benchmark are really poor: (Kaplan et al., 2020; Brown et al., 2020). We in- | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 41: the results on the KLEJ Benchmark are really poor: vestigated this by pretraining BERTBASE model on | Corpus SSO: 0.0 Small | BPE: Yes | Score: 89.18 ± 0.15 | Unnamed: 0:
+Row 42: the results on the KLEJ Benchmark are really poor: both Small and Large corpora (see Section 3.1). To | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 43: the results on the KLEJ Benchmark are really poor: | Corpus SSO: 0.1 Small | BPE: Yes | Score: 88.90 ± 0.24 | Unnamed: 0:
+Row 44: the results on the KLEJ Benchmark are really poor: mitigate a possible impact of confounding variable, | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 45: the results on the KLEJ Benchmark are really poor: | Corpus SSO: 1.0 Small | BPE: Yes | Score: 88.73 ± 0.08 | Unnamed: 0:
+Row 46: the results on the KLEJ Benchmark are really poor: we also vary the weight of SSO loss and usage of | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 47: the results on the KLEJ Benchmark are really poor: BPE-Dropout (see Table 3). | Corpus SSO: 0.0 Large | BPE: Yes | Score: 89.25 ± 0.21 | Unnamed: 0:
+Row 48: the results on the KLEJ Benchmark are really poor: As expected, the model pretrained on a Large | Corpus SSO: 0.1 Large | BPE: Yes | Score: 89.37 ± 0.25 | Unnamed: 0:
+Row 49: the results on the KLEJ Benchmark are really poor: corpus performs better on downstream tasks. How- | Corpus SSO: 1.0 Large | BPE: Yes | Score: 89.10 ± 0.19 | Unnamed: 0:
+Row 50: the results on the KLEJ Benchmark are really poor: ever, the difference is statistically significant only | Corpus SSO: | BPE: | Score: | Unnamed: 0:
+Row 51: the results on the KLEJ Benchmark are really poor: for the experiment with SSO weight equal to 1.0 | Corpus SSO: 0.0 Large | BPE: No | Score: 89.28 ± 0.26 | Unnamed: 0:
+Row 52: the results on the KLEJ Benchmark are really poor: and BPE-Dropout enabled. Therefore it’s not obvi- | Corpus SSO: 0.1 Large | BPE: No | Score: 89.45 ± 0.18 | Unnamed: 0:
+Row 53: the results on the KLEJ Benchmark are really poor: ous whether a larger corpus is actually beneficial. | Corpus SSO: 1.0 Large | BPE: No | Score: 88.80 ± 0.15 | Unnamed: 0:
+[/TABLE]
+
+[PAGE 6]
+BPE-Dropout The BPE-Dropout could be beneﬁcial for downstream task performance, but its
+impact is difﬁcult to assess due to many confounding variables.
+The model initialization with XLM-RoBERTa
+weights means that token embedding is already
+semantically meaningful even without additional
+pretraining. However, for both random and XLMRoBERTa initialization the BPE-Dropout is beneﬁcial.
+BPE Init SSO Corpus Score
+No Random 1.0 Large 85.65 ± 0.43
+Yes Random 1.0 Large 85.78 ± 0.23
+No XLM-R 1.0 Large 88.80 ± 0.15
+Yes XLM-R 1.0 Large 89.10 ± 0.19
+No XLM-R 0.0 Large 89.28± 0.26
+Yes XLM-R 0.0 Large 89.25 ± 0.21
+No XLM-R 0.0 Small 89.12 ± 0.29
+Yes XLM-R 0.0 Small 89.18 ± 0.15
+Table 5: Average scores on KLEJ Benchmark depending on usage of BPE-Dropout. We used BERT BASE
+model trained for 10k iterations on a large corpus. The
+best score within each group is underlined, the best
+overall is bold.
+According to the results (see Table 5), none of
+the reported differences is statistically signiﬁcant
+and we can only conclude that BPE-Dropout does
+not inﬂuence the model performance.
+Length of Pretraining The length of pretraining
+in terms of the number of iterations is commonly
+considered an important factor of the ﬁnal quality
+of the model (Kaplan et al., 2020). Even though it
+seems straightforward to validate this hypothesis
+in practice it is not so trivial.
+When pretraining Transformer-based models linear decaying learning rate is typically used. Therefore, increasing the number of training iterations
+changes the learning rate schedule and impacts the
+training. In our initial experiments usage of the
+same learning rate caused the longer training to
+collapse. Instead, we chose the learning rate for
+which the value of loss function after 10k steps was
+similar. We found that the learning rate equal to
+3· 10−4 worked best for training in 50k steps.
+Using the presented experiment setup, we tested
+the impact of pretraining length for two values
+# Iter LR SSO Score
+10k 7· 10−4 1.0 89.10 ± 0.19
+50k 3· 10−4 1.0 89.43 ± 0.10
+10k 7· 10−4 0.1 89.37 ± 0.25
+50k 3· 10−4 0.1 89.87± 0.22
+Table 6: Average scores on KLEJ Benchmark depending training length. We used BERT BASE model trained
+on a large corpus with BPE-Dropout. The best score
+within each group is underlined, the best overall is bold.
+of SSO weight: 1.0 and 0.1. In both cases, the
+model pretrained with more iterations achieves
+only slightly better but statistically signiﬁcant results (see Table 6).
+5 HerBERT
+In this section, we apply conclusions drawn from
+the ablation study (see Section 4) and describe the
+ﬁnal pretraining procedure used to train HerBERT
+model.
+Pretraining Procedure HerBERT was trained
+on the Large corpus. We used Dropout-BPE in
+tokenizer with a probability of a drop equals to 10%.
+Finally, HerBERT models were initialized with
+weights from XLM-RoBERTa and were trained
+with the objective deﬁned in Equation 1 with SSO
+weight equal to 0.1.
+Optimization We trained HerBERTBASE using
+Adam optimizer (Kingma and Ba, 2014) with parameters: β1 = 0.9, β2 = 0.999, ϵ = 10 −8 and
+a linear decay learning rate schedule with a peak
+value of 3· 10−4. Due to the initial transfer of
+weights from the already trained model, the warmup stage was set to a relatively small number of 500
+iterations. The whole training took 50k iterations.
+Training of HerBERTLARGE was longer (60k iterations) and had a more complex learning rate schedule. For the ﬁrst 15k we linearly decayed the learning rate from 3· 10−4 to 2.5· 10−4. We observed
+the saturation of evaluation metrics and decided to
+drop the learning rate to 1· 10−4. After training
+for another 25k steps and reaching the learning rate
+of 7· 10−5 we again reached the plateau of evaluation metrics. In the last phase of training, we
+dropped the learning rate to 3· 10−5 and trained
+for 20k steps until it reached zero. Additionally,
+during the last phase of training, we disabled both
+
+[TABLE page=6 index=1]
+Columns: BPE-Dropout The BPE-Dropout could be ben- | Unnamed: 0 | # Iter | LR | Unnamed: 1 | SSO | Score
+Row 1: BPE-Dropout The BPE-Dropout could be ben-: eficial for downstream task performance, but its | Unnamed: 0: | # Iter: | LR: | Unnamed: 1: | SSO: | Score:
+Row 2: BPE-Dropout The BPE-Dropout could be ben-: | Unnamed: 0: | # Iter: | LR: −4 | Unnamed: 1: | SSO: | Score:
+Row 3: BPE-Dropout The BPE-Dropout could be ben-: impact is difficult to assess due to many confound- | Unnamed: 0: | # Iter: 10k | LR: 7 · 10 | Unnamed: 1: | SSO: 1.0 | Score: 89.10 ± 0.19
+Row 4: BPE-Dropout The BPE-Dropout could be ben-: ing variables. | Unnamed: 0: | # Iter: 50k | LR: 3 · 10−4 | Unnamed: 1: | SSO: 1.0 | Score: 89.43 ± 0.10
+Row 5: BPE-Dropout The BPE-Dropout could be ben-: The model initialization with XLM-RoBERTa | Unnamed: 0: | # Iter: | LR: | Unnamed: 1: | SSO: | Score:
+Row 6: BPE-Dropout The BPE-Dropout could be ben-: | Unnamed: 0: | # Iter: 10k | LR: 7 · 10−4 | Unnamed: 1: | SSO: 0.1 | Score: 89.37 ± 0.25
+Row 7: BPE-Dropout The BPE-Dropout could be ben-: weights means that token embedding is already | Unnamed: 0: | # Iter: | LR: | Unnamed: 1: | SSO: | Score:
+Row 8: BPE-Dropout The BPE-Dropout could be ben-: semantically meaningful even without additional | Unnamed: 0: | # Iter: 50k | LR: 3 · 10−4 | Unnamed: 1: | SSO: 0.1 | Score: 89.87 ± 0.22
+[/TABLE]
+
+[PAGE 7]
+Model
+A VG
+NKJP-NER
+CDSC-E
+CDSC-R
+CBD
+PolEmo2.0-IN
+PolEmo2.0-OUT
+Czy wiesz?
+PSC
+AR
+Base Models
+XLM-RoBERTa 84.7± 0.29 91.7 93.3 93.4 66.4 90.9 77.1 64.3 97.6 87.3
+Polish RoBERTa 85.6± 0.29 94.0 94.2 94.2 63.6 90.3 76.9 71.6 98.6 87.4
+HerBERT 86.3± 0.36 94.5 94.5 94.0 67.4 90.9 80.4 68.1 98.9 87.7
+Large Models
+XLM-RoBERTa 86.8± 0.30 94.2 94.7 93.9 67.6 92.1 81.6 70.0 98.3 88.5
+Polish RoBERTa 87.5± 0.29 94.9 93.4 94.7 69.3 92.2 81.4 74.1 99.1 88.6
+HerBERT 88.4± 0.19 96.4 94.1 94.9 72.0 92.2 81.8 75.8 98.9 89.1
+Table 7: Evaluation results on KLEJ Benchmark. AVG is the average score across all tasks. Scores are reported for
+test set and correspond to median values across ﬁve runs. The best scores within each group are underlined, the
+best overall are in bold.
+BPE-Dropout and dropout within the Transformer
+itself as suggested by Lan et al. (2020).
+Both HerBERTBASE and HerBERTLARGE models were trained with a batch size of 2560.
+6 Evaluation
+In this section, we introduce other top-performing
+models for Polish language understanding and compare their performance on evaluation tasks (see
+Section 3.3) to HerBERT.
+6.1 Models
+According to the KLEJ Benchmark leaderboard 7
+the three top-performing models of Polish language
+understanding are XLM-RoBERTa-NKJP8, Polish
+RoBERTa, and XLM-RoBERTa. These are also the
+only three models available in LARGE architecture
+variant.
+Unfortunately, the XLM-RoBERTa-NKJP
+model is not publicly available, so we cannot use
+it for our evaluation. However, it has the same
+average score as the runner-up (Polish RoBERTa)
+which we compare HerBERT with.
+7https://klejbenchmark.com/
+leaderboard/
+8XLM-RoBERTa-NKJP is XLM-RoBERTa model additionally ﬁne-tuned on NKJP corpus.
+6.2 Results
+KLEJ Benchmark Both variants of HerBERT
+achieved the best average performance, signiﬁcantly outperforming Polish RoBERTa and XLMRoBERTa (see Table 7). Regarding BASE models,
+HerBERTBASE improves the state-of-the-art result
+by 0.7pp and for HerBERTLARGE the improvement
+is even bigger (0.9pp). In particular, HerBERTBASE
+scores best on eight out of nine tasks (tying on
+PolEmo2.0-OUT, performing slightly worse on
+CDSC-R) and HerBERTLARGE in seven out of nine
+tasks (tying in PolEmo2.0-IN, performing worse
+in CDSC-E and PSC). Surprisingly, HerBERTBASE
+is better than HerBERT LARGE in CDSC-E. The
+same behaviour is noticeable for Polish RoBERTa,
+but not for XLM-RoBERTa. For other tasks, the
+LARGE models are always better. Summing up,
+HerBERTLARGE is the new state-of-the-art Polish
+language model based on the results of the KLEJ
+Benchmark.
+It is worth emphasizing that the proposed procedure for efﬁcient pretraining by transferring knowledge from multilingual to monolingual language
+allowed HerBERT to achieve better results than Polish RoBERTa even though it was optimized with
+around ten times shorter training.
+POS Tagging HerBERT achieves overall better
+results in terms of both accuracy and F1-Score.
+
+[TABLE page=7 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Base Models | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Unnamed: 6 | Unnamed: 7 | Unnamed: 8 | Unnamed: 9
+Row 1: Unnamed: 0: XLM-RoBERTa | Unnamed: 1: 84.7 ± 0.29 | Unnamed: 2: 91.7 | Base Models: 93.3 93.4 | Unnamed: 3: 66.4 | Unnamed: 4: 90.9 | Unnamed: 5: 77.1 | Unnamed: 6: 64.3 | Unnamed: 7: 97.6 | Unnamed: 8: 87.3 | Unnamed: 9:
+Row 2: Unnamed: 0: Polish RoBERTa | Unnamed: 1: 85.6 ± 0.29 | Unnamed: 2: 94.0 | Base Models: 94.2 94.2 | Unnamed: 3: 63.6 | Unnamed: 4: 90.3 | Unnamed: 5: 76.9 | Unnamed: 6: 71.6 | Unnamed: 7: 98.6 | Unnamed: 8: 87.4 | Unnamed: 9: AVG
+Row 3: Unnamed: 0: HerBERT | Unnamed: 1: 86.3 ± 0.36 | Unnamed: 2: 94.5 | Base Models: 94.5 94.0 | Unnamed: 3: 67.4 | Unnamed: 4: 90.9 | Unnamed: 5: 80.4 | Unnamed: 6: 68.1 | Unnamed: 7: 98.9 | Unnamed: 8: 87.7 | Unnamed: 9:
+Row 4: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Base Models: Large Models | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9:
+Row 5: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Base Models: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: NKJ
+Row 6: Unnamed: 0: XLM-RoBERTa | Unnamed: 1: 86.8 ± 0.30 | Unnamed: 2: 94.2 | Base Models: 94.7 93.9 | Unnamed: 3: 67.6 | Unnamed: 4: 92.1 | Unnamed: 5: 81.6 | Unnamed: 6: 70.0 | Unnamed: 7: 98.3 | Unnamed: 8: 88.5 | Unnamed: 9:
+Row 7: Unnamed: 0: Polish RoBERTa | Unnamed: 1: 87.5 ± 0.29 | Unnamed: 2: 94.9 | Base Models: 93.4 94.7 | Unnamed: 3: 69.3 | Unnamed: 4: 92.2 | Unnamed: 5: 81.4 | Unnamed: 6: 74.1 | Unnamed: 7: 99.1 | Unnamed: 8: 88.6 | Unnamed: 9:
+Row 8: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Base Models: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: | Unnamed: 9: CDS
+Row 9: Unnamed: 0: HerBERT | Unnamed: 1: 88.4 ± 0.19 | Unnamed: 2: 96.4 | Base Models: 94.1 94.9 | Unnamed: 3: 72.0 | Unnamed: 4: 92.2 | Unnamed: 5: 81.8 | Unnamed: 6: 75.8 | Unnamed: 7: 98.9 | Unnamed: 8: 89.1 | Unnamed: 9:
+[/TABLE]
+
+[PAGE 8]
+Model Accuracy F1-Score
+Base Models
+XLM-RoBERTa 95.97 ± 0.04 95.79 ± 0.05
+Polish RoBERTa 96.13 ± 0.03 95.92 ± 0.03
+HerBERT 96.46 ± 0.04 96.27± 0.04
+Large Models
+XLM-RoBERTa 97.07 ± 0.05 96.93 ± 0.05
+Polish RoBERTa 97.21 ± 0.02 97.05 ± 0.03
+HerBERT 97.30± 0.02 97.17± 0.02
+Table 8: Part-of-speech tagging results on NKJP
+dataset. Scores are reported for the test set and are median values across ﬁve runs. Best scores within each
+group are underlined, best overall are bold.
+HerBERTBASE beats the second-best model (i.e.
+Polish RoBERTa) by a margin of 0.33pp (F1-Score
+by 0.35pp) and HerBERT LARGE by a margin of
+0.09pp (F1-Score by 0.12pp). It should be emphasized that while the improvements may appear
+to be minor, they are statistically signiﬁcant. All
+results are presented in Table 8.
+Dependency Parsing The dependency parsing
+results are much more ambiguous than in other
+tasks. As expected, the models with static fastText embeddings performed much worse than
+Transformer-based models (around 3pp difference for UAS, and 4pp for LAS). In the case of
+Transformer-based models, the differences are less
+noticeable. As expected, the LARGE models outperform the BASE models. The best performing
+model is Polish RoBERTa. HerBERT models performance is the worst across Transformer-based
+models except for the UAS score which is slightly
+better than XLM-RoBERTa for BASE models. All
+results are presented in Table 9.
+7 Conclusion
+In this work, we conducted a thorough ablation
+study regarding training BERT-based models for
+Polish language. We evaluated several design
+choices for pretraining BERT outside of English
+language. Contrary to Wang et al. (2020), our experiments demonstrated that SSO is not beneﬁcial
+for the downstream task performance. It also turned
+out that BPE-Dropout does not increase the quality
+of a pretrained language model.
+Model UAS LAS
+Static Embeddings
+Plain 90.58 ± 0.07 87.35 ± 0.12
+FastText 92.20 ± 0.14 89.57± 0.13
+Base Models
+XLM-RoBERTa 95.14 ± 0.07 93.25 ± 0.12
+Polish RoBERTa 95.41 ± 0.24 93.65± 0.34
+HerBERT 95.18 ± 0.22 93.24 ± 0.23
+Large Models
+XLM-RoBERTa 95.38 ± 0.02 93.66 ± 0.07
+Polish RoBERTa 95.60± 0.18 93.90± 0.21
+HerBERT 95.11 ± 0.04 93.32 ± 0.02
+Table 9: Dependency parsing results on Polish Dependency Bank dataset. Scores are reported for the test set
+and are median values across three runs. Best scores
+within each group are underlined, best overall are bold.
+As a result of our studies we developed and evaluated an efﬁcient pretraining procedure for transferring knowledge from multilingual to monolingual
+BERT-based models. We used it to train and release
+HerBERT – a Transformer-based language model
+for Polish. It was trained on a diverse multi-source
+corpus. The conducted experiments conﬁrmed its
+high performance on a set of eleven diverse linguistic tasks, as HerBERT turned out to be the best on
+eight of them. In particular, it is the best model
+for Polish language understanding according to the
+KLEJ Benchmark.
+It is worth emphasizing that the quality of the
+obtained language model was even more impressive considering its short training time. Due to
+multilingual initialization, HerBERTBASE outperformed Polish RoBERTaBASE even though it was
+trained with a smaller batch size (2560 vs 8000) for
+a fewer number of steps (50k vs 125k). The same
+behaviour is also visible for HerBERTLARGE. Additionally, we conducted a separate ablation study
+to conﬁrm that the success of HerBERT is caused
+by the described initialization scheme. It showed
+that in fact, it was the most important factor to
+improved the quality of HerBERT.
+We believe that the proposed training procedure
+and detailed experiments will encourage NLP researchers to cost-effectively train language models
+for other languages.
+
+[TABLE page=8 index=1]
+Columns: Model Accuracy | F1-Score | Unnamed: 0 | Model UAS | LAS
+Row 1: Model Accuracy: Base Models | F1-Score: | Unnamed: 0: | Model UAS: Static Embeddings | LAS:
+Row 2: Model Accuracy: XLM-RoBERTa 95.97 ± 0.04 | F1-Score: 95.79 ± 0.05 | Unnamed: 0: | Model UAS: Plain 90.58 ± 0.07 | LAS: 87.35 ± 0.12
+Row 3: Model Accuracy: Polish RoBERTa 96.13 ± 0.03 | F1-Score: 95.92 ± 0.03 | Unnamed: 0: | Model UAS: FastText 92.20 ± 0.14 | LAS: 89.57 ± 0.13
+Row 4: Model Accuracy: HerBERT 96.46 ± 0.04 | F1-Score: 96.27 ± 0.04 | Unnamed: 0: | Model UAS: | LAS:
+Row 5: Model Accuracy: | F1-Score: | Unnamed: 0: | Model UAS: Base Models | LAS:
+Row 6: Model Accuracy: Large Models | F1-Score: | Unnamed: 0: | Model UAS: | LAS:
+Row 7: Model Accuracy: | F1-Score: | Unnamed: 0: | Model UAS: XLM-RoBERTa 95.14 ± 0.07 | LAS: 93.25 ± 0.12
+Row 8: Model Accuracy: XLM-RoBERTa 97.07 ± 0.05 | F1-Score: 96.93 ± 0.05 | Unnamed: 0: | Model UAS: Polish RoBERTa 95.41 ± 0.24 | LAS: 93.65 ± 0.34
+Row 9: Model Accuracy: Polish RoBERTa 97.21 ± 0.02 | F1-Score: 97.05 ± 0.03 | Unnamed: 0: | Model UAS: HerBERT 95.18 ± 0.22 | LAS: 93.24 ± 0.23
+Row 10: Model Accuracy: HerBERT 97.30 ± 0.02 | F1-Score: 97.17 ± 0.02 | Unnamed: 0: | Model UAS: | LAS:
+Row 11: Model Accuracy: | F1-Score: | Unnamed: 0: | Model UAS: Large Models | LAS:
+Row 12: Model Accuracy: Table 8: Part-of-speech tagging results | F1-Score: on NKJP | Unnamed: 0: | Model UAS: XLM-RoBERTa 95.38 ± 0.02 | LAS: 93.66 ± 0.07
+Row 13: Model Accuracy: dataset. Scores are reported for the test set and are me- | F1-Score: | Unnamed: 0: | Model UAS: Polish RoBERTa 95.60 ± 0.18 | LAS: 93.90 ± 0.21
+Row 14: Model Accuracy: dian values across five runs. Best scores within each | F1-Score: | Unnamed: 0: | Model UAS: | LAS:
+Row 15: Model Accuracy: group are underlined, best overall are bold. | F1-Score: | Unnamed: 0: | Model UAS: HerBERT 95.11 ± 0.04 | LAS: 93.32 ± 0.02
+Row 16: Model Accuracy: | F1-Score: | Unnamed: 0: | Model UAS: Table 9: Dependency parsing results on Polish Depen- | LAS:
+Row 17: Model Accuracy: HerBERTBASE beats the second-best | F1-Score: model (i.e. | Unnamed: 0: | Model UAS: dency Bank dataset. Scores are reported for the test set | LAS:
+Row 18: Model Accuracy: Polish RoBERTa) by a margin of 0.33pp (F1-Score | F1-Score: | Unnamed: 0: | Model UAS: and are median values across three runs. | LAS: Best scores
+Row 19: Model Accuracy: | F1-Score: | Unnamed: 0: | Model UAS: within each group are underlined, best overall are bold. | LAS:
+Row 20: Model Accuracy: by 0.35pp) and HerBERTLARGE by a margin of | F1-Score: | Unnamed: 0: | Model UAS: | LAS:
+Row 21: Model Accuracy: 0.09pp (F1-Score by 0.12pp). It | F1-Score: should be em- | Unnamed: 0: | Model UAS: | LAS:
+Row 22: Model Accuracy: phasized that while the improvements may appear | F1-Score: | Unnamed: 0: | Model UAS: As a result of our studies we developed and eval- | LAS:
+Row 23: Model Accuracy: to be minor, they are statistically significant. | F1-Score: All | Unnamed: 0: | Model UAS: uated an efficient pretraining procedure for transfer- | LAS:
+Row 24: Model Accuracy: results are presented in Table 8. | F1-Score: | Unnamed: 0: | Model UAS: ring knowledge from multilingual to monolingual | LAS:
+Row 25: Model Accuracy: | F1-Score: | Unnamed: 0: | Model UAS: BERT-based models. We used it to train and release | LAS:
+Row 26: Model Accuracy: Dependency Parsing The dependency parsing | F1-Score: | Unnamed: 0: | Model UAS: HerBERT – a Transformer-based language model | LAS:
+Row 27: Model Accuracy: results are much more ambiguous | F1-Score: than in other | Unnamed: 0: | Model UAS: for Polish. It was trained on a diverse multi-source | LAS:
+[/TABLE]
+
+[TABLE page=8 index=2]
+Columns: Text embeddings | performed much | Unnamed: 0 | worse than | Unnamed: 1 | Unnamed: 2 | high performance on a set of eleven diverse linguisRow 1: Text embeddings: Transformer-based | performed much: models (around | Unnamed: 0: | worse than: 3pp differ- | Unnamed: 1: | Unnamed: 2: | high performance on a set of eleven diverse linguis-: tic tasks, as HerBERT turned out to be the best on
+Row 2: Text embeddings: ence for UAS, and 4pp for LAS). In the case of | performed much: | Unnamed: 0: | worse than: | Unnamed: 1: | Unnamed: 2: | high performance on a set of eleven diverse linguis-: eight of them. In particular, it is the best model
+Row 3: Text embeddings: Transformer-based models, the differences are less | performed much: | Unnamed: 0: | worse than: | Unnamed: 1: | Unnamed: 2: | high performance on a set of eleven diverse linguis-: for Polish language understanding according to the
+Row 4: Text embeddings: noticeable. As expected, the LARGE models out- | performed much: | Unnamed: 0: | worse than: | Unnamed: 1: | Unnamed: 2: | high performance on a set of eleven diverse linguis-: KLEJ Benchmark.
+Row 5: Text embeddings: perform the BASE models. | performed much: The best performing | Unnamed: 0: | worse than: | Unnamed: 1: | Unnamed: 2: | high performance on a set of eleven diverse linguis-: It is worth emphasizing that the quality of the
+Row 6: Text embeddings: model is Polish RoBERTa. HerBERT models per- | performed much: | Unnamed: 0: | worse than: | Unnamed: 1: | Unnamed: 2: | high performance on a set of eleven diverse linguis-: obtained language model was even more impres-
+[/TABLE]
+
+[PAGE 9]
+References
+Mikhail Arkhipov, Maria Troﬁmova, Yuri Kuratov, and
+Alexey Sorokin. 2019. Tuning multilingual transformers for language-speciﬁc named entity recognition. In Proceedings of the 7th Workshop on BaltoSlavic Natural Language Processing , pages 89–93,
+Florence, Italy. Association for Computational Linguistics.
+Piotr Bojanowski, Edouard Grave, Armand Joulin, and
+Tomas Mikolov. 2017. Enriching word vectors with
+subword information. Transactions of the Association for Computational Linguistics, 5:135–146.
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared Kaplan, Prafulla Dhariwal et al. 2020.
+Language models are few-shot learners. CoRR,
+abs/2005.14165.
+Kevin Clark, Minh-Thang Luong, Quoc V . Le, and
+Christopher D. Manning. 2020. ELECTRA: pretraining text encoders as discriminators rather than
+generators. In 8th International Conference on
+Learning Representations, ICLR 2020, Addis Ababa,
+Ethiopia, April 26-30, 2020. OpenReview.net.
+Alexis Conneau, Kartikay Khandelwal, Naman Goyal,
+Vishrav Chaudhary, Guillaume Wenzek, Francisco
+Guzmán et al. 2020. Unsupervised cross-lingual representation learning at scale. In Proceedings of the
+58th Annual Meeting of the Association for Computational Linguistics, pages 8440–8451, Online. Association for Computational Linguistics.
+Alexis Conneau and Guillaume Lample. 2019. Crosslingual language model pretraining. In H. Wallach, H. Larochelle, A. Beygelzimer, F. d'Alché-Buc,
+E. Fox, and R. Garnett, editors, Advances in Neural Information Processing Systems 32, pages 7059–
+7069. Curran Associates, Inc.
+Sławomir Dadas, Michał Perełkiewicz, and Rafał
+Po´swiata. 2020. Pre-training polish transformerbased language models at scale.
+Łukasz Degórski and Adam Przepiórkowski. 2012.
+Recznie znakowany milionowy podkorpus NKJP ,
+pages 51–58.
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and
+Kristina Toutanova. 2019. Bert: Pre-training of
+deep bidirectional transformers for language understanding. In Proceedings of the 2019 Conference of
+the North American Chapter of the Association for
+Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers), pages
+4171–4186.
+Chengyue Gong, Di He, Xu Tan, Tao Qin, Liwei Wang,
+and Tie-Yan Liu. 2018. Frage: Frequency-agnostic
+word representation. In S. Bengio, H. Wallach,
+H. Larochelle, K. Grauman, N. Cesa-Bianchi, and
+R. Garnett, editors, Advances in Neural Information
+Processing Systems 31 , pages 1334–1345. Curran
+Associates, Inc.
+Mandar Joshi, Danqi Chen, Yinhan Liu, Daniel S.
+Weld, Luke Zettlemoyer, and Omer Levy. 2019.
+Spanbert: Improving pre-training by representing and predicting spans. arXiv preprint
+arXiv:1907.10529.
+Jared Kaplan, Sam McCandlish, Tom Henighan,
+Tom B Brown, Benjamin Chess, Rewon Child et
+al. 2020. Scaling laws for neural language models.
+arXiv preprint arXiv:2001.08361.
+Diederik P. Kingma and Jimmy Ba. 2014. Adam:
+A method for stochastic optimization. Cite
+arxiv:1412.6980Comment: Published as a conference paper at the 3rd International Conference for
+Learning Representations, San Diego, 2015.
+Jan Koco ´n, Piotr Miłkowski, and Monika Za ´skoZieli´nska. 2019. Multi-level sentiment analysis of
+PolEmo 2.0: Extended corpus of multi-domain consumer reviews. In Proceedings of the 23rd Conference on Computational Natural Language Learning
+(CoNLL), pages 980–991, Hong Kong, China. Association for Computational Linguistics.
+Taku Kudo and John Richardson. 2018. SentencePiece:
+A simple and language independent subword tokenizer and detokenizer for neural text processing. In
+Proceedings of the 2018 Conference on Empirical
+Methods in Natural Language Processing: System
+Demonstrations, pages 66–71, Brussels, Belgium.
+Association for Computational Linguistics.
+Yuri Kuratov and Mikhail Arkhipov. 2019. Adaptation
+of deep bidirectional multilingual transformers for
+russian language.
+Zhenzhong Lan, Mingda Chen, Sebastian Goodman,
+Kevin Gimpel, Piyush Sharma, and Radu Soricut.
+2020. ALBERT: A lite BERT for self-supervised
+learning of language representations. In 8th International Conference on Learning Representations,
+ICLR 2020, Addis Ababa, Ethiopia, April 26-30,
+2020. OpenReview.net.
+Hang Le, Loïc Vial, Jibril Frej, Vincent Segonne,
+Maximin Coavoux, Benjamin Lecouteux et al.
+2020. FlauBERT: Unsupervised language model
+pre-training for French. In Proceedings of the 12th
+Language Resources and Evaluation Conference ,
+pages 2479–2490, Marseille, France. European Language Resources Association.
+Pierre Lison and Jörg Tiedemann. 2016. Opensubtitles2016: Extracting large parallel corpora from
+movie and tv subtitles. In Proceedings of the Tenth
+International Conference on Language Resources
+and Evaluation (LREC 2016) , Paris, France. European Language Resources Association (ELRA).
+Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen et al. 2019. Roberta: A robustly optimized bert pretraining approach. arXiv
+preprint arXiv:1907.11692.
+
+[TABLE page=9 index=1]
+Columns: Kevin Clark, | Minh-Thang Luong, | Unnamed: 0 | Quoc V. | Le, | Unnamed: 1 | and | Unnamed: 2 | PolEmo 2.0: Extended corpus of multi-domain conRow 1: Kevin Clark,: Christopher | Minh-Thang Luong,: D. Manning. | Unnamed: 0: 2020.0 | Quoc V.: ELECTRA: | Le,: | Unnamed: 1: | and: pre- | Unnamed: 2: | PolEmo 2.0: Extended corpus of multi-domain con-: sumer reviews. In Proceedings of the 23rd ConferRow 2: Kevin Clark,: training text encoders as discriminators rather than | Minh-Thang Luong,: | Unnamed: 0: | Quoc V.: | Le,: | Unnamed: 1: | and: | Unnamed: 2: | PolEmo 2.0: Extended corpus of multi-domain con-: ence on Computational Natural Language Learning
+Row 3: Kevin Clark,: generators. | Minh-Thang Luong,: In 8th International | Unnamed: 0: | Quoc V.: Conference | Le,: | Unnamed: 1: | and: on | Unnamed: 2: | PolEmo 2.0: Extended corpus of multi-domain con-: (CoNLL), pages 980–991, Hong Kong, China. AssoRow 4: Kevin Clark,: Learning Representations, ICLR 2020, Addis Ababa, | Minh-Thang Luong,: | Unnamed: 0: | Quoc V.: | Le,: | Unnamed: 1: | and: | Unnamed: 2: | PolEmo 2.0: Extended corpus of multi-domain con-: ciation for Computational Linguistics.
+Row 5: Kevin Clark,: Ethiopia, April 26-30, 2020. OpenReview.net. | Minh-Thang Luong,: | Unnamed: 0: | Quoc V.: | Le,: | Unnamed: 1: | and: | Unnamed: 2: | PolEmo 2.0: Extended corpus of multi-domain con-:
+Row 6: Kevin Clark,: | Minh-Thang Luong,: | Unnamed: 0: | Quoc V.: | Le,: | Unnamed: 1: | and: | Unnamed: 2: | PolEmo 2.0: Extended corpus of multi-domain con-: Taku Kudo and John Richardson. 2018. SentencePiece:
+Row 7: Kevin Clark,: Alexis Conneau, Kartikay Khandelwal, Naman Goyal, | Minh-Thang Luong,: | Unnamed: 0: | Quoc V.: | Le,: | Unnamed: 1: | and: | Unnamed: 2: | PolEmo 2.0: Extended corpus of multi-domain con-: A simple and language independent subword tok-
+[/TABLE]
+
+[PAGE 10]
+Michał Marcinczuk, Marcin Ptak, Adam Radziszewski,
+and Maciej Piasecki. 2013. Open dataset for development of polish question answering systems.
+In Proceedings of the 6th Language & Technology
+Conference: Human Language Technologies as a
+Challenge for Computer Science and Linguistics,
+Wydawnictwo Poznanskie, Fundacja Uniwersytetu
+im. Adama Mickiewicza.
+Louis Martin, Benjamin Muller, Pedro Javier Ortiz Suárez, Yoann Dupont, Laurent Romary, Éric
+de la Clergerie et al. 2020. CamemBERT: a tasty
+French language model. In Proceedings of the 58th
+Annual Meeting of the Association for Computational Linguistics, pages 7203–7219, Online. Association for Computational Linguistics.
+Tomas Mikolov, Ilya Sutskever, Kai Chen, Greg S Corrado, and Jeff Dean. 2013. Distributed representations of words and phrases and their compositionality. In Advances in neural information processing
+systems, pages 3111–3119.
+Maciej Ogrodniczuk and Mateusz Kope ´c. 2014. The
+Polish Summaries Corpus. In Proceedings of the
+Ninth International Conference on Language Resources and Evaluation, LREC 2014.
+Jeffrey Pennington, Richard Socher, and Christopher
+Manning. 2014. Glove: Global vectors for word representation. In Proceedings of the 2014 Conference
+on Empirical Methods in Natural Language Processing (EMNLP), pages 1532–1543, Doha, Qatar. Association for Computational Linguistics.
+Ivan Provilkov, Dmitrii Emelianenko, and Elena V oita.
+2020. BPE-dropout: Simple and effective subword
+regularization. pages 1882–1892.
+Adam Przepiórkowski. 2012. Narodowy korpus j˛ ezyka
+polskiego. Naukowe PWN.
+Michal Ptaszynski, Agata Pieciukiewicz, and Paweł
+Dybała. 2019. Results of the poleval 2019 shared
+task 6: First dataset and open shared task for automatic cyberbullying detection in polish twitter. Proceedings of the PolEval 2019 Workshop, page 89.
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena et al.
+2019. Exploring the limits of transfer learning
+with a uniﬁed text-to-text transformer. CoRR,
+abs/1910.10683.
+Piotr Rybak, Robert Mroczkowski, Janusz Tracz, and
+Ireneusz Gawlik. 2020. KLEJ: Comprehensive
+benchmark for polish language understanding. In
+Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics , pages 1191–
+1201, Online. Association for Computational Linguistics.
+Mike Schuster and Kaisuke Nakajima. 2012. Japanese
+and korean voice search. In 2012 IEEE International Conference on Acoustics, Speech and Signal
+Processing (ICASSP), pages 5149–5152. IEEE.
+Rico Sennrich, Barry Haddow, and Alexandra Birch.
+2016. Neural machine translation of rare words with
+subword units. In Association for Computational
+Linguistics (ACL), pages 1715–1725.
+Antti Virtanen, Jenna Kanerva, Rami Ilo, Jouni Luoma,
+Juhani Luotolahti, Tapio Salakoski et al. 2019. Multilingual is not enough: Bert for ﬁnnish.
+Alex Wang, Amanpreet Singh, Julian Michael, Felix
+Hill, Omer Levy, and Samuel R. Bowman. 2019.
+GLUE: A multi-task benchmark and analysis platform for natural language understanding. In the Proceedings of ICLR.
+Wei Wang, Bin Bi, Ming Yan, Chen Wu, Jiangnan Xia,
+Zuyi Bao et al. 2020. Structbert: Incorporating language structures into pre-training for deep language
+understanding. In 8th International Conference on
+Learning Representations, ICLR 2020, Addis Ababa,
+Ethiopia, April 26-30, 2020. OpenReview.net.
+B. L. Welch. 1947. THE GENERALIZATION OF
+‘STUDENT’S’ PROBLEM WHEN SEVERAL DIFFERENT POPULATION V ARLANCES ARE INVOLVED. Biometrika, 34(1-2):28–35.
+Guillaume Wenzek, Marie-Anne Lachaux, Alexis Conneau, Vishrav Chaudhary, Francisco Guzmán, Armand Joulin et al. 2020. CCNet: Extracting high
+quality monolingual datasets from web crawl data.
+In Proceedings of the 12th Language Resources
+and Evaluation Conference, pages 4003–4012, Marseille, France. European Language Resources Association.
+Alina Wróblewska. 2018. Extended and enhanced polish dependency bank in universal dependencies format. In Proceedings of the Second Workshop on Universal Dependencies (UDW 2018) , pages 173–182.
+Association for Computational Linguistics.
+Alina Wróblewska. 2020. Towards the conversion of
+National Corpus of Polish to Universal Dependencies. In Proceedings of the 12th Language Resources and Evaluation Conference , pages 5308–
+5315, Marseille, France. European Language Resources Association.
+Alina Wróblewska and Katarzyna Krasnowska-Kiera ´s.
+2017. Polish evaluation dataset for compositional
+distributional semantics models. In Proceedings
+of the 55th Annual Meeting of the Association for
+Computational Linguistics (Volume 1: Long Papers),
+pages 784–792.
+Liang Xu, Xuanwei Zhang, Lu Li, Hai Hu, Chenjie
+Cao, Weitang Liu et al. 2020. Clue: A chinese language understanding evaluation benchmark.
+Daniel Zeman, Joakim Nivre, Mitchell Abrams, Noëmi
+Aepli, Željko Agi´c, Lars Ahrenberg et al. 2019. Universal dependencies 2.5. LINDAT/CLARIAH-CZ
+digital library at the Institute of Formal and Applied Linguistics (ÚFAL), Faculty of Mathematics
+and Physics, Charles University.

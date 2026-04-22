@@ -1,0 +1,1059 @@
+[PAGE 1]
+THE EFFECTIVENESS OF LARGE LANGUAGE MODELS IN
+TRANSFORMING UNSTRUCTURED TEXT TO STANDARDIZED
+FORMATS
+A PREPRINT
+William Brach
+Slovak Technical University
+william.brach@stuba.sk
+Kristián Košt’ál
+Slovak Technical University
+kristian.kostal@stuba.sk
+Michal Ries
+Slovak Technical University
+michal.ries@stuba.sk
+ABSTRACT
+The exponential growth of unstructured text data presents a fundamental challenge in modern data
+management and information retrieval. While Large Language Models (LLMs) have shown remarkable capabilities in natural language processing, their potential to transform unstructured text into
+standardized, structured formats remains largely unexplored - a capability that could revolutionize
+data processing workflows across industries. This study breaks new ground by systematically evaluating LLMs’ ability to convert unstructured recipe text into the structured Cooklang format. Through
+comprehensive testing of four models (GPT-4o, GPT-4o-mini, Llama3.3:70b, and Llama3.1:8b), an
+innovative evaluation approach is introduced that combines traditional metrics (WER, ROUGE-L,
+TER) with specialized metrics for semantic element identification. Our experiments reveal that GPT4o with few-shot prompting achieves breakthrough performance (ROUGE-L: 0.8209, WER: 0.3509),
+demonstrating for the first time that LLMs can reliably transform domain-specific unstructured text
+into structured formats without extensive training. Although model performance generally scales with
+size, we uncover surprising potential in smaller models like Llama3.1:8b for optimization through
+targeted fine-tuning. These findings open new possibilities for automated structured data generation
+across various domains, from medical records to technical documentation, potentially transforming
+the way organizations process and utilize unstructured information.
+For further information, source code, and associated resources, please refer to the source code
+repository1.
+1 Introduction
+The exponential growth of unstructured text data presents a challenge in data management, analysis, and information
+retrieval. While Large Language Models (LLMs) Brown and et al. [2020] have demonstrated remarkable capabilities in
+natural language processing, their potential to transform unstructured text into standardized, structured domain-specific
+formats remains unexplored. This capability could revolutionize data processing workflows across various domains,
+enabling more efficient information retrieval, automated analysis, and data management.
+This study addresses these gaps by examining the potential of LLMs in structured text generation Raffel et al. [2020],
+specifically focusing on converting plain text recipes into Cooklang specifications Cooklang [2024a]. In this study,
+we aim to address two research questions: How do different LLM architectures affect the quality and accuracy of
+structured recipe generation? What impact do various prompting techniques Liu et al. [2023] have on the generation
+of well-formed Cooklang specifications? The applications of this research extend beyond the culinary domain, with
+potential implications for healthcare documentation using HL7 format Dolin et al. [2001], music notation in MusicXML
+Good [2001], and technical documentation organization.
+In order to evaluate the performance of LLM systems in the generation of structured recipes, a variety of methods are
+employed for both qualitative and quantitative assessment. Our methodology included traditional natural language
+1https://github.com/williambrach/llm-text2cooklang
+arXiv:2503.02650v2 [cs.AI] 5 May 2025
+
+[PAGE 2]
+arXiv Template A PREPRINT
+processing metrics such as Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002], and ROUGE-L
+Research [2019], See et al. [2017], which measure the accuracy and fluency of the generated text. Additionally,
+we introduce domain-specific metrics to evaluate the accuracy of a generated recipe. These include an Ingredient
+Identification Scoreand Unit and Amount Identification Scores. The evaluation of these metrics allows for the assessment
+of not only the linguistic quality of the generated recipes but also their adherence to the specific structural requirements of
+the Cooklang format and their culinary accuracy. Furthermore, we analyze the LLMs performance across different input
+configurations and prompting techniques (zero-shot PromptingGuide [2023a], few-shot PromptingGuide [2023b], and
+MIPROv2 Opsahl-Ong et al. [2024]). This evaluation approach enables us to understand the strengths and limitations
+of various LLMs in the context of structured domain-specific format generation.
+In this study, we aim to address two research questions: How do different LLM sizes affect the quality and accuracy of
+structured recipe generation? What impact do various prompting techniques have on the generation of well-formed
+Cooklang specifications? The applications of this research extend beyond the culinary domain, with potential implications for healthcare documentation using HL7 format, music notation in MusicXML, and technical documentation
+organization. The key contributions of this research include:
+• A systematic evaluation of LLMs’ ability to transform unstructured recipe text into structured Cooklang format
+across different models and sizes.
+• Identification of scaling patterns across model sizes, with the surprising finding that smaller models like
+Llama3.1:8b show potential for optimization through targeted fine-tuning.
+• Demonstration that LLMs can reliably transform domain-specific unstructured text into structured formats
+without requiring extensive training.
+• Empirical evidence that GPT-4o with few-shot prompting achieves breakthrough performance (ROUGE-L:
+0.8209, WER: 0.3509) in structured format conversion.
+• A framework for implementing domain-specific evaluation methodology that combines traditional metrics
+(WER, ROUGE-L, TER) with specialized metrics for semantic element identification in recipes.
+• Insights that open new possibilities for automated structured data generation across various domains, including
+healthcare, technical documentation, and legal contracts
+The remainder of this paper is organized as follows: Section 2 reviews related work in structured text generation
+and prompting techniques. Section 3 describes our methodology and evaluation framework. Section 4 presents our
+experimental results and examination. Section 5 discusses the implications and limitations of our findings, and Section
+6 concludes with future research directions.
+2 Background
+The standardization of recipe processing and cooking knowledge has evolved considerably since Mundie’s pioneering
+work Mundie [1985] in 1985, which introduced RxOL (Recipe Operation Language) as one of the earliest structured
+approaches to computational recipe representation. In web search, structured data specification Google Developers
+[2024] for recipes represents a significant modern standardization effort, providing a systematic way to encode recipe
+information for search engines and enabling enhanced discovery and presentation of recipe content across the web. This
+work laid the foundation Dubovskoy [2015] for subsequent advancements in the field, as evidenced by research that
+drew innovative parallels between software design patterns and cooking procedures, suggesting that cooking patterns
+could serve as an abstraction layer for standardizing recipe knowledge. The development of domain-specific markup
+languages (e.g., Cooklang for recipes Cooklang [2024a], MusicXML Good [2001]for digital sheet music, and HL7
+Dolin et al. [2001] for healthcare data) has emerged to standardize information representation in specific domains.
+These markdown languages offer a structured approach to encoding domain knowledge, enhancing readability and
+processing efficiency. There has been an increase in the number of initiatives Bommasani and et al. [2021], Pitsilou
+et al. [2024], Rostami [2024] focused on leveraging LLMs in the culinary domain or other domains that could leverage
+this structured approach in free texts.
+One of the use cases for LLMs is the extraction of food entities from cooking recipes, as demonstrated in the study
+by Pitsilou et al. Pitsilou et al. [2024]. The results of this study demonstrate that, even in the absence of labeled
+training data, LLMs can achieve promising results in domain-specific tasks such as named entity recognition (NER) for
+food items. Another illustration of the application of LLMs for structured text parsing outside the culinary domain
+is StructGPT, a general framework to enhance LLMs’ zero-shot reasoning capabilities over structured data such as
+knowledge graphs, tables, and databases Jiang et al. [2023]. An additional example of the use of LLMs in a culinary
+context is LLaV A-Chef, a multi-modal generative model specifically designed for food recipes Mohbat and Zaki [2024].
+
+[PAGE 3]
+arXiv Template A PREPRINT
+By adapting the LLaV A (Large Language and Vision Assistant) Liu et al. [2024] model to the food domain through a
+multi-stage fine-tuning approach, the authors achieved state-of-the-art performance in recipe generation tasks. Notably,
+these results demonstrate competitive performance in comparison to the work of Patil et al. Pansare et al. [2024], who
+employed convolutional neural networks (CNNs) for image recognition in conjunction with deep learning models for
+natural language processing. Another illustration of the application of LLMs to culinary tasks is the development of
+RecipeNLG Bie´n et al. [2020], which employed language models to enhance semi-structured recipe text generation
+and generate a dataset for subsequent LLM training and refinement. As this domain progresses, it demonstrates the
+potential for integrating general-purpose language models with specialized domain expertise. Building on this work,
+Zhou et al.’s research on FoodSky Zhou et al. [2024] demonstrated that LLMs can achieve better performance in
+domain-specific tasks by using specialized mechanisms like the Topic-based Selective State Space Model (TS3M) and
+Hierarchical Topic Retrieval Augmented Generation (HTRAG). The study demonstrated the effectiveness of FoodSky
+by achieving accuracy rates of 67.2% and 66.4% in chef and dietetic examinations, respectively. Authors suggest
+that LLMs, when adequately trained and enhanced with domain-specific knowledge, can efficiently handle structured
+text conversion tasks. This lays a solid foundation for applications in recipe processing and other specialized fields.
+The research paper Cook2LTL Mavrogiannis et al. [2024] demonstrates how to utilize a language model to translate
+recipes into linear temporal logic (LTL). Cook2LTL shows how structured representations can bridge the gap between
+human-readable content and machine-executable instructions. Another application of LLM Dubovskoy [2024] employs
+graph-based representations in order to track ingredient transformations and state changes throughout the cooking
+process. This evolution, from basic formalization to pattern-based approaches and finally to LLM-powered graph
+representations, illustrates the ongoing efforts to bridge the gap between natural language cooking instructions and
+structured, computationally accessible formats.
+Study "Fine-tuning Language Models for Recipe Generation: A Comparative Analysis and Benchmark Study" Vij et al.
+[2025] investigated the performance of smaller language models, including T5-small, SmolLM, and Phi-2, specifically
+for recipe generation tasks. The authors evaluated these models using both traditional NLP metrics (BLEU, ROUGE)
+and domain-specific metrics such as Ingredient Coverage and Step Complexity. While this study did not include larger
+models like GPT-4o or Llama3.1:8b that are examined in our work, it provides an important benchmark within the recipe
+domain that helps contextualize our findings. For broader model comparisons, established leaderboards such as the
+Hugging Face Open LLM Leaderboard2 and LM Arena3 offer comprehensive evaluations across various benchmarks,
+which further support our experimental design and analysis framework.
+As LLMs have gained popularity, prompt engineering Brown and et al. [2020] has emerged as a compelling alternative
+to fine-tuning approaches. Research on language models has focused on developing and evaluating prompt techniques
+across a diverse range of tasks. The research space has explored multiple prompting approaches: zero-shot learning
+PromptingGuide [2023a], where models perform tasks without prior examples; few-shot learning PromptingGuide
+[2023b], which utilizes a small number of examples to guide performance, or more complex prompt techniques like
+MIPRO Opsahl-Ong et al. [2024], which optimizes both instructions and few-shot demonstrations for multi-stage
+language model programs. The evolution of prompting techniques has demonstrated key advantages over traditional
+fine-tuning methods.
+Prompt engineering requires fewer computational resources and training data compared to full model fine-tuning.
+The well-built prompts can generate strong performance Li et al. [2023] across a range of tasks while maintaining
+model flexibility. These prompts have shown remarkable effectiveness across applications: in sentiment analysis,
+prompt-based fine-tuning achieved 92.7% accuracy compared to traditional fine-tuning’s 81.4% while requiring only 32
+examples on the SST-2 dataset Gao et al. [2021]. Similarly, in classification tasks Wei et al. [2024] on datasets like
+SNLI, prompt-based methods with demonstrations achieved 79.7% accuracy compared to standard fine-tuning’s 48.4%,
+demonstrating the approach’s effectiveness across different linguistic tasks. Furthermore, prompting techniques can
+enhance the reasoning capabilities of language models. A notable example is the self-consistency approach introduced
+by Wang et al. Wang et al. [2022], which builds upon chain-of-thought prompting to improve complex reasoning
+tasks. This method leverages the intuition that multiple reasoning paths can lead to a correct answer, similar to human
+problem-solving processes. By sampling diverse reasoning paths instead of relying on a single greedy decoding path,
+their approach achieved striking improvements across reasoning benchmarks: GSM8K, SV AMP, and AQuA.
+These developments in prompting techniques, from basic few-shot demonstrations to more sophisticated approaches
+like self-consistency, highlight the potential of prompt engineering as a practical and effective method for enhancing
+language model performance. However, as these techniques become more sophisticated, the challenge of proper
+evaluation becomes increasingly important. The evaluation of LLMs in these contexts presents unique challenges,
+necessitating specialized metrics that assess both linguistic quality and compliance with domain-specific formatting
+2hf.com/open_llm_leaderboard
+3https://lmarena.ai/
+
+[PAGE 4]
+arXiv Template A PREPRINT
+Figure 1: Proposed methodology for evaluating the ability of Large Language Models in converting a recipe to Cooklang
+requirements Chang et al. [2024]. This has led to significant efforts in developing standardized evaluation methodologies,
+particularly for zero-shot text classification tasks. Notable contributions include Ribeiro et al.’s Ribeiro et al. [2020]
+comprehensive framework for behavioral testing of natural language processing models.
+The convergence of structured data approaches and LLM capabilities creates new opportunities for transforming
+unstructured text into standardized formats. While existing research demonstrates the potential of LLMs in domainspecific tasks and prompt engineering shows promise for enhancing model performance, there remains a critical need
+to systematically evaluate different LLM architectures and prompting techniques in the context of structured format
+generation. The following methodology addresses these requirements through a comprehensive evaluation framework
+that combines standard metrics like WER and ROUGE-L with specialized scoring mechanisms for assessing structured
+recipe generation to Cooklang format Cooklang [2024a].
+While existing research demonstrates the significant progress in LLM applications for domain-specific tasks and the
+evolution of various prompting techniques, a critical gap remains in systematically evaluating LLMs’ capability to
+transform unstructured text into standardized structured formats across different model architectures and prompting
+strategies. Prior studies have primarily focused on using LLMs for domain-specific knowledge extraction (as seen
+in food entity extraction research) or generation tasks (exemplified by RecipeNLG and LLaV A-Chef) but have not
+comprehensively assessed how different LLM architectures and prompting techniques affect the quality and accuracy
+of format conversion tasks. This gap is particularly significant as it represents the intersection of natural language
+understanding, structured data generation, and domain-specific knowledge representation—a capability with broad
+applications beyond culinary contexts to fields such as healthcare documentation, technical specification authoring, and
+legal document processing. Our work addresses this gap by providing a systematic comparative analysis of how different
+LLMs models sizes (from 8b to 70b parameters for open source) and prompting techniques (zero-shot, few-shot, and
+MIPROv2) influence performance in transforming unstructured recipe text into the standardized Cooklang format,
+offering insights applicable to structured text conversion challenges across domains.
+3 Methodology
+This section contains the methodology for evaluating the effectiveness of Large Language Models (LLMs) in generating
+structured recipe specifications in Cooklang format Cooklang [2024a]. Our experimental design encompasses three
+key dimensions: input text variations, prompting strategies, and model architectures, allowing us to systematically
+assess how each factor influences the quality and accuracy of structured recipe generation. As illustrated in Figure
+1, our approach enables controlled comparison across these dimensions. We evaluated four state-of-the-art LLMs:
+Llama 3.1:8b, Llama 3.1:70b Dubey et al. [2024], Meta AI [2024a], Meta AI [2024b], GPT-4o OpenAI [2024a], and
+GPT-4o-mini OpenAI [2024b], each representing different points in the spectrum of model scale. These models were
+selected to provide an evaluation across both closed and open-source models, allowing us to compare performance
+between different model scales (from 8b to 70b parameters) and between proprietary and openly available solutions.
+These LLMs represent the most popular models from both closed and open source, allowing for an assessment
+of performance across a range of capabilities. Through the testing of combinations of input formats, prompting
+strategies, and model architectures, the objective was to identify the most effective approach for converting recipe texts
+into the structured domain-specific recipe format. The recipe format contains two distinct input fields, as shown in
+dspy.Signatures (Listings 1, 2, and 3). The first field contains ingredients for the recipe, presented as free text where
+each ingredient is comma-separated. The second field consists of the general recipe text, primarily, this field comprises
+cooking instructions. This field is converted to Cooklang format via LLM. The objective of this research is to examine
+the limitations of LLM in structured domain-specific text generation. The research explores how different models and
+
+[PAGE 5]
+arXiv Template A PREPRINT
+prompt engineering influence semantic preservation and structural consistency in the conversion of unstructured recipes
+to formal specifications. Through an evaluation of model size and prompt engineering approaches, the research aims
+to advance our understanding of LLMs capabilities in maintaining semantic fidelity while adhering to strict syntactic
+constraints. This fundamental challenge in natural language processing extends far beyond recipe conversion to broader
+applications in structured knowledge representation.
+Recipe formatting serves as an ideal benchmark for structured text conversion for several key reasons:
+• Dual nature of content: Recipes naturally combine narrative instructions with structured data elements
+(ingredients, measurements, cooking times), making them an excellent test case for evaluating both semantic
+understanding and structured data extraction.
+• Entity complexity: The Cooklang format requires accurate identification of multiple entity types (ingredients,
+cookware, timers, comments) with their associated attributes (amounts, units), testing an LLM’s fine-grained
+entity recognition capabilities.
+• Balancing precision and semantics: Successful conversion requires both preserving the semantic meaning of
+instructions while adhering to strict syntactic rules defined by the Cooklang specification.
+• Domain transferability: The challenges in recipe formatting—identifying entities, preserving relationships,
+maintaining semantic equivalence—parallel those in other domains such as healthcare documentation, technical
+specifications, and legal documents.
+• Clear evaluation criteria: Recipe formatting provides objectively measurable outcomes (correct ingredient
+identification, proper syntax application) that allow for quantitative assessment of model performance.
+• Accessibility: Unlike highly specialized domains, recipes are universally understood, making the benchmark
+accessible while still maintaining sufficient complexity to challenge state-of-the-art models.
+Listing 1: DSPy Program Class recipe text to Cooklang
+class C o o k L a n g S i g n a t u r e ( dspy . Sig na tu re ) :
+"""
+Convert plain recipe text with provided i n g r e d i e n t s into Cooklang text format .
+Cooklang Recipe S p e c i f i c a t i o n :
+1. I n g r e d i e n t s
+- Use ‘@ ‘ to define i n g r e d i e n t s
+- For multi - word ingredients , end with ‘{} ‘
+- Specify quantity in ‘{} ‘ after the name
+- Use ‘% ‘ to separate quantity and unit
+‘‘‘
+@salt
+@ground black pepper {}
+@potato {2}
+@bacon strips {1% kg }
+@syrup {1/2% tbsp }
+‘‘‘
+2. Comments
+- Single - line : Use ‘--‘ at the end of a line
+- Multi - line : Enclose in ‘[ - -] ‘
+‘‘‘
+-- Don ’t burn the roux !
+Mash @potato {2% kg } until smooth -- alternatively , boil ’ em first , then
+mash ’em , then stick ’ em in a stew .
+‘‘‘
+3. Cookware
+- Define with ‘# ‘
+- Use ‘{} ‘ for multi - word items
+‘‘‘
+# pot
+# potato masher {}
+‘‘‘
+4. Timers
+- Define with ‘~ ‘
+- Specify duration in ‘{} ‘
+- Can include a name before the duration
+‘‘‘
+
+[PAGE 6]
+arXiv Template A PREPRINT
+~{25% minutes }
+~ eggs {3% minutes }
+‘‘‘
+Return only Cooklang f or mat te d recipe , dont return any other i n f o r m a t i o n .
+Return whole recipe in Cooklang format ! Dont stop till you reach the end of
+the recipe .
+"""
+i n g r e d i e n t s = dspy . I n p u t F i e l d ( desc = " I n g r e d i e n t s for the recipe . Comma
+se pa ra te d list of i n g r e d i e n t s . " )
+r e c i p e _ t e x t = dspy . I n p u t F i e l d ( desc = " Recipe text to convert to Cooklang format .
+" )
+cooklang = dspy . O u t p u t F i e l d (
+desc = " Cooklang fo rma tt ed recipe . " ,
+)
+class C o o k L a n g F o r m a t t e r ( dspy . Module ) :
+def __init__ ( self ) :
+super () . __init__ ()
+self . prog = dspy . C h a i n O f T h o u g h t ( C o o k L a n g S i g n a t u r e )
+def forward ( self , r e c i p e _ t e x t : str , i n g r e d i e n t s : str ) -> C o o k L a n g S i g n a t u r e :
+p r e d i c t i o n = self . prog ( r e c i p e _ t e x t = recipe_text , i n g r e d i e n t s = i n g r e d i e n t s )
+return p r e d i c t i o n
+Listing 2: DSPy Program Class recipe text to Cooklang without Cooklang Specification
+class C o o k L a n g S i g n a t u r e N o S t e p s ( dspy . S ig nat ur e ) :
+"""
+Convert plain recipe text with provided i n g r e d i e n t s into Cooklang text format .
+Return only Cooklang f or mat te d recipe , dont return any other i n f o r m a t i o n .
+Return whole recipe in Cooklang format ! Dont stop till you reach the end of
+the recipe .
+"""
+i n g r e d i e n t s = dspy . I n p u t F i e l d ( desc = " I n g r e d i e n t s for the recipe . Comma
+se pa ra te d list of i n g r e d i e n t s . " )
+r e c i p e _ t e x t = dspy . I n p u t F i e l d ( desc = " Recipe text to convert to Cooklang format .
+" )
+cooklang = dspy . O u t p u t F i e l d (
+desc = " Cooklang fo rma tt ed recipe . " ,
+)
+class C o o k L a n g F o r m a t t e r N o S t e p s ( dspy . Module ) :
+def __init__ ( self ) :
+super () . __init__ ()
+self . prog = dspy . C h a i n O f T h o u g h t ( C o o k L a n g S i g n a t u r e N o S t e p s )
+def forward ( self , r e c i p e _ t e x t : str , i n g r e d i e n t s : str ) ->
+C o o k L a n g S i g n a t u r e N o S t e p s :
+p r e d i c t i o n = self . prog ( r e c i p e _ t e x t = recipe_text , i n g r e d i e n t s = i n g r e d i e n t s )
+return p r e d i c t i o n
+Listing 3: DSPy Program Class recipe text to Cooklang without Cooklang Specification and without recipe ingredients
+class C o o k L a n g S i g n a t u r e N o S t e p s N o I n g r e d i e n t s ( dspy . Sig na tu re ) :
+"""
+Convert plain recipe text with provided i n g r e d i e n t s into Cooklang text format .
+Return only Cooklang f or mat te d recipe , dont return any other i n f o r m a t i o n .
+Return whole recipe in Cooklang format ! Dont stop till you reach the end of
+the recipe .
+
+[PAGE 7]
+arXiv Template A PREPRINT
+"""
+r e c i p e _ t e x t = dspy . I n p u t F i e l d ( desc = " Recipe text to convert to Cooklang format .
+" )
+cooklang = dspy . O u t p u t F i e l d (
+desc = " Cooklang fo rma tt ed recipe . " ,
+)
+class C o o k L a n g F o r m a t t e r N o S t e p s N o I n g r e d i e n t s ( dspy . Module ) :
+def __init__ ( self ) :
+super () . __init__ ()
+self . prog = dspy . C h a i n O f T h o u g h t ( C o o k L a n g S i g n a t u r e N o S t e p s N o I n g r e d i e n t s )
+def forward ( self , r e c i p e _ t e x t : str ) -> C o o k L a n g S i g n a t u r e N o S t e p s N o I n g r e d i e n t s :
+p r e d i c t i o n = self . prog ( r e c i p e _ t e x t = r e c i p e _ t e x t )
+return p r e d i c t i o n
+The study implements three prompting strategies. The first strategy - Zero-Shot PromptingGuide [2023a] - established a
+baseline by presenting the task to the model without examples. The second strategy, Few-Shot Reynolds and McDonell
+[2021], PromptingGuide [2023b], involved the presentation of a limited number of examples to guide the model in its
+task. Final prompting strategy, implementation of MIPROv2 Opsahl-Ong et al. [2024]. The study tested three input
+configurations and ran every combination of input type and prompt technique across all four large language models.
+Following is an overview of the implementation of prompting strategies (method) and different variables at the input :
+1. Method: The recipe method in its original format without additional processing.
+2. Method + Ingredients: The recipe method is accompanied by a list of recipe ingredients.
+3. Method + Ingredients + Cooklang schema: The recipe method and ingredients list, along with the Cooklang
+syntax specification.
+All configurations aimed to produce a string-modified version of recipe text, which we saved as a recipe.cook file
+and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully
+converted the input text to Cooklang format. To fully evaluate our approach, we tested all possible combinations of
+input types, prompt techniques, and LLMs.
+3.1 Prompt engineering
+We based our approach on transforming recipes into Cooklang format using an LLM on the DSPy framework Khattab
+et al. [2024]. We developed distinct DSPy programs for each model input type to ensure optimal performance across all
+scenarios. We implemented few-shot prompting using the bootstrap-few-shot-with-random-search method from the
+DSPy library, keeping the default hyperparameters. Similarly, we implemented MIPROv2 Opsahl-Ong et al. [2024]
+using the existing DSPy implementation with its default hyperparameters. The Listings 1, 2 show the DSPy programs
+we used in our implementation. These prompts form the core elements of our recipe transformation process. Examples
+of prompts for Few-Shot and MIPROv2 could be found in Listings 4 and 5, respectively.
+3.2 Dataset
+We assembled the dataset for this research from sources that provide recipes in both standard and Cooklang formats.
+The primary sources include the Cooklang documentation and associated GitHub repositories Cooklang [2024b,c],
+Cooklang Community [2024]. We merged the recipes from these sources to create a comprehensive dataset, which
+we now make publicly available in our GitHub repository4. The dataset contains 1098 recipe samples, representing a
+range of recipe categories, including baking, breakfast, dinners, lunches, and soups. This diversity ensures a broad
+representation of culinary styles and techniques, enabling a more robust evaluation of the models. We enhanced the
+dataset by extracting ingredients from the Cooklang Specification using the Cooklang CLI CookLang [2024]. We added
+these extracted ingredients as an additional feature to the dataset, enriching the information available for analysis and
+prompt optimization.
+4https://github.com/williambrach/llm-text2cooklang/tree/main/data
+
+[TABLE page=7 index=1]
+Columns: and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully
+Row 1: and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully: converted the input text to Cooklang format. To fully evaluate our approach, we tested all possible combinations of
+Row 2: and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully: input types, prompt techniques, and LLMs.
+Row 3: and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully: 3.1 Prompt engineering
+Row 4: and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully: We based our approach on transforming recipes into Cooklang format using an LLM on the DSPy framework Khattab
+Row 5: and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully: et al. [2024]. We developed distinct DSPy programs for each model input type to ensure optimal performance across all
+Row 6: and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully: scenarios. We implemented few-shot prompting using the bootstrap-few-shot-with-random-search method from the
+Row 7: and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully: DSPy library, keeping the default hyperparameters. Similarly, we implemented MIPROv2 Opsahl-Ong et al. [2024]
+Row 8: and loaded it through the Cooklang parser. The parser loaded the file correctly, confirming that we had successfully: using the existing DSPy implementation with its default hyperparameters. The Listings 1, 2 show the DSPy programs
+[/TABLE]
+
+[PAGE 8]
+arXiv Template A PREPRINT
+1 Convert plain recipe text with provided i n g r e d i e n t s into Cooklang text format .
+2 Return only Cooklang f or mat te d recipe , dont return any other i n f o r m a t i o n . Return
+whole recipe in Cooklang format ! Dont stop till you reach the end of the recipe
+.
+4 --5
+6 I n g r e d i e n t s : 50 g ciabatta , some oil , ,50 g cottage cheese ,80 g smoked salmon ,5 g
+capers ,1 g dill , some lemon , some black pepper
+7 Recipe Text : Slice the whole ciabatta loaf in half and then slice the halves
+l e n g t h w i s e . Fry the ciabatta halves in a frying pan in a little oil , a griddle
+pan gives the best results and makes nice lines as the bread toasts . Spread the
+cottage cheese on the toasted ciabatta liberally , cut out the smoked salmon
+slices and place on the bread with a s p r i n k l i n g of capers and finally chopped
+dill . Serve with a lemon wedge and freshly cracked black pepper .
+8 Cooklang : Slice the whole @ ci ab at ta {50 %g } loaf in half and then slice the halves
+l e n g t h w i s e . Fry the ciabatta halves in a #frying pan {} in a little @oil , a
+griddle pan gives the best results and makes nice lines as the bread toasts .
+Spread the @cottage cheese {50 %g } on the toasted ciabatta liberally , cut out the
+@smoked salmon {80 %g } slices and place on the bread with a s p r i n k l i n g of
+@capers {5 %g } and finally chopped @dill {1 %g }. Serve with a @lemon wedge and
+freshly cracked @black pepper {}.
+10 [ A d d i t i o n a l examples omitted for brevity ]
+12 --13
+14 Follow the fo ll owi ng format .
+16 I n g r e d i e n t s : I n g r e d i e n t s for the recipe . Comma s ep ar at ed list of i n g r e d i e n t s .
+18 Recipe Text : Recipe text to convert to Cooklang format .
+20 Re as on in g : Let ’ s think step by step in order to $ { produce the cooklang }. We ...
+22 Cooklang : Cooklang fo rm at te d recipe .
+24 --25
+26 I n g r e d i e n t s : { i n g r e d i e n t s }
+28 Recipe Text : { recipe text }
+30 Re as on in g : Let ’ s think step by step in order to Cooklang :
+Listing 4: Example of prompt (Few-Shot) for Cooklang conversion without cooklang notation and with ingredients
+
+[PAGE 9]
+arXiv Template A PREPRINT
+1 Tr an sf or m the given plain text recipe and a c c o m p a n y i n g i n g r e d i e n t s into a
+s t r u c t u r e d Cooklang format . Use the fo ll ow ing s p e c i f i c a t i o n s :
+3 1. ** I n g r e d i e n t s :**
+4 - Prefix each i n g r e d i e n t with ‘@ ‘.
+5 - For multi - word ingredients , wrap the entire i n g r e d i e n t in ‘{} ‘.
+6 - Indicate the quantity directly after the i n g r e d i e n t name in ‘{} ‘ , followed by
+a ‘% ‘ for the unit .
+7 - Example : ‘ @salt ‘ , ‘ @ground black pepper {} ‘ , ‘ @potato {2} ‘ , ‘ @bacon strips {1 %kg
+} ‘ , ‘ @syrup {1/2 %tbsp } ‘.
+9 2. ** Comments :**
+10 - Use ‘--‘ to denote single - line comments .
+11 - For multi - line comments , enclose them in ‘[ - -] ‘.
+12 - Example : ‘-- Don ’ t burn the roux ! ‘.
+14 3. ** Cookware :**
+15 - Use ‘# ‘ to specify the cookware required .
+16 - For multi - word items , enclose in ‘{} ‘.
+17 - Example : ‘ #pot ‘ , ‘ #potato masher {} ‘.
+19 4. ** Timers :**
+20 - Use ‘~ ‘ to specify timing i n s t r u c t i o n s .
+21 - Indicate the duration in ‘{} ‘.
+22 - You may include a name before the duration .
+23 - Example : ‘~{25 %minutes } ‘ , ‘~ eggs {3 %minutes } ‘.
+25 Return only the Cooklang fo rm at ted recipe without any a d d i t i o n a l c o m m e n t a r y or
+i n f o r m a t i o n . Ensure that the output is complete and captures all elements of
+the recipe s u c c i n c t l y .
+27 --28
+29 [ Few - shot examples omitted for brevity ]
+31 --32
+33 Follow the fo ll owi ng format .
+35 I n g r e d i e n t s : I n g r e d i e n t s for the recipe . Comma - s ep ar at ed list of i n g r e d i e n t s .
+37 Recipe Text : Recipe text to convert to Cooklang format .
+39 Re as on in g : Let ’ s think step by step in order to $ { produce the cooklang }. We ...
+41 Cooklang : Cooklang fo rm at te d recipe .
+43 --44
+45 I n g r e d i e n t s : { i n g r e d i e n t s }
+47 Recipe Text : { recipe text }
+49 Re as on in g : Let ’ s think step by step in order to
+Listing 5: Example of prompt (MIPROv2) for Cooklang conversion with cooklang notation and with ingredients
+
+[PAGE 10]
+arXiv Template A PREPRINT
+3.3 Evaluation Process
+We evaluated the models across several metrics, including overall performance, the impact of different prompt techniques,
+the effect of using Cooklang and ingredient exclusion, and domain-specific tasks related to recipe understanding. We
+tested the LLMs ability to accurately identify ingredients, units, and amounts. We used several metrics to assess the
+LLMs performance in detail.
+1. Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit
+distance between generated and reference text quantitatively, normalizing values by the reference text’s word
+length. A lower WER value indicates more accurate performance that comes closer to the desired outcome.
+2. ROUGE-L Research [2019], See et al. [2017]: The metric to evaluate the quality of generated summaries or
+translations. ROUGE-L calculates F-scores based on the length of the longest common subsequence between
+the candidate and reference texts. This method allows for capturing sentence-level structure similarity and
+identifying the longest co-occurring in-sequence n-grams automatically. Higher ROUGE-L scores indicate
+better performance, suggesting that the generated text shares more and longer sequential word matches with
+the reference text.
+3. Token Error Rate (TER): This metric measures how closely generated Cooklang texts match their references
+by calculating a normalized edit distance. The system first tokenizes texts by breaking them down into
+Cooklang-specific elements (ingredients, cookware, and cooking steps). It then computes TER for each
+element by counting the minimum number of edits needed to transform the generated text into the reference including insertions, deletions, substitutions, and shifts of Cooklang tokens - and divides this count by the total
+tokens in the reference. Lower TER scores show better performance.
+4. Ingredient Identification Score: Metric assesses the LLM capacity to accurately identify all ingredients in a
+given recipe. A score of 1 indicates that the LLM successfully identified all ingredients present in the reference
+recipe, whereas a score of 0 indicates that the LLM failed to identify all ingredients correctly.
+5. Unit and Amount Identification Scores: These two scores are metrics that assess the LLMs accuracy in
+identifying units of measurement and ingredient amounts in a recipe. For each metric, the score is 1 if all units
+or amounts are correctly identified for every ingredient in the recipe and 0 if one unit or amount is incorrectly
+identified or missing.
+For each configuration, we evaluated all metrics across the test samples to obtain individual scores. The mean value for
+each metric M under configuration c was calculated as:
+¯Mc = 1
+N
+NX
+i=1
+Mc,i
+where Mc,i represents the metric score for configuration c and test sample i, and N denotes the total number of test
+samples. This approach provides a comprehensive view of LLM performance across all aspects of recipe understanding
+and generation tasks. Analyzing these aggregated results helps us identify strengths and weaknesses in different modelprompt configurations and determine the most effective approaches for recipe-related natural language processing.
+3.4 Hardware and Deployment Setup
+We deployed all open-source models (Llama3.1:8b and LLama3.3:70b) locally using ollama Ollama [2024], a framework
+that runs and manages local deployment of LLMs. Our local setup included two NVIDIA GeForce RTX 4090 graphics
+cards, which provided the necessary computational power for efficient model inference. We accessed OpenAI GPT
+models through the OpenAI API.
+3.5 Computational Overhead
+Our methodology’s computational requirements can be analyzed across three phases:
+• Training: The DSPy framework introduces upfront computational overhead during training as it runs multiple
+prompt variations to select optimal configurations. This is a one-time cost; once optimal programs are
+identified, they can be reused during deployment.
+• Inference: The computational overhead during inference is negligible, primarily affecting the number of input
+tokens processed by the LLM. Since input token processing is less computationally expensive than output
+token generation, this represents a minor overhead compared to base LLM inference costs.
+
+[TABLE page=10 index=1]
+Columns: 1. | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit
+Row 1: 1.: | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit: distance between generated and reference text quantitatively, normalizing values by the reference text’s word
+Row 2: 1.: | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit: length. A lower WER value indicates more accurate performance that comes closer to the desired outcome.
+Row 3: 1.: 2.0 | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit: ROUGE-L Research [2019], See et al. [2017]: The metric to evaluate the quality of generated summaries or
+Row 4: 1.: | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit: translations. ROUGE-L calculates F-scores based on the length of the longest common subsequence between
+Row 5: 1.: | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit: the candidate and reference texts. This method allows for capturing sentence-level structure similarity and
+Row 6: 1.: | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit: identifying the longest co-occurring in-sequence n-grams automatically. Higher ROUGE-L scores indicate
+Row 7: 1.: | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit: better performance, suggesting that the generated text shares more and longer sequential word matches with
+Row 8: 1.: | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit: the reference text.
+Row 9: 1.: 3.0 | Word Error Rate (WER) Ali and Renals [2018], Klakow and Peters [2002]: The metric measures the edit: Token Error Rate (TER): This metric measures how closely generated Cooklang texts match their references
+[/TABLE]
+
+[PAGE 11]
+arXiv Template A PREPRINT
+• Implementation: The DSPy framework has minimal implementation overhead, efficiently constructing
+prompts without introducing significant processing loops or memory constraints. The memory footprint is
+minimal, consisting primarily of Python objects composed of strings.
+In summary, our approach introduces a one-time training cost but maintains efficient performance during deployment
+with minimal additional computational requirements compared to standard LLM operation.
+4 Results
+This section analyzes the performance of four Large Language Models (LLMs): GPT-4o, GPT-4o-mini,LLama3.3:70b,
+and Llama3.1:8b. The analysis evaluates each model using three traditional metrics: Word Error Rate (WER), ROUGEL score, and Translation Edit Rate (TER), grouping all results by their mean values. Table 1 shows each model’s
+performance metrics:
+Table 1: Mean WER, ROUGE-L, and TER Scores Across Language Models
+Model WER ↓ ROUGE-L ↑ TER ↓
+GPT-4o 0.3893 0.8128 1.5255
+GPT-4o-mini 0.4808 0.7550 2.0381
+Llama3.3:70b 0.5510 0.7382 2.2802
+Llama3.1:8b 0.5921 0.6911 2.6088
+Note: ↓ indicates lower values are better, ↑ indicates higher values are better.
+Figure 2: Comparison of Language Model Performance Across WER, ROUGE-L, and TER Metrics
+As shown in Figure 2, the GPT-4o model displays superior performance across all metrics in converting inputs to
+the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the
+generated Cooklang output and the reference text at the n-gram level. Furthermore, the model had the lowest Token
+Error Rate (TER) of 1.5255, indicating minimal hallucination or generation of content not grounded in the original
+text. Additionally, it showed the lowest Word Error Rate (WER) of 0.3893, implying high accuracy in maintaining the
+correct word sequence with minimal insertions, substitutions, or deletions when converting to Cooklang format. These
+results suggest that GPT-4o could be particularly well-suited for applications requiring accurate transformation between
+different text formats and structures, as its strong performance in maintaining semantic content while adapting syntactic
+structure indicates robust capabilities in text transformation tasks. GPT-4o-mini ranks second in converting plain text
+to Cooklang, demonstrating consistent performance, but falls behind GPT-4o. Its Word Error Rate (WER) of 0.4808
+
+[TABLE page=11 index=1]
+Columns: Model | WER ↓ | ROUGE-L ↑ | TER ↓
+Row 1: Model: GPT-4o | WER ↓: 0.3893 | ROUGE-L ↑: 0.8128 | TER ↓: 1.5255
+Row 2: Model: GPT-4o-mini | WER ↓: 0.4808 | ROUGE-L ↑: 0.755 | TER ↓: 2.0381
+Row 3: Model: Llama3.3:70b | WER ↓: 0.551 | ROUGE-L ↑: 0.7382 | TER ↓: 2.2802
+Row 4: Model: Llama3.1:8b | WER ↓: 0.5921 | ROUGE-L ↑: 0.6911 | TER ↓: 2.6088
+[/TABLE]
+
+[TABLE page=11 index=2]
+Columns: the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the
+Row 1: the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the: generated Cooklang output and the reference text at the n-gram level. Furthermore, the model had the lowest Token
+Row 2: the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the: Error Rate (TER) of 1.5255, indicating minimal hallucination or generation of content not grounded in the original
+Row 3: the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the: text. Additionally, it showed the lowest Word Error Rate (WER) of 0.3893, implying high accuracy in maintaining the
+Row 4: the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the: correct word sequence with minimal insertions, substitutions, or deletions when converting to Cooklang format. These
+Row 5: the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the: results suggest that GPT-4o could be particularly well-suited for applications requiring accurate transformation between
+Row 6: the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the: different text formats and structures, as its strong performance in maintaining semantic content while adapting syntactic
+Row 7: the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the: structure indicates robust capabilities in text transformation tasks. GPT-4o-mini ranks second in converting plain text
+Row 8: the Cooklang format. The model achieved the highest ROUGE-L score (0.8128), indicating an overlap between the: to Cooklang, demonstrating consistent performance, but falls behind GPT-4o. Its Word Error Rate (WER) of 0.4808
+[/TABLE]
+
+[PAGE 12]
+arXiv Template A PREPRINT
+shows more errors in word sequence maintenance. The lower ROUGE-L score of 0.7550 reveals reduced overlap
+between the generated Cooklang and reference text. A Token Error Rate (TER) of 2.0381 indicates that GPT-4o-mini
+generates more content without grounding in the original text. Results for the family of Llama3.1 demonstrate that
+models exhibit considerably reduced performance in Cooklang conversion relative to the GPT models. The 70b version
+exhibits superior performance compared to the 8b version across all metrics, suggesting that an increased model size
+contributes to enhanced performance. However, both models demonstrate a notable deficit in comparison to the GPT
+models. The WER values for the Llama models exceed 0.55, indicating a significant prevalence of errors in word
+sequence. The ROUGE-L scores are below 0.73, suggesting a similar performance as GPT-4o-mini in the generated
+text and the reference text. Additionally, the TER values exceed 2.28, indicating a possible tendency for hallucination
+or the generation of content that is not directly relevant to the source text.
+4.1 Impact of Prompt Techniques on Model Performance
+Analysis of the layer of prompt techniques – MIPROv2, Few-Shot, Zero-Shot – reveals differences in their effectiveness
+across models. The results, presented in Table 2 and Figure 3, demonstrate that the impact of prompt techniques
+varies considerably depending on the model used. The Few-Shot prompt technique consistently demonstrates superior
+performance compared to other techniques across all models, achieving the lowest word error rate (WER), the highest
+ROUGE-L score, and the lowest term error rate (TER).
+The efficacy of each prompt technique varies considerably across different models. Larger, more advanced models
+(GPT-4o and GPT-4o-mini) demonstrate superior overall performance and less variability between prompt techniques
+in comparison to smaller models (LLama3.3:70b and Llama3.1:8b). It is noteworthy that while Few-Shot consistently
+ranks first, but MIPROv2 optimized prompts are closely following. Zero-shot prompts show a consistent gap to other
+techniques for each model. Larger models demonstrate the most optimal overall performance across all techniques,
+with Few-Shot attaining a WER as low as 0.3509 for GPT-4o. In contrast, Llama3 3.1 models exhibit elevated error
+rates and lower ROUGE-L scores.
+Table 2: Model Performance Metrics Across Prompt Techniques
+Model WER ↓ ROUGE-L ↑ TER ↓
+GPT-4o (MIPROv2) 0.3637 0.8171 1.4566
+GPT-4o (Few-Shot) 0.3509 0.8209 1.4467
+GPT-4o (Zero-Shot) 0.4533 0.8005 1.6733
+GPT-4o-mini (MIPROv2) 0.3664 0.8008 1.5024
+GPT-4o-mini (Few-Shot) 0.3819 0.7928 1.5820
+GPT-4o-mini (Zero-Shot) 0.6943 0.6715 3.0299
+Llama3.3:70b (MIPROv2) 0.4037 0.8023 1.5364
+Llama3.3:70b (Few-Shot) 0.3747 0.8270 1.4633
+Llama3.3:70b (Zero-Shot) 0.8746 0.5854 3.8408
+Llama3.1:8b (MIPROv2) 0.4869 0.7371 2.1442
+Llama3.1:8b (Few-Shot) 0.4172 0.7837 1.8714
+Llama3.1:8b (Zero-Shot) 0.8721 0.5526 3.8108
+Note: ↓ indicates lower values are better, ↑ indicates higher values are better.
+
+[TABLE page=12 index=1]
+Columns: Model | WER ↓ | ROUGE-L ↑ | TER ↓
+Row 1: Model: GPT-4o (MIPROv2) | WER ↓: 0.3637 | ROUGE-L ↑: 0.8171 | TER ↓: 1.4566
+Row 2: Model: GPT-4o (Few-Shot) | WER ↓: 0.3509 | ROUGE-L ↑: 0.8209 | TER ↓: 1.4467
+Row 3: Model: GPT-4o (Zero-Shot) | WER ↓: 0.4533 | ROUGE-L ↑: 0.8005 | TER ↓: 1.6733
+Row 4: Model: GPT-4o-mini (MIPROv2) | WER ↓: 0.3664 | ROUGE-L ↑: 0.8008 | TER ↓: 1.5024
+Row 5: Model: GPT-4o-mini (Few-Shot) | WER ↓: 0.3819 | ROUGE-L ↑: 0.7928 | TER ↓: 1.582
+Row 6: Model: GPT-4o-mini (Zero-Shot) | WER ↓: 0.6943 | ROUGE-L ↑: 0.6715 | TER ↓: 3.0299
+Row 7: Model: Llama3.3:70b (MIPROv2) | WER ↓: 0.4037 | ROUGE-L ↑: 0.8023 | TER ↓: 1.5364
+Row 8: Model: Llama3.3:70b (Few-Shot) | WER ↓: 0.3747 | ROUGE-L ↑: 0.827 | TER ↓: 1.4633
+Row 9: Model: Llama3.3:70b (Zero-Shot) | WER ↓: 0.8746 | ROUGE-L ↑: 0.5854 | TER ↓: 3.8408
+Row 10: Model: Llama3.1:8b (MIPROv2) | WER ↓: 0.4869 | ROUGE-L ↑: 0.7371 | TER ↓: 2.1442
+Row 11: Model: Llama3.1:8b (Few-Shot) | WER ↓: 0.4172 | ROUGE-L ↑: 0.7837 | TER ↓: 1.8714
+Row 12: Model: Llama3.1:8b (Zero-Shot) | WER ↓: 0.8721 | ROUGE-L ↑: 0.5526 | TER ↓: 3.8108
+[/TABLE]
+
+[PAGE 13]
+arXiv Template A PREPRINT
+Figure 3: Prompting Technique Performance Across WER, ROUGE-L, and TER Metrics
+4.2 Effect of Cooking Language Specification and Ingredient Exclusion
+We also evaluated whether inserting Cooklang language specifications into prompts or presenting a list of ingredients
+could yield a significant difference. Our findings indicate considerable discrepancies in model performance contingent
+on the utilization of Cooklang and the exclusion of ingredient information. Examined four models under different
+configurations: with/without Cooklang specification and with/without recipe ingredients. The results, presented in
+Table 3, demonstrate that these factors influence model performance across evaluation metrics.
+Figures 4 and 5 show that including both Cooklang and ingredient information improved performance across all tested
+models. This suggests that structured language and contextual information enhance recipe processing capabilities.
+GPT-4o performed best across all configurations and metrics, achieving its highest scores when using both Cooklang and
+ingredient information. The benefits of these additions scaled with model size, as larger models showed more substantial
+improvements. While ingredient information alone generally improved performance, adding Cooklang created further
+gains, highlighting the value of domain-specific structured languages. These findings could indicate that language
+models benefit from both structured formats and comprehensive contextual information when processing domainspecific tasks. The pronounced impact of including ingredient information, even without Cooklang specifications,
+indicates that contextual knowledge plays a crucial role in recipe understanding. This aligns with previous findings in
+natural language processing, where domain-specific context enhances task performance. However, the synergistic effect
+of combining both Cooklang and ingredients suggests that structured formats help models better leverage available
+contextual information.
+
+[PAGE 14]
+arXiv Template A PREPRINT
+Figure 4: Impact of Cooklang Specification Integration on WER, ROUGE-L, and TER Performance Metrics
+
+[PAGE 15]
+arXiv Template A PREPRINT
+Figure 5: Impact of Ingredients Integration on WER, ROUGE-L, and TER Performance Metrics
+
+[PAGE 16]
+arXiv Template A PREPRINT
+Table 3: LLM Performance Metrics Across Different Configurations
+Model Cooklang Specification Ingredients WER ↓ ROUGE-L ↑ TER ↓
+GPT-4o False False 0.4292 0.7585 1.8141
+GPT-4o False True 0.3825 0.8350 1.4019
+GPT-4o True True 0.3563 0.8449 1.3605
+GPT-4o-mini False False 0.5429 0.7053 2.242
+GPT-4o-mini False True 0.4970 0.7680 1.9757
+GPT-4o-mini True True 0.4026 0.7919 1.8965
+Llama3.3:70b False False 0.5972 0.6937 2.4857
+Llama3.3:70b False True 0.6058 0.7329 2.3081
+Llama3.3:70b True True 0.4501 0.7880 2.0466
+Llama3.1:8b False False 0.5766 0.6863 2.4011
+Llama3.1:8b False True 0.6127 0.7201 2.4220
+Llama3.1:8b True True 0.5869 0.6669 3.0033
+Note: ↓ indicates lower values are better, ↑ indicates higher values are better.
+4.3 Ingredient Identification
+Our evaluation metric assessed how accurately LLMs identify all ingredients in recipes. Figure 6 illustrates the identification capabilities and shows performance variations across four tested models. GPT-4o achieved the highest score of
+0.33 on the ingredient identification metric (0-1 range), while GPT-4o-mini scored 0.296. The larger LLama3.3:70b
+closely followed GPT-4o-mini with 0.2589 (difference 0.0371). The smaller LLama3.1:8b performed worse and
+reaching only 0.216. This gap reveals a notable difference between GPT and Llama models in ingredient identification
+tasks. It is important to note that this evaluation methodology relies solely on exact string matching for ingredient
+identification without accounting for spelling variations or minor textual discrepancies. This strict matching criterion
+likely underestimates the models’ true ingredient identification capabilities, as it penalizes semantically correct but
+textually inexact matches. Future work could enhance this metric by incorporating fuzzy matching or semantic similarity
+measures to provide a more comprehensive assessment of ingredient identification performance. Figure 7 provides a
+deeper analysis, examining both missing ingredients (false negatives) and incorrectly added ingredients (false positives)
+across models.
+4.4 Accuracy in Unit and Amount Identification
+Table 4 shows LLM performance metrics across configurations and prompt techniques, focusing on unit and amount
+identification accuracy in domain-specific contexts. We evaluated the models using MIPROv2, few-shot, and zero-shot
+prompting techniques. GPT-4o, with MIPROv2 optimized prompt, achieved the highest scores, reaching 0.3017 and
+0.2900 for unit and amount identification. Few-Shot and MIPROv2 techniques outperformed Zero-Shot across most
+models, highlighting the impact of effective prompting. GPT-4o and GPT-4o-mini surpassed the Llama models in
+performance, while the 70b Llama version exceeded its 8b variant but, this metric was the hardest one for LLama3.3:70
+with the largest gap it scored against GPT-4o-mini. Zero-shot yielded the lowest results, demonstrating the necessity of
+proper prompting. Llama models, particularly the 8b version, struggled compared to GPT models. Notably, Llama3.1:8b
+showed slightly better performance with Zero-Shot for amount detection. These results demonstrate how model size
+and prompting techniques affect specialized task performance while indicating room for improvement in domain
+applications. Similar to ingredient identification, our metrics that evaluate LLMs across Unit and Amount Identification
+rely solely on exact string matching for ingredient identification without accounting for spelling variations or minor
+textual discrepancies.
+5 Discussion
+Our analysis of models, prompt techniques, and configurations demonstrates a clear pattern in the optimization of
+performance for both recipe processing and Cooklang conversion tasks. The results consistently indicate a hierarchy
+of performance, with GPT-4o exhibiting the highest performance, followed by GPT-4o-mini > Llama 3.3:70b >
+
+[TABLE page=16 index=1]
+Columns: Unnamed: 0 | Table 3: LLM Performance Metrics Across Different Configurations | Unnamed: 1
+Row 1: Unnamed: 0: Model | Table 3: LLM Performance Metrics Across Different Configurations: Cooklang Specification Ingredients WER ↓ ROUGE-L ↑ | Unnamed: 1: TER ↓
+Row 2: Unnamed: 0: GPT-4o | Table 3: LLM Performance Metrics Across Different Configurations: False False 0.4292 0.7585 | Unnamed: 1: 1.8141
+Row 3: Unnamed: 0: GPT-4o | Table 3: LLM Performance Metrics Across Different Configurations: False True 0.3825 0.8350 | Unnamed: 1: 1.4019
+Row 4: Unnamed: 0: GPT-4o | Table 3: LLM Performance Metrics Across Different Configurations: True True 0.3563 0.8449 | Unnamed: 1: 1.3605
+Row 5: Unnamed: 0: GPT-4o-mini | Table 3: LLM Performance Metrics Across Different Configurations: False False 0.5429 0.7053 | Unnamed: 1: 2.242
+Row 6: Unnamed: 0: GPT-4o-mini | Table 3: LLM Performance Metrics Across Different Configurations: False True 0.4970 0.7680 | Unnamed: 1: 1.9757
+Row 7: Unnamed: 0: GPT-4o-mini | Table 3: LLM Performance Metrics Across Different Configurations: True True 0.4026 0.7919 | Unnamed: 1: 1.8965
+Row 8: Unnamed: 0: Llama3.3:70b | Table 3: LLM Performance Metrics Across Different Configurations: False False 0.5972 0.6937 | Unnamed: 1: 2.4857
+Row 9: Unnamed: 0: Llama3.3:70b | Table 3: LLM Performance Metrics Across Different Configurations: False True 0.6058 0.7329 | Unnamed: 1: 2.3081
+Row 10: Unnamed: 0: Llama3.3:70b | Table 3: LLM Performance Metrics Across Different Configurations: True True 0.4501 0.7880 | Unnamed: 1: 2.0466
+Row 11: Unnamed: 0: Llama3.1:8b | Table 3: LLM Performance Metrics Across Different Configurations: False False 0.5766 0.6863 | Unnamed: 1: 2.4011
+Row 12: Unnamed: 0: Llama3.1:8b | Table 3: LLM Performance Metrics Across Different Configurations: False True 0.6127 0.7201 | Unnamed: 1: 2.4220
+Row 13: Unnamed: 0: Llama3.1:8b | Table 3: LLM Performance Metrics Across Different Configurations: True True 0.5869 0.6669 | Unnamed: 1: 3.0033
+[/TABLE]
+
+[PAGE 17]
+arXiv Template A PREPRINT
+Figure 6: Model Performance in Ingredient Identification, higher values are better.
+Table 4: LLM Performance Metrics Across Different Models and Prompt Techniques
+Model Prompt Technique Find All Units ↑ Find All Amounts ↑
+GPT-4o MIPROv2 0.3017 0.29
+GPT-4o Few-Shot 0.2433 0.2533
+GPT-4o Zero-Shot 0.15 0.14
+GPT-4o-mini MIPROv2 0.2033 0.2050
+GPT-4o-mini Few-Shot 0.2250 0.2350
+GPT-4o-mini Zero-Shot 0.0800 0.1317
+Llama3.3:70b MIPROv2 0.0983 0.1183
+Llama3.3:70b Few-Shot 0.1600 0.1900
+Llama3.3:70b Zero-Shot 0.1033 0.1550
+Llama3.1:8b MIPROv2 0.1250 0.1533
+Llama3.1:8b Few-Shot 0.1433 0.1750
+Llama3.1:8b Zero-Shot 0.0817 0.1033
+Note: ↑ indicates higher values are better.
+
+[TABLE page=17 index=1]
+Columns: Model | Prompt Technique | Find All Units ↑ | Find All Amounts ↑
+Row 1: Model: GPT-4o | Prompt Technique: MIPROv2 | Find All Units ↑: 0.3017 | Find All Amounts ↑: 0.29
+Row 2: Model: GPT-4o | Prompt Technique: Few-Shot | Find All Units ↑: 0.2433 | Find All Amounts ↑: 0.2533
+Row 3: Model: GPT-4o | Prompt Technique: Zero-Shot | Find All Units ↑: 0.15 | Find All Amounts ↑: 0.14
+Row 4: Model: GPT-4o-mini | Prompt Technique: MIPROv2 | Find All Units ↑: 0.2033 | Find All Amounts ↑: 0.205
+Row 5: Model: GPT-4o-mini | Prompt Technique: Few-Shot | Find All Units ↑: 0.225 | Find All Amounts ↑: 0.235
+Row 6: Model: GPT-4o-mini | Prompt Technique: Zero-Shot | Find All Units ↑: 0.08 | Find All Amounts ↑: 0.1317
+Row 7: Model: Llama3.3:70b | Prompt Technique: MIPROv2 | Find All Units ↑: 0.0983 | Find All Amounts ↑: 0.1183
+Row 8: Model: Llama3.3:70b | Prompt Technique: Few-Shot | Find All Units ↑: 0.16 | Find All Amounts ↑: 0.19
+Row 9: Model: Llama3.3:70b | Prompt Technique: Zero-Shot | Find All Units ↑: 0.1033 | Find All Amounts ↑: 0.155
+Row 10: Model: Llama3.1:8b | Prompt Technique: MIPROv2 | Find All Units ↑: 0.125 | Find All Amounts ↑: 0.1533
+Row 11: Model: Llama3.1:8b | Prompt Technique: Few-Shot | Find All Units ↑: 0.1433 | Find All Amounts ↑: 0.175
+Row 12: Model: Llama3.1:8b | Prompt Technique: Zero-Shot | Find All Units ↑: 0.0817 | Find All Amounts ↑: 0.1033
+[/TABLE]
+
+[PAGE 18]
+arXiv Template A PREPRINT
+Figure 7: Comparison of inputting ingredients into model prompt
+Llama 3.1:8b . We included GPT-4o, GPT-4o-mini, LLama3.3:70b, and Llama3.1:8b to represent different points in
+the spectrum of model scale and availability. Our results do show that GPT-4o performed best on our specific task,
+but this finding was reported as an empirical observation rather than advocacy. Results could be skewed towards the
+OpenAI family models because the compared models from the Llama family were significantly smaller.
+The following in-depth examination of configurations revealed that they consistently exhibited greater performance
+than other configurations in:
+• Model: GPT-4o achieved superior performance across all evaluation metrics and tasks, consistently outperforming other models in word error rate (WER), ROUGE-L, translation error rate (TER), ingredient identification,
+and quantity recognition accuracy. The model demonstrated exceptional general language understanding and
+generation capabilities while excelling in domain-specific tasks. Llama models show positive scaling behavior
+with increased model size. However, they consistently underperformed compared to GPT models across both
+general and domain-specific metrics.
+• Prompt Technique: The Few-Shot prompting technique demonstrated best performance across all models. For
+GPT-4o specifically, Few-Shot achieved optimal results with WER=0.3509, TER=1.4467 but was outperformed
+in ROUGE-L metrics by Llama3.3:70b where llama model achvied score 0.8270 and GPT-4o achvied 0.8209.
+
+[PAGE 19]
+arXiv Template A PREPRINT
+MIPROv2 showed strong performance across most models. The overall ranking of prompt techniques from
+our analysis: Few-Shot > MIPROv2 > Zero-Shot.
+• Cooklang and Ingredient Information : The implementation of the Cooklang format and ingredient information resulted in enhanced recipe parsing and generation, leading to improved WER, ROUGE-L, and
+TER scores. However, GPT models exhibited a tendency to include an excess of ingredients, occasionally
+introducing superfluous elements, as shown in Figure 7. In contrast, Smaller llama model demonstrated
+a reduced proclivity to incorporate unnecessary ingredients but were more susceptible to the omission of
+essential components, potentially impacting the completeness and accuracy of the recipes.
+• Accuracy of Units and Amounts : The GPT-4o model with Few-Shot prompting demonstrated the most
+effective performance (Table 4) in identifying units (0.3017) and amounts (0.29). GPT models exhibited
+performance in quantitative information extraction. In contrast, Llama models exhibited poor performance in
+extracting quantitative information (units and amounts), which is crucial for ensuring recipe precision.
+The results indicate that the optimal configuration for achieving optimal performance in recipe processing and Cooklang
+conversion tasks is the use of GPT-4o with Few-Shot prompting, which incorporates both Cooklang specifications and
+ingredient information, and GPT-4o-mini and the larger Llama model (70b) demonstrated improvements with analogous
+configurations and closely following GPT-4o in results. However, the higher cost of using GPT-4o compared to smaller
+models presents a notable drawback, potentially limiting its practical implementation in resource-constrained scenarios
+where GPT-4o-mini or Llama3.3:70b could be more suitable with minimal performance reduction.
+5.1 Open source model size comparison
+The comparison between Llama3.1:8b and Llama3.3:70b reveals significant performance differences across all metrics.
+As anticipated, the larger 70b parameter model outperformed its 8b counterpart, consistent with the expectation that
+increased model size correlates with enhanced capabilities. The data presented in Figure 2 and Table 1 demonstrates a
+clear performance hierarchy: the 70b model achieves a WER of 0.5510, ROUGE-L of 0.7382, and TER of 2.2802,
+compared to the 8b model’s WER of 0.5921, ROUGE-L of 0.6911, and TER of 2.6088. This substantial performance
+gap between the two open-source models indicates that the 8b model’s performance distribution does not significantly
+overlap with that of the 70b model. For scenarios where deployment constraints favor open-source alternatives, the
+substantial performance advantage of the 70b model over the 8b variant likely justifies the additional computational
+resources required, particularly for applications where accuracy is paramount.
+5.2 Scalability Considerations
+Our evaluation highlights critical scalability considerations for real-world implementation. GPT-4o demonstrated
+superior performance but introduced significant deployment challenges via API, including latency (average processing
+time of 3 seconds per recipe) and cost (approximately $8.75 per 1,000 recipes with 1500 input/500 output tokens).
+GPT-4o-mini offers a more economical alternative at $0.53 per 1,000 recipes with reduced latency (1 second per recipe),
+though both figures assume no parallel API calls. In contrast, locally deployed Llama3.1:8b processed 40 recipes
+per minute on consumer-grade hardware (single Nvidia RTX 4090), eliminating API costs and significantly reducing
+processing time, making it suitable for batch processing large recipe collections despite lower accuracy. For large-scale
+applications processing thousands of recipes (or other domain-specific text data) daily, the performance-cost trade-off
+becomes significant. Additional scalability challenges include handling diverse recipe formats and languages, managing
+concurrent requests, and integrating with existing culinary databases. These considerations will become increasingly
+important as this technology is deployed beyond experimental settings to production environments.
+5.3 Limitations
+While this study sheds light on the capabilities of large language models (LLMs) in converting recipes to Cooklang
+markdown, it is important to acknowledge its limitations.
+1. Model Versions: This study focuses on specific LLMs: GPT-4o, GPT-4o-mini, Llama:3.1:8b, and
+Llama:3.3:70b. To gain a more comprehensive understanding, further research should expand the scope
+to include a wider range of models. Specifically, testing the largest Llama3.1:405b model could provide
+insights into whether performance gaps between proprietary and open-source models narrow at the highest
+parameter counts. Our model selection was constrained by computational resources and aimed to provide
+a representative sample across both proprietary and open-source options rather than advocating for specific
+model families.
+
+[PAGE 20]
+arXiv Template A PREPRINT
+2. Task Specificity: Our evaluation focused on converting recipe text into recipe in Cooklang markdown. While
+this offers deep insights into domain-specific performance, it may not fully demonstrate the model’s ability
+to generate other domain-specific structured text. Future studies should examine the model’s broader text
+generation capabilities.
+3. Dataset Limitations: The study utilized a dataset of 1098 distinct recipe samples from categories, which
+provides a foundation for initial analysis. However, to more enhance the generalization of the results across
+different cuisines and recipe types, it would be beneficial to construct a larger, more comprehensive dataset.
+This expanded dataset could include a wider variety of recipes from diverse cultural backgrounds, cooking
+methods, and ingredient combinations. By evaluating the models on this larger dataset, we could gain more
+robust insights into their performance and better assess their applicability across a broader spectrum of culinary
+contexts.
+4. Fine-tuning Potential: The study does not examine the potential for improvements resulting from task-specific
+fine-tuning, which could enhance performance and alter results. It would be beneficial for future research to
+include fine-tuning experiments for a more comprehensive evaluation. Finetuning Large Language models
+for recipe generation from the study by Vij et al. Vij et al. [2025] demonstrates the significant impact of taskspecific fine-tuning on model performance for specialized domains like recipe generation. While fine-tuning
+generally improved metrics like step complexity across models of various sizes (from SmolLM-135M to
+Phi-2), their research revealed nuanced trade-offs in performance metrics, similar as ours. Their comparative
+analysis across models demonstrated that smaller models can sometimes achieve comparable performance to
+larger ones after fine-tuning, indicating that model size alone doesn’t determine fine-tuning efficacy, which
+supports our claims that finetuning smaller models could lead to similar results as models from the OpenAI
+family.
+Future research should address these limitations to gain a more comprehensive understanding of language model
+performance in recipe generation and related tasks.
+6 Conclusion
+Our research demonstrates the transformative potential of large language models (LLMs) in revolutionizing domainspecific content processing and generation. Through experimentation, we have shown that state-of-the-art models,
+particularly GPT-4o, can handle the intricate task of converting unstructured recipes into standardized Cooklang
+format with performance metrics—achieving a ROUGE-L score of 0.8128 and Word Error Rate of 1.5255 with fewshot prompting—showcasing not just incremental improvement but a quantum leap in automated recipe processing
+capabilities.
+The implications of this research extend far beyond the culinary domain, opening new horizons in the field of structured
+text generation. Our findings provide a clear path forward for organizations grappling with the challenge of converting
+unstructured information into standardized, machine-readable formats. The success demonstrated in the conversion
+of recipes serves as a powerful proof-of-concept for similar transformations in other specialized domains, including
+healthcare documentation (HL7), legal contract analysis, financial compliance reporting, and technical documentation
+management.
+What makes these results particularly exciting is their immediate practical applicability. Organizations can leverage
+this technology to dramatically streamline their workflows, potentially reducing manual processing time by orders of
+magnitude while simultaneously improving data quality and consistency with a little implementation overhead.
+Looking ahead, this research focuses on the new era in natural language processing, where the barrier between
+unstructured and structured content becomes increasingly permeable. The demonstrated capabilities of large language
+models (LLMs) in understanding and generating domain-specific formats suggest a paradigm shift in how organizations
+manage, process, and utilize their textual data. As these models continue to evolve, the potential applications will only
+expand, promising even more sophisticated and efficient solutions for complex content transformation challenges.
+6.1 Future Research Directions
+1. Fine-tuning: The smaller models, like those in the Llama family, demonstrated potential in performing
+complex tasks such as accurate ingredient identification. However, the study suggests that targeted fine-tuning
+of these smaller models, such as Llama3.1:8b, could potentially narrow the performance gap in specific
+applications.
+2. Tools for structured generation: Frameworks such as Outlines Willard and Louf [2023] provide tools for
+utilizing open-source language models to generate Cooklang-compliant recipes without the necessity for
+
+[PAGE 21]
+arXiv Template A PREPRINT
+fine-tuning. The framework could employ regular expression-guided generation to guarantee correct formatting
+of ingredients, structured text generation to provide overall recipe structure, constrained decoding to ensure
+specification compliance, and custom stopping criteria to confirm complete recipes. This approach allows the
+generation of fully-formed, Cooklang-compliant recipes from simple prompts, combining the model’s culinary
+knowledge with strict adherence to Cooklang specifications.
+3. Broader model selection: While our current study established baseline performance using representative
+models (GPT-4o, GPT-4o-mini, LLama3.3:70b, and Llama3.1:8b), we plan to expand this analysis to include
+newer model iterations and additional open-source and proprietary models. This broader evaluation will help
+validate our findings and identify performance patterns across different model architectures and sizes.
+4. Advanced Prompting Techniques: The exploration of alternative prompting techniques, such as multi-step
+prompting Fu et al. [2023] for recipe generation and conversion, and structured prompts that emulate the
+Cooklang format, is a promising avenue for further research. That could improve every metric.
+5. Dataset Expansion: The proposed improvements involve an expansion of the recipe dataset beyond the current
+1098 samples to encompass a more diverse range of cuisines, cooking methods, and ingredient combinations.
+This approach could be also used to create a new dataset. It will convert the recipe dataset into a cooklang
+markdown. These kinds of datasets could be used for finetuning large and small language models for this task.
+Furthermore, this approach facilitates the development of novel datasets, which contain the potential for the
+fine-tuning of both large and small language models, enabling more nuanced natural language understanding
+in culinary contexts. This transformation not only standardizes the recipe representation but also creates
+opportunities for cross-cultural culinary analysis and automated recipe processing applications.
+6. Potential Impact on Culinary Industry: AI-powered automation shows clear potential to transform recipe
+generation and conversion, especially within digital cookbooks. Models like GPT-4 have initiated a promising
+shift in cookbook creation and management. AI systems can now streamline the conversion between plain
+text and structured recipe formats, which could revolutionize cookbook publishing and recipe management
+systems.
+6.2 Closing Remarks
+Our research illustrates the adaptability of general-purpose LLMs to domain-specific tasks, particularly in the culinary
+domain. By demonstrating the efficacy of models like GPT-4o in processing and generating structured recipe content in
+Cooklang format, the study bridges the gap between general natural language processing capabilities and specialized
+applications. These findings have implications for the development of AI-powered tools in industries. They suggest that,
+with appropriate prompting and input structuring, general-purpose LLMs can be effectively applied to domain-specific
+challenges without extensive fine-tuning. This study provides a foundation for further research into the application of
+LLMs in specialized domains. Future work could explore fine-tuning strategies, expanded datasets, and applications in
+other domain-specific areas.
+7 Acknowledgment
+The authors gratefully acknowledge Alexey Dubovskoy (dubadub) and CapnDan for providing their personal cooklang
+recipes, which served as the evaluation backbone for this research. We also extend our sincere appreciation to the
+broader cooklang community for their ongoing contributions and commitment to structured recipe formatting. The
+diverse collection of recipes made available by this community has been instrumental in validating our methodological
+approach and enhancing the robustness of our findings.
+References
+Tom Brown and et al. Language models are few-shot learners. In H. Larochelle, M. Ranzato, R. Hadsell, M.F.
+Balcan, and H. Lin, editors, Advances in Neural Information Processing Systems, volume 33, pages 1877–1901.
+Curran Associates, Inc., 2020. URL https://proceedings.neurips.cc/paper_files/paper/2020/file/
+1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf.
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and
+Peter J. Liu. Exploring the limits of transfer learning with a unified text-to-text transformer. J. Mach. Learn. Res., 21
+(1), January 2020. ISSN 1532-4435.
+Cooklang. Cooklang: Recipe markup language. https://github.com/cooklang, 2024a. URL https://
+github.com/cooklang. Accessed: 15.1.2025.
+
+[PAGE 22]
+arXiv Template A PREPRINT
+Pengfei Liu, Weizhe Yuan, Jinlan Fu, Zhengbao Jiang, Hiroaki Hayashi, and Graham Neubig. Pre-train, prompt, and
+predict: A systematic survey of prompting methods in natural language processing. ACM Comput. Surv., 55(9),
+January 2023. ISSN 0360-0300. doi:10.1145/3560815. URL https://doi.org/10.1145/3560815.
+Robert H. Dolin, Liora Alschuler, Calvin Beebe, Paul V . Biron, Sandra L. Boyer, Daniel Essin, Elliot Kimber, Tom
+Lincoln, and John E. Mattison. The HL7 clinical document architecture.Journal of the American Medical Informatics
+Association, 8(6):552–569, 2001. doi:10.1136/jamia.2001.0080552.
+Michael Good. Musicxml for notation and analysis. In The Virtual Score, Volume 12: Representation, Retrieval,
+Restoration. The MIT Press, 05 2001. ISBN 9780262316187. doi:10.7551/mitpress/2058.003.0010. URL https:
+//doi.org/10.7551/mitpress/2058.003.0010.
+Ahmed Ali and Steve Renals. Word error rate estimation for speech recognition: e-WER. In Iryna Gurevych and
+Yusuke Miyao, editors,Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics
+(Volume 2: Short Papers), pages 20–24, Melbourne, Australia, July 2018. Association for Computational Linguistics.
+doi:10.18653/v1/P18-2004. URL https://aclanthology.org/P18-2004/.
+Dietrich Klakow and Jochen Peters. Testing the correlation of word error rate and perplexity. Speech Communication, 38(1):19–28, 2002. ISSN 0167-6393. doi:https://doi.org/10.1016/S0167-6393(01)00041-3. URL
+https://www.sciencedirect.com/science/article/pii/S0167639301000413.
+Google Research. Rouge: Recall-oriented understudy for gisting evaluation. https://github.com/googleresearch/google-research/tree/master/rouge, 2019. Accessed on September 22, 2024.
+Abigail See, Peter Liu, and Christopher Manning. Get to the point: Summarization with pointer-generator networks.
+In Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics . Association for
+Computational Linguistics, 2017. URL https://arxiv.org/abs/1704.04368.
+PromptingGuide. Zero-shot prompting. https://www.promptingguide.ai/techniques/zeroshot, 2023a. URL
+https://www.promptingguide.ai/techniques/zeroshot. Accessed: 15.9.2024.
+PromptingGuide. Few-shot prompting. https://www.promptingguide.ai/techniques/fewshot, 2023b. URL
+https://www.promptingguide.ai/techniques/fewshot. Accessed: 16.1.2025.
+Krista Opsahl-Ong, Michael J Ryan, Josh Purtell, David Broman, Christopher Potts, Matei Zaharia, and Omar Khattab.
+Optimizing instructions and demonstrations for multi-stage language model programs. In Yaser Al-Onaizan, Mohit
+Bansal, and Yun-Nung Chen, editors,Proceedings of the 2024 Conference on Empirical Methods in Natural Language
+Processing, pages 9340–9366, Miami, Florida, USA, November 2024. Association for Computational Linguistics.
+doi:10.18653/v1/2024.emnlp-main.525. URL https://aclanthology.org/2024.emnlp-main.525/.
+David A. Mundie. Computerized cooking.https://diyhpl.us/~bryan/papers2/CompCook.html, 1985. Accessed:
+15.1.2025.
+Google Developers. Recipe, howto, and itemlist structured data. https://developers.google.com/search/
+docs/appearance/structured-data/recipe, 2024. URL https://developers.google.com/search/
+docs/appearance/structured-data/recipe. Google Search Central Documentation, Accessed : 15.1.2025.
+Alexey Dubovskoy. Cooking patterns. https://alexey.ch/post/2015/02/cooking-patterns/„ feb 2015. URL
+https://alexey.ch/post/2015/02/cooking-patterns/. Accessed: 27.12.2024.
+Rishi Bommasani and et al. On the opportunities and risks of foundation models. arXiv, 2108.07258, 2021.
+doi:arXiv:2108.07258.
+Vasiliki Pitsilou, George Papadakis, and Dimitrios Skoutas. Using LLMs to Extract Food Entities from Cooking
+Recipes . In 2024 IEEE 40th International Conference on Data Engineering Workshops (ICDEW), pages 21–28,
+Los Alamitos, CA, USA, May 2024. IEEE Computer Society. doi:10.1109/ICDEW61823.2024.00008. URL
+https://doi.ieeecomputersociety.org/10.1109/ICDEW61823.2024.00008.
+A. Rostami. An Integrated Framework for Contextual Personalized LLM-Based Food Recommendation . Ph.d.
+dissertation, UC Irvine, 2024. URL https://escholarship.org/uc/item/4b7448hc. ProQuest ID: Rostami_uci_0030D_18859, Merritt ID: ark:/13030/m5vr48xn.
+Jinhao Jiang, Kun Zhou, Zican Dong, Keming Ye, Wayne Xin Zhao, and Ji-Rong Wen. Structgpt: A general framework
+for large language model to reason over structured data. arXiv, 2305.09645, 2023.
+Fnu Mohbat and Mohammed J Zaki. Llava-chef: A multi-modal generative model for food recipes. arXiv, 2408.16889,
+2024.
+Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual instruction tuning. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 26296–26306,
+June 2024. doi:10.1109/CVPR52733.2024.02484.
+
+[PAGE 23]
+arXiv Template A PREPRINT
+Prof. Pratiksha Prakash Pansare, Kunal Navnath Khatik, Niraj Nandkumar Shigvan, and Rohan Vaijanath Lande.
+A review on recipe generation from food image using machine learning. International Journal of Advanced Research in Science, Communication and Technology, 2024. URL https://api.semanticscholar.org/CorpusID:
+274084737.
+Michał Bie´n, Michał Gilski, Martyna Maciejewska, Wojciech Taisner, Dawid Wisniewski, and Agnieszka Lawrynowicz. RecipeNLG: A cooking recipes dataset for semi-structured text generation. In Brian Davis, Yvette Graham, John Kelleher, and Yaji Sripada, editors, Proceedings of the 13th International Conference on Natural
+Language Generation, pages 22–28, Dublin, Ireland, December 2020. Association for Computational Linguistics.
+doi:10.18653/v1/2020.inlg-1.4. URL https://aclanthology.org/2020.inlg-1.4/.
+Pengfei Zhou, Weiqing Min, Chaoran Fu, Ying Jin, Mingyu Huang, Li Xiangyang, Shuhuan Mei, and Shuqiang Jiang.
+Foodsky: A food-oriented large language model that passes the chef and dietetic examination. arXiv, 2406.10261,
+2024. doi:10.48550/arXiv.2406.10261. URL https://arxiv.org/abs/2406.10261.
+Angelos Mavrogiannis, Christoforos Mavrogiannis, and Yiannis Aloimonos. Cook2ltl: Translating cooking recipes
+to ltl formulae using large language models. In 2024 IEEE International Conference on Robotics and Automation
+(ICRA), pages 17679–17686, 2024. doi:10.1109/ICRA57147.2024.10611086.
+Alexey Dubovskoy. Ai and the evolution of recipe formats. https://cooklang.org/blog/03-ai-and-theevolution-of-recipe-formats/ , 2024. URL https://cooklang.org/blog/03-ai-and-the-evolutionof-recipe-formats/. Accessed: 27.12.2024.
+Anneketh Vij, Changhao Liu, Rahul Anil Nair, Theodore Eugene Ho, Edward Shi, and Ayan Bhowmick. Fine-tuning
+language models for recipe generation: A comparative analysis and benchmark study. arXiv, 2502.02028, 2025.
+URL https://arxiv.org/abs/2502.02028.
+Jiazheng Li, Runcong Zhao, and Lin Gui. Overprompt: Enhancing chatgpt capabilities through an efficient in-context
+learning approach. arXiv, 2305.14973, 2023. doi:10.48550/arXiv.2305.14973. URL https://arxiv.org/abs/
+2305.14973.
+Tianyu Gao, Adam Fisch, and Danqi Chen. Making pre-trained language models better few-shot learners. In
+Chengqing Zong, Fei Xia, Wenjie Li, and Roberto Navigli, editors, Proceedings of the 59th Annual Meeting of
+the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language
+Processing (Volume 1: Long Papers) , pages 3816–3830, Online, August 2021. Association for Computational
+Linguistics. doi:10.18653/v1/2021.acl-long.295. URL https://aclanthology.org/2021.acl-long.295/.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V . Le, and
+Denny Zhou. Chain-of-thought prompting elicits reasoning in large language models. In Proceedings of the 36th
+International Conference on Neural Information Processing Systems, NIPS ’22, Red Hook, NY , USA, 2024. Curran
+Associates Inc. ISBN 9781713871088.
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed H. Chi, and Denny Zhou. Self-consistency improves chain
+of thought reasoning in language models. ArXiv, 2203.11171, 2022. URL https://api.semanticscholar.org/
+CorpusID:247595263.
+Yupeng Chang, Xu Wang, Jindong Wang, Yuan Wu, Linyi Yang, Kaijie Zhu, Hao Chen, Xiaoyuan Yi, Cunxiang Wang,
+Yidong Wang, Wei Ye, Yue Zhang, Yi Chang, Philip S. Yu, Qiang Yang, and Xing Xie. A survey on evaluation of
+large language models. ACM Trans. Intell. Syst. Technol., 15(3), March 2024. ISSN 2157-6904. doi:10.1145/3641289.
+URL https://doi.org/10.1145/3641289.
+Marco Tulio Ribeiro, Tongshuang Wu, Carlos Guestrin, and Sameer Singh. Beyond accuracy: Behavioral testing of nlp
+models with checklist. arXiv, 2005.04118, 2020. doi:10.48550/arXiv.2005.04118. URL https://arxiv.org/abs/
+2005.04118.
+Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil
+Mathur, Alan Schelten, Amy Yang, Angela Fan, et al. The llama 3 herd of models. arXiv, 2407.21783, 2024. URL
+https://arxiv.org/abs/2407.21783.
+Meta AI. Llama 3.1: Meta’s latest AI model is now available. https://ai.meta.com/blog/meta-llama-3-1/ ,
+February 2024a. URL https://ai.meta.com/blog/meta-llama-3-1/ . Accessed: 15.9.2024.
+Meta AI. Llama models, 2024b. URL https://github.com/meta-llama/llama-models. Accessed: 15.9.2024.
+OpenAI. GPT-4. https://platform.openai.com/docs/models/gpt-4o, 2024a. Accessed: 15.9.2024.
+OpenAI. GPT-4. https://platform.openai.com/docs/models/gpt-4o-mini, 2024b. Accessed: 15.9.2024.
+Laria Reynolds and Kyle McDonell. Prompt programming for large language models: Beyond the few-shot paradigm.
+In Extended Abstracts of the 2021 CHI Conference on Human Factors in Computing Systems, CHI EA ’21, New York,
+
+[PAGE 24]
+arXiv Template A PREPRINT
+NY , USA, 2021. Association for Computing Machinery. ISBN 9781450380959. doi:10.1145/3411763.3451760.
+URL https://doi.org/10.1145/3411763.3451760.
+Omar Khattab, Arnav Singhvi, Paridhi Maheshwari, Zhiyuan Zhang, Keshav Santhanam, Sri Vardhamanan, Saiful Haq,
+Ashutosh Sharma, Thomas T. Joshi, Hanna Moazam, Heather Miller, Matei Zaharia, and Christopher Potts. Dspy:
+Compiling declarative language model calls into self-improving pipelines. In The Twelfth International Conference
+on Learning Representations, 2024.
+Cooklang. Cooklang recipes repository. https://github.com/Cooklang/recipes, 2024b. URL https:
+//github.com/Cooklang/recipes. Accessed: 2024-09-18.
+Cooklang. Cooklang specification examples. https://github.com/Cooklang/spec/tree/main/examples,
+2024c. URL https://github.com/Cooklang/spec/tree/main/examples. Accessed: 16.1.2025.
+Cooklang Community. Awesome cooklang recipes. https://github.com/cooklang/awesome-cooklangrecipes, 2024. URL https://github.com/cooklang/awesome-cooklang-recipes. Accessed: 2024-0918.
+CookLang. Cookcli: Command line interface for cooklang. https://github.com/cooklang/cookcli, 2024. URL
+https://github.com/cooklang/cookcli. Accessed: 15.9.2024.
+Ollama. Ollama: Get up and running with large language models, locally. https://ollama.com/, 2024. URL
+https://ollama.com/. Accessed on 16 September 2024.
+Brandon T. Willard and Rémi Louf. Efficient guided generation for large language models. arXiv, 2307.09702, 2023.
+URL https://api.semanticscholar.org/CorpusID:260278488.
+Yao Fu, Litu Ou, Mingyu Chen, Yuhao Wan, Hao Peng, and Tushar Khot. Chain-of-thought hub: A continuous effort
+to measure large language models’ reasoning performance. arXiv, 2305.17306, 2023. URL https://arxiv.org/
+abs/2305.17306.

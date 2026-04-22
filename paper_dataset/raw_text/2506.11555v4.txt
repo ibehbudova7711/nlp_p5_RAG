@@ -1,0 +1,1970 @@
+[PAGE 1]
+RAG+: Enhancing Retrieval-Augmented Generation with
+Application-Aware Reasoning
+Yu Wang†♡, Shiwan Zhao △, Zhihu Wang♢, Ming Fan *♡, Xicheng Zhang ♡,
+Yubo Zhang♢,Zhengfan Wang ♡,Heyuan Huang ♢,Ting Liu ♡
+♡Xi’an Jiaotong University ♢Huawei Technologies Ltd. △Nankai University
+{uyleewang,xichengzhang,wangzf7241}@stu.xjtu.edu.cn
+{mingfan,tingliu}@mail.xjtu.edu.cn zhaosw@gmail.com
+{wangzhihu3,zhangyubo20,huangheyuan}@huawei.com
+Abstract
+The integration of external knowledge through
+Retrieval-Augmented Generation (RAG) has
+become foundational in enhancing large language models (LLMs) for knowledge-intensive
+tasks. However, existing RAG paradigms often
+overlook the cognitive step of applying knowledge, leaving a gap between retrieved facts and
+task-specific reasoning. In this work, we introduceRAG+, a principled and modular extension that explicitly incorporates applicationaware reasoning into the RAG pipeline. RAG+
+constructs a dual corpus consisting of knowledge and aligned application examples, created either manually or automatically, and retrieves both jointly during inference. This design enables LLMs not only to access relevant
+information but also to apply it within structured, goal-oriented reasoning processes. Experiments across mathematical, legal, and medical domains, conducted on multiple models,
+demonstrate that RAG+ consistently outperforms standard RAG variants, achieving average improvements of 3–5%, and peak gains up
+to 13.5% in complex scenarios. By bridging
+retrieval with actionable application, RAG+ advances a more cognitively grounded framework
+for knowledge integration, representing a step
+toward more interpretable and capable LLMs.
+1 Introduction
+Large language models (LLMs) have demonstrated
+strong performance across a broad range of natural language processing tasks (Rong et al., 2025;
+Tang et al., 2025). To further improve their capabilities, Retrieval-Augmented Generation (RAG)
+has emerged as a widely adopted framework. By
+equipping LLMs with access to external knowledge sources, RAG enables the dynamic retrieval
+of up-to-date information at inference time, leading
+†Work done during an internship at Huawei Technologies
+Ltd.
+*Corresponding Author
+How many ways to choose 3 students from 6 boys and 4 girls, with at least one girl?
+Input Query
+To choose k items from n without regard to
+order, use the combina�on formula:
+C(n, k) = n! / (k!(n−k)!).
+Knowledge
+Ques�on: How many 4-person teams can
+be formed from 7 engineers and 5 designers,
+with at least one of each?
+Answer: Total teams: C(12, 4); Invalid teams
+(only engineers or only designers): C(7, 4) +
+C(5, 4); Valid teams = C(12, 4) − C(7, 4) −
+C(5, 4) = 455. Therefore, the answer is 455.
+Applica�on
+We need to choose 3 students
+from 10 people,
+So, the answer is C(10, 3) = 120
+RAG Answer
+We should subtract the invalid
+cases (all boys) from the total:
+All combina�on: C(10, 3) = 120
+All-boys group: C(6, 3) = 20
+Therefore, the answer is 120 - 20
+= 100
+RAG+ Answer
+Figure 1: An Illustrative Case of RAG and RAG+:
+Knowledge Only vs. Knowledge with Application.
+to significant gains in knowledge-intensive scenarios (Li et al., 2025; Mostafa et al., 2025).
+However, existing RAG methods often focus
+on lexical or semantic similarity when retrieving
+knowledge, paying little attention to how the retrieved content should be applied in downstream
+tasks. While effective in factual recall and opendomain question answering, RAG frequently underperforms on domain-specific reasoning tasks (Lin
+et al., 2025; Hayashi et al., 2025; Ammann et al.,
+2025), where solving complex problems requires
+not only relevant information but also reasoning
+about how to use it to arrive at a solution. Figure 1
+illustrates a representative example.
+RA-DIT (Lin et al., 2023) fine-tunes both the
+retriever and generator in a dual-instruction manner, aligning retrieval more closely with what the
+model needs to generate accurate responses. Other
+recent RAG extensions address the gap between
+retrieval and application by decomposing reasoning tasks into smaller steps and retrieving relevant
+knowledge for each substep (Singh et al., 2025;
+Xiong et al., 2025; Zihao et al., 2024). However,
+they provide limited guidance on how to apply retrieved knowledge. This shortcoming hampers performance in procedural reasoning tasks that require
+understanding both the solution process and the
+associated underlying concepts.
+arXiv:2506.11555v4 [cs.AI] 23 Sep 2025
+
+[PAGE 2]
+This limitation reflects insights from educational
+psychology. Bloom’s Taxonomy identifies “applying” knowledge as a distinct cognitive skill that
+goes beyond simple recall (Bloom, 2010). Similarly, cognitive architectures like ACT-R distinguish between declarative memory (facts) and procedural memory (skills), suggesting that coupling
+factual knowledge with procedural examples enhances performance on complex tasks (Anderson
+et al., 2004). Consistently, Re-TASK (Wang et al.,
+2024b) introduces the concept of capability items,
+emphasizing that accomplishing domain-specific
+tasks requires jointly leveraging domain knowledge
+and task-specific skills.
+Motivated by these insights, we propose RAG+,
+a simple yet effective extension to the RAG framework that enhances reasoning by bridging retrieval
+and generation with an application-aware stage. Instead of retrieving only relevant knowledge, RAG+
+additionally retrieves examples that demonstrate
+how the knowledge is applied in practice-such as
+structured reasoning chains and stepwise solutionsto ground the model’s output in task-relevant usage
+and to improve reasoning accuracy.
+RAG+ builds a dual corpus: one stores domain
+knowledge, and the other contains automatically
+generated application instances aligned to each
+fact. At inference time, the system retrieves relevant knowledge based on the input query and
+then fetches aligned application examples to provide practical context. This design encourages the
+model not only to recall factual content but also
+to produce outputs that follow grounded reasoning
+patterns based on prior usage. RAG+ is modular
+and retrieval-agnostic; it can be integrated into any
+existing RAG pipeline without changing the model
+architecture or requiring additional fine-tuning.
+We evaluate RAG+ across three reasoningintensive domains: mathematics, medicine, and legal, using four representative RAG variants: vanilla
+RAG, Answer-First RAG, GraphRAG, and Rerank
+RAG. Experiments show that RAG+ consistently
+improves performance. Notably, Qwen2.5-72B improves from 76.5% to 87.5% on legal prediction,
+and LLaMA3.3-70B rises from 78.2% to 86.5% on
+medical QA. Even smaller models like DS-Qwen7B benefit, demonstrating the broad effectiveness
+of application-aware augmentation. These results
+demonstrate that bridging retrieval and reasoning
+through application-aware augmentation can yield
+substantial gains, especially in domains where accurate reasoning is essential.
+Our contributions are as follows:
+• We identify a key limitation of existing RAG
+systems: the absence of an application-aware
+step, which impairs reasoning in complex
+tasks.
+• We introduce RAG+, a modular and plug-andplay extension that jointly retrieves factual
+knowledge and its aligned usage examples to
+better support downstream reasoning.
+• We validate the effectiveness of RAG+
+through comprehensive experiments, demonstrating consistent gains across multiple domains and retrieval strategies.
+2 Related Work
+Retrieval-Augmented Generation (RAG) has become a widely adopted framework for enhancing large language models (LLMs), especially
+in knowledge-intensive tasks. A standard RAG
+pipeline includes query formulation, corpus construction, retrieval, and answer generation. Prior
+work has sought improvements at each stage.
+For retrieval quality, Rewrite-Retrieve-Read (Ma
+et al., 2023) rewrites queries to better align with
+document style. R2AG (Ye et al., 2024) uses a
+retrieval-aware encoder to highlight key signals,
+while Query2Doc (Wang et al., 2023a) expands
+queries into pseudo-documents to clarify intent. In
+terms of corpus construction, GraphRAG (Edge
+et al., 2024) integrates knowledge graphs to support entity-centric reasoning. To enhance retrieval
+precision, Reranking (Wang et al., 2024a) and filtering techniques (Wang et al., 2023b; Pickett et al.,
+2025) further refine retrieved content.
+Beyond these enhancements, recent work has
+tackled more complex reasoning tasks through
+modular and agent-based RAG variants. Agentic
+RAG (Singh et al., 2025) and RAG-Gym (Xiong
+et al., 2025) decompose tasks into subtasks handled by specialized agents or workflows. OPENRAG (Islam et al., 2024) introduces agent-based decomposition and context selection, while RAT (Zihao et al., 2024) uses Chain-of-Thought prompting
+to support step-wise retrieval.
+Despite these efforts, most RAG methods remain optimized for fact-centric tasks such as opendomain QA. In reasoning-centric domains such as
+mathematics, retrieving the right facts is only the
+
+[TABLE page=2 index=1]
+Columns: cedural memory (skills), suggesting that coupling | Unnamed: 0 | Unnamed: 1 | tasks.
+Row 1: cedural memory (skills), suggesting that coupling: factual knowledge with procedural examples en- | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 2: cedural memory (skills), suggesting that coupling: | Unnamed: 0: | Unnamed: 1: • | tasks.: We introduce RAG+, a modular and plug-andRow 3: cedural memory (skills), suggesting that coupling: hances performance on complex tasks (Anderson | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 4: cedural memory (skills), suggesting that coupling: | Unnamed: 0: | Unnamed: 1: | tasks.: play extension that jointly retrieves factual
+Row 5: cedural memory (skills), suggesting that coupling: et al., 2004). Consistently, Re-TASK (Wang et al., | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 6: cedural memory (skills), suggesting that coupling: | Unnamed: 0: | Unnamed: 1: | tasks.: knowledge and its aligned usage examples to
+Row 7: cedural memory (skills), suggesting that coupling: 2024b) introduces the concept of capability items, | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 8: cedural memory (skills), suggesting that coupling: | Unnamed: 0: | Unnamed: 1: | tasks.: better support downstream reasoning.
+Row 9: cedural memory (skills), suggesting that coupling: emphasizing that accomplishing domain-specific | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 10: cedural memory (skills), suggesting that coupling: tasks requires jointly leveraging domain knowledge | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 11: cedural memory (skills), suggesting that coupling: | Unnamed: 0: | Unnamed: 1: • | tasks.: We validate the effectiveness of RAG+
+Row 12: cedural memory (skills), suggesting that coupling: and task-specific skills. | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 13: cedural memory (skills), suggesting that coupling: | Unnamed: 0: | Unnamed: 1: | tasks.: through comprehensive experiments, demonRow 14: cedural memory (skills), suggesting that coupling: Motivated by these insights, we propose RAG+, | Unnamed: 0: | Unnamed: 1: | tasks.: strating consistent gains across multiple doRow 15: cedural memory (skills), suggesting that coupling: a simple yet effective extension to the RAG frame- | Unnamed: 0: | Unnamed: 1: | tasks.: mains and retrieval strategies.
+Row 16: cedural memory (skills), suggesting that coupling: work that enhances reasoning by bridging retrieval | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 17: cedural memory (skills), suggesting that coupling: and generation with an application-aware stage. In- | Unnamed: 0: 2 | Unnamed: 1: Related Work | tasks.:
+Row 18: cedural memory (skills), suggesting that coupling: stead of retrieving only relevant knowledge, RAG+ | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 19: cedural memory (skills), suggesting that coupling: | Unnamed: 0: Retrieval-Augmented Generation (RAG) has be- | Unnamed: 1: | tasks.:
+Row 20: cedural memory (skills), suggesting that coupling: additionally retrieves examples that demonstrate | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 21: cedural memory (skills), suggesting that coupling: | Unnamed: 0: come | Unnamed: 1: | tasks.: a widely adopted framework for enhancRow 22: cedural memory (skills), suggesting that coupling: how the knowledge is applied in practice-such as | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 23: cedural memory (skills), suggesting that coupling: | Unnamed: 0: ing | Unnamed: 1: | tasks.: large language models (LLMs), especially
+Row 24: cedural memory (skills), suggesting that coupling: structured reasoning chains and stepwise solutions- | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 25: cedural memory (skills), suggesting that coupling: | Unnamed: 0: in knowledge-intensive | Unnamed: 1: | tasks.: tasks. A standard RAG
+Row 26: cedural memory (skills), suggesting that coupling: to ground the model’s output in task-relevant usage | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 27: cedural memory (skills), suggesting that coupling: | Unnamed: 0: pipeline includes query formulation, corpus con- | Unnamed: 1: | tasks.:
+Row 28: cedural memory (skills), suggesting that coupling: and to improve reasoning accuracy. | Unnamed: 0: | Unnamed: 1: | tasks.:
+Row 29: cedural memory (skills), suggesting that coupling: | Unnamed: 0: struction, retrieval, and answer generation. | Unnamed: 1: | tasks.: Prior
+Row 30: cedural memory (skills), suggesting that coupling: RAG+ builds a dual corpus: one stores domain | Unnamed: 0: work has sought improvements at each stage. | Unnamed: 1: | tasks.:
+Row 31: cedural memory (skills), suggesting that coupling: knowledge, and the other contains automatically | Unnamed: 0: | Unnamed: 1: For retrieval quality, Rewrite-Retrieve-Read (Ma | tasks.:
+Row 32: cedural memory (skills), suggesting that coupling: generated application instances aligned to each | Unnamed: 0: et al., 2023) rewrites queries to better align with | Unnamed: 1: | tasks.:
+Row 33: cedural memory (skills), suggesting that coupling: fact. At inference time, the system retrieves rel- | Unnamed: 0: document style. R2AG (Ye et al., 2024) uses a | Unnamed: 1: | tasks.:
+Row 34: cedural memory (skills), suggesting that coupling: evant knowledge based on the input query and | Unnamed: 0: retrieval-aware encoder to highlight key signals, | Unnamed: 1: | tasks.:
+Row 35: cedural memory (skills), suggesting that coupling: then fetches aligned application examples to pro- | Unnamed: 0: while Query2Doc (Wang et al., 2023a) expands | Unnamed: 1: | tasks.:
+Row 36: cedural memory (skills), suggesting that coupling: vide practical context. This design encourages the | Unnamed: 0: queries into pseudo-documents to clarify intent. In | Unnamed: 1: | tasks.:
+Row 37: cedural memory (skills), suggesting that coupling: model not only to recall factual content but also | Unnamed: 0: terms of corpus construction, GraphRAG (Edge | Unnamed: 1: | tasks.:
+Row 38: cedural memory (skills), suggesting that coupling: to produce outputs that follow grounded reasoning | Unnamed: 0: et al., 2024) integrates knowledge graphs to sup- | Unnamed: 1: | tasks.:
+Row 39: cedural memory (skills), suggesting that coupling: patterns based on prior usage. RAG+ is modular | Unnamed: 0: port entity-centric reasoning. To enhance retrieval | Unnamed: 1: | tasks.:
+Row 40: cedural memory (skills), suggesting that coupling: and retrieval-agnostic; it can be integrated into any | Unnamed: 0: precision, Reranking (Wang et al., 2024a) and fil- | Unnamed: 1: | tasks.:
+Row 41: cedural memory (skills), suggesting that coupling: existing RAG pipeline without changing the model | Unnamed: 0: tering techniques (Wang et al., 2023b; Pickett et al., | Unnamed: 1: | tasks.:
+Row 42: cedural memory (skills), suggesting that coupling: architecture or requiring additional fine-tuning. | Unnamed: 0: 2025) further refine retrieved content. | Unnamed: 1: | tasks.:
+Row 43: cedural memory (skills), suggesting that coupling: We evaluate RAG+ across three reasoning- | Unnamed: 0: | Unnamed: 1: Beyond these enhancements, | tasks.: recent work has
+Row 44: cedural memory (skills), suggesting that coupling: intensive domains: mathematics, medicine, and le- | Unnamed: 0: tackled | Unnamed: 1: | tasks.: more complex reasoning tasks through
+Row 45: cedural memory (skills), suggesting that coupling: gal, using four representative RAG variants: vanilla | Unnamed: 0: modular and agent-based RAG variants. Agentic | Unnamed: 1: | tasks.:
+Row 46: cedural memory (skills), suggesting that coupling: RAG, Answer-First RAG, GraphRAG, and Rerank | Unnamed: 0: RAG (Singh et al., 2025) and RAG-Gym (Xiong | Unnamed: 1: | tasks.:
+Row 47: cedural memory (skills), suggesting that coupling: RAG. Experiments show that RAG+ consistently | Unnamed: 0: et al., 2025) decompose tasks into subtasks han- | Unnamed: 1: | tasks.:
+Row 48: cedural memory (skills), suggesting that coupling: improves performance. Notably, Qwen2.5-72B im- | Unnamed: 0: dled by specialized agents or workflows. | Unnamed: 1: | tasks.: OPENRow 49: cedural memory (skills), suggesting that coupling: proves from 76.5% to 87.5% on legal prediction, | Unnamed: 0: RAG (Islam et al., 2024) introduces agent-based de- | Unnamed: 1: | tasks.:
+Row 50: cedural memory (skills), suggesting that coupling: and LLaMA3.3-70B rises from 78.2% to 86.5% on | Unnamed: 0: composition and context selection, while RAT (Zi- | Unnamed: 1: | tasks.:
+Row 51: cedural memory (skills), suggesting that coupling: medical QA. Even smaller models like DS-Qwen- | Unnamed: 0: hao et al., 2024) uses Chain-of-Thought prompting | Unnamed: 1: | tasks.:
+Row 52: cedural memory (skills), suggesting that coupling: 7B benefit, demonstrating the broad effectiveness | Unnamed: 0: to support step-wise retrieval. | Unnamed: 1: | tasks.:
+Row 53: cedural memory (skills), suggesting that coupling: of application-aware augmentation. These results | Unnamed: 0: | Unnamed: 1: Despite | tasks.: these efforts, most RAG methods reRow 54: cedural memory (skills), suggesting that coupling: demonstrate that bridging retrieval and reasoning | Unnamed: 0: main optimized for fact-centric tasks such as open- | Unnamed: 1: | tasks.:
+Row 55: cedural memory (skills), suggesting that coupling: through application-aware augmentation can yield | Unnamed: 0: domain QA. In reasoning-centric domains such as | Unnamed: 1: | tasks.:
+[/TABLE]
+
+[PAGE 3]
+first step. The model must also understand how
+to apply them to reach a specific goal. Our work
+addresses this gap by introducing an applicationaware step that explicitly guides how retrieved
+knowledge is used.
+3 Methods
+We propose RAG+, a principled extension of
+Retrieval-Augmented Generation (RAG) that incorporates the explicit application of retrieved knowledge to improve reasoning. While prior RAG
+frameworks focus on retrieving relevant knowledge for downstream tasks, they often overlook
+explicitly guiding models on how to utilize this
+knowledge in reasoning. RAG+ addresses this limitation by introducing an explicit step that applies
+the retrieved knowledge through aligned application examples, illustrating its practical use.
+The RAG+ pipeline consists of two stages: (a)
+a construction stage, where an application corpus
+is built and aligned with the knowledge corpus;
+and (b) an inference stage, in which both knowledge and corresponding applications are retrieved
+to form a comprehensive prompt for response generation, as shown in Figure 2.
+3.1 Construction Stage
+The construction stage aims to build an application corpus A aligned with an existing knowledge
+corpus K, as shown in Figure 2(a). For each knowledge item k∈K , an application example a∈A is
+either retrieved or generated to demonstrate the
+practical use of k. These examples bridge the
+gap between passive knowledge access and taskoriented reasoning.
+Depending on domain characteristics and data
+availability, we consider two complementary strategies for constructing application examples:application generationandapplication matching.
+Application Generation:In many domains,
+while structured knowledge corpora exist, corresponding application examples remain scarce or
+incomplete. To address this gap, we leverage powerful LLMs to automatically generate application
+examples. This process produces a structured application corpus aligned with the knowledge base,
+facilitating application-aware reasoning. We categorize knowledge items into two types based on
+their inherent nature to ensure generation of relevant and task-appropriate applications:
+Conceptual knowledgecomprises static, descriptive information, such as definitions, theoretical
+explanations, or descriptions of entities and principles. The corresponding applications generally
+involve comprehension tasks, contextual interpretations, or analogies that elucidate meaning and
+deepen understanding.
+Procedural knowledgerefers to dynamic, actionable information including problem-solving strategies, inference rules, and step-by-step methods. Its
+associated applications are demonstrated through
+worked examples, reasoning chains, or practical
+problem-solving instances where the knowledge is
+actively applied.
+Figure 3 illustrates examples of these knowledge
+types alongside their generated applications. By
+aligning each knowledge item with a representative application, the constructed corpus enables
+downstream systems not only to retrieve relevant
+information but also to engage in more effective,
+application-aware reasoning.
+Guided by the prior classification of knowledge
+items into conceptual and procedural types, we
+design tailored prompting strategies to elicit taskappropriate applications: comprehension or contextualization tasks for conceptual knowledge and
+worked examples or reasoning chains for procedural knowledge.
+Application Matching:In domains where realworld cases naturally exemplify the use of specific
+knowledge, each knowledge item is paired with one
+or more application instances drawn from authentic scenarios, serving as grounded demonstrations
+that contextualize and concretize the corresponding
+knowledge. We refer to these instances as application examples. To establish these pairings, we
+first assign both problems and knowledge items to
+broad semantic categories using powerful LLMs
+with temperature sampling and self-consistency
+voting1. Specifically, we first classify knowledge
+items and application instances separately. Then,
+within each category, we use LLMs to match each
+knowledge item with its relevant application examples. The resulting pairings are manually refined
+to ensure accuracy. Next, within each category,
+relevance selection is conducted by prompting the
+model to identify the most pertinent knowledge
+entries for each problem.
+This two-stage process yields a many-to-many
+1The voting mechanism is not essential. To reduce computational cost, a well-designed prompt can serve as an alternative, allowing the alignment of knowledge–application in a
+single pass.
+
+[PAGE 4]
+Knowledge Point 3
+Knowledge Point 2
+Bayes’ Theorem:
+Let A and B be two events, with P(B) > 0. Then the
+posterior probability of A given B is:
+P(A|B) = \frac{P(B|A) * P(A)}{P(B)},where … …
+Knowledge Point 1
+Knowledge Corpus
+Applica�on of Knowledge Point 3
+Applica�on of Knowledge Point 2
+Ques�on:Given prior probabili�es Flu: 0.5, COVID-19: 0.3,
+Malaria: 0.2, and fever likelihoods 0.6, 0.9, 0.95, compute
+posterior probabili�es given fever.
+Answer: We apply Bayes’Theorem: … …
+Therefore, the probabili�es of each disease are: Flu: 39.47%;
+COVID-19: 35.53%; Malaria: 25.00%.
+Applica�on of Knowledge Point 1
+Construc�on Stage
+Applica�on Corpus
+Knowledge and Applica�ons Mapping
+…
+Applica�on of Knowledge Point 1Knowledge Point 2
+Applica�on of Knowledge Point 1Knowledge Point 1
+Real-world
+Cases
+Applica�on Genera�on Applica�on MatchingLLM
+If real-world cases existIf real-world cases don’t exist
+(a) Construction Stage: Building an Application
+Corpus Aligned with the Knowledge Corpus.
+We can apply Bayes’ Theorem to compute the
+posterior probability of disease given a posi�ve
+test result:
+P(Disease|Posi�ve)
+=\frac{P(Posi�ve|Disease)*P(Disease)}{P(Posi�ve)}
+Where:
+* P(Posi�ve) = P(Posi�ve|Disease) * P(Disease) +
+P(Posi�ve|No Disease) * P(No Disease)
+* P(Posi�ve|Disease) = 0.99
+* P(Posi�ve|No Disease) = 1 - 0.95 = 0.05
+* P(Disease) = 0.01, P(No Disease) = 0.99
+Given the parameters:
+P(Posi�ve) = 0.99 * 0.01 + 0.05 * 0.99 = 0.0099 +
+0.0495 = 0.0594
+Therefore, P(Disease|Posi�ve) = \frac{0.99 *
+0.01}{0.0594}= 0.1667
+Answer
+Knowledge Retrieval
+A disease aﬀects 1% of a popula�on. A diagnos�c
+test has a 99% true posi�ve rate (sensi�vity) and a
+95% true nega�ve rate (speciﬁcity). If a person
+tests posi�ve, what is the probability that they
+actually have the disease?
+Ques�on
+Bayes’ Theorem:
+Let A and B be two events, with P(B) > 0. Then the
+posterior probability of A given B is:
+P(A|B) = \frac{P(B|A) * P(A)}{P(B)}
+Knowledge Point 1
+Ques�on:Given prior probabili�es Flu: 0.5,
+COVID-19: 0.3, Malaria: 0.2, and fever likelihoods
+0.6, 0.9, 0.95 respec�vely, compute posterior
+probabili�es given fever.
+Answer: Let A_1 = Flu, A_2 = COVID-19, A_3 =
+Malaria, and B = Fever.
+We apply Bayes’Theorem: P(A_i|B) =
+\frac{P(B|A_i) * P(A_i)}{\sum_{j=1}^3 P(B|A_j) *
+P(A_j)}
+Compute the denominator: … …
+Applica�on of Knowledge Point 1
+Applica�on Mapping
+Inference Stage
+(b) Inference Stage: Retrieving Aligned Knowledge and Application Examples to Generate Output.
+Figure 2: The overview framework of RAG+: (a) construction of the application corpus and (b) inference with
+retrieved knowledge and applications.
+mapping between knowledge points and application examples, ensuring comprehensive and
+grounded coverage of relevant applications. For
+knowledge points lacking matched real-world applications, we supplement them with automatically
+generated examples as described above, thereby
+maintaining the completeness and robustness of
+the application corpus.
+These two strategies enable the construction of
+an application corpus that supports applicationaware reasoning across diverse domains.
+3.2 Inference Stage
+During inference, given a test query, RAG+ first
+retrieves relevant knowledge items from the knowledge corpus based on semantic and structural similarity, using any retrieval method (e.g., dense retrieval, reranking), as shown in Figure 2(b). For
+each retrieved knowledge item k, its corresponding application example a, pre-aligned during the
+construction stage, is retrieved from the application
+corpus. The pair (k, a) is then incorporated into a
+predefined prompt template that guides the model
+with both factual information and procedural cues.
+This prompt is subsequently fed into the language
+model for final answer generation.
+RAG+ is retrieval-agnostic and can be seamlessly integrated into any existing RAG pipeline.
+Since the knowledge-application alignment is established offline, no modifications to retrieval or
+generation models are needed at inference. This
+modular design allows RAG+ to function as a plugand-play enhancement for diverse reasoning tasks.
+4 Experiment Setup
+4.1 Baseline
+To assess the effectiveness of the proposed RAG+
+framework, we compare it against several representative RAG-based baselines, each embodying
+a distinct approach to utilizing retrieved information. RAG (Lewis et al., 2020) is the standard
+framework that retrieves relevant documents based
+on the input query and generates responses conditioned on both the query and the retrieved content.
+Answer-First RAG (AFRAG) first generates a candidate answer from the query, which is then used
+to retrieve supporting evidence. The final output
+is produced using both the original query and the
+retrieved context. GraphRAG (Edge et al., 2024)
+incorporates structured knowledge via knowledge
+graphs to facilitate multi-hop reasoning and improve contextual relevance. Rerank RAG re-ranks
+the top-k retrieved documents by a large language
+model and selects the top three for answer generation to enhance query-context alignment.
+In the Rerank RAG setup, the same model performs both reranking and generation. Smaller models (e.g., GLM4-9B, DS-Qwen-7B) often fail to
+comply with reranking instructions and instead
+generate answers directly. This issue remains despite prompt tuning and leads to missing results on
+the MathQA and MedQA datasets. Larger models (14B and above), however, reliably perform
+
+[TABLE page=4 index=1]
+Columns: generated examples as described above, thereby | Unnamed: 0 | To assess the effectiveness of the proposed RAG+
+Row 1: generated examples as described above, thereby: maintaining the completeness and robustness of | Unnamed: 0: | To assess the effectiveness of the proposed RAG+: framework, we compare it against several repreRow 2: generated examples as described above, thereby: the application corpus. | Unnamed: 0: | To assess the effectiveness of the proposed RAG+: sentative RAG-based baselines, each embodying
+Row 3: generated examples as described above, thereby: These two strategies enable the construction of | Unnamed: 0: | To assess the effectiveness of the proposed RAG+: a distinct approach to utilizing retrieved informaRow 4: generated examples as described above, thereby: an application corpus that supports application- | Unnamed: 0: | To assess the effectiveness of the proposed RAG+: tion. RAG (Lewis et al., 2020) is the standard
+Row 5: generated examples as described above, thereby: aware reasoning across diverse domains. | Unnamed: 0: | To assess the effectiveness of the proposed RAG+: framework that retrieves relevant documents based
+Row 6: generated examples as described above, thereby: | Unnamed: 0: | To assess the effectiveness of the proposed RAG+: on the input query and generates responses condiRow 7: generated examples as described above, thereby: 3.2 Inference Stage | Unnamed: 0: | To assess the effectiveness of the proposed RAG+: tioned on both the query and the retrieved content.
+[/TABLE]
+
+[TABLE page=4 index=2]
+Columns: mapping between | knowledge points | and | appli- | Unnamed: 0 | Unnamed: 1 | and-play enhancement for diverse reasoning tasks.
+Row 1: mapping between: cation examples, | knowledge points: ensuring comprehensive | and: | appli-: | Unnamed: 0: and | Unnamed: 1: | and-play enhancement for diverse reasoning tasks.:
+Row 2: mapping between: grounded coverage of relevant applications. | knowledge points: | and: | appli-: | Unnamed: 0: For | Unnamed: 1: | and-play enhancement for diverse reasoning tasks.: 4 Experiment Setup
+Row 3: mapping between: knowledge points lacking matched real-world ap- | knowledge points: | and: | appli-: | Unnamed: 0: | Unnamed: 1: | and-play enhancement for diverse reasoning tasks.:
+Row 4: mapping between: plications, we supplement them with automatically | knowledge points: | and: | appli-: | Unnamed: 0: | Unnamed: 1: | and-play enhancement for diverse reasoning tasks.: 4.1 Baseline
+[/TABLE]
+
+[TABLE page=4 index=3]
+Columns: ing application example a, pre-aligned during the | graphs to facilitate multi-hop reasoning and imRow 1: ing application example a, pre-aligned during the: construction stage, is retrieved from the application | graphs to facilitate multi-hop reasoning and im-: prove contextual relevance. Rerank RAG re-ranks
+Row 2: ing application example a, pre-aligned during the: corpus. The pair (k, a) is then incorporated into a | graphs to facilitate multi-hop reasoning and im-: the top-k retrieved documents by a large language
+Row 3: ing application example a, pre-aligned during the: predefined prompt template that guides the model | graphs to facilitate multi-hop reasoning and im-: model and selects the top three for answer generaRow 4: ing application example a, pre-aligned during the: with both factual information and procedural cues. | graphs to facilitate multi-hop reasoning and im-: tion to enhance query-context alignment.
+Row 5: ing application example a, pre-aligned during the: This prompt is subsequently fed into the language | graphs to facilitate multi-hop reasoning and im-: In the Rerank RAG setup, the same model perRow 6: ing application example a, pre-aligned during the: model for final answer generation. | graphs to facilitate multi-hop reasoning and im-: forms both reranking and generation. Smaller modRow 7: ing application example a, pre-aligned during the: RAG+ is retrieval-agnostic and can be seam- | graphs to facilitate multi-hop reasoning and im-: els (e.g., GLM4-9B, DS-Qwen-7B) often fail to
+Row 8: ing application example a, pre-aligned during the: lessly integrated into any existing RAG pipeline. | graphs to facilitate multi-hop reasoning and im-: comply with reranking instructions and instead
+Row 9: ing application example a, pre-aligned during the: Since the knowledge-application alignment is es- | graphs to facilitate multi-hop reasoning and im-: generate answers directly. This issue remains deRow 10: ing application example a, pre-aligned during the: tablished offline, no modifications to retrieval or | graphs to facilitate multi-hop reasoning and im-: spite prompt tuning and leads to missing results on
+Row 11: ing application example a, pre-aligned during the: generation models are needed at inference. This | graphs to facilitate multi-hop reasoning and im-: the MathQA and MedQA datasets. Larger mod-
+[/TABLE]
+
+[PAGE 5]
+Table 1: Accuracy (%) of different models on the MathQA dataset with and without application-level augmentation.
+“+” indicates the use of application-level augmentation.
+Method GLM4-9B Qwen2.5-7B DS-Qwen-7B Qwen2.5-14B DS-Qwen-32B Qwen2.5-72B LLaMA3.3-70B
+Baseline 46.51 58.84 24.19 66.98 80.00 69.07 69.07
+RAG 47.21 64.65 24.42 73.49 82.79 70.47 71.16
+RAG+ 52.09 65.58 26.28 74.67 84.65 73.72 71.86
+AFRAG 48.14 63.51 22.56 66.98 82.09 71.86 70.23
+AFRAG+ 51.16 64.42 23.95 70.00 83.95 76.05 71.86
+GraphRAG 33.95 56.98 27.21 69.07 82.7973.0268.37
+GraphRAG+ 36.51 59.77 33.72 69.77 83.4972.5669.00
+Rerank RAG 48.2156.05 26.05 71.40 80.46 73.26 74.65
+Rerank RAG+ –56.28 32.09 78.90 83.26 77.21 76.74
+reranking without this problem.
+4.2 Datasets
+RAG+ is evaluated on three reasoning-intensive
+domains: mathematics, legal, and medicine. The
+MathQA dataset is constructed from publicly available educational resources and is paired with a
+custom mathematical knowledge corpus. For legal, the sentencing prediction dataset from CAIL
+2018 (Xiao et al., 2018; Zhong et al., 2018) is used,
+with a knowledge corpus composed of statutes from
+the Criminal Law of China. For medicine, the
+MedQA dataset (Jin et al., 2020) is employed, together with a curated medical corpus from (Xiong
+et al., 2024) relevant to clinical reasoning.
+Because the legal and medical corpora lack sufficient real-world applications, we use automatic
+generation methods for their application corpora.
+Specifically, generated applications in legal reflect
+case rulings from the Chinese Criminal Law corpus,
+while in medicine, knowledge items are categorized
+before generating aligned applications based on a
+clinical knowledge base and the MedQA dataset.
+In contrast, the math corpus includes authentic application instances, enabling us to employ
+an application matching approach. This approach
+employs a two-stage filtering process: first, category alignment assigns both problems and knowledge items to broad categories using Qwen2.5-72B
+with temperature sampling and self-consistency
+voting, followed by manual refinement to improve
+accuracy. Second, relevance selection prompts the
+model to identify the most pertinent knowledge
+entries within each category. To maintain corpus
+completeness, knowledge points without matched
+real-world applications (under 10%) are supplemented with automatically generated examples.
+The resulting corpus pairs each knowledge item
+with one or more applications, enabling RAG+ to
+retrieve both during inference. All prompts used
+are detailed in Appendix C.
+4.3 Models
+Nine conversational models from the Qwen (Qwen
+et al., 2025; Yang et al., 2025), LLaMA (Dubey
+et al., 2024), DeepSeek (DeepSeek-AI, 2025), and
+ChatGLM (Team GLM et al., 2024) series were
+evaluated. Detailed configurations of the evaluated
+models are provided in Appendix A.1.
+5 Results
+In this section, the effectiveness of RAG+ is demonstrated across multiple models on three reasoningintensive datasets spanning distinct domains. Performance trends are also analyzed across different
+model scales within the Qwen2.5 series. Ablation studies examine the effects of incorporating
+only application examples or using larger models
+for reranking. Finally, case studies illustrate how
+RAG+ enhances complex reasoning.
+5.1 Mathematics Domain
+Table 1 reports the model performance on the
+MathQA dataset with and without application-level
+augmentation. Most retrieval methods demonstrate
+effectiveness, though some negatively impact performance. Nevertheless, almost all augmented variants outperform their non-augmented counterparts.
+Notably, Qwen2.5-14B achieves a substantial
+improvement of over 7.5% with Rerank RAG+,
+while DS-Qwen-7B showing gains of 6.5% and
+6.0% with GraphRAG+ and Rerank RAG+, respectively. GLM4-9B and Qwen2.5-72B show
+consistent gains between 2.8% and 4.8% across
+multiple RAG+ variants. In contrast, AFRAG and
+GraphRAG tend to be less effective on smaller
+
+[TABLE page=5 index=1]
+Columns: Method | GLM4-9B | Qwen2.5-7B | DS-Qwen-7B | Qwen2.5-14B | DS-Qwen-32B | Qwen2.5-72B | LLaMA3.3-70B
+Row 1: Method: Baseline | GLM4-9B: 46.51 | Qwen2.5-7B: 58.84 | DS-Qwen-7B: 24.19 | Qwen2.5-14B: 66.98 | DS-Qwen-32B: 80.0 | Qwen2.5-72B: 69.07 | LLaMA3.3-70B: 69.07
+Row 2: Method: RAG | GLM4-9B: 47.21 | Qwen2.5-7B: 64.65 | DS-Qwen-7B: 24.42 | Qwen2.5-14B: 73.49 | DS-Qwen-32B: 82.79 | Qwen2.5-72B: 70.47 | LLaMA3.3-70B: 71.16
+Row 3: Method: RAG+ | GLM4-9B: 52.09 | Qwen2.5-7B: 65.58 | DS-Qwen-7B: 26.28 | Qwen2.5-14B: 74.67 | DS-Qwen-32B: 84.65 | Qwen2.5-72B: 73.72 | LLaMA3.3-70B: 71.86
+Row 4: Method: AFRAG | GLM4-9B: 48.14 | Qwen2.5-7B: 63.51 | DS-Qwen-7B: 22.56 | Qwen2.5-14B: 66.98 | DS-Qwen-32B: 82.09 | Qwen2.5-72B: 71.86 | LLaMA3.3-70B: 70.23
+Row 5: Method: AFRAG+ | GLM4-9B: 51.16 | Qwen2.5-7B: 64.42 | DS-Qwen-7B: 23.95 | Qwen2.5-14B: 70.0 | DS-Qwen-32B: 83.95 | Qwen2.5-72B: 76.05 | LLaMA3.3-70B: 71.86
+Row 6: Method: GraphRAG | GLM4-9B: 33.95 | Qwen2.5-7B: 56.98 | DS-Qwen-7B: 27.21 | Qwen2.5-14B: 69.07 | DS-Qwen-32B: 82.79 | Qwen2.5-72B: 73.02 | LLaMA3.3-70B: 68.37
+Row 7: Method: GraphRAG+ | GLM4-9B: 36.51 | Qwen2.5-7B: 59.77 | DS-Qwen-7B: 33.72 | Qwen2.5-14B: 69.77 | DS-Qwen-32B: 83.49 | Qwen2.5-72B: 72.56 | LLaMA3.3-70B: 69.0
+Row 8: Method: Rerank RAG | GLM4-9B: 48.21 | Qwen2.5-7B: 56.05 | DS-Qwen-7B: 26.05 | Qwen2.5-14B: 71.4 | DS-Qwen-32B: 80.46 | Qwen2.5-72B: 73.26 | LLaMA3.3-70B: 74.65
+Row 9: Method: Rerank RAG+ | GLM4-9B: – | Qwen2.5-7B: 56.28 | DS-Qwen-7B: 32.09 | Qwen2.5-14B: 78.9 | DS-Qwen-32B: 83.26 | Qwen2.5-72B: 77.21 | LLaMA3.3-70B: 76.74
+[/TABLE]
+
+[TABLE page=5 index=2]
+Columns: edge items to broad categories using Qwen2.5-72B | formance. Nevertheless, almost all augmented variRow 1: edge items to broad categories using Qwen2.5-72B: with temperature sampling and self-consistency | formance. Nevertheless, almost all augmented vari-: ants outperform their non-augmented counterparts.
+Row 2: edge items to broad categories using Qwen2.5-72B: voting, followed by manual refinement to improve | formance. Nevertheless, almost all augmented vari-: Notably, Qwen2.5-14B achieves a substantial
+Row 3: edge items to broad categories using Qwen2.5-72B: accuracy. Second, relevance selection prompts the | formance. Nevertheless, almost all augmented vari-: improvement of over 7.5% with Rerank RAG+,
+Row 4: edge items to broad categories using Qwen2.5-72B: model to identify the most pertinent knowledge | formance. Nevertheless, almost all augmented vari-: while DS-Qwen-7B showing gains of 6.5% and
+Row 5: edge items to broad categories using Qwen2.5-72B: entries within each category. To maintain corpus | formance. Nevertheless, almost all augmented vari-: 6.0% with GraphRAG+ and Rerank RAG+, reRow 6: edge items to broad categories using Qwen2.5-72B: completeness, knowledge points without matched | formance. Nevertheless, almost all augmented vari-: spectively. GLM4-9B and Qwen2.5-72B show
+[/TABLE]
+
+[TABLE page=5 index=3]
+Columns: MathQA dataset is constructed from publicly avail- | Nine conversational models from the Qwen (Qwen
+Row 1: MathQA dataset is constructed from publicly avail-: able educational resources and is paired with a | Nine conversational models from the Qwen (Qwen: et al., 2025; Yang et al., 2025), LLaMA (Dubey
+Row 2: MathQA dataset is constructed from publicly avail-: custom mathematical knowledge corpus. For le- | Nine conversational models from the Qwen (Qwen: et al., 2024), DeepSeek (DeepSeek-AI, 2025), and
+Row 3: MathQA dataset is constructed from publicly avail-: gal, the sentencing prediction dataset from CAIL | Nine conversational models from the Qwen (Qwen: ChatGLM (Team GLM et al., 2024) series were
+Row 4: MathQA dataset is constructed from publicly avail-: 2018 (Xiao et al., 2018; Zhong et al., 2018) is used, | Nine conversational models from the Qwen (Qwen: evaluated. Detailed configurations of the evaluated
+Row 5: MathQA dataset is constructed from publicly avail-: with a knowledge corpus composed of statutes from | Nine conversational models from the Qwen (Qwen: models are provided in Appendix A.1.
+Row 6: MathQA dataset is constructed from publicly avail-: the Criminal Law of China. For medicine, the | Nine conversational models from the Qwen (Qwen:
+Row 7: MathQA dataset is constructed from publicly avail-: | Nine conversational models from the Qwen (Qwen: 5 Results
+Row 8: MathQA dataset is constructed from publicly avail-: MedQA dataset (Jin et al., 2020) is employed, to- | Nine conversational models from the Qwen (Qwen:
+Row 9: MathQA dataset is constructed from publicly avail-: gether with a curated medical corpus from (Xiong | Nine conversational models from the Qwen (Qwen: In this section, the effectiveness of RAG+ is demonRow 10: MathQA dataset is constructed from publicly avail-: et al., 2024) relevant to clinical reasoning. | Nine conversational models from the Qwen (Qwen: strated across multiple models on three reasoningRow 11: MathQA dataset is constructed from publicly avail-: Because the legal and medical corpora lack suf- | Nine conversational models from the Qwen (Qwen: intensive datasets spanning distinct domains. PerRow 12: MathQA dataset is constructed from publicly avail-: ficient real-world applications, we use automatic | Nine conversational models from the Qwen (Qwen: formance trends are also analyzed across different
+Row 13: MathQA dataset is constructed from publicly avail-: generation methods for their application corpora. | Nine conversational models from the Qwen (Qwen: model scales within the Qwen2.5 series. AblaRow 14: MathQA dataset is constructed from publicly avail-: Specifically, generated applications in legal reflect | Nine conversational models from the Qwen (Qwen: tion studies examine the effects of incorporating
+Row 15: MathQA dataset is constructed from publicly avail-: case rulings from the Chinese Criminal Law corpus, | Nine conversational models from the Qwen (Qwen: only application examples or using larger models
+Row 16: MathQA dataset is constructed from publicly avail-: while in medicine, knowledge items are categorized | Nine conversational models from the Qwen (Qwen: for reranking. Finally, case studies illustrate how
+Row 17: MathQA dataset is constructed from publicly avail-: before generating aligned applications based on a | Nine conversational models from the Qwen (Qwen: RAG+ enhances complex reasoning.
+Row 18: MathQA dataset is constructed from publicly avail-: clinical knowledge base and the MedQA dataset. | Nine conversational models from the Qwen (Qwen:
+Row 19: MathQA dataset is constructed from publicly avail-: In contrast, the math corpus includes authen- | Nine conversational models from the Qwen (Qwen: 5.1 Mathematics Domain
+Row 20: MathQA dataset is constructed from publicly avail-: tic application instances, enabling us to employ | Nine conversational models from the Qwen (Qwen: Table 1 reports the model performance on the
+Row 21: MathQA dataset is constructed from publicly avail-: an application matching approach. This approach | Nine conversational models from the Qwen (Qwen: MathQA dataset with and without application-level
+Row 22: MathQA dataset is constructed from publicly avail-: employs a two-stage filtering process: first, cate- | Nine conversational models from the Qwen (Qwen: augmentation. Most retrieval methods demonstrate
+Row 23: MathQA dataset is constructed from publicly avail-: gory alignment assigns both problems and knowl- | Nine conversational models from the Qwen (Qwen: effectiveness, though some negatively impact per-
+[/TABLE]
+
+[PAGE 6]
+Table 2: Accuracy (%) of different models on sentencing prediction tasks with and without application-level augmentation. LLaMA3.1-8B* denotes the Chinese version, and “+” indicates the use of application-level augmentation.
+Method LLaMA3.1-8B* DS-Qwen-7B DS-Qwen-32B QwQ-32B Qwen3-32B Qwen2.5-72B LLaMA3.3-70B
+Baseline 29.00 53.00 80.50 80.00 73.00 73.00 51.50
+RAG 36.00 65.5085.5081.5083.0076.50 70.50
+RAG+ 41.00 67.50 85.50 86.0082.5083.00 76.00
+AFRAG 27.50 65.50 85.00 82.50 76.00 85.00 41.50
+AFRAG+ 33.00 68.00 86.50 83.00 77.50 86.50 52.50
+GraphRAG 36.50 42.0081.5076.00 68.5064.0038.50
+GraphRAG+ 46.00 47.50 81.50 77.50 75.00 64.00 52.00
+Rerank RAG 33.00 60.00 82.0083.5080.50 77.5077.50
+Rerank RAG+ 34.00 61.00 82.50 83.50 82.00 87.50 77.50
+Table 3: Accuracy (%) of different models on the MedQA dataset with and without application-level augmentation.
+“+” indicates the use of application-level augmentation.
+Method LLaMA3.1-8B Qwen2.5-7B DS-Qwen-7B DS-Qwen-32B QwQ-32B Qwen2.5-72B LLaMA3.3-70B
+Baseline 57.80 41.80 32.60 80.00 80.40 73.80 78.20
+RAG 63.0059.2034.60 79.00 80.20 75.00 80.20
+RAG+ 63.6057.6040.20 80.20 80.80 75.40 81.40
+AFRAG 56.40 53.40 32.20 78.20 81.20 76.40 82.40
+AFRAG+ 57.00 57.20 34.60 78.60 82.20 77.40 83.00
+Rerank RAG 60.00 58.6035.2079.80 80.60 76.40 81.00
+Rerank RAG+ 63.40 61.40–80.20 81.40 78.20 85.60
+models, such as Qwen2.5-14B with GraphRAG,
+likely because these methods depend heavily on
+a model’s ability to interpret complex relational
+structures and integrate them into reasoning, which
+smaller models often lack.
+Additionally, GraphRAG without application
+augmentation can lead to performance drops. For
+instance, Qwen2.5-72B shows a slight decline with
+plain GraphRAG, possibly due to its emphasis
+on entity definitions and relations may not align
+well with mathematical tasks that require solutionoriented knowledge such as formulas.
+Overall, most models achieve accuracy improvements between 2.5% and 6.5%, while the overall range spans from approximately 0.7% to 7.5%.
+These findings highlight the value of applicationaware augmentation in reasoning tasks that require
+more than factual knowledge.
+5.2 Legal and Medicine Domain
+Table 2 and Table 3 show the performance of various RAG-based methods on the sentencing prediction task and the MedQA dataset across different
+models. Application-level augmentation consistently improves accuracy over both base models
+and standard RAG variants.
+In the legal domain, Qwen2.5-72B achieves
+87.5% accuracy with Rerank RAG+, a 10% gain
+over its non-augmented version. DS-Qwen-32B
+and QwQ-32B also show notable improvements
+with RAG+ and AFRAG+, demonstrating the
+effectiveness of application-aware augmentation.
+In contrast, GraphRAG alone underperforms, especially for smaller models like DS-Qwen-7B
+and LLaMA3.1-8B, likely due to its focus on
+entity-level information. However, combining
+GraphRAG with application augmentation significantly improves results, highlighting the need for
+task-aligned retrieval. LLaMA3.3-70B performs
+well across all methods but shows marginal gains
+with application augmentation, indicating diminishing returns from retrieval augmentation as model
+size increases.
+On the MedQA dataset, Rerank RAG+ yields
+the best performance for most models, especially
+the larger ones. For example, LLaMA3.3-70B
+reaches 85.6%, surpassing its baseline (81%) and
+Rerank RAG (81.0%) methods. Smaller models
+like Qwen2.5-7B and LLaMA3.1-8B also benefit,
+with gains of 2.2% and 3.4%, respectively. AFRAG
+and its augmented version provide steady improvements, showing that grounding abstract medical
+knowledge through applications enhances reasoning. While standard RAG offers a solid boost,
+
+[TABLE page=6 index=1]
+Columns: Method LLaMA3.1-8B* | DS-Qwen-7B | DS-Qwen-32B | QwQ-32B | Qwen3-32B | Qwen2.5-72B | LLaMA3.3-70B
+Row 1: Method LLaMA3.1-8B*: Baseline 29.00 | DS-Qwen-7B: 53.00 | DS-Qwen-32B: 80.50 | QwQ-32B: 80.0 | Qwen3-32B: 73.00 | Qwen2.5-72B: 73.00 | LLaMA3.3-70B: 51.50
+Row 2: Method LLaMA3.1-8B*: RAG 36.00 | DS-Qwen-7B: 65.50 | DS-Qwen-32B: 85.50 | QwQ-32B: 81.5 | Qwen3-32B: 83.00 | Qwen2.5-72B: 76.50 | LLaMA3.3-70B: 70.50
+Row 3: Method LLaMA3.1-8B*: RAG+ 41.00 | DS-Qwen-7B: 67.50 | DS-Qwen-32B: 85.50 | QwQ-32B: 86.0 | Qwen3-32B: 82.50 | Qwen2.5-72B: 83.00 | LLaMA3.3-70B: 76.00
+Row 4: Method LLaMA3.1-8B*: AFRAG 27.50 | DS-Qwen-7B: 65.50 | DS-Qwen-32B: 85.00 | QwQ-32B: 82.5 | Qwen3-32B: 76.00 | Qwen2.5-72B: 85.00 | LLaMA3.3-70B: 41.50
+Row 5: Method LLaMA3.1-8B*: AFRAG+ 33.00 | DS-Qwen-7B: 68.00 | DS-Qwen-32B: 86.50 | QwQ-32B: 83.0 | Qwen3-32B: 77.50 | Qwen2.5-72B: 86.50 | LLaMA3.3-70B: 52.50
+Row 6: Method LLaMA3.1-8B*: GraphRAG 36.50 | DS-Qwen-7B: 42.00 | DS-Qwen-32B: 81.50 | QwQ-32B: 76.0 | Qwen3-32B: 68.50 | Qwen2.5-72B: 64.00 | LLaMA3.3-70B: 38.50
+Row 7: Method LLaMA3.1-8B*: GraphRAG+ 46.00 | DS-Qwen-7B: 47.50 | DS-Qwen-32B: 81.50 | QwQ-32B: 77.5 | Qwen3-32B: 75.00 | Qwen2.5-72B: 64.00 | LLaMA3.3-70B: 52.00
+Row 8: Method LLaMA3.1-8B*: Rerank RAG 33.00 | DS-Qwen-7B: 60.00 | DS-Qwen-32B: 82.00 | QwQ-32B: 83.5 | Qwen3-32B: 80.50 | Qwen2.5-72B: 77.50 | LLaMA3.3-70B: 77.50
+Row 9: Method LLaMA3.1-8B*: Rerank RAG+ 34.00 | DS-Qwen-7B: 61.00 | DS-Qwen-32B: 82.50 | QwQ-32B: 83.5 | Qwen3-32B: 82.00 | Qwen2.5-72B: 87.50 | LLaMA3.3-70B: 77.50
+Row 10: Method LLaMA3.1-8B*: able 3: Accuracy (%) of different models on the MedQA dataset with and without application-level augmentatio | DS-Qwen-7B: | DS-Qwen-32B: | QwQ-32B: | Qwen3-32B: | Qwen2.5-72B: | LLaMA3.3-70B:
+Row 11: Method LLaMA3.1-8B*: +” indicates the use of application-level augmentation. | DS-Qwen-7B: | DS-Qwen-32B: | QwQ-32B: | Qwen3-32B: | Qwen2.5-72B: | LLaMA3.3-70B:
+Row 12: Method LLaMA3.1-8B*: Method LLaMA3.1-8B | DS-Qwen-7B: Qwen2.5-7B | DS-Qwen-32B: DS-Qwen-7B DS-Qwen-32B | QwQ-32B: | Qwen3-32B: QwQ-32B | Qwen2.5-72B: Qwen2.5-72B | LLaMA3.3-70B: LLaMA3.3-70B
+Row 13: Method LLaMA3.1-8B*: Baseline 57.80 | DS-Qwen-7B: 41.80 | DS-Qwen-32B: 32.60 | QwQ-32B: 80.0 | Qwen3-32B: 80.40 | Qwen2.5-72B: 73.80 | LLaMA3.3-70B: 78.20
+Row 14: Method LLaMA3.1-8B*: RAG 63.00 | DS-Qwen-7B: 59.20 | DS-Qwen-32B: 34.60 | QwQ-32B: 79.0 | Qwen3-32B: 80.20 | Qwen2.5-72B: 75.00 | LLaMA3.3-70B: 80.20
+Row 15: Method LLaMA3.1-8B*: RAG+ 63.60 | DS-Qwen-7B: 57.60 | DS-Qwen-32B: 40.20 | QwQ-32B: 80.2 | Qwen3-32B: 80.80 | Qwen2.5-72B: 75.40 | LLaMA3.3-70B: 81.40
+Row 16: Method LLaMA3.1-8B*: AFRAG 56.40 | DS-Qwen-7B: 53.40 | DS-Qwen-32B: 32.20 | QwQ-32B: 78.2 | Qwen3-32B: 81.20 | Qwen2.5-72B: 76.40 | LLaMA3.3-70B: 82.40
+Row 17: Method LLaMA3.1-8B*: AFRAG+ 57.00 | DS-Qwen-7B: 57.20 | DS-Qwen-32B: 34.60 | QwQ-32B: 78.6 | Qwen3-32B: 82.20 | Qwen2.5-72B: 77.40 | LLaMA3.3-70B: 83.00
+Row 18: Method LLaMA3.1-8B*: Rerank RAG 60.00 | DS-Qwen-7B: 58.60 | DS-Qwen-32B: 35.20 | QwQ-32B: 79.8 | Qwen3-32B: 80.60 | Qwen2.5-72B: 76.40 | LLaMA3.3-70B: 81.00
+Row 19: Method LLaMA3.1-8B*: Rerank RAG+ 63.40 | DS-Qwen-7B: 61.40 | DS-Qwen-32B: – | QwQ-32B: 80.2 | Qwen3-32B: 81.40 | Qwen2.5-72B: 78.20 | LLaMA3.3-70B: 85.60
+[/TABLE]
+
+[PAGE 7]
+Anatomy includes those structures that can be seen grossly (without the aid of
+magniﬁca�on) and microscopically (with the aid of magniﬁca�on).Typically, when
+used by itself, the term anatomy tends to mean gross or macroscopic anatomy—
+that is, the study of structures that can be seen without using a microscopic…...
+Ques�on: What is the rela�onship between gross anatomy and microscopic
+anatomy in the study of human body structures?
+Answer Choices:
+A) Gross anatomy and microscopic anatomy are unrelated ﬁelds of study.
+B) Gross anatomy deals with structures visible to the naked eye, while microscopic
+anatomy involves the study of cells and �ssues using a microscope.
+C) Microscopic anatomy is a subset of gross anatomy, focusing on larger structures.
+D) Gross anatomy is used only in medical prac�ce, while microscopic anatomy is
+used in research.
+Correct Answer: B) Gross anatomy deals with structures visible to the naked eye,
+while microscopic anatomy involves the study of cells and �ssues using a
+microscope.
+Conceptual Knowledge
+An Applica�on of Conceptual Knowledge
+(a) An Example of Conceptual Knowledge and Corresponding
+Applications.
+Euler’s Theorem for Homogeneous Func�ons: If P(x_1, \ldots, x_m) is a
+homogeneous polynomial of degree d, then: \nabla P(x_1, \ldots, x_m) \cdot
+\begin{bmatrix} x_1 \\ \vdots \\ x_m \end{bmatrix} = d \cdot P(x_1, \ldots, x_m)
+Ques�on: Let P(x, y) = x^3 + 3x^2y + 3xy^2 + y^3. Use Euler’s theorem to compute
+x \frac{\par�al P}{\par�al x} + y \frac{\par�al P}{\par�al y}
+Correct Answer:
+\frac{\par�al P}{\par�al x} = 3x^2 + 6xy + 3y^2, \quad \frac{\par�al P}{\par�al y} =
+3x^2 + 6xy + 3y^2
+Then apply Euler’s theorem:
+x \frac{\par�al P}{\par�al x} + y \frac{\par�al P}{\par�al y}
+= x(3x^2 + 6xy + 3y^2) + y(3x^2 + 6xy + 3y^2)
+= 3x^3 + 6x^2y + 3xy^2 + 3x^2y + 6xy^2 + 3y^3
+= 3(x^3 + 3x^2y + 3xy^2 + y^3)
+= 3P(x, y)
+Procedural Knowledge
+An Applica�on of Procedural Knowledge
+(b) An Example of Procedural Knowledge and Corresponding
+Applications.
+Figure 3: Examples of aligning different types of knowledge with application instances.
+application-level augmentation is essential for maximizing performance across model sizes.
+These results demonstrate the consistent effectiveness of application-aware augmentation in enhancing RAG-based methods, benefiting both large
+and small models when paired with effective retrieval strategies.
+5.3 Effect of Model Scale
+As shown in Figure 4, all methods show consistent
+performance gains as model size increases from 7B
+to 14B and then to 72B, reflecting the enhanced
+reasoning capabilities of larger models. Notably,
+approaches augmented with application-level examples achieve larger improvements than their nonaugmented counterparts.
+In the legal domain, accuracy rises steadily with
+model scale when application augmentation is used.
+In the medicine domain, while all models benefit,
+the performance gains from scaling are less pro7 14 72
+Legal-RAG
+90Accuracy(%)
+7 14 72
+Legal-Rerank RAG
+7 14 72
+Med-RAG
+7 14 72
+Med-Rerank RAG
+Model Scale (#parameters in billions)
+RAG RAG+ Rerank RAG Rerank RAG+
+Figure 4: Performance comparison on sentencing prediction tasks and the MedQA dataset using Qwen2.5
+series models across different scales with and without
+application examples.
+Table 4: Accuracy (%) on sentencing prediction tasks
+across different RAG methods. “Rerank (72B)” denotes
+reranked by Qwen2.5-72B, generated by base model.
+Method Qwen2.5-7B Qwen2.5-14B
+Baseline 46.00 74.00
+RAG 75.00 78.50
+RAG+ 76.50 82.50
+Rerank RAG 70.50 78.50
+Rerank RAG+ 74.50 81.00
+Rerank (72B) RAG 72.50 80.00
+Rerank (72B) RAG+ 83.50 86.00
+nounced. These results indicate that applicationguided retrieval scales especially well with model
+size, further boosting knowledge integration and
+reasoning in complex, domain-specific tasks.
+5.4 Impact of Reranking Model
+To investigate the suboptimal performance of
+Rerank RAG on smaller models, we conducted
+an ablation study by replacing the initial reranker
+with a stronger model, Qwen2.5-72B, to assess its
+impact on downstream accuracy.
+As shown in Table 4 and Table 5, we isolate the
+effect of reranking quality by varying the reranker
+while keeping other components fixed. Stronger
+reranking consistently improves accuracy across
+both tasks, with the largest gains in the Rerank
+(72B) RAG+ setting, where application-augmented
+reranking achieves the best performance. Notably,
+its improvement over non-augmented reranking
+exceeds that between Rerank RAG+ and Rerank
+RAG, highlighting the joint benefits of reranking
+strength and application-level guidance. These results underscore the value of cross-model collaboration, where large models enhance retrieval to
+support more efficient inference in smaller ones.
+
+[PAGE 8]
+Find a polynomial P(x) of degree 3 or less whose graph passes through the four data points (−2,8), (0,4), (1,2), (3,−2).
+A) P(x) = 2x^2 - 3x + 1, B) P(x) = x^3 - 2x^2 + x - 1, C) P(x) = 3x^2 + 2x - 4, D) P(x) = 4 - 2x
+Math Ques�on A
+To ﬁnd a polynomial P(x) of degree 3 or less that passes through the four points ( -2,8), (0,4), (1,2), and (3,-2), we use
+polynomial interpola�on. We'll construct it using the Lagrange interpola�on formula.
+For each point (x_i, y_i), we deﬁne a corresponding Lagrange basis polynomial \ell_i(x) and we construct
+interpola�ng polynomial then: P(x) = \sum_{i=1}^{4} y_i \ell_i(x)
+For the given points, we calculate each of the Lagrange basis polynomials:
+\ell_1(x) = \frac{x(x - 1)(x - 3)}{30}; \ell_2(x) = \frac{(x + 2)(x - 1)(x - 3)}{6}; \ell_3(x) = \frac{(x + 2)x(x - 3)}{-6};
+\ell_4(x) = \frac{(x + 2)x(x - 1)}{30}
+Next, we construct the polynomial P(x): P(x) = 8 \ell_1(x) + 4 \ell_2(x) + 2 \ell_3(x) - 2 \ell_4(x)
+Subs�tu�ng the expressions for the basis polynomials and simplifying, we get:
+P(x) = \frac{8x(x - 1)(x - 3)}{30} + \frac{4(x + 2)(x - 1)(x - 3)}{6} - \frac{2(x + 2)x(x - 3)}{6} - \frac{2(x + 2)x(x - 1)}{30} =
+x^3 - 2x^2 + x – 1.
+Therefore, the answer is B) P(x) = x^3 - 2x^2 + x - 1
+RAG Answer
+Toﬁnd the polynomial P(x) of degree 3 or less that passes through the points ( -2, 8), (0, 4), (1, 2), and (3, -2), we use
+Newton’s divided diﬀerences method.
+We begin by calcula�ng the divided diﬀerences step by step:
+First-order diﬀerences: f[-2, 0] = \frac{4 - 8}{0 - (-2)} = -2, f[0, 1] = \frac{2 - 4}{1 - 0} = -2, f[1, 3] = \frac{-2 - 2}{3 - 1} = -2
+Second-order diﬀerences: f[-2, 0, 1] = \frac{-2 - (-2)}{1 - (-2)} = 0, f[0, 1, 3] = \frac{-2 - (-2)}{3 - 0} = 0
+Third-order diﬀerence: f[-2, 0, 1, 3] = \frac{0 - 0}{3 - (-2)} = 0
+From this, we get the coeﬃcients for the Newton form of the polynomial: Constant term: f[ -2] = 8; First-order term:
+f[-2, 0] = -2; Higher-order terms are zero.
+So the polynomial is: P(x) = 8 + (-2)(x + 2)= 4. Therefore, the answer is D) P(x) = 4 - 2x
+RAG+ Answer
+Figure 5: Comparison of output reasoning paths between RAG and RAG+ in the math domain using the Qwen2.572B model.
+Table 5: Accuracy (%) on the MedQA dataset across
+different RAG methods.
+Method Qwen2.5-7B Qwen2.5-14B
+Baseline 41.80 68.80
+RAG 59.2068.40
+RAG+ 57.6069.80
+Rerank RAG 58.60 63.80
+Rerank RAG+ 61.40 68.40
+Rerank (72B) RAG 60.80 69.80
+Rerank (72B) RAG+ 61.80 70.00
+5.5 Effect of Application Examples Only
+We conducted experiments to assess the contribution of application examples without their associated knowledge on the legal and math domains.
+Results are shown in Table 6 and Table 7. Incorporating only application examples leads to performance improvements over the base models in most
+cases. This indicates that application-level guidance alone provides a meaningful benefit. However,
+this setting still underperforms compared to the full
+configuration where both knowledge and application examples are included, referred to as RAG+
+and AFRAG+.
+These findings suggest that while application examples alone can partially support reasoning, likely
+by providing structural cues or task-specific formulations, the explicit inclusion of knowledge remains
+essential for achieving optimal performance. ThereTable 6: Accuracy (%) on legal tasks across different
+RAG methods. “–” indicates application-only retrieval;
+“+” indicates the inclusion of retrieved knowledge and
+application.
+Method Qwen2.5-7B Qwen2.5-14B DS-Qwen-32B
+Baseline 46.00 74.00 80.50
+RAG- 65.00 76.50 84.50
+RAG 75.00 78.5085.50
+RAG+ 76.50 82.50 85.50
+AFRAG- 34.50 74.50 83.00
+AFRAG 40.50 81.00 85.00
+AFRAG+ 47.00 85.50 86.50
+fore, combining knowledge with its applications
+produces the most effective results.
+5.6 Effect of Open-Ended Experiments
+We additionally conducted open-ended experiments on the legal sentencing prediction dataset.
+In this setting, the model is asked to generate a
+free-form sentence length prediction (e.g., “6–12
+months”), and the output is considered correct if it
+falls within the gold interval. The results are summarized in Table 8. RAG+ consistently improves
+performance across all model sizes, demonstrating
+robustness even under open-ended evaluation. This
+further supports the central hypothesis that combining knowledge with aligned application examples
+enhances reasoning and task performance.
+
+[TABLE page=8 index=1]
+Columns: Method | Qwen2.5-7B | Qwen2.5-14B | application. | Unnamed: 0 | Unnamed: 1 | Unnamed: 2
+Row 1: Method: Baseline | Qwen2.5-7B: 41.8 | Qwen2.5-14B: 68.8 | application.: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2:
+Row 2: Method: | Qwen2.5-7B: | Qwen2.5-14B: | application.: Method | Unnamed: 0: Qwen2.5-7B | Unnamed: 1: Qwen2.5-14B | Unnamed: 2: DS-Qwen-32B
+Row 3: Method: RAG | Qwen2.5-7B: 59.2 | Qwen2.5-14B: 68.4 | application.: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2:
+Row 4: Method: RAG+ | Qwen2.5-7B: 57.6 | Qwen2.5-14B: 69.8 | application.: Baseline | Unnamed: 0: 46.00 | Unnamed: 1: 74.00 | Unnamed: 2: 80.50
+Row 5: Method: Rerank RAG | Qwen2.5-7B: 58.6 | Qwen2.5-14B: 63.8 | application.: RAG- | Unnamed: 0: 65.00 | Unnamed: 1: 76.50 | Unnamed: 2: 84.50
+Row 6: Method: Rerank RAG+ | Qwen2.5-7B: 61.4 | Qwen2.5-14B: 68.4 | application.: RAG | Unnamed: 0: 75.00 | Unnamed: 1: 78.50 | Unnamed: 2: 85.50
+Row 7: Method: | Qwen2.5-7B: | Qwen2.5-14B: | application.: RAG+ | Unnamed: 0: 76.50 | Unnamed: 1: 82.50 | Unnamed: 2: 85.50
+Row 8: Method: Rerank (72B) RAG | Qwen2.5-7B: 60.8 | Qwen2.5-14B: 69.8 | application.: | Unnamed: 0: | Unnamed: 1: | Unnamed: 2:
+Row 9: Method: Rerank (72B) RAG+ | Qwen2.5-7B: 61.8 | Qwen2.5-14B: 70.0 | application.: AFRAG- | Unnamed: 0: 34.50 | Unnamed: 1: 74.50 | Unnamed: 2: 83.00
+Row 10: Method: | Qwen2.5-7B: | Qwen2.5-14B: | application.: AFRAG | Unnamed: 0: 40.50 | Unnamed: 1: 81.00 | Unnamed: 2: 85.00
+Row 11: Method: | Qwen2.5-7B: | Qwen2.5-14B: | application.: AFRAG+ | Unnamed: 0: 47.00 | Unnamed: 1: 85.50 | Unnamed: 2: 86.50
+[/TABLE]
+
+[PAGE 9]
+Table 7: Accuracy (%) on math tasks across different
+RAG methods. “–” indicates application-only retrieval;
+“+” indicates the inclusion of retrieved knowledge and
+application.
+Method Qwen2.5-7B Qwen2.5-14B Qwen2.5-72B
+Baseline 58.84 66.98 69.07
+RAG- 58.19 69.53 69.07
+RAG 64.65 73.49 70.47
+RAG+ 65.58 74.67 73.72
+AFRAG- 59.81 66.98 74.19
+AFRAG 63.51 66.98 71.86
+AFRAG+ 64.42 70.00 76.05
+Table 8: Accuracy (%) of open-ended sentencing prediction results.
+Method Qwen2.5-7B Qwen2.5-14B Qwen2.5-72B
+Baseline 49.00 75.50 85.00
+RAG 61.50 75.50 89.50
+RAG+ 66.50 76.50 90.50
+AFRAG 63.00 71.00 83.50
+AFRAG+ 66.50 79.50 86.00
+5.7 Case Study
+To evaluate the practical effectiveness of RAG+, we
+present a case study on the mathematics domain,
+as illustrated in Figure 5. The answer generated by
+RAG correctly identifies the interpolation method
+as Lagrange interpolation but fails to execute it accurately due to the complexity of intermediate symbolic expressions. While the approach is mathematically valid, errors in deriving the basis polynomials
+lead to an incorrect final result. In comparison, the
+Newton divided differences method, although less
+commonly emphasized in retrieval-based settings,
+provides a more transparent and step-by-step procedure. Its recursive computation of coefficients
+reduces algebraic errors and produces the correct
+polynomial. This suggests that even when the correct method is retrieved, symbolic reasoning may
+fail due to execution errors, highlighting the need
+for verification mechanisms alongside retrieval.
+6 Discussion
+To enable application-aware retrieval, we propose
+a lightweight method for constructing applicationspecific corpora from a knowledge base, typically
+generating one to two examples per item. The corpus grows linearly with the number of items and
+introduces no retrieval overhead, as each item is
+directly paired with an application example. In
+experiments, the initial corpus sizes were 223 KB
+(math), 528 KB (legal), and 99,382 KB (medicine).
+Generating the medicine corpus with Qwen2.5-72B
+on eight 64 GB NPUs took around six hours, which
+is acceptable given this scale. Final sizes reached
+612 KB, 868 KB, and 105,558 KB, respectively,
+closely matching the sizes of the underlying knowledge corpora. The method is scalable and supports
+efficient incremental updates.
+7 Conclusion
+In this work, we introduce RAG+, a framework
+that integrates application-level augmentation into
+retrieval-augmented generation. Through comprehensive experiments across diverse domains and
+model scales, we demonstrate that incorporating
+application examples consistently leads to performance improvements. RAG+ outperforms baselines across tasks and RAG variants, highlighting
+the value of structured application in leveraging
+retrieved knowledge for reasoning. Our results indicate that retrieval alone is insufficient—effective
+alignment and application of retrieved knowledge
+are crucial. Future work may explore more advanced application strategies and tighter integration
+to further enhance reasoning in LLMs.
+Limitations
+While RAG+ consistently improves performance,
+it also has several limitations. First, constructing
+a high-quality application corpus can be resourceintensive, especially in domains with limited annotated data. Automated generation depends heavily
+on large language models, which may introduce
+errors or oversimplify complex reasoning.
+Second, RAG+ assumes a strong alignment between knowledge and application pairs, but mismatches can occur—particularly when retrieved
+knowledge is noisy or incomplete—leading to incorrect or misleading reasoning.
+Finally, our current approach focuses on enhancing reasoning via application-level augmentation,
+but does not directly address retrieval quality or
+efficiency, which remain critical to overall performance. Future work should explore joint optimization of retrieval and application generation, as well
+as better handling of uncertainty and ambiguity in
+retrieved content.
+
+[TABLE page=9 index=1]
+Columns: is acceptable given this scaleMethod Qwen2.5-7B | Qwen2.5-14B | Qwen2.5-72B | Unnamed: 0
+Row 1: is acceptable given this scaleMethod Qwen2.5-7B: | Qwen2.5-14B: | Qwen2.5-72B: | Unnamed: 0: 612 KB, 868 KB, and 105,5
+Row 2: is acceptable given this scaleMethod Qwen2.5-7B: Baseline 58.84 | Qwen2.5-14B: 66.98 | Qwen2.5-72B: 69.07 | Unnamed: 0:
+Row 3: is acceptable given this scaleMethod Qwen2.5-7B: | Qwen2.5-14B: | Qwen2.5-72B: | Unnamed: 0: closely matching the sizes of t
+Row 4: is acceptable given this scaleMethod Qwen2.5-7B: RAG- 58.19 | Qwen2.5-14B: 69.53 | Qwen2.5-72B: 69.07 | Unnamed: 0:
+Row 5: is acceptable given this scaleMethod Qwen2.5-7B: | Qwen2.5-14B: | Qwen2.5-72B: | Unnamed: 0: edge corpora. The method is
+Row 6: is acceptable given this scaleMethod Qwen2.5-7B: RAG 64.65 | Qwen2.5-14B: 73.49 | Qwen2.5-72B: 70.47 | Unnamed: 0:
+Row 7: is acceptable given this scaleMethod Qwen2.5-7B: RAG+ 65.58 | Qwen2.5-14B: 74.67 | Qwen2.5-72B: 73.72 | Unnamed: 0: efficient incremental updates.
+[/TABLE]
+
+[TABLE page=9 index=2]
+Columns: Method | Qwen2.5-7B | Qwen2.5-14B | Qwen2.5-72B | hensive experiments across diverse domains and
+Row 1: Method: Baseline | Qwen2.5-7B: 49.0 | Qwen2.5-14B: 75.5 | Qwen2.5-72B: 85.0 | hensive experiments across diverse domains and: model scales, we demonstrate that incorporating
+Row 2: Method: RAG | Qwen2.5-7B: 61.5 | Qwen2.5-14B: 75.5 | Qwen2.5-72B: 89.5 | hensive experiments across diverse domains and: application examples consistently leads to perforRow 3: Method: RAG+ | Qwen2.5-7B: 66.5 | Qwen2.5-14B: 76.5 | Qwen2.5-72B: 90.5 | hensive experiments across diverse domains and: mance improvements. RAG+ outperforms baseRow 4: Method: AFRAG | Qwen2.5-7B: 63.0 | Qwen2.5-14B: 71.0 | Qwen2.5-72B: 83.5 | hensive experiments across diverse domains and: lines across tasks and RAG variants, highlighting
+Row 5: Method: AFRAG+ | Qwen2.5-7B: 66.5 | Qwen2.5-14B: 79.5 | Qwen2.5-72B: 86.0 | hensive experiments across diverse domains and:
+[/TABLE]
+
+[PAGE 10]
+Ethics Statement
+All datasets and models used in this study are opensource, and the licenses of the models have been
+clearly specified. The prompts used in the experiments, along with the full experimental environment and all relevant parameters, are provided to
+ensure reproducibility. The entire study can be
+replicated using widely available large model API
+frameworks. Furthermore, all manual operations involved in the process were carried out solely by the
+authors, without the involvement of any external
+collaborators or paid contributors. This guarantees both the transparency and independence of the
+research.
+Acknowledgement
+This work was supported by National Natural Science Foundation of China (62232014, 62272377).
+References
+L. Ammann, S. Ott, C. R. Landolt, and M. P. Lehmann.
+2025. Securing rag: A risk assessment and mitigation
+framework.arXiv preprint arXiv:2505.08728.
+John R Anderson, Daniel Bothell, Michael D Byrne,
+Scott Douglass, Christian Lebiere, and Yulin Qin.
+2004. An integrated theory of the mind.Psychological review, 111(4):1036.
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and
+Hannaneh Hajishirzi. 2023. Self-rag: Learning to
+retrieve, generate, and critique through self-reflection.
+InThe Twelfth International Conference on Learning
+Representations.
+Benjamin Samuel Bloom. 2010.A taxonomy for learning, teaching, and assessing: A revision of Bloom’s
+taxonomy of educational objectives. Longman.
+Jianlv Chen, Shitao Xiao, Peitian Zhang, Kun Luo, Defu
+Lian, and Zheng Liu. 2024. Bge m3-embedding:
+Multi-lingual, multi-functionality, multi-granularity
+text embeddings through self-knowledge distillation.
+DeepSeek-AI. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning.
+Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey,
+Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman,
+and et al. 2024. The llama 3 herd of models.
+Darren Edge, Ha Trinh, Newman Cheng, Joshua
+Bradley, Alex Chao, Apurva Mody, Steven Truitt,
+Dasha Metropolitansky, Robert Osazuwa Ness, and
+Jonathan Larson. 2024. From local to global: A
+graph rag approach to query-focused summarization.
+arXiv preprint arXiv:2404.16130.
+K. Hayashi, H. Kamigaito, and S. Kouda. 2025. Iterkey:
+Iterative keyword generation with llms for enhanced
+retrieval augmented generation.arXiv preprint
+arXiv:2505.08450.
+Shayekh Bin Islam, Md Asib Rahman, K S M Tozammel
+Hossain, Enamul Hoque, Shafiq Joty, and Md Rizwan
+Parvez. 2024. Open-RAG: Enhanced retrieval augmented reasoning with open-source large language
+models. InFindings of the Association for Computational Linguistics: EMNLP 2024, pages 14231–
+14244, Miami, Florida, USA. Association for Computational Linguistics.
+Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng,
+Hanyi Fang, and Peter Szolovits. 2020. What disease does this patient have? a large-scale open domain question answering dataset from medical exams.
+arXiv preprint arXiv:2009.13081.
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying
+Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E.
+Gonzalez, Hao Zhang, and Ion Stoica. 2023. Efficient memory management for large language model
+serving with pagedattention. InProceedings of the
+ACM SIGOPS 29th Symposium on Operating Systems
+Principles.
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio
+Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, et al. 2020. Retrieval-augmented generation
+for knowledge-intensive nlp tasks.Advances in neural information processing systems, 33:9459–9474.
+Z. Li, Z. Wang, W. Wang, K. Hung, and H. Xie. 2025.
+Retrieval-augmented generation for educational application: A systematic survey.Computers and Education: Artificial Intelligence.
+K.H. Lin, T.H. Kao, L.C. Wang, C.T. Kuo, and P.C.H.
+Chen. 2025. Benchmarking large language models
+gpt-4o, llama 3.1, and qwen 2.5 for cancer genetic
+variant classification.NPJ Precision Oncology.
+Xi Victoria Lin, Xilun Chen, Mingda Chen, Weijia Shi,
+Maria Lomeli, Richard James, Pedro Rodriguez, Jacob Kahn, Gergely Szilvasy, Mike Lewis, et al. 2023.
+Ra-dit: Retrieval-augmented dual instruction tuning.
+InThe Twelfth International Conference on Learning
+Representations.
+Xinbei Ma, Yeyun Gong, Pengcheng He, Hai Zhao,
+and Nan Duan. 2023. Query rewriting in retrievalaugmented large language models. InProceedings of
+the 2023 Conference on Empirical Methods in Natural Language Processing, pages 5303–5315, Singapore. Association for Computational Linguistics.
+S. Mostafa, M. K. Abdel-Aziz, and M. S. Elbamby. 2025. Rag-enabled intent reasoning for
+application-network interaction.arXiv preprint
+arXiv:2505.09339.
+Marc Pickett, Jeremy Hartman, Ayan Kumar Bhowmick,
+Raquib ul Alam, and Aditya Vempaty. 2025. Better
+rag using relevant information gain.
+
+[PAGE 11]
+Qwen, :, An Yang, Baosong Yang, Beichen Zhang,
+Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li,
+Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin,
+Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang,
+Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai Dang,
+Keming Lu, Keqin Bao, Kexin Yang, Le Yu, Mei Li,
+Mingfeng Xue, Pei Zhang, Qin Zhu, Rui Men, Runji
+Lin, Tianhao Li, Tianyi Tang, Tingyu Xia, Xingzhang
+Ren, Xuancheng Ren, Yang Fan, Yang Su, Yichang
+Zhang, Yu Wan, Yuqiong Liu, Zeyu Cui, Zhenru
+Zhang, and Zihan Qiu. 2025. Qwen2.5 technical
+report.
+L. Rong, Y . Zhang, P. Tiwari, and M. Yu. 2025. Begoniagpt: Cultivating the large language model to be an
+exceptional k-12 english teacher.Neural Networks.
+Aditi Singh, Abul Ehtesham, Saket Kumar, and Tala Talaei Khoei. 2025. Agentic retrieval-augmented generation: A survey on agentic rag.
+H. Tang, H. Yan, and R. Song. 2025. Synthetic sentiment cue enhanced graph relation-attention network
+for aspect-level sentiment analysis.IEEE Access.
+Team GLM, Aohan Zeng, Bin Xu, Bowen Wang, Chenhui Zhang, Da Yin, and et al. 2024. Chatglm: A
+family of large language models from glm-130b to
+glm-4 all tools.
+Liang Wang, Nan Yang, and Furu Wei. 2023a.
+Query2doc: Query expansion with large language
+models.arXiv preprint arXiv:2303.07678.
+Xiaohua Wang, Zhenghua Wang, Xuan Gao, Feiran
+Zhang, Yixin Wu, Zhibo Xu, Tianyuan Shi,
+Zhengyuan Wang, Shizheng Li, Qi Qian, Ruicheng
+Yin, Changze Lv, Xiaoqing Zheng, and Xuanjing
+Huang. 2024a. Searching for best practices in
+retrieval-augmented generation. InProceedings of
+the 2024 Conference on Empirical Methods in Natural Language Processing, pages 17716–17736, Miami, Florida, USA. Association for Computational
+Linguistics.
+Zhihu Wang, Shiwan Zhao, Yu Wang, Heyuan Huang,
+Sitao Xie, Yubo Zhang, Jiaxin Shi, Zhixing Wang,
+Hongyan Li, and Junchi Yan. 2024b. Re-task: Revisiting llm tasks from capability, skill, and knowledge
+perspectives.arXiv preprint arXiv:2408.06904.
+Zhiruo Wang, Jun Araki, Zhengbao Jiang, Md Rizwan
+Parvez, and Graham Neubig. 2023b. Learning to filter context for retrieval-augmented generation.arXiv
+preprint arXiv:2311.08377.
+Chaojun Xiao, Haoxi Zhong, Zhipeng Guo, Cunchao Tu,
+Zhiyuan Liu, Maosong Sun, Yansong Feng, Xianpei
+Han, Zhen Hu, Heng Wang, and Jianfeng Xu. 2018.
+Cail2018: A large-scale legal dataset for judgment
+prediction.
+Guangzhi Xiong, Qiao Jin, Zhiyong Lu, and
+Aidong Zhang. 2024. Benchmarking retrievalaugmented generation for medicine.arXiv preprint
+arXiv:2402.13178.
+Guangzhi Xiong, Qiao Jin, Xiao Wang, Yin Fang,
+Haolin Liu, Yifan Yang, Fangyuan Chen, Zhixing
+Song, Dengyu Wang, Minjia Zhang, Zhiyong Lu,
+and Aidong Zhang. 2025. Rag-gym: Optimizing reasoning and search agents with process supervision.
+arXiv preprint arXiv:2502.13957.
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,
+Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao,
+Chengen Huang, Chenxu Lv, Chujie Zheng, Dayiheng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge,
+Haoran Wei, Huan Lin, Jialong Tang, Jian Yang,
+Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi
+Yang, Jing Zhou, Jingren Zhou, Junyang Lin, Kai
+Dang, Keqin Bao, Kexin Yang, Le Yu, Lianghao
+Deng, Mei Li, Mingfeng Xue, Mingze Li, Pei Zhang,
+Peng Wang, Qin Zhu, Rui Men, Ruize Gao, Shixuan
+Liu, Shuang Luo, Tianhao Li, Tianyi Tang, Wenbiao
+Yin, Xingzhang Ren, Xinyu Wang, Xinyu Zhang, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang,
+Yinger Zhang, Yu Wan, Yuqiong Liu, Zekun Wang,
+Zeyu Cui, Zhenru Zhang, Zhipeng Zhou, and Zihan
+Qiu. 2025. Qwen3 technical report.
+Fuda Ye, Shuangyin Li, Yongqi Zhang, and Lei Chen.
+2024. R 2AG: Incorporating retrieval information into
+retrieval augmented generation. InFindings of the
+Association for Computational Linguistics: EMNLP
+2024, pages 11584–11596, Miami, Florida, USA.
+Association for Computational Linguistics.
+Haoxi Zhong, Chaojun Xiao, Zhipeng Guo, Cunchao Tu,
+Zhiyuan Liu, Maosong Sun, Yansong Feng, Xianpei
+Han, Zhen Hu, Heng Wang, and Jianfeng Xu. 2018.
+Overview of cail2018: Legal judgment prediction
+competition.
+Wang Zihao, Liu Anji, Lin Haowei, Li Jiaqi, Ma Xiaojian, and Liang Yitao. 2024. Rat: Retrieval
+augmented thoughts elicit context-aware reasoning
+in long-horizon generation.arXiv preprint arXiv:
+2403.05313.
+
+[PAGE 12]
+A Experimental Details
+In this study, we employ a range of hardware devices, including units of 32 GB Ascend 910B4, 64
+GB Ascend 910B3, and 32 GB Tesla V100 PCIe
+units. For large-scale models exceeding 70 billion
+parameters (e.g., LLaMA3.3-70B and Qwen2.572B), we deploy eight Ascend 910B4 devices (32
+GB each). For 32B-scale models (e.g., Qwen2.532B, Qwen3-32B, QwQ-32B, and DS-Qwen-32B),
+two Ascend 910B4 devices are deployed. Models with approximately 14 billion parameters (e.g.,
+Qwen2.5-14B) are run on a single 64 GB Ascend 910B3, while models around the 8B scale
+(e.g., Llama3.1-8B, Qwen2.5-7B, DS-Qwen-7B,
+and ChatGLM4-9B) are executed on a single 32
+GB Ascend 910B4. For models used in retrievalaugmented generation (RAG) components (e.g.,
+bg3-m3 and bge-reranker-v2-m3), we utilize a 32
+GB Tesla V100 PCIe. All deployments are carried
+out using the vLLM inference framework (Kwon
+et al., 2023).
+For models generating long-form outputs (i.e.,
+QwQ-32B, DS-Qwen-7B, and DS-Qwen-32B), we
+use stochastic decoding (temperature = 1, top_p =
+1) to promote output diversity. For all other models,
+we apply a deterministic decoding strategy with a
+temperature of 0 and top_p of 1. Each experiment
+is conducted three times, and we report the average
+performance across these runs.
+To implement RAG functionality, we utilize the
+Dify framework. Specifically, Dify is used for corpus uploading, with a segmentation length of 600
+tokens. The text is pre-segmented to ensure that
+the divisions are structurally coherent and suitable
+for retrieval.
+A.1 Model sources and licenses
+This study employs nine publicly available conversational models: LLaMA-Chinese-8B-Instruct
+(sourced from ModelScope) and LLaMA3.18B, LLaMA3.3-70B, Qwen2.5-7B, Qwen2.572B, QwQ-32B, DeepSeek-R1-Distill-Qwen-7B,
+DeepSeek-R1-Distill-Qwen-32B, and ChatGLM49B (all obtained from Hugging Face). Additionally,
+the BGE-M3 embedding model (Chen et al., 2024)
+is utilized for generating text embeddings. Details
+regarding model sources and licensing are provided
+in Table 9.
+The LLaMA-Chinese-8B-Instruct model is exclusively used for the sentencing prediction task
+in the legal domain, as this task is conducted in
+Chinese. For the remaining two tasks, LLaMA3.18B is employed. The QwQ-32B model is excluded
+from the numerical analysis task due to the high
+complexity of the questions, which frequently lead
+to excessively long outputs and potential infinite
+loops. These issues significantly increase inference
+time and GPU memory usage, thereby exceeding
+available computational resources.
+The BGE-M3 model is employed to generate embeddings for corpus texts, while the BGE-rerankerv2-m3 model is employed to reorder candidate documents based on their relevance to the user query.
+This reranking step enhances the overall quality of
+the semantic retrieval process.
+A.2 Baseline Details
+We evaluate nine configurations: Baseline,
+RAG (Lewis et al., 2020), RAG+, Answer-First
+RAG, Answer-First RAG+, GraphRAG (Edge et al.,
+2024), GraphRAG+, Rerank RAG, and Rerank
+RAG+.
+The RAG configuration follows the original implementation by Lewis et al. (Lewis et al., 2020),
+and is implemented using the Dify framework. We
+employ the BGE-M3 model to embed both corpus chunks and key terms for similarity matching, and the BGE-Reranker-v2-M3 model to rerank
+the retrieved candidates. High-quality indices are
+constructed for retrieval, with each corpus chunk
+limited to 800 tokens. For all RAG-based configurations, the top three most relevant text chunks are
+retrieved for each query.
+Baseline: The Baseline configuration directly
+uses the large language model (LLM) to answer questions without incorporating any external
+knowledge retrieval. It serves as the baseline for
+evaluating the effectiveness of various RAG-based
+enhancements.
+RAG: Vanilla RAG directly applies the retrievalaugmented generation method. The matching fields
+are the question and its answer options. Retrieved
+content is incorporated into a prompt template and
+passed to the model to generate an answer.
+Answer-First RAG: Following the approach by
+Asai et al. (Asai et al., 2023), we adopt a more
+direct implementation. Given a question Q, the
+model M is first prompted to generate a preliminary answer A∗, which is then used as a query to
+retrieve relevant content C. The final answer A is
+generated by prompting the model with both Q and
+C.
+
+[PAGE 13]
+Table 9: Models, sources and licenses used in this work.
+Model URL Licenses
+LLaMA3-Chinese-8B https://www.modelscope.cn/models/FlagAlpha/
+LLaMA3-Chinese-8B-Instruct/summary Apache License 2.0
+LLaMA3.1-8B https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct llama3.1 license
+LLaMA3.3-70B https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct llama3.3 license
+Qwen2.5-7B https://huggingface.co/Qwen/Qwen2.5-7B-Instruct Apache License 2.0
+Qwen2.5-72B https://huggingface.co/Qwen/Qwen2.5-72B-Instruct Qwen license
+QWQ-32B https://huggingface.co/Qwen/QwQ-32B Apache License 2.0
+DS-Qwen-7B https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B MIT License
+DS-Qwen-32B https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B MIT License
+ChatGLM4-9b https://huggingface.co/THUDM/glm-4-9b-chat glm-4-9b License
+bg3-m3 https://huggingface.co/BAAI/bge-m3 MIT License
+bge-reranker-v2-m3 https://huggingface.co/BAAI/bge-reranker-v2-m3 Apache License 2.0
+GraphRAG: Based on Edge et al. (Edge et al.,
+2024), GraphRAG integrates structured knowledge
+into a prompt for answer generation. We use
+Qwen2.5-72B for entity extraction, relationship extraction, claim identification, summary generation,
+and community report creation. The embedding
+model is set to “cl100k_base”, while “nomic/textembedding-nomic-embed-text-v1.5@q4_k_m” is
+used for graph construction. We adopt a chunk size
+of 1200 tokens and a maximum cluster size of 10,
+and use “local_search” for graph retrieval. Only
+the top relevant chunk is returned during inference.
+Due to the large size of the MedQA corpus in the
+medical domain, we omit GraphRAG for this task,
+as graph construction and retrieval are prohibitively
+expensive. However, for the NA and legal domains
+(each corpus approximately 1000 KB), GraphRAG
+is feasible and conducted accordingly.
+Rerank RAG: Rerank RAG is a multi-step retrieval process. First, vanilla RAG retrieves the top
+ten candidates. These are then passed, along with
+the question, to the target model for re-ranking.
+The top three items from this reranked list are used
+to construct the final prompt for answer generation. This process allows the model to participate
+in the retrieval pipeline, enabling more informed
+selection of relevant knowledge.
+RAG+andAnswer-First RAG+: In these variants, each retrieved knowledge item is mapped to
+a corresponding application. Both the knowledge
+and its application are inserted into the prompt template to guide the model’s answer generation.
+GraphRAG+: GraphRAG+ extends GraphRAG
+by enriching retrieved knowledge with application content. Since constructing dedicated applications for GraphRAG-extracted entities and relations
+would be labor-intensive, we instead reuse applications from the original corpus via fuzzy matching.
+Once a match is found, both the application and
+the matched knowledge—along with the original
+GraphRAG output—are included in the prompt.
+Rerank RAG+: Rerank RAG+ extends Rerank
+RAG by requiring the model to output results in
+a specific format, enabling application mapping.
+However, models frequently fail to follow this format, often providing direct answers or returning
+too few knowledge items. This inconsistency complicates the parsing process. To address this, we increase the number of runs and re-prompt the model
+to ensure successful output parsing. This approach
+proves effective across most models in our experiments, with the exception of GLM4-9B on the
+Numerical Analysis dataset.
+A.3 Dataset Details
+A.3.1 Math QA in Mathematic Domain
+We conduct experiments in the domain of Numerical Analysis. Most existing mathematics datasets
+are relatively simple—often achieving over 90%
+accuracy with current models—and primarily emphasize reasoning rather than Retrieval-Augmented
+Generation (RAG). To better suit our research objectives, we constructed a new Numerical Analysis
+dataset from scratch.
+We first collected a range of publicly available
+online resources, supplemented with original ques-
+
+[TABLE page=13 index=1]
+Columns: Model URL | Licenses
+Row 1: Model URL: https://www.modelscope.cn/models/FlagAlpha/ | Licenses:
+Row 2: Model URL: LLaMA3-Chinese-8B | Licenses: Apache License 2.0
+Row 3: Model URL: LLaMA3-Chinese-8B-Instruct/summary | Licenses:
+Row 4: Model URL: LLaMA3.1-8B https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct | Licenses: llama3.1 license
+Row 5: Model URL: LLaMA3.3-70B https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct | Licenses: llama3.3 license
+Row 6: Model URL: Qwen2.5-7B https://huggingface.co/Qwen/Qwen2.5-7B-Instruct | Licenses: Apache License 2.0
+Row 7: Model URL: Qwen2.5-72B https://huggingface.co/Qwen/Qwen2.5-72B-Instruct | Licenses: Qwen license
+Row 8: Model URL: QWQ-32B https://huggingface.co/Qwen/QwQ-32B | Licenses: Apache License 2.0
+Row 9: Model URL: DS-Qwen-7B https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B | Licenses: MIT License
+Row 10: Model URL: DS-Qwen-32B https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B | Licenses: MIT License
+Row 11: Model URL: ChatGLM4-9b https://huggingface.co/THUDM/glm-4-9b-chat | Licenses: glm-4-9b License
+Row 12: Model URL: bg3-m3 https://huggingface.co/BAAI/bge-m3 | Licenses: MIT License
+Row 13: Model URL: bge-reranker-v2-m3 https://huggingface.co/BAAI/bge-reranker-v2-m3 | Licenses: Apache License 2.0
+Row 14: Model URL: GraphRAG: Based on Edge et al. (Edge et al., | Licenses: by enriching retrieved knowledge with applicaRow 15: Model URL: 2024), GraphRAG integrates structured knowledge | Licenses: tion content. Since constructing dedicated applicaRow 16: Model URL: into a prompt for answer generation. We use | Licenses: tions for GraphRAG-extracted entities and relations
+Row 17: Model URL: Qwen2.5-72B for entity extraction, relationship ex- | Licenses: would be labor-intensive, we instead reuse applicaRow 18: Model URL: traction, claim identification, summary generation, | Licenses: tions from the original corpus via fuzzy matching.
+Row 19: Model URL: and community report creation. The embedding | Licenses: Once a match is found, both the application and
+Row 20: Model URL: model is set to “cl100k_base”, while “nomic/text- | Licenses: the matched knowledge—along with the original
+Row 21: Model URL: embedding-nomic-embed-text-v1.5@q4_k_m” is | Licenses: GraphRAG output—are included in the prompt.
+Row 22: Model URL: used for graph construction. We adopt a chunk size | Licenses: Rerank RAG+: Rerank RAG+ extends Rerank
+Row 23: Model URL: of 1200 tokens and a maximum cluster size of 10, | Licenses: RAG by requiring the model to output results in
+Row 24: Model URL: and use “local_search” for graph retrieval. Only | Licenses: a specific format, enabling application mapping.
+Row 25: Model URL: the top relevant chunk is returned during inference. | Licenses: However, models frequently fail to follow this forRow 26: Model URL: Due to the large size of the MedQA corpus in the | Licenses: mat, often providing direct answers or returning
+Row 27: Model URL: medical domain, we omit GraphRAG for this task, | Licenses: too few knowledge items. This inconsistency comRow 28: Model URL: as graph construction and retrieval are prohibitively | Licenses: plicates the parsing process. To address this, we inRow 29: Model URL: expensive. However, for the NA and legal domains | Licenses: crease the number of runs and re-prompt the model
+Row 30: Model URL: (each corpus approximately 1000 KB), GraphRAG | Licenses: to ensure successful output parsing. This approach
+[/TABLE]
+
+[PAGE 14]
+tions and corresponding answers. The dataset includes both standard QA items and multiple-choice
+questions with varying numbers of answer options.
+Only the correct answers were retained. For compound questions that inquire about multiple values (e.g., "What is the value of y when x= 0
+or x= 1 ?"), we decomposed them into separate
+single-answer questions, such as "What is the value
+of y when x= 0 " and "What is the value ofy when
+x= 1?".
+Next, we transformed all QA pairs into a
+multiple-choice format by prompting powerful
+LLMs to generate three additional plausible but incorrect answer options. This step expands the test
+set while simultaneously constraining the model’s
+generative space.
+Finally, we manually reviewed and refined the
+knowledge points, solution demonstrations, and
+generated answer choices to ensure overall quality
+and accuracy. All annotations and validations were
+conducted solely by the authors without external
+assistance.
+The final dataset consists of 430 test questions
+in the domain of Numerical Analysis.
+A.3.2 Sentencing Prediction in Legal Domain
+We use data from the CAIL 2018 dataset (Xiao
+et al., 2018; Zhong et al., 2018), selecting 200 samples from our training set. We focus exclusively
+on questions related to Article 234 of the Criminal Law, which concerns sentencing for intentional
+injury. All questions were converted to a multiplechoice format, with answer options corresponding
+to sentencing durations: less than three years, three
+to ten years, and more than ten years.
+A.3.3 MedQA in Medicine Domain
+We use the MedQA dataset curated by Jin et al.. We
+randomly sampled 500 examples from the dataset
+to serve as our training set. All selected items are
+in a multiple-choice format.
+A.4 Corpus Details
+A.4.1 Mathematics
+The knowledge points in the Numerical Analysis (NA) corpus are collected from various online
+sources. These include definitions, theorems, lemmas, factual statements, and methods, and are typically concise. Due to inconsistent formatting, we
+used Qwen2.5-72B to extract key knowledge points
+and normalize them into a unified format, as illustrated in Figure 19.
+After processing, we obtained a total of 816
+knowledge points. We examined their lengths with
+a predefined chunk size of 800 tokens. No knowledge point exceeded this threshold, so no additional
+splitting was required.
+We followed the Dify framework to construct
+the knowledge base: processed knowledge points
+were uploaded using the pre-segmented chunks,
+embedded using the BGE-M3 model, and indexed
+for high-quality retrieval. During inference, the top
+three most relevant chunks were retrieved.
+A.4.2 Legal
+The legal corpus is extracted from the Criminal
+Law of the People’s Republic of China. Chunking
+was based on the natural structure of the legal text,
+treating each article as a single knowledge point,
+resulting in 451 items. The corpus is divided into
+two major sections: the General Provisions (101
+items), which provide conceptual knowledge such
+as definitions and factual descriptions, and the Specific Provisions, which provide solution knowledge
+in the form of sentencing guidelines.
+No further processing was applied. We used a
+chunk size of 800 tokens and followed the same
+Dify-based uploading, embedding, and retrieval
+pipeline as in the mathematics domain.
+A.4.3 Medicine
+The medical corpus is sourced from Xiong
+et al. (Xiong et al., 2024). We use only the textbook portion of the corpus, where knowledge is
+already structured into discrete knowledge points,
+each representing a self-contained fragment.
+The corpus spans 18 subjects and includes
+64,117 knowledge points, with a total size of
+99,382 KB. Each knowledge point, averaging less
+than 600 words, was treated as a single chunk without further segmentation. The knowledge encompasses both conceptual and procedural content.
+We used a chunk size of 800 tokens, consistent
+with other domains, and uploaded the data to the
+Dify system using the same embedding and retrieval procedure.
+B Experimental Results
+B.1 Complete Results
+Accuracy is used as the evaluation metric. We
+conducted three independent inference runs for all
+experiments and calculated the average results. The
+complete results are shown in Table 10 - 12.
+
+[TABLE page=14 index=1]
+Columns: questions with varying numbers of answer options. | a predefined chunk size of 800 tokens. No knowlRow 1: questions with varying numbers of answer options.: Only the correct answers were retained. For com- | a predefined chunk size of 800 tokens. No knowl-: edge point exceeded this threshold, so no additional
+Row 2: questions with varying numbers of answer options.: pound questions that inquire about multiple val- | a predefined chunk size of 800 tokens. No knowl-: splitting was required.
+Row 3: questions with varying numbers of answer options.: ues (e.g., "What is the value of y when x = 0 | a predefined chunk size of 800 tokens. No knowl-: We followed the Dify framework to construct
+Row 4: questions with varying numbers of answer options.: or x = 1?"), we decomposed them into separate | a predefined chunk size of 800 tokens. No knowl-: the knowledge base: processed knowledge points
+Row 5: questions with varying numbers of answer options.: single-answer questions, such as "What is the value | a predefined chunk size of 800 tokens. No knowl-: were uploaded using the pre-segmented chunks,
+Row 6: questions with varying numbers of answer options.: of y when x = 0" and "What is the value of y when | a predefined chunk size of 800 tokens. No knowl-: embedded using the BGE-M3 model, and indexed
+Row 7: questions with varying numbers of answer options.: x = 1?". | a predefined chunk size of 800 tokens. No knowl-: for high-quality retrieval. During inference, the top
+Row 8: questions with varying numbers of answer options.: Next, we transformed all QA pairs into a | a predefined chunk size of 800 tokens. No knowl-: three most relevant chunks were retrieved.
+Row 9: questions with varying numbers of answer options.: multiple-choice format by prompting powerful | a predefined chunk size of 800 tokens. No knowl-:
+Row 10: questions with varying numbers of answer options.: LLMs to generate three additional plausible but in- | a predefined chunk size of 800 tokens. No knowl-: A.4.2 Legal
+Row 11: questions with varying numbers of answer options.: correct answer options. This step expands the test | a predefined chunk size of 800 tokens. No knowl-: The legal corpus is extracted from the Criminal
+Row 12: questions with varying numbers of answer options.: set while simultaneously constraining the model’s | a predefined chunk size of 800 tokens. No knowl-: Law of the People’s Republic of China. Chunking
+Row 13: questions with varying numbers of answer options.: generative space. | a predefined chunk size of 800 tokens. No knowl-: was based on the natural structure of the legal text,
+Row 14: questions with varying numbers of answer options.: Finally, we manually reviewed and refined the | a predefined chunk size of 800 tokens. No knowl-: treating each article as a single knowledge point,
+Row 15: questions with varying numbers of answer options.: knowledge points, solution demonstrations, and | a predefined chunk size of 800 tokens. No knowl-: resulting in 451 items. The corpus is divided into
+Row 16: questions with varying numbers of answer options.: generated answer choices to ensure overall quality | a predefined chunk size of 800 tokens. No knowl-: two major sections: the General Provisions (101
+Row 17: questions with varying numbers of answer options.: and accuracy. All annotations and validations were | a predefined chunk size of 800 tokens. No knowl-: items), which provide conceptual knowledge such
+Row 18: questions with varying numbers of answer options.: conducted solely by the authors without external | a predefined chunk size of 800 tokens. No knowl-: as definitions and factual descriptions, and the SpeRow 19: questions with varying numbers of answer options.: assistance. | a predefined chunk size of 800 tokens. No knowl-: cific Provisions, which provide solution knowledge
+Row 20: questions with varying numbers of answer options.: The final dataset consists of 430 test questions | a predefined chunk size of 800 tokens. No knowl-: in the form of sentencing guidelines.
+Row 21: questions with varying numbers of answer options.: in the domain of Numerical Analysis. | a predefined chunk size of 800 tokens. No knowl-: No further processing was applied. We used a
+Row 22: questions with varying numbers of answer options.: | a predefined chunk size of 800 tokens. No knowl-: chunk size of 800 tokens and followed the same
+Row 23: questions with varying numbers of answer options.: A.3.2 Sentencing Prediction in Legal Domain | a predefined chunk size of 800 tokens. No knowl-:
+Row 24: questions with varying numbers of answer options.: | a predefined chunk size of 800 tokens. No knowl-: Dify-based uploading, embedding, and retrieval
+Row 25: questions with varying numbers of answer options.: We use data from the CAIL 2018 dataset (Xiao | a predefined chunk size of 800 tokens. No knowl-: pipeline as in the mathematics domain.
+Row 26: questions with varying numbers of answer options.: et al., 2018; Zhong et al., 2018), selecting 200 sam- | a predefined chunk size of 800 tokens. No knowl-:
+Row 27: questions with varying numbers of answer options.: ples from our training set. We focus exclusively | a predefined chunk size of 800 tokens. No knowl-: A.4.3 Medicine
+Row 28: questions with varying numbers of answer options.: on questions related to Article 234 of the Crimi- | a predefined chunk size of 800 tokens. No knowl-: The medical corpus is sourced from Xiong
+Row 29: questions with varying numbers of answer options.: nal Law, which concerns sentencing for intentional | a predefined chunk size of 800 tokens. No knowl-: et al. (Xiong et al., 2024). We use only the textRow 30: questions with varying numbers of answer options.: injury. All questions were converted to a multiple- | a predefined chunk size of 800 tokens. No knowl-: book portion of the corpus, where knowledge is
+Row 31: questions with varying numbers of answer options.: choice format, with answer options corresponding | a predefined chunk size of 800 tokens. No knowl-: already structured into discrete knowledge points,
+Row 32: questions with varying numbers of answer options.: to sentencing durations: less than three years, three | a predefined chunk size of 800 tokens. No knowl-: each representing a self-contained fragment.
+Row 33: questions with varying numbers of answer options.: to ten years, and more than ten years. | a predefined chunk size of 800 tokens. No knowl-: The corpus spans 18 subjects and includes
+Row 34: questions with varying numbers of answer options.: | a predefined chunk size of 800 tokens. No knowl-: 64,117 knowledge points, with a total size of
+Row 35: questions with varying numbers of answer options.: A.3.3 MedQA in Medicine Domain | a predefined chunk size of 800 tokens. No knowl-:
+Row 36: questions with varying numbers of answer options.: | a predefined chunk size of 800 tokens. No knowl-: 99,382 KB. Each knowledge point, averaging less
+Row 37: questions with varying numbers of answer options.: We use the MedQA dataset curated by Jin et al.. We | a predefined chunk size of 800 tokens. No knowl-: than 600 words, was treated as a single chunk withRow 38: questions with varying numbers of answer options.: randomly sampled 500 examples from the dataset | a predefined chunk size of 800 tokens. No knowl-: out further segmentation. The knowledge encom-
+[/TABLE]
+
+[PAGE 15]
+Table 10: Accuracy (%) of different models on the sentencing prediction task with and without application-level
+augmentation. LLaMA3.1-8B* denotes the Chinese version.
+Method LLaMA3.1-8B* DS-Qwen-7B DS-Qwen-32B QwQ-32B Qwen3-32B Qwen2.5-72B LLaMA3.3-70B
+Baseline 29.00±0.0 53.00±2.9 80.50±1.8 80.00±2.6 73.00±0.0 73.00±0.0 51.50±0.0
+RAG 36.00±0.0 65.50±1.7 85.50±1.8 81.50±2.5 83.00±0.0 76.50±0.0 70.50±0.0
+RAG+ 41.00±0.0 67.50±1.8 85.50±2.1 86.00±2.4 82.50±0.0 83.00±0.0 76.00±0.0
+AFRAG 27.50±0.0 65.50±2.2 85.00±2.6 82.50±2.9 76.00±0.0 85.00±0.0 41.50±0.0
+AFRAG+ 33.00±0.0 68.00±2.3 86.50±2.5 83.00±2.9 77.50±0.0 86.50±0.0 52.50±0.0
+GraphRAG 36.50±0.0 42.00±2.8 81.50±2.2 76.00±2.3 68.50±0.0 64.00±0.0 38.50±0.0
+GraphRAG+ 46.00±0.0 47.50±1.6 81.50±2.5 77.50±2.7 75.00±0.0 64.00±0.0 52.00±0.0
+Rerank RAG 33.00±0.0 60.00±2.1 82.00±1.8 83.50±2.0 80.50±0.0 77.50±0.0 77.50±0.0
+Rerank RAG+ 34.00±0.0 61.00±1.1 82.50±1.9 83.50±2.1 82.00±0.0 87.50±0.0 77.50±0.0
+Table 11: Accuracy (%) of different models on the MedQA dataset with and without application-level augmentation.
+Method LLaMA3.1-8B Qwen2.5-7B DS-Qwen-7B DS-Qwen-32B QwQ-32B Qwen2.5-72B LLaMA3.3-70B
+Baseline 57.80±0.0 41.80±0.0 32.60±1.2 80.00±0.8 80.40±1.2 73.80±0.0 78.20±0.0
+RAG 63.00±0.0 59.20±0.0 34.60±1.6 79.00±1.0 80.20±0.9 75.00±0.0 80.20±0.0
+RAG+ 63.60±0.0 57.60±0.0 40.20±0.5 80.20±0.5 80.80±0.4 75.40±0.0 81.40±0.0
+AFRAG 56.40±0.0 53.40±0.0 32.20±1.3 78.20±0.9 81.20±1.6 76.40±0.0 82.40±0.0
+AFRAG+ 57.00±0.0 57.20±0.0 34.60±1.2 78.60±0.9 82.20±1.2 77.40±0.0 83.00±0.0
+Rerank RAG 60.00±0.0 58.60±0.0 35.20±0.8 79.80±0.5 80.60±0.9 76.40±0.0 81.00±0.0
+Rerank RAG+ 63.40±0.0 61.40±0.0 –80.20 ±1.0 81.40±0.7 78.20±0.0 85.60±0.0
+Based on the results in Table 13, incorporating application examples alone improves performance over the base models in several cases, particularly for Qwen2.5-14B and Qwen2.5-72B. However, combining both knowledge and application
+examples generally yields better results, as shown
+by the superior accuracy of RAG+ and AFRAG+
+across most models.
+B.2 Model Scale
+Table 14 presents the performance of Qwen2.5
+models of different scales on the sentencing prediction task in the legal domain, and Table 15 shows
+their performance on the MedQA dataset.
+B.3 Case Study
+We present two case studies in Figures 6
+and 7, comparing the outputs of Qwen3-32B and
+DeepSeek-R1-Distill-Qwen-7B under RAG and
+RAG+ configurations on the sentencing prediction and MedQA dataset, respectively. The results
+demonstrate that merely retrieving external knowledge, as done in standard RAG, is often insufficient: models may still make reasoning mistakes
+or misuse the retrieved content. In contrast, with
+the integration of the application module in RAG+,
+the models are able to apply the retrieved knowledge more appropriately, leading to correct predictions. These qualitative results further support the
+effectiveness of RAG+ in enhancing knowledge
+utilization during inference.
+C Prompts
+The prompt configurations used across three domains—legal, medical, and mathematical—under
+the Base, RAG, and RAG+ settings are shown in
+Figures 8 to 16. Specifically, Figures 8, 9, and 10
+illustrate the prompt designs for the legal domain,
+while similar configurations for the medical, and
+mathematical domains are provided in Figures 11
+to13, and 14 to 16, respectively. These templates
+clearly reflect how retrieved knowledge is introduced and applied in each configuration, enabling
+consistent comparison across domains and setups.
+C.1 Dataset
+The prompt templates used to generate application
+examples for different domains are shown in Figures 17, 18, and 19, corresponding to the legal,
+medical, and mathematical domains, respectively.
+These templates are designed to guide the model in
+producing domain-specific knowledge applications
+that align with the downstream tasks.
+C.2 Examples of Knowledge and Applications
+Examples of the retrieved and applied knowledge
+in different domains are shown in Figures 20 and 21
+for the mathematical domain, Figures 22 and 23
+
+[TABLE page=15 index=1]
+Columns: Method LLaMA3.1-8B* | DS-Qwen-7B | DS-Qwen-32B | QwQ-32B | Qwen3-32B | Qwen2.5-72B | LLaMA3.3-70B
+Row 1: Method LLaMA3.1-8B*: Baseline 29.00±0.0 | DS-Qwen-7B: 53.00±2.9 | DS-Qwen-32B: 80.50±1.8 | QwQ-32B: 80.00±2.6 | Qwen3-32B: 73.00±0.0 | Qwen2.5-72B: 73.00±0.0 | LLaMA3.3-70B: 51.50±0.0
+Row 2: Method LLaMA3.1-8B*: RAG 36.00±0.0 | DS-Qwen-7B: 65.50±1.7 | DS-Qwen-32B: 85.50±1.8 | QwQ-32B: 81.50±2.5 | Qwen3-32B: 83.00±0.0 | Qwen2.5-72B: 76.50±0.0 | LLaMA3.3-70B: 70.50±0.0
+Row 3: Method LLaMA3.1-8B*: RAG+ 41.00±0.0 | DS-Qwen-7B: 67.50±1.8 | DS-Qwen-32B: 85.50±2.1 | QwQ-32B: 86.00±2.4 | Qwen3-32B: 82.50±0.0 | Qwen2.5-72B: 83.00±0.0 | LLaMA3.3-70B: 76.00±0.0
+Row 4: Method LLaMA3.1-8B*: AFRAG 27.50±0.0 | DS-Qwen-7B: 65.50±2.2 | DS-Qwen-32B: 85.00±2.6 | QwQ-32B: 82.50±2.9 | Qwen3-32B: 76.00±0.0 | Qwen2.5-72B: 85.00±0.0 | LLaMA3.3-70B: 41.50±0.0
+Row 5: Method LLaMA3.1-8B*: AFRAG+ 33.00±0.0 | DS-Qwen-7B: 68.00±2.3 | DS-Qwen-32B: 86.50±2.5 | QwQ-32B: 83.00±2.9 | Qwen3-32B: 77.50±0.0 | Qwen2.5-72B: 86.50±0.0 | LLaMA3.3-70B: 52.50±0.0
+Row 6: Method LLaMA3.1-8B*: GraphRAG 36.50±0.0 | DS-Qwen-7B: 42.00±2.8 | DS-Qwen-32B: 81.50±2.2 | QwQ-32B: 76.00±2.3 | Qwen3-32B: 68.50±0.0 | Qwen2.5-72B: 64.00±0.0 | LLaMA3.3-70B: 38.50±0.0
+Row 7: Method LLaMA3.1-8B*: GraphRAG+ 46.00±0.0 | DS-Qwen-7B: 47.50±1.6 | DS-Qwen-32B: 81.50±2.5 | QwQ-32B: 77.50±2.7 | Qwen3-32B: 75.00±0.0 | Qwen2.5-72B: 64.00±0.0 | LLaMA3.3-70B: 52.00±0.0
+Row 8: Method LLaMA3.1-8B*: Rerank RAG 33.00±0.0 | DS-Qwen-7B: 60.00±2.1 | DS-Qwen-32B: 82.00±1.8 | QwQ-32B: 83.50±2.0 | Qwen3-32B: 80.50±0.0 | Qwen2.5-72B: 77.50±0.0 | LLaMA3.3-70B: 77.50±0.0
+Row 9: Method LLaMA3.1-8B*: Rerank RAG+ 34.00±0.0 | DS-Qwen-7B: 61.00±1.1 | DS-Qwen-32B: 82.50±1.9 | QwQ-32B: 83.50±2.1 | Qwen3-32B: 82.00±0.0 | Qwen2.5-72B: 87.50±0.0 | LLaMA3.3-70B: 77.50±0.0
+Row 10: Method LLaMA3.1-8B*: able 11: Accuracy (%) of different models on the MedQA dataset with and without application-level augmentation | DS-Qwen-7B: | DS-Qwen-32B: | QwQ-32B: | Qwen3-32B: | Qwen2.5-72B: | LLaMA3.3-70B:
+Row 11: Method LLaMA3.1-8B*: Method LLaMA3.1-8B | DS-Qwen-7B: Qwen2.5-7B | DS-Qwen-32B: DS-Qwen-7B DS-Qwen-32B | QwQ-32B: | Qwen3-32B: QwQ-32B | Qwen2.5-72B: Qwen2.5-72B | LLaMA3.3-70B: LLaMA3.3-70B
+Row 12: Method LLaMA3.1-8B*: Baseline 57.80±0.0 | DS-Qwen-7B: 41.80±0.0 | DS-Qwen-32B: 32.60±1.2 | QwQ-32B: 80.00±0.8 | Qwen3-32B: 80.40±1.2 | Qwen2.5-72B: 73.80±0.0 | LLaMA3.3-70B: 78.20±0.0
+Row 13: Method LLaMA3.1-8B*: RAG 63.00±0.0 | DS-Qwen-7B: 59.20±0.0 | DS-Qwen-32B: 34.60±1.6 | QwQ-32B: 79.00±1.0 | Qwen3-32B: 80.20±0.9 | Qwen2.5-72B: 75.00±0.0 | LLaMA3.3-70B: 80.20±0.0
+Row 14: Method LLaMA3.1-8B*: RAG+ 63.60±0.0 | DS-Qwen-7B: 57.60±0.0 | DS-Qwen-32B: 40.20±0.5 | QwQ-32B: 80.20±0.5 | Qwen3-32B: 80.80±0.4 | Qwen2.5-72B: 75.40±0.0 | LLaMA3.3-70B: 81.40±0.0
+Row 15: Method LLaMA3.1-8B*: AFRAG 56.40±0.0 | DS-Qwen-7B: 53.40±0.0 | DS-Qwen-32B: 32.20±1.3 | QwQ-32B: 78.20±0.9 | Qwen3-32B: 81.20±1.6 | Qwen2.5-72B: 76.40±0.0 | LLaMA3.3-70B: 82.40±0.0
+Row 16: Method LLaMA3.1-8B*: AFRAG+ 57.00±0.0 | DS-Qwen-7B: 57.20±0.0 | DS-Qwen-32B: 34.60±1.2 | QwQ-32B: 78.60±0.9 | Qwen3-32B: 82.20±1.2 | Qwen2.5-72B: 77.40±0.0 | LLaMA3.3-70B: 83.00±0.0
+Row 17: Method LLaMA3.1-8B*: Rerank RAG 60.00±0.0 | DS-Qwen-7B: 58.60±0.0 | DS-Qwen-32B: 35.20±0.8 | QwQ-32B: 79.80±0.5 | Qwen3-32B: 80.60±0.9 | Qwen2.5-72B: 76.40±0.0 | LLaMA3.3-70B: 81.00±0.0
+Row 18: Method LLaMA3.1-8B*: Rerank RAG+ 63.40±0.0 | DS-Qwen-7B: 61.40±0.0 | DS-Qwen-32B: – | QwQ-32B: 80.20±1.0 | Qwen3-32B: 81.40±0.7 | Qwen2.5-72B: 78.20±0.0 | LLaMA3.3-70B: 85.60±0.0
+[/TABLE]
+
+[PAGE 16]
+Table 12: Accuracy (%) of different models on the Math dataset with and without application-level augmentation.
+Method GLM4-9B Qwen2.5-7B DS-Qwen-7B Qwen2.5-14B DS-Qwen-32B Qwen2.5-72B LLaMA3.3-70B
+Baseline 46.51±0.0 58.84±0.0 24.19±0.7 66.98±0.0 80.00±0.6 69.07±0.0 69.07±0.0
+RAG 47.21±0.0 64.65±0.0 24.42±1.0 73.49±0.0 82.79±1.2 70.47±0.0 71.16±0.0
+RAG+ 52.09±0.0 65.58±0.0 26.28±0.7 74.67±0.0 84.65±1.3 73.72±0.0 71.86±0.0
+AFRAG 48.14±0.0 63.51±0.0 22.56±0.6 66.98±0.0 82.09±0.5 71.86±0.0 70.23±0.0
+AFRAG+ 51.16±0.0 64.42±0.0 23.95±0.8 70.00±0.0 83.95±0.6 76.05±0.0 71.86±0.0
+GraphRAG 33.95±0.0 56.98±0.0 27.21±0.8 69.07±0.0 82.79±0.6 73.02±0.0 68.37±0.0
+GraphRAG+ 36.51±0.0 59.77±0.0 33.72±0.8 69.77±0.0 83.49±0.5 72.56±0.0 69.00±0.0
+Rerank RAG 48.21±0.0 56.05±0.0 26.05±0.9 71.40±0.0 80.46±0.7 73.26±0.0 74.65±0.0
+Rerank RAG+ –56.28 ±0.0 32.09±0.6 78.90±0.0 83.26±0.5 77.21±0.0 76.74±0.0
+Table 13: Performance comparison of application-only retrieval vs knowledge-enhanced retrieval on the MedQA
+dataset.
+Method Qwen2.5-14B Qwen3-32B DS-Qwen-32B Qwen2.5-72B
+Baseline 68.80 84.40 79.00 73.80
+RAG 68.40 82.60 81.00 75.00
+RAG-app 70.6083.60 78.4076.60
+RAG-plus 69.8084.20 82.2075.20
+AFRAG 69.00 83.00 80.20 76.40
+AFRAG-app 70.60 82.42 77.2077.80
+AFRAG+ 69.4083.60 80.6077.40
+for the legal domain, and Figures 24 and 25 for the
+medical domain. Each pair of figures illustrates
+the difference between knowledge produced under
+the RAG and RAG+ configurations, highlighting
+how RAG+ promotes more targeted and applicable
+knowledge generation in support of downstream
+reasoning.
+
+[TABLE page=16 index=1]
+Columns: Method GLM4-9B | Qwen2.5-7B | DS-Qwen-7B | Qwen2.5-14B | DS-Qwen-32B | Qwen2.5-72B | LLaMA3.3-70B
+Row 1: Method GLM4-9B: Baseline 46.51±0.0 | Qwen2.5-7B: 58.84±0.0 | DS-Qwen-7B: 24.19±0.7 | Qwen2.5-14B: 66.98±0.0 | DS-Qwen-32B: 80.00±0.6 | Qwen2.5-72B: 69.07±0.0 | LLaMA3.3-70B: 69.07±0.0
+Row 2: Method GLM4-9B: RAG 47.21±0.0 | Qwen2.5-7B: 64.65±0.0 | DS-Qwen-7B: 24.42±1.0 | Qwen2.5-14B: 73.49±0.0 | DS-Qwen-32B: 82.79±1.2 | Qwen2.5-72B: 70.47±0.0 | LLaMA3.3-70B: 71.16±0.0
+Row 3: Method GLM4-9B: RAG+ 52.09±0.0 | Qwen2.5-7B: 65.58±0.0 | DS-Qwen-7B: 26.28±0.7 | Qwen2.5-14B: 74.67±0.0 | DS-Qwen-32B: 84.65±1.3 | Qwen2.5-72B: 73.72±0.0 | LLaMA3.3-70B: 71.86±0.0
+Row 4: Method GLM4-9B: AFRAG 48.14±0.0 | Qwen2.5-7B: 63.51±0.0 | DS-Qwen-7B: 22.56±0.6 | Qwen2.5-14B: 66.98±0.0 | DS-Qwen-32B: 82.09±0.5 | Qwen2.5-72B: 71.86±0.0 | LLaMA3.3-70B: 70.23±0.0
+Row 5: Method GLM4-9B: AFRAG+ 51.16±0.0 | Qwen2.5-7B: 64.42±0.0 | DS-Qwen-7B: 23.95±0.8 | Qwen2.5-14B: 70.00±0.0 | DS-Qwen-32B: 83.95±0.6 | Qwen2.5-72B: 76.05±0.0 | LLaMA3.3-70B: 71.86±0.0
+Row 6: Method GLM4-9B: GraphRAG 33.95±0.0 | Qwen2.5-7B: 56.98±0.0 | DS-Qwen-7B: 27.21±0.8 | Qwen2.5-14B: 69.07±0.0 | DS-Qwen-32B: 82.79±0.6 | Qwen2.5-72B: 73.02±0.0 | LLaMA3.3-70B: 68.37±0.0
+Row 7: Method GLM4-9B: GraphRAG+ 36.51±0.0 | Qwen2.5-7B: 59.77±0.0 | DS-Qwen-7B: 33.72±0.8 | Qwen2.5-14B: 69.77±0.0 | DS-Qwen-32B: 83.49±0.5 | Qwen2.5-72B: 72.56±0.0 | LLaMA3.3-70B: 69.00±0.0
+Row 8: Method GLM4-9B: Rerank RAG 48.21±0.0 | Qwen2.5-7B: 56.05±0.0 | DS-Qwen-7B: 26.05±0.9 | Qwen2.5-14B: 71.40±0.0 | DS-Qwen-32B: 80.46±0.7 | Qwen2.5-72B: 73.26±0.0 | LLaMA3.3-70B: 74.65±0.0
+Row 9: Method GLM4-9B: Rerank RAG+ – | Qwen2.5-7B: 56.28±0.0 | DS-Qwen-7B: 32.09±0.6 | Qwen2.5-14B: 78.90±0.0 | DS-Qwen-32B: 83.26±0.5 | Qwen2.5-72B: 77.21±0.0 | LLaMA3.3-70B: 76.74±0.0
+Row 10: Method GLM4-9B: able 13: Performance comparison of application-only retrieval vs knowledge-enhanced retrieval on the MedQ | Qwen2.5-7B: | DS-Qwen-7B: | Qwen2.5-14B: | DS-Qwen-32B: | Qwen2.5-72B: | LLaMA3.3-70B:
+Row 11: Method GLM4-9B: ataset. | Qwen2.5-7B: | DS-Qwen-7B: | Qwen2.5-14B: | DS-Qwen-32B: | Qwen2.5-72B: | LLaMA3.3-70B:
+Row 12: Method GLM4-9B: Method | Qwen2.5-7B: Qwen2.5-14B | DS-Qwen-7B: Qwen3-32B | Qwen2.5-14B: DS-Qwen-32B | DS-Qwen-32B: Qwen2.5-72B | Qwen2.5-72B: | LLaMA3.3-70B:
+Row 13: Method GLM4-9B: Baseline | Qwen2.5-7B: 68.80 | DS-Qwen-7B: | Qwen2.5-14B: 84.40 | DS-Qwen-32B: 79.00 | Qwen2.5-72B: 73.80 | LLaMA3.3-70B:
+Row 14: Method GLM4-9B: RAG | Qwen2.5-7B: 68.40 | DS-Qwen-7B: | Qwen2.5-14B: 82.60 | DS-Qwen-32B: 81.00 | Qwen2.5-72B: 75.00 | LLaMA3.3-70B:
+Row 15: Method GLM4-9B: RAG-app | Qwen2.5-7B: 70.60 | DS-Qwen-7B: | Qwen2.5-14B: 83.60 | DS-Qwen-32B: 78.40 | Qwen2.5-72B: 76.60 | LLaMA3.3-70B:
+Row 16: Method GLM4-9B: RAG-plus | Qwen2.5-7B: 69.80 | DS-Qwen-7B: | Qwen2.5-14B: 84.20 | DS-Qwen-32B: 82.20 | Qwen2.5-72B: 75.20 | LLaMA3.3-70B:
+Row 17: Method GLM4-9B: AFRAG | Qwen2.5-7B: 69.00 | DS-Qwen-7B: | Qwen2.5-14B: 83.00 | DS-Qwen-32B: 80.20 | Qwen2.5-72B: 76.40 | LLaMA3.3-70B:
+Row 18: Method GLM4-9B: AFRAG-app | Qwen2.5-7B: 70.60 | DS-Qwen-7B: | Qwen2.5-14B: 82.42 | DS-Qwen-32B: 77.20 | Qwen2.5-72B: 77.80 | LLaMA3.3-70B:
+Row 19: Method GLM4-9B: AFRAG+ | Qwen2.5-7B: 69.40 | DS-Qwen-7B: | Qwen2.5-14B: 83.60 | DS-Qwen-32B: 80.60 | Qwen2.5-72B: 77.40 | LLaMA3.3-70B:
+[/TABLE]
+
+[PAGE 17]
+Table 14: Accuracy (%) Comparison of Qwen2.5 Models of Varying Scales on Sentencing Prediction.
+Method Qwen2.5-7B Qwen2.5-14B Qwen2.5-72B
+Baseline 46.00 74.00 58.00
+RAG 75.00 78.50 76.50
+RAG+ 76.50 82.50 83.00
+AF-RAG 40.50 81.00 85.00
+AF-RAG+ 47.00 85.50 85.50
+GraphRAG 47.00 68.00 64.00
+GraphRAG+ 59.00 79.00 64.00
+Rerank RAG 70.50 78.50 77.50
+Rerank RAG+ 74.50 81.00 87.50
+Table 15: Accuracy (%) Comparison of Qwen2.5 Models of Varying Scales on the MedQA Dataset.
+Method Qwen2.5-7B Qwen2.5-14B Qwen2.5-72B
+Baseline 41.80 68.80 73.80
+RAG 59.2068.40 75.00
+RAG+ 57.6069.80 75.20
+AF-RAG 53.40 69.00 76.40
+AF-RAG+ 57.20 69.40 77.40
+Rerank RAG 58.60 63.80 76.40
+Rerank RAG+ 61.40 68.40 78.20
+Select the most appropriate sentence interval from the three op�ons A, B, and C (A: less than or equal to 36 months; B: grea ter than
+36 months and less than or equal to 120 months; C: greater than 120 months) for the criminal Li:
+It was found that at about 1:00 on April 29, 2016, the defendant Chen and Chen No. 2 (a minor, handled in another case) and o thers
+went to an Internet Cafe on Binjiang to surf the Internet. They learned that Wen was beaten by Liu due to a debt dispute. The
+defendant Chen went up to Liu for trouble, and had an argument with Chen No. 3 who was traveling with Liu. The defendant Chen and
+Chen No. 2 beat Chen No. 3 together. A�er the two sides had another argument, Chen No. 2 returned to his residence and broug ht a
+small Japanese machete, an iron baseball bat and three stainless steel hollow steel pipes. The defendant Chen beat Liu with a baseball
+bat, Chen No. 2 with a steel pipe, and Wen with a machete. A�er being beaten, Liuﬂed in the direc�on of the Bund Square, and the
+defendant Chen and three others con�nued to chase and beat Liu. According to the appraisal of the Physical Evidence Appraisa l Oﬃce
+of the Public Security Bureau of Yunyang County, Chongqing, the degree of injury of Liu's facial skin lacera�ons was in the category of
+ﬁrst-grade minor injuries, and the degree of injury of the remaining scars and bleeding of the le�ring nail bed was in the ca tegory of
+minor injuries. The appraisal opinion was that Liu's injury was a ﬁrst -degree minor injury.
+Legal Ques�on C
+According to the facts of the case provided, the defendant Chen and others (including the minor Chen 2) par�cipated in the a�ack on
+Liu with weapons (baseball bats) in a group conﬂict, resul�ng in Liu's facial skin lacera�on reaching the level of ﬁrst -degree minor
+injury, and the rest of the injuries were minor injuries. According to Ar�cle 234 of the Criminal Law of the People's Republ ic of China,
+for the inten�onal injury to the body of another person, if the person is slightly injured, he may be sentenced toﬁxed -term
+imprisonment of not more than three years, deten�on or control. However, in this case, Chen par�cipated in the ﬁght with weapons.
+Although Liu's injuries have not yet reached the standard of serious injury, considering the circumstances of the armed ﬁght, he
+should be punished more severely.
+Taking the above circumstances into considera�on, although Liu's injury is a ﬁrst -degree minor injury, considering the fact of the
+armedﬁght, it is necessary to impose a heavier punishment; at the same�me, Chen has the circumstances of surrendering him self, so
+he can be given a lighter punishment. Therefore, considering the speciﬁc circumstances, the sentence for Chen should be more than
+three years, but not more than ten years.
+Therefore, based on the above analysis, the answer is B.
+RAG Answer
+According to the facts provided, the defendant Chen par�cipated in the bea�ng of Liu, causing Liu to suﬀer a minor injury of the ﬁrst
+degree. According to Ar�cle 234 of the Criminal Law of the People's Republic of China, if someone inten�onally injures anot her
+person's body and causes minor injuries to others, he shall be sentenced to ﬁxed -term imprisonment of not more than three years,
+deten�on or control in accordance with the law.
+In the trial of a speciﬁc case, it is also necessary to consider the defendant's mi�ga�ng or aggrava�ng circumstances. Ac cording to the
+informa�on provided, Chen has the following circumstances that can be given a lighter punishment: 1. Chen was arrested by hi s father
+with the assistance of the public security organs, indica�ng that he did not have a strong desire to evade legal sanc�ons. 2. A�er being
+arrested, Chen truthfully confessed the facts of the crime and had a confession. 3. Chen was not the ringleader and did not p ersonally
+carry a weapon when commi�ng the crime.
+Combining the above circumstances, according to the provisions of the Criminal Law of the People's Republic of China and rele vant
+judicial interpreta�ons, criminals with confessions, assistance in arrests, etc. can be given a lighter punishment in accord ance with the
+law.
+Therefore, Chen's sentence of less than three years' imprisonment is in line with the nature and circumstances of his behavio r, and is a
+lenient sentence within the scope of the law. In summary, the answer is A.
+RAG+ Answer
+Figure 6: Comparison of Qwen3-32B Outputs under RAG and RAG+ Configurations on Sentencing Prediction.
+
+[TABLE page=17 index=1]
+Columns: Method | Qwen2.5-7B | Qwen2.5-14B | Qwen2.5-72B
+Row 1: Method: Baseline | Qwen2.5-7B: 46.0 | Qwen2.5-14B: 74.0 | Qwen2.5-72B: 58.0
+Row 2: Method: RAG | Qwen2.5-7B: 75.0 | Qwen2.5-14B: 78.5 | Qwen2.5-72B: 76.5
+Row 3: Method: RAG+ | Qwen2.5-7B: 76.5 | Qwen2.5-14B: 82.5 | Qwen2.5-72B: 83.0
+Row 4: Method: AF-RAG | Qwen2.5-7B: 40.5 | Qwen2.5-14B: 81.0 | Qwen2.5-72B: 85.0
+Row 5: Method: AF-RAG+ | Qwen2.5-7B: 47.0 | Qwen2.5-14B: 85.5 | Qwen2.5-72B: 85.5
+Row 6: Method: GraphRAG | Qwen2.5-7B: 47.0 | Qwen2.5-14B: 68.0 | Qwen2.5-72B: 64.0
+Row 7: Method: GraphRAG+ | Qwen2.5-7B: 59.0 | Qwen2.5-14B: 79.0 | Qwen2.5-72B: 64.0
+Row 8: Method: Rerank RAG | Qwen2.5-7B: 70.5 | Qwen2.5-14B: 78.5 | Qwen2.5-72B: 77.5
+Row 9: Method: Rerank RAG+ | Qwen2.5-7B: 74.5 | Qwen2.5-14B: 81.0 | Qwen2.5-72B: 87.5
+[/TABLE]
+
+[TABLE page=17 index=2]
+Columns: Method | Qwen2.5-7B | Qwen2.5-14B | Qwen2.5-72B
+Row 1: Method: Baseline | Qwen2.5-7B: 41.8 | Qwen2.5-14B: 68.8 | Qwen2.5-72B: 73.8
+Row 2: Method: RAG | Qwen2.5-7B: 59.2 | Qwen2.5-14B: 68.4 | Qwen2.5-72B: 75.0
+Row 3: Method: RAG+ | Qwen2.5-7B: 57.6 | Qwen2.5-14B: 69.8 | Qwen2.5-72B: 75.2
+Row 4: Method: AF-RAG | Qwen2.5-7B: 53.4 | Qwen2.5-14B: 69.0 | Qwen2.5-72B: 76.4
+Row 5: Method: AF-RAG+ | Qwen2.5-7B: 57.2 | Qwen2.5-14B: 69.4 | Qwen2.5-72B: 77.4
+Row 6: Method: Rerank RAG | Qwen2.5-7B: 58.6 | Qwen2.5-14B: 63.8 | Qwen2.5-72B: 76.4
+Row 7: Method: Rerank RAG+ | Qwen2.5-7B: 61.4 | Qwen2.5-14B: 68.4 | Qwen2.5-72B: 78.2
+[/TABLE]
+
+[PAGE 18]
+A 67-year-old man presents to his primary care physician for erec�le dysfunc�on. He states that for the past month he has been
+unable to engage in sexual intercourse with his wife despite having appropriate sexual desire. He also endorses deep and burn ing
+bu�ock and hip pain when walking, which is relieved by rest. The pa�ent states that he does not have erec�ons at night or in the
+morning. His past medical history is notable for diabetes, coronary artery disease, and hypertension, and he has a 40 pack -year
+smoking history. Physical exam is notable for weak lower extremity and femoral pulses. Which of the following is the most spe cific
+e�ology of this pa�ent’s symptoms?
+A: Anxiety, B: Aortoiliac atherosclerosis, C: Spinal stenosis, D: Vascular claudica�on
+Medicine Ques�on B
+Okay, so I'm trying to ﬁgure out the e�ology of this 67-year-old man's symptoms.
+First, the pa�ent presents with erec�le dysfunc�on, speciﬁcally inability to engage in sexual intercourse for the past mo nth, despite
+having the sexual desire. He also men�ons deep and burning bu�ock and hip pain that's relieved by rest. There's no erec�on s at night
+or in the morning.
+His medical history includes diabetes, coronary artery disease, and hypertension, plus a 40 pack -year smoking history. The physical
+exam shows weak lower extremity and femoral pulses, which suggests possible peripheral vascular issues.
+Looking at the op�ons: A is anxiety, B is aortoiliac atherosclerosis, C is spinal stenosis, and D is vascular claudica�on.
+Anxiety (A) could cause ED, but the symptoms here are more physical. The presence of diabetes, hypertension, and coronary art ery
+disease points towards cardiovascular issues. The physical examﬁndings, like weak pulses, support a vascular problem.
+Aortoiliac atherosclerosis (B) is a type of cardiovascular disease where the aorta and Ilies are narrowed, some�mes causing
+claudica�on. Vascular claudica�on (D) is when blood ﬂow becomes intermi�ent, o�en due to narrowing or stenosis in the ar teries,
+leading to pain on exer�on, which matches the pa�ent's bu�ock pain.
+Spinal stenosis (C) typically aﬀects nerve root pressure, causing numbness or �ngling, not necessarily pain on the bu�ocks or hip. Plus,
+the physical exam doesn't men�on numbness or�ngling, just pain that's relieved by rest.
+The pa�ent's age is 67, which is above 40, making vascular condi�ons more likely. His smoking history and presence of diabe tes and
+hypertension also support a cardiovascular e�ology.
+Pu�ng it all together, the symptoms and medical history point most strongly to vascular claudica�on, which is caused by na rrowing
+in the aortoiliac arteries.
+The pa�ent's symptoms, including erec�le dysfunc�on, pain on exer�on, and peripheral pulses, are consistent with vascular issues. His
+medical history and physical exam support aortoiliac atherosclerosis causing claudica�on. Therefore, the answer is D.
+RAG Answer
+Alright, let's tackle this ques�on step by step. So, we have a 67 -year-old man presen�ng with erec�le dysfunc�on. He's been
+experiencing this for a month, says he can't have sex with his wife. He men�ons deep and burning bu�ock and hip pain that gets
+be�er when he rests. He doesn't have erec�ons at night or in the morning. His medical history includes diabetes, coronary a rtery
+disease, hypertension, and a 40 pack-year smoking history. The physical exam shows weak lower extremi�es and femoral pulses.
+First, I need to ﬁgure out the possible causes of his symptoms. Erec�le dysfunc�on can be due to either psychological or p hysical
+factors. But the op�ons given are all physical condi�ons: anxiety, aortoiliac atherosclerosis, spinal stenosis, and vascula r claudica�on.
+Given his symptoms, the bu�ock and hip pain that improves with rest suggests something aﬀec�ng the lower extremi�es. His physical
+exam shows weak lower extremity and femoral pulses, which is a classic sign of peripheral artery disease, or PAD. PAD is o�e n caused
+by atherosclerosis in the caro�d arteries, leading to reduced blood ﬂow. Vascular claudica�on is a type of PAD that causes intermi�ent,
+but his symptoms are more of pain and weakness, which points more towards atherosclerosis.
+His diabetes and hypertension are known to contribute to atherosclerosis. The presence of aortoiliac atherosclerosis would in deed
+cause narrowing of the aortae, leading to reduced blood ﬂow to the lower extremi�es. Spinal stenosis would cause pain and p ossibly
+numbness, but the presence of weak pulses and pain with rest suggests something in the lower extremi�es rather than the spin e.
+Anxiety is a possible cause, but the ques�on is asking for the most speciﬁc e�ology. The physical exam and symptoms point more to a
+physical issue. His smoking history is signiﬁcant for atherosclerosis, which aligns with aortoiliac atherosclerosis.
+Spinal stenosis is less likely because the pain is localized to the bu�ocks and hips, not involving the spinal area. Vascula r claudica�on is
+possible but typically presents with pain that is intermi�ent, not constant but worsening with exercise. The fact that his p ulses are
+weak and he has reduced bloodﬂow supports atherosclerosis rather than claudica�on.
+So, considering all the factors, the most speciﬁc e�ology here seems to be aortoiliac atherosclerosis, which is op�on B. T herefore, the
+correct answer should be B: Aortoiliac atherosclerosis.
+RAG+ Answer
+Figure 7: Comparison of DeepSeek-R1-Distill-Qwen-7B model Outputs under RAG and RAG+ Configurations on
+MedQA.
+## Role:
+You are a judge, please complete the user-speciﬁed task.
+## Task:
+According to the following input, the criminal XXX will be sentenced to sentence.
+##Format:
+Choose from A, B, and C. (A: less than or equal to 36 months; B: greater than 36 months and less than or equal to 120 months; C:
+greater than 120 months) Select the most appropriate sentence interval from. Please ﬁll in the answer between [Sentence] and
+[eoa], for example, [Sentence] C [eoa].)
+## Input:
+[Put The Input Fact Here]
+Figure 8: An Example of the Prompt Template Used for the Sentencing Prediction Task under the Base Configuration.
+
+[PAGE 19]
+## Role:
+You are a judge, please complete the user-speciﬁed task based on the understanding of the <Reference Law>.
+## Reference Law
+[Put the Reference Law Here]
+## Task:
+According to the following input, the criminal XXX will be sentenced to sentence.
+##Format:
+Choose from A, B, and C. (A: less than or equal to 36 months; B: greater than 36 months and less than or equal to 120 months; C:
+greater than 120 months) Select the most appropriate sentence interval from. Pleaseﬁll in the answer between [Sentence] and
+[eoa], for example, [Sentence] C [eoa].)
+## Input:
+[Put The Input Fact Here]
+Figure 9: An Example of the Prompt Template Used for the Sentencing Prediction Task under the RAG Configuration.
+## Role:
+You are a judge, please complete the user-speciﬁed task based on the understanding of the <Law> and the apply of the <Law
+Applica�on> in the <Reference Law>.
+## Reference Law:
+### Law:
+[Put the Law Here]
+### Law Applica�on
+[Put the Applica�on of Law Here]
+## Task:
+According to the following input, the criminal XXX will be sentenced to sentence.
+##Format:
+Choose from A, B, and C. (A: less than or equal to 36 months; B: greater than 36 months and less than or equal to 120 months; C:
+greater than 120 months) Select the most appropriate sentence interval from. Pleaseﬁll in the answer between [Sentence] and
+[eoa], for example, [Sentence] C [eoa].)
+## Input:
+[Put The Input Fact Here]
+Figure 10: An Example of the Prompt Template Used for the Sentencing Prediction Task under the RAG+
+Configuration.
+You are a decision-evalua�on assistant. Please help me solve the medicine ques�on. Please answer the ques�on step by step in a
+XML format with the reasoning step enclosed with the tag <Think></Think> and the answer op�on enclosed with the tag
+<Answer></Answer>. You must choose one correct op�on among A -D.
+Here is the ques�on: [Put The Ques�ons Here]
+Op�ons: [Put the Op�ons Here]
+Answer:
+Figure 11: An Example of the Prompt Template Used for the MedQA Dataset under the Base Configuration.
+
+[PAGE 20]
+You are a decision-evalua�on assistant. Your task is to solve the given ques�on based on the Reference Knowledge. There are
+some knowledge to help you solve the problem:
+<Reference>
+<Knowledge>
+[Put the Knowledge Here]
+</Knowledge>
+<Knowledge>
+[Put the Knowledge Here]
+</Knowledge>
+<Knowledge>
+[Put the Knowledge Here]
+</Knowledge>
+</Reference>
+Now use the reference knowledge provided for guidance (but do not be strictly bound by them), please answer the ques�on
+step by step in a XML format with the reasoning step enclosed with the tag <Think></Think> and the answer op�on enclosed
+with the tag <Answer></Answer>. You must choose one correct op�on among A -D.
+Here is the ques�on: [Put the Ques�ons Here]
+Op�ons: [Put the Op�ons Here]
+Answer:
+Figure 12: An Example of the Prompt Template Used for the MedQA Dataset under the RAG Configuration.
+You are a decision-evalua�on assistant. Your task is to solve the given ques�on based on the Reference Knowledge. There are
+some knowledge to help you solve the problem:
+<Reference>
+<Knowledge Point>
+<Knowledge>
+[Put One Knowledge Here]
+</Knowledge>
+<Applica�on>
+[Put The Applica�on of the Knowledge Here]
+</Applica�on>
+</Knowledge Point>
+<Knowledge Point>
+<Knowledge>
+[Put One Knowledge Here]
+</Knowledge>
+<Applica�on>
+[Put The Applica�on of the Knowledge Here]
+</Applica�on>
+</Knowledge Point>
+<Reference>
+Now use the reference knowledge and applica�ons provided for guidance (but do not be strictly bound by them), please answer
+the ques�on step by step in a XML format with the reasoning step enclosed with the tag <Think></Think> and the answer op�on
+enclosed with the tag <Answer></Answer>. You must choose one correct op�on among A -D.
+Here is the ques�on:[Put the Ques�ons Here]
+Op�ons: [Put the Op�ons Here]
+Answer:
+Figure 13: An Example of the Prompt Template Used for the MedQA Dataset under the RAG+ Configuration.
+Please help me solve the numerical analysis ques�on. Please answer the ques�on step by step in a XML format with the
+reasoning step enclosed with the tag <Think></Think> and the answer op�on enclosed with the tag <Answer></Answer>. You
+must choose one correct op�on among A-D.
+Here is the ques�on: [Put the Ques�ons Here]
+Op�ons: [Put the Op�ons Here]
+Answer:
+Figure 14: An Example of the Prompt Template Used for the Math Task under the Base Configuration.
+
+[PAGE 21]
+Please help me solve the numerical analysis ques�on. Here are some reference knowledge that might help you solve the
+ques�on:
+<Reference>
+<Knowledge>
+[Put the Knowledge Here]
+</Knowledge>
+<Knowledge>
+[Put the Knowledge Here]
+</Knowledge>
+<Knowledge>
+[Put the Knowledge Here]
+</Knowledge>
+</Reference>
+Now use the reference knowledge provided for guidance (but do not be strictly bound by them), please answer the ques�on
+step by step in a XML format with the reasoning step enclosed with the tag <Think></Think> and the answer op�on enclosed
+with the tag <Answer></Answer>. You must choose one correct op�on among A -D.
+Here is the ques�on: [Put the Ques�ons Here]
+Op�ons:[Put the Op�ons Here]
+Answer:
+Figure 15: An Example of the Prompt Template Used for the Math Task under the RAG Configuration.
+Please help me solve the numerical analysis ques�on. Here are some reference knowledge and applica�ons of the knowledges
+that might help you solve the ques�on; each Knowledge includes one Knowledge Point and some Applica�on Examples:
+<Reference>
+<Knowledge Point>
+<Knowledge>
+[Put One Knowledge Here]
+</Knowledge>
+<Applica�on>
+[Put The Applica�on of the Knowledge Here]
+</Applica�on>
+</Knowledge Point>
+<Knowledge Point>
+<Knowledge>
+[Put One Knowledge Here]
+</Knowledge>
+<Applica�on>
+[Put The Applica�on of the Knowledge Here]
+</Applica�on>
+</Knowledge Point>
+<Reference>
+Now use the reference knowledge and applica�ons provided for guidance (but do not be strictly bound by them), please answer
+the ques�on step by step in a XML format with the reasoning step enclosed with the tag <Think></Think> and the answer op�on
+enclosed with the tag <Answer></Answer>. You must choose one correct op�on among A -D.
+Here is the ques�on: [Put the Ques�ons Here]
+Op�ons: [Put the Op�ons Here]
+Answer:
+Figure 16: An Example of the Prompt Template Used for the Math Task under the RAG+ Configuration.
+I will provide you with a text and ask you to generate corresponding examples based on the required knowledge types.
+If it is factual knowledge or conceptual knowledge, please generate examples or explana�ons corresponding to the knowledge.
+If it is procedural knowledge, please generate an example of using that procedural knowledge to complete a task.
+All examples should be presented in the form of ques�ons or mul�ple -choice ques�ons.
+Here is the text: [Put the Knowledge here]
+Figure 17: The prompt template of generating the applications for the knowledge in legal domain.
+
+[PAGE 22]
+I'll give you three diﬀerent types of knowledge. Please help me generate examples of knowledge as required.
+For factual knowledge and conceptual knowledge, please help me give an example of that conceptual knowledge, or generate an
+example of understanding of that knowledge.
+For procedural knowledge, please help me generate an example of using that procedural knowledge.
+All examples must be ques�on-and-answer or mul�ple-choice ques�ons. Generate an example for each knowledge that meets
+the requirements. Use ------- to separate the examples.
+Here is the text: [Put the Knowledge here]
+Figure 18: The prompt template of generating the applications for the knowledge in medicine domain.
+I will provide you with a sec�on. I need your help to extract key knowledge points and examples. Here are the speciﬁc tasks :
+1. Extract Knowledge Points:
+- Include deﬁni�ons, theorems, lemmas, and problem-solving methods extracted from plain text.
+- Use tags like `<Knowledge1>` and `</Knowledge1>`, `<Knowledge2>` and `</Knowledge2>` to enclose each knowledge point.
+Each point should be ended with tags like `</Knowledge1>`.
+- For deﬁni�ons, theorems, and lemmas, extract them directly. List the name of the knowledge pointﬁrst, followed by its
+detailed content.
+- For problem-solving methods or problem-solving demonstra�ons, provide the name of the method, steps to extract more
+general methods for accomplishing such tasks, and the core points of each step. The steps should be general and not�ed to a
+speciﬁc instance.
+2. Extract Examples:
+- Use tags like `<Demonstra�on1>` and `</Demonstra�on1>`, `<Demonstra�on2>` and `</Demonstra�on2>` to enclose each
+example. Each demonstra�on shouldﬁrst provide the corresponding knowledge point, which is represented by tag like
+<Knowledge1>.
+- Some examples may correspond to mul�ple knowledge points. If this is the case, list the same demonstra�on for each relevant
+knowledge point. For example, if a demonstra�on corresponds to more than one knowledge point, list all the points.
+- The demonstra�on may be given in methods, examples, or plain text. If it is provided in a method or plain text, the example
+corresponds to the knowledge points extracted from the method. If it is given in an example, it corresponds to the knowledge
+points near the example or men�oned earlier.
+- Each demonstra�on should contain explicit ques�ons and outputs, where the outputs include problem solving steps and
+answers.
+- Do not miss any examples men�oned in the text.
+Here is the text: [Put the Knowledge here]
+Figure 19: The prompt template of generating the applications for the knowledge in mathematic domain.
+<Knowledge>
+Name: Romberg Integra�on Algorithm
+Content: The Romberg Integra�on algorithm involves the following steps:
+1. Ini�alize \( R_{11} = \frac{b-a}{2}(f(a) + f(b)) \).
+2. For \( j = 2, 3, \ldots \): - Calculate \( h_{j} = \frac{b-a}{2^{j-1}} \). - Compute \( R_{j1} = \frac{1}{2}R_{j-1,1} + h_{j}
+\sum_{i=1}^{2^{j-2}} f(a + (2i - 1)h_{j}) \).
+3. For \( k = 2, \ldots, j \): - Compute \( R_{jk} = \frac{4^{k-1}R_{j,k-1} - R_{j-1,k-1}}{4^{k-1} - 1} \).
+4. Repeat un�l the desired accuracy is achieved.
+</Knowledge>
+<Knowledge>
+Name: Romberg Integra�on
+Content: Romberg Integra�on is an eﬃcient method for calcula�ng deﬁnite integrals that can be extended by adding data un�l
+the required accuracy is a�ained. It applies extrapola�on to the composite Trapezoid Rule to achieve higher -order accuracy.
+</Knowledge>
+<Knowledge>
+Name: Romberg Integra�on Tableau
+Content: The Romberg Integra�on tableau is a lower triangular matrix used to organize the extrapolated values. The general \( jk
+\)th entry is given by:\[R_{jk} = \frac{4^{k-1}R_{j,k-1} - R_{j-1,k-1}}{4^{k-1} - 1}.\]
+</Knowledge>
+Figure 20: Examples of the knowledge in Mathematic Domain.
+
+[PAGE 23]
+<KnowledgePoint>
+Let \(P(x)\) be the interpola�ng polynomial of \((x_1, f(x_1)), \ldots, (x_n, f(x_n))\) where the \(x_i\) are dis�nct. Then:(a) \(P(x) =
+f[x_1] + f[x_1x_2](x - x_1) + f[x_1x_2x_3](x - x_1)(x - x_2) + \ldots + f[x_1x_2 \ldots x_n](x - x_1)(x - x_2)\cdots(x - x_{n-1})\)(b)
+For \(k > 1\), \(f[x_1 \ldots x_k] = \frac{f[x_2 \ldots x_k] - f[x_1 \ldots x_{k-1}]}{x_k - x_1}\).
+</KnowledgePoint>
+<Applica�onExample>
+What should you do if you are interpola�ng a set of data points with a high -degree polynomial and no�ce extreme oscilla�ons?
+A) Increase the degree of the polynomial to get a be�erﬁt.
+B) Use a diﬀerent interpola�on method, such as spline interpola�on, to avoid the Runge phenomenon.
+C) Add more data points to the set to reduce the oscilla�ons
+Answer: B) Use a diﬀerent interpola�on method, such as spline interpola�on, to avoid the Runge phenomenon
+</Applica�onExample>
+<KnowledgePoint>
+Let \(P(x_1, \ldots, x_m)\) be a homogeneous polynomial of degree \(d\). Then \(\nabla P \cdot \begin{bmatrix} x_1 \\ \vdots \\
+x_m \end{bmatrix} = dP\).Proof: Diﬀeren�a�ng with respect to \(c\) yields \(x_1P_{x_1}(cx_1, \ldots, cx_m) + \ldots +
+x_mP_{x_m}(cx_1, \ldots, cx_m) = dc^{d-1}P(x_1, \ldots, x_m)\) using the mul�variable chain rule. Evalua�ng at \(c = 1\) results
+in the desired conclusion.
+</KnowledgePoint>
+<Applica�onExample>
+Ques�on: Use the Backward Diﬀerence Equa�on with Newton itera�on to solve Fisher’s equa�on with homogeneous Neumann
+boundary condi�ons\[\begin{cases}u_t = D*u_{xx} + u(1 - u) \\u(x,0) = \sin(\pi x) \text{ for } 0 \leq x \leq 1 \\u_x(0,t) = 0 \text{ for
+all } t \geq 0 \\u_x(1,t) = 0 \text{ for all } t \geq 0.\end{cases}\]
+Answer: The discre�za�on retraces the deriva�on that was carried out for Burgers’ equa�on: \[\frac{w_i^j - w_i^{j-1}}{k} =
+D\frac{w_{i+1}^j - 2w_i^j + w_{i-1}^j}{h^2} + w_i^j(1 - w_i^j),\]or\[(1 + 2\sigma - k(1 - w_i^j))w_i^j - \sigma(w_{i+1}^j + w_{i-1}^j)
+- w_i^{j-1} = 0.\]This results in the nonlinear equa�ons\[F_i(z_1, \ldots, z_m) = (1 + 2\sigma - k(1 - z_i))z_i - \sigma(z_{i+1} + z_{i1}) - w_i^{j-1} = 0\]to solve for the \(z_i = w_i^j\) at the \(j\)th�me step. Theﬁrst and last equa�ons will establish the Neumann
+boundary condi�ons:\[F_1(z_1, \ldots, z_m) = \frac{-3z_0 + 4z_1 - z_2}{2h} = 0\]\[F_m(z_1, \ldots, z_m) = \frac{-z_{m-2} +
+4z_{m-1} - 3z_m}{-2h} = 0\]The Jacobian \(DF\) has the form\[\begin{bmatrix}-3 & 4 & -1 \\-\sigma & 1 + 2\sigma - k + 2kw_2 & -
+\sigma \\-\sigma & 1 + 2\sigma - k + 2kw_3 & -\sigma & \cdots & -\sigma \\\vdots & \vdots & \vdots & \vdots & \ddots & \vdots
+\\-\sigma & 1 + 2\sigma - k + 2kw_{m-1} & -\sigma \\-1 & 4 & -3\end{bmatrix}\]A�er altering the func�on \(F\) and Jacobian
+\(DF\), the Newton itera�on implemented in Program 8.7 can be used to solve Fisher’s equa�on. Lemma 8.11 can be used to
+separate the degree 1 and 2 parts of \(DF\). Neumann boundary condi�ons are also applied, as shown in the code fragment
+below:\[DF1 = \text{diag}(1-k+2\sigma\text{ones}(m,1)) + \text{diag}(-\sigma\text{ones}(m-1,1),1);DF1 = DF1 + \text{diag}(-
+\sigma\text{ones}(m-1,1),-1);DF2 = \text{diag}(2*k*w1);DF = DF1 + DF2;F = -w(:,j) + (DF1 + DF2/2)*w1;DF(1,:) = [-3 4 -1
+\text{zeros}(1,m-3)];F(1) = DF(1,:)*w1;DF(m,:) = [\text{zeros}(1,m-3) -1 4 -3];F(m) = DF(m,:)*w1;\]Figure 8.20 shows approximate
+solu�ons of Fisher’s equa�on with \(D = 1\) that demonstrate the tendency to relax to the a�rac�ng equilibrium \(u(x,t) \equiv
+1\). Of course, \(u(x,t) \equiv 0\) is also a solu�on of (8.69) with \(f(u) = u(1 - u)\), and will be found by the ini�al data \(u(x,0) =
+0\). Almost any other ini�al data, however, will eventually approach \(u = 1\) as \(t\) increases.
+</Applica�onExample>
+Figure 21: Examples of the knowledge and the applications in Mathematic Domain.
+<Knowledge>
+Ar�cle 234: Whoever inten�onally harms the body of another person shall be sentenced toﬁxed -term imprisonment of not
+more than three years, criminal deten�on, or public surveillance. Whoever commits the crime men�oned in the preceding
+paragraph and causes serious injury to another person shall be sentenced toﬁxed -term imprisonment of not less than three
+years but not more than ten years; Whoever causes death or serious disability by using par�cularly cruel means shall be
+sentenced toﬁxed-term imprisonment of not less than ten years, life imprisonment, or death penalty. If there are other
+provisions in this law, they shall be followed.
+</Knowledge>
+Figure 22: Examples of the knowledge in legal Domain.
+
+[PAGE 24]
+<KnowledgePoint>
+Ar�cle 234: Whoever inten�onally harms the body of another person shall be sentenced to ﬁxed -term imprisonment of not
+more than three years, criminal deten�on, or public surveillance. Whoever commits the crime men�oned in the preceding
+paragraph and causes serious injury to another person shall be sentenced to ﬁxed -term imprisonment of not less than three
+years but not more than ten years; Whoever causes death or serious disability by using par�cularly cruel means shall be
+sentenced to ﬁxed-term imprisonment of not less than ten years, life imprisonment, or death penalty. If there are other
+provisions in this law, they shall be followed.
+</KnowledgePoint>
+<Applica�onExample>
+Ques�on: What criteria should be used to determine the applicable penalty measures when dealing with cases of inten�onal
+injury?
+Op�ons: A) Based solely on the severity of the injury; B) Only in accordance with legal provisions; C) Based on speciﬁc
+circumstances and legal regula�ons; D) According to the vic�m's request.
+Answer: C) According to speciﬁc circumstances and legal regula�ons
+</Applica�onExample>
+Figure 23: Examples of the knowledge and the applications in legal Domain.
+<Knowledge>
+What is anatomy? Anatomy includes those structures that can be seen grossly (without the aid of magniﬁca�on) and
+microscopically (with the aid of magniﬁca�on). Typically, when used by itself, the term anatomy tends to mean gross or
+macroscopic anatomy—that is, the study of structures that can be seen without using a microscopic. Microscopic anatomy, also
+called histology, is the study of cells and �ssues using a microscope. Anatomy forms the basis for the prac�ce of medicine.
+Anatomy leads the physician toward an understanding of a pa�ent’s disease, whether he or she is carrying out a physical
+examina�on or using the most advanced imaging techniques. Anatomy is also important for den�sts, chiropractors, physical
+therapists, and all others involved in any aspect of pa�ent treatment that begins with an analysis of clinical signs. The ab ility to
+interpret a clinical observa�on correctly is therefore the endpoint of a sound anatomical understanding.
+</Knowledge>
+<Knowledge>
+Each of these approaches has beneﬁts and deﬁciencies. The regional approach works very well if the anatomy course involves
+cadaver dissec�on but falls short when it comes to understanding the con�nuity of an en�re system throughout the body.
+Similarly, the systemic approach fosters an understanding of an en�re system throughout the body, but it is very diﬃcult t o
+coordinate this directly with a cadaver dissec�on or to acquire suﬃcient detail. The anatomical posi�on
+</Knowledge>
+Figure 24: Examples of the knowledge in Medicine Domain.
+
+[PAGE 25]
+<KnowledgePoint>
+What is anatomy? Anatomy includes those structures that can be seen grossly (without the aid of magniﬁca�on) and
+microscopically (with the aid of magniﬁca�on). Typically, when used by itself, the term anatomy tends to mean gross or
+macroscopic anatomy—that is, the study of structures that can be seen without using a microscopic. Microscopic anatomy, also
+called histology, is the study of cells and �ssues using a microscope. Anatomy forms the basis for the prac�ce of medicine.
+Anatomy leads the physician toward an understanding of a pa�ent’s disease, whether he or she is carrying out a physical
+examina�on or using the most advanced imaging techniques. Anatomy is also important for den�sts, chiropractors, physical
+therapists, and all others involved in any aspect of pa�ent treatment that begins with an analysis of clinical signs. The ab ility to
+interpret a clinical observa�on correctly is therefore the endpoint of a sound anatomical understanding.
+</KnowledgePoint>
+<Applica�onExample>
+Ques�on: What is the rela�onship between gross anatomy and microscopic anatomy in the study of human body structures?
+Answer Choices: A) Gross anatomy and microscopic anatomy are unrelated ﬁelds of study. B) Gross anatomy deals with
+structures visible to the naked eye, while microscopic anatomy involves the study of cells and �ssues using a microscope. C)
+Microscopic anatomy is a subset of gross anatomy, focusing on larger structures. D) Gross anatomy is used only in medical
+prac�ce, while microscopic anatomy is used in research.
+Correct Answer: B) Gross anatomy deals with structures visible to the naked eye, while microscopic anatomy involves the study
+of cells and �ssues using a microscope.
+</Applica�onExample>
+<KnowledgePoint>
+Each of these approaches has beneﬁts and deﬁciencies. The regional approach works very well if the anatomy course involves
+cadaver dissec�on but falls short when it comes to understanding the con�nuity of an en�re system throughout the body.
+Similarly, the systemic approach fosters an understanding of an en�re system throughout the body, but it is very diﬃcult t o
+coordinate this directly with a cadaver dissec�on or to acquire suﬃcient detail.
+</KnowledgePoint>
+<Applica�onExample>
+Ques�on: If you were to use a systemic approach to study the human body, which of the following sequences would be correct?
+Answer Choices: A) Study the thorax, then the abdomen, then the pelvis, and so on. B) Study the cardiovascular system, then t he
+nervous system, then the skeletal system, and so on. C) Study the thorax, then the cardiovascular system, then the abdomen,
+and so on. D) Study the thorax, then the upper limb, then the lower limb, and so on.
+Correct Answer: B) Study the cardiovascular system, then the nervous system, then the skeletal system, and so on.
+</Applica�onExample>
+Figure 25: Examples of the knowledge and the applications in Medicine Domain.

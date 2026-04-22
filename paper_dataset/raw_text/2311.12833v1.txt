@@ -1,0 +1,1213 @@
+[PAGE 1]
+HPC-GPT: Integrating Large Language Model for
+High-Performance Computing
+Xianzhong Ding
+xding5@ucmerced.edu
+University of California, Merced
+Merced, CA, USA
+Argonne National Laboratory
+Lemont, IL, USA
+Le Chen
+lechen@iastate.edu
+Iowa State University
+Ames, IA, USA
+Lawrence Livermore National
+Laboratory
+Livermore, CA, USA
+Murali Emani
+memani@anl.gov
+Argonne National Laboratory
+Lemont, IL, USA
+Chunhua Liao, Pei-Hung Lin,
+Tristan Vanderbruggen
+{liao6,lin32,vanderbrugge1}@llnl.gov
+Lawrence Livermore National
+Laboratory
+Livermore, CA, USA
+Zhen Xie
+zxie3@binghamton.edu
+Binghamton University
+Binghamton, NY, USA
+Alberto E. Cerpa, Wan Du
+{acerpa,wdu3}@ucmerced.edu
+University of Calif ornia, Merced
+Merced, CA, USA
+ABSTRACT
+Large Language Models (LLMs), including the LLaMA model, have
+exhibited their efficacy across various general-domain natural language processing (NLP) tasks. However, their performance in highperformance computing (HPC) domain tasks has been less than
+optimal due to the specialized expertise required to interpret the
+model’s responses. In response to this challenge, we propose HPCGPT, a novel LLaMA-based model that has been supervised finetuning using generated QA (Question-Answer) instances for the
+HPC domain. To evaluate its effectiveness, we concentrate on two
+HPC tasks: managing AI models and datasets for HPC, and data
+race detection. By employing HPC-GPT, we demonstrate comparable performance with existing methods on both tasks, exemplifying its excellence in HPC-related scenarios. Our experiments
+on open-source benchmarks yield extensive results, underscoring
+HPC-GPT’s potential to bridge the performance gap between LLMs
+and HPC-specific tasks. With HPC-GPT, we aim to pave the way
+for LLMs to excel in HPC domains, simplifying the utilization of
+language models in complex computing applications.
+CCS CONCEPTS
+•Software and its engineering ; •Computing methodologies
+→ Artificial intelligence; Parallel algorithms;
+KEYWORDS
+High-performance Computing, Data Race Detection, Large Language Model, OpenMP, Neural Network.
+Permission to make digital or hard copies of part or all of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for third-party components of this work must be honored.
+For all other uses, contact the owner/author(s).
+SC-W 2023, November 12–17, 2023, Denver, CO, USA
+© 2023 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-0785-8/23/11.
+https://doi.org/10.1145/3624062.3624172
+ACM Reference Format:
+Xianzhong Ding, Le Chen, Murali Emani, Chunhua Liao, Pei-Hung Lin,,
+Tristan Vanderbruggen, Zhen Xie, and Alberto E. Cerpa, Wan Du. 2023.
+HPC-GPT: Integrating Large Language Model for High-Performance Computing. In Workshops of The International Conference on High Performance
+Computing, Network, Storage, and Analysis (SC-W 2023), November 12–17,
+2023, Denver, CO, USA. ACM, New York, NY, USA, 9 pages. https://doi.org/
+10.1145/3624062.3624172
+1 INTRODUCTION
+Deep learning has found application across various domains and has
+been utilized in a multitude of applications, including code generation [30, 32], building control [21, 22], irrigation scheduling [19, 20],
+and even in tasks related to epistemic uncertainty and occupancy
+estimation [6, 41]. These applications showcase the versatility and
+adaptability of deep learning techniques. On the other hand, language models (LMs), particularly large language models (LLMs)
+trained on extensive textual data, have recently demonstrated remarkable capabilities in various natural language processing and
+visualization tasks, reflecting their growing importance in the field
+of artificial intelligence. They have also been widely used to process
+programming languages due to the similarities between natural languages and programming languages. Based on an LLM trained on
+code [16], GitHub provides an AI assistant for developing software.
+With the surging popularity of LLMs, the high-performance
+computing (HPC) community is exploring their potential to tackle
+various HPC challenges like programming language processing,
+parallel programming, and question answering. However, existing
+pre-trained LLMs were initially designed for general tasks, such as
+dialogue and article summarization, which limits their effectiveness
+in HPC applications due to a lack of relevant domain knowledge.
+Several attempts have been made to employ LLMs for HPC tasks. For
+instance, Godoy et al. [24] evaluated the capacity of OpenAI Codex
+[4] via Copilot for generating HPC numerical kernels, while Chen et
+al. [12] developed pipelines to support common HPC tasks like code
+similarity analysis and parallelism detection. However, they are
+still in the process of investigating the adequacy of existing LLMs
+arXiv:2311.12833v1 [cs.DC] 3 Oct 2023
+
+[TABLE page=1 index=1]
+Columns: Xianzhong Ding Le Chen | Murali Emani
+Row 1: Xianzhong Ding Le Chen: xding5@ucmerced.edu lechen@iastate.edu | Murali Emani: memani@anl.gov
+Row 2: Xianzhong Ding Le Chen: University of California, Merced Iowa State University | Murali Emani: Argonne National Laboratory
+Row 3: Xianzhong Ding Le Chen: Merced, CA, USA Ames, IA, USA | Murali Emani: Lemont, IL, USA
+Row 4: Xianzhong Ding Le Chen: Argonne National Laboratory Lawrence Livermore National | Murali Emani:
+Row 5: Xianzhong Ding Le Chen: Lemont, IL, USA Laboratory | Murali Emani:
+Row 6: Xianzhong Ding Le Chen: Livermore, CA, USA | Murali Emani:
+Row 7: Xianzhong Ding Le Chen: Chunhua Liao, Pei-Hung Lin, Zhen Xie | Murali Emani: Alberto E. Cerpa, Wan Du
+Row 8: Xianzhong Ding Le Chen: Tristan Vanderbruggen zxie3@binghamton.edu | Murali Emani: {acerpa,wdu3}@ucmerced.edu
+Row 9: Xianzhong Ding Le Chen: {liao6,lin32,vanderbrugge1}@llnl.gov Binghamton University | Murali Emani: University of Calif ornia, Merced
+Row 10: Xianzhong Ding Le Chen: Lawrence Livermore National Binghamton, NY, USA | Murali Emani: Merced, CA, USA
+Row 11: Xianzhong Ding Le Chen: Laboratory | Murali Emani:
+Row 12: Xianzhong Ding Le Chen: Livermore, CA, USA | Murali Emani:
+Row 13: Xianzhong Ding Le Chen: ABSTRACT | Murali Emani: ACM Reference Format:
+Row 14: Xianzhong Ding Le Chen: Large Language Models (LLMs), including the LLaMA model, have | Murali Emani: Xianzhong Ding, Le Chen, Murali Emani, Chunhua Liao, Pei-Hung Lin,,
+Row 15: Xianzhong Ding Le Chen: | Murali Emani: Tristan Vanderbruggen, Zhen Xie, and Alberto E. Cerpa, Wan Du. 2023.
+Row 16: Xianzhong Ding Le Chen: exhibited their efficacy across various general-domain natural lan- | Murali Emani:
+Row 17: Xianzhong Ding Le Chen: | Murali Emani: HPC-GPT: Integrating Large Language Model for High-Performance ComRow 18: Xianzhong Ding Le Chen: guage processing (NLP) tasks. However, their performance in high- | Murali Emani:
+Row 19: Xianzhong Ding Le Chen: | Murali Emani: puting. InWorkshops of The International Conference on High Performance
+Row 20: Xianzhong Ding Le Chen: performance computing (HPC) domain tasks has been less than | Murali Emani: Computing, Network, Storage, and Analysis (SC-W 2023), November 12–17,
+Row 21: Xianzhong Ding Le Chen: optimal due to the specialized expertise required to interpret the | Murali Emani: 2023, Denver, CO, USA. ACM, New York, NY, USA, 9 pages. https://doi.org/
+Row 22: Xianzhong Ding Le Chen: model’s responses. In response to this challenge, we propose HPC- | Murali Emani: 10.1145/3624062.3624172
+Row 23: Xianzhong Ding Le Chen: GPT, a novel LLaMA-based model that has been supervised fine- | Murali Emani:
+Row 24: Xianzhong Ding Le Chen: tuning using generated QA (Question-Answer) instances for the | Murali Emani:
+Row 25: Xianzhong Ding Le Chen: | Murali Emani: 1 INTRODUCTION
+Row 26: Xianzhong Ding Le Chen: HPC domain. To evaluate its effectiveness, we concentrate on two | Murali Emani:
+Row 27: Xianzhong Ding Le Chen: HPC tasks: managing AI models and datasets for HPC, and data | Murali Emani: Deep learning has found application across various domains and has
+Row 28: Xianzhong Ding Le Chen: race detection. By employing HPC-GPT, we demonstrate compa- | Murali Emani: been utilized in a multitude of applications, including code generaRow 29: Xianzhong Ding Le Chen: rable performance with existing methods on both tasks, exempli- | Murali Emani: tion [30, 32], building control [21, 22], irrigation scheduling [19, 20],
+Row 30: Xianzhong Ding Le Chen: fying its excellence in HPC-related scenarios. Our experiments | Murali Emani: and even in tasks related to epistemic uncertainty and occupancy
+Row 31: Xianzhong Ding Le Chen: on open-source benchmarks yield extensive results, underscoring | Murali Emani: estimation [6, 41]. These applications showcase the versatility and
+Row 32: Xianzhong Ding Le Chen: HPC-GPT’s potential to bridge the performance gap between LLMs | Murali Emani: adaptability of deep learning techniques. On the other hand, lanRow 33: Xianzhong Ding Le Chen: and HPC-specific tasks. With HPC-GPT, we aim to pave the way | Murali Emani: guage models (LMs), particularly large language models (LLMs)
+Row 34: Xianzhong Ding Le Chen: for LLMs to excel in HPC domains, simplifying the utilization of | Murali Emani: trained on extensive textual data, have recently demonstrated reRow 35: Xianzhong Ding Le Chen: language models in complex computing applications. | Murali Emani: markable capabilities in various natural language processing and
+Row 36: Xianzhong Ding Le Chen: | Murali Emani: visualization tasks, reflecting their growing importance in the field
+Row 37: Xianzhong Ding Le Chen: | Murali Emani: of artificial intelligence. They have also been widely used to process
+Row 38: Xianzhong Ding Le Chen: CCS CONCEPTS | Murali Emani:
+Row 39: Xianzhong Ding Le Chen: | Murali Emani: programming languages due to the similarities between natural lanRow 40: Xianzhong Ding Le Chen: • Software and its engineering; • Computing methodologies | Murali Emani: guages and programming languages. Based on an LLM trained on
+[/TABLE]
+
+[PAGE 2]
+SC-W 2023, November 12–17, 2023, Denver, CO, USA
+Xianzhong Ding, Le Chen, Murali Emani, Chunhua Liao, Pei-Hung Lin,
+Tristan Vanderbruggen, Zhen Xie, and Alberto E. Cerpa, Wan Du
+for HPC tasks. The general LLMs perform poorly on specific HPC
+tasks. For example, in question-answering tasks related to HPC,
+such as OpenMP Q&A [12], even the latest ChatGPT fails to provide
+accurate answers. This is because general LLMs lack the specific
+knowledge required to solve HPC-related challenges, despite being
+trained on large datasets that may include HPC-related information.
+Although the generalization ability of LLMs improves with more
+diverse training data from various domains, their performance in a
+specific domain, like HPC, reduces.
+In this paper, we aim to explore and train an open-source LLM tailored for HPC applications. Our focus revolves around two general
+applications, each comprising two subtasks. The first application
+focuses on managing AI models and datasets for programming
+language processing (PLP) [ 23] and MLPerf [ 42] tasks. Through
+datasets and model information collection, we aim to help users
+better comprehend the required computing resources for training
+AI models and datasets. Liao et al. [34] proposed HPC ontology to
+capture HPC-related concepts using the web ontology language
+(OWL) [39]. HPC ontology allows users to query PLP and HPC
+information but is limited by the manual processes of data creation,
+collection, and updates. Moreover, HPC ontology depends on users
+to articulate their requirements, including conditions or constraints
+related to code, hardware, dataset, models, and more, resulting in a
+challenge to accurately capture and utilize such nuanced semantics.
+In the second application, we evaluate data race detection for
+C/C++ and Fortran tasks using the public data race benchmark
+(DRB) [35]. Data race detection analyses can be broadly categorized
+into dynamic and static approaches. While dynamic approaches,
+like Intel Inspector [29], are commonly used, there is growing interest in static data race detection tools that complement dynamic
+approaches. LLOV [8] is a recent tool evaluated with DRB. However,
+designing such tools demands significant data race expertise and
+running code snippets, making the process time-consuming.
+Leveraging LLMs for solving HPC tasks holds tremendous promise,
+as a single HPC-domain LLM can effectively handle various general
+applications, eliminating the need to devise separate methods for
+each task. However, training an LLM for the HPC domain [36, 37]
+presents non-trivial challenges, primarily revolving around the collection of domain-specific training data. In contrast to traditional
+language model training, which involves feeding large volumes
+of raw data like text, fine-tuning an LLM for HPC necessitates
+specialized instruction data (e.g., PromptInstructions [7] and SuperNatural-Instructions [49]). These instructions guide the model’s
+understanding of HPC concepts and tasks, ensuring it performs well
+in this domain. However, acquiring such instruction data proves
+to be a daunting task due to the associated costs and limitations
+in diversity. To address this issue, Wang et al. [46] propose a semiautomated process for instruction-tuning a pre-trained language
+model using instructional signals extracted from the model itself.
+This approach mitigates some of the challenges in data collection
+and provides an alternative means of training the LLM for HPC
+tasks. However, it requires a set of manually-written tasks to guide
+the overall generation process, which can be time-consuming and
+resource-intensive.
+In this paper, we present HPC-GPT, a specialized LLM tailored
+for the HPC domain. To facilitate fine-tuning, we design an automatic collection method to gather instruction data for training the
+open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging
+the power of the existing LLM (GPT-4), we generate domain-specific
+and contextually relevant instructions from unsupervised text. This
+approach ensures that the generated instructions are specific to the
+HPC domain and aligned with the provided unsupervised text. To
+address specific HPC tasks, we design distinct prompts that outline
+relevant requirements, enabling the model to generate instructions
+and answers separately. Subsequently, we establish filtering and
+pruning rules to eliminate instruction data that fails to meet the
+specified requirements. Our HPC-GPT model is built upon the foundation of the open-source LLaMa-13B base model, further enhancing its language generation capabilities. To showcase the potential
+of HPC-GPT, we utilize the two HPC applications mentioned earlier
+as illustrative examples to evaluate the performance. We summarize
+the main contributions of this paper as follows:
+• Introduction of the HPC-GPT model, representing the first
+open-source LLM fine-tuned using HPC instruction data.
+This specialized model is specifically designed to excel in
+HPC tasks.
+• Integration of HPC knowledge into the model, ensuring
+it possesses accurate and domain-specific information. By
+incorporating HPC knowledge, the model leads to enhanced
+performance in HPC applications.
+• Release of two open-source datasets for the HPC domain:
+one containing HPC models and datasets, and the other dedicated to data race detection. These datasets provide valuable
+resources for researchers in the HPC community, facilitating
+further advancements in the field. The code 1 and datasets 2
+are publicly available.
+• Comparative evaluation against state-of-the-art methods.
+This progress underscores the model’s effectiveness and its
+potential to outperform existing approaches in HPC-related
+tasks.
+2 RELATED WORK
+2.1 Large Language Models
+In the realm of language processing, recent strides in LLMs [3, 10,
+17, 18] have showcased their superiority over earlier paradigms like
+pretraining [31] and fine-tuning [26]. This remarkable progress can
+be attributed to the substantial growth in model scale, resulting in
+qualitative shifts within LLMs, known as emergent abilities. These
+newfound capabilities encompass in-context learning, enabling the
+model to tackle zero-shot tasks, and the ability to follow chains of
+thought [48], thereby enhancing its performance on intricate tasks.
+OpenAI’s groundbreaking work in developing ChatGPT [3] and
+GPT-4 [10] has brought about a paradigm shift in the understanding
+of LLMs. These models have demonstrated remarkable performance,
+yet OpenAI has maintained confidentiality regarding their training
+strategies and weight parameters. To address this limitation, LLaMa
+[44] and LLaMa2 [45] emerge as an open-source alternative to GPT,
+available in sizes ranging from 7 billion to 65 billion parameters.
+While LLaMa’s performance is comparable to GPT-3.5 in general
+tasks, it falls short in HPC-related tasks due to its training data
+being predominantly focused on general applications.
+1https://github.com/dingxianzhong/HPC-GPT
+2https://huggingface.co/datasets/HPC-GPT/HPC
+
+[TABLE page=2 index=1]
+Columns: for HPC tasks. The general LLMs perform poorly on specific HPC | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging
+Row 1: for HPC tasks. The general LLMs perform poorly on specific HPC: tasks. For example, in question-answering tasks related to HPC, | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: the power of the existing LLM (GPT-4), we generate domain-specific
+Row 2: for HPC tasks. The general LLMs perform poorly on specific HPC: such as OpenMP Q&A [12], even the latest ChatGPT fails to provide | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: and contextually relevant instructions from unsupervised text. This
+Row 3: for HPC tasks. The general LLMs perform poorly on specific HPC: accurate answers. This is because general LLMs lack the specific | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: approach ensures that the generated instructions are specific to the
+Row 4: for HPC tasks. The general LLMs perform poorly on specific HPC: knowledge required to solve HPC-related challenges, despite being | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: HPC domain and aligned with the provided unsupervised text. To
+Row 5: for HPC tasks. The general LLMs perform poorly on specific HPC: trained on large datasets that may include HPC-related information. | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: address specific HPC tasks, we design distinct prompts that outline
+Row 6: for HPC tasks. The general LLMs perform poorly on specific HPC: Although the generalization ability of LLMs improves with more | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: relevant requirements, enabling the model to generate instructions
+Row 7: for HPC tasks. The general LLMs perform poorly on specific HPC: diverse training data from various domains, their performance in a | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: and answers separately. Subsequently, we establish filtering and
+Row 8: for HPC tasks. The general LLMs perform poorly on specific HPC: specific domain, like HPC, reduces. | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: pruning rules to eliminate instruction data that fails to meet the
+Row 9: for HPC tasks. The general LLMs perform poorly on specific HPC: In this paper, we aim to explore and train an open-source LLM tai- | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: specified requirements. Our HPC-GPT model is built upon the founRow 10: for HPC tasks. The general LLMs perform poorly on specific HPC: lored for HPC applications. Our focus revolves around two general | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: dation of the open-source LLaMa-13B base model, further enhancRow 11: for HPC tasks. The general LLMs perform poorly on specific HPC: applications, each comprising two subtasks. The first application | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: ing its language generation capabilities. To showcase the potential
+Row 12: for HPC tasks. The general LLMs perform poorly on specific HPC: focuses on managing AI models and datasets for programming | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: of HPC-GPT, we utilize the two HPC applications mentioned earlier
+Row 13: for HPC tasks. The general LLMs perform poorly on specific HPC: language processing (PLP) [23] and MLPerf [42] tasks. Through | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: as illustrative examples to evaluate the performance. We summarize
+Row 14: for HPC tasks. The general LLMs perform poorly on specific HPC: datasets and model information collection, we aim to help users | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: the main contributions of this paper as follows:
+Row 15: for HPC tasks. The general LLMs perform poorly on specific HPC: better comprehend the required computing resources for training | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: • Introduction of the HPC-GPT model, representing the first
+Row 16: for HPC tasks. The general LLMs perform poorly on specific HPC: AI models and datasets. Liao et al. [34] proposed HPC ontology to | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: open-source LLM fine-tuned using HPC instruction data.
+Row 17: for HPC tasks. The general LLMs perform poorly on specific HPC: capture HPC-related concepts using the web ontology language | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: This specialized model is specifically designed to excel in
+Row 18: for HPC tasks. The general LLMs perform poorly on specific HPC: (OWL) [39]. HPC ontology allows users to query PLP and HPC | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: HPC tasks.
+Row 19: for HPC tasks. The general LLMs perform poorly on specific HPC: information but is limited by the manual processes of data creation, | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: • Integration of HPC knowledge into the model, ensuring
+Row 20: for HPC tasks. The general LLMs perform poorly on specific HPC: collection, and updates. Moreover, HPC ontology depends on users | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: it possesses accurate and domain-specific information. By
+Row 21: for HPC tasks. The general LLMs perform poorly on specific HPC: to articulate their requirements, including conditions or constraints | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: incorporating HPC knowledge, the model leads to enhanced
+Row 22: for HPC tasks. The general LLMs perform poorly on specific HPC: related to code, hardware, dataset, models, and more, resulting in a | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: performance in HPC applications.
+Row 23: for HPC tasks. The general LLMs perform poorly on specific HPC: challenge to accurately capture and utilize such nuanced semantics. | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: • Release of two open-source datasets for the HPC domain:
+Row 24: for HPC tasks. The general LLMs perform poorly on specific HPC: In the second application, we evaluate data race detection for | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: one containing HPC models and datasets, and the other dediRow 25: for HPC tasks. The general LLMs perform poorly on specific HPC: C/C++ and Fortran tasks using the public data race benchmark | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: cated to data race detection. These datasets provide valuable
+Row 26: for HPC tasks. The general LLMs perform poorly on specific HPC: (DRB) [35]. Data race detection analyses can be broadly categorized | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: resources for researchers in the HPC community, facilitating
+Row 27: for HPC tasks. The general LLMs perform poorly on specific HPC: into dynamic and static approaches. While dynamic approaches, | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: further advancements in the field. The code 1 and datasets 2
+Row 28: for HPC tasks. The general LLMs perform poorly on specific HPC: like Intel Inspector [29], are commonly used, there is growing in- | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: are publicly available.
+Row 29: for HPC tasks. The general LLMs perform poorly on specific HPC: terest in static data race detection tools that complement dynamic | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: • Comparative evaluation against state-of-the-art methods.
+Row 30: for HPC tasks. The general LLMs perform poorly on specific HPC: approaches. LLOV [8] is a recent tool evaluated with DRB. However, | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: This progress underscores the model’s effectiveness and its
+Row 31: for HPC tasks. The general LLMs perform poorly on specific HPC: designing such tools demands significant data race expertise and | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: potential to outperform existing approaches in HPC-related
+Row 32: for HPC tasks. The general LLMs perform poorly on specific HPC: running code snippets, making the process time-consuming. | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: tasks.
+Row 33: for HPC tasks. The general LLMs perform poorly on specific HPC: Leveraging LLMs for solvingHPC tasks holds tremendous promise, | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging:
+Row 34: for HPC tasks. The general LLMs perform poorly on specific HPC: as a single HPC-domain LLM can effectively handle various general | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: 2 RELATED WORK
+Row 35: for HPC tasks. The general LLMs perform poorly on specific HPC: applications, eliminating the need to devise separate methods for | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging:
+Row 36: for HPC tasks. The general LLMs perform poorly on specific HPC: | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: 2.1 Large Language Models
+Row 37: for HPC tasks. The general LLMs perform poorly on specific HPC: each task. However, training an LLM for the HPC domain [36, 37] | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging:
+Row 38: for HPC tasks. The general LLMs perform poorly on specific HPC: presents non-trivial challenges, primarily revolving around the col- | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: In the realm of language processing, recent strides in LLMs [3, 10,
+Row 39: for HPC tasks. The general LLMs perform poorly on specific HPC: lection of domain-specific training data. In contrast to traditional | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: 17, 18] have showcased their superiority over earlier paradigms like
+Row 40: for HPC tasks. The general LLMs perform poorly on specific HPC: language model training, which involves feeding large volumes | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: pretraining [31] and fine-tuning [26]. This remarkable progress can
+Row 41: for HPC tasks. The general LLMs perform poorly on specific HPC: of raw data like text, fine-tuning an LLM for HPC necessitates | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: be attributed to the substantial growth in model scale, resulting in
+Row 42: for HPC tasks. The general LLMs perform poorly on specific HPC: specialized instruction data (e.g., PromptInstructions [7] and Super- | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: qualitative shifts within LLMs, known as emergent abilities. These
+Row 43: for HPC tasks. The general LLMs perform poorly on specific HPC: Natural-Instructions [49]). These instructions guide the model’s | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: newfound capabilities encompass in-context learning, enabling the
+Row 44: for HPC tasks. The general LLMs perform poorly on specific HPC: understanding of HPC concepts and tasks, ensuring it performs well | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: model to tackle zero-shot tasks, and the ability to follow chains of
+Row 45: for HPC tasks. The general LLMs perform poorly on specific HPC: in this domain. However, acquiring such instruction data proves | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: thought [48], thereby enhancing its performance on intricate tasks.
+Row 46: for HPC tasks. The general LLMs perform poorly on specific HPC: to be a daunting task due to the associated costs and limitations | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: OpenAI’s groundbreaking work in developing ChatGPT [3] and
+Row 47: for HPC tasks. The general LLMs perform poorly on specific HPC: in diversity. To address this issue, Wang et al. [46] propose a semi- | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: GPT-4 [10] has brought about a paradigm shift in the understanding
+Row 48: for HPC tasks. The general LLMs perform poorly on specific HPC: automated process for instruction-tuning a pre-trained language | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: of LLMs. Thesemodels have demonstrated remarkable performance,
+Row 49: for HPC tasks. The general LLMs perform poorly on specific HPC: model using instructional signals extracted from the model itself. | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: yet OpenAI has maintained confidentiality regarding their training
+Row 50: for HPC tasks. The general LLMs perform poorly on specific HPC: This approach mitigates some of the challenges in data collection | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: strategies and weight parameters. To address this limitation, LLaMa
+Row 51: for HPC tasks. The general LLMs perform poorly on specific HPC: and provides an alternative means of training the LLM for HPC | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: [44] and LLaMa2 [45] emerge as an open-source alternative to GPT,
+Row 52: for HPC tasks. The general LLMs perform poorly on specific HPC: tasks. However, it requires a set of manually-written tasks to guide | open-source base LLaMa [44] and LLaMa2 model [45]. Leveraging: available in sizes ranging from 7 billion to 65 billion parameters.
+[/TABLE]
+
+[PAGE 3]
+HPC-GPT: Integrating Large Language Model for High-Performance Computing SC-W 2023, November 12–17, 2023, Denver, CO, USA
+HPCUnstructured and Structured Data
+4.DeploymentwithWeb GUIHPCScientistsWeb Server andHPC-GPTAPI
+GPT-4 APIInstructionsandAnswers(HPCtask,e.g.,dataracedetection)
+FilteringandPruningDatabase(JSON)
+Prompts with requirements1.AutomaticData Collection with LLM
+Pretraining(BaseModel)SupervisedFine-tuning(SFTModel)HPCTaskBenchmarks2.TrainingPipelineDemonstrations3.Evaluation
+RequestsAnswers
+Figure 1: HPC-GPT Architecture.
+2.2 Large Language Models for HPC
+LLMs, such as GPT-4 and LLaMA, have been widely used in multiple
+domains, including natural language processing, visualization, and
+so on. However, applying them for analyzing and optimizing HPC
+tasks is still challenging due to the lack of HPC-specific support. To
+address this challenge, LM4HPC [12] represents the first attempt
+to adapt LLMs to the HPC domain. This is achieved by creating the
+LM4HPC framework to facilitate research into HPC analyses and
+optimizations using LMs. Tailored for supporting HPC datasets, AI
+models, and pipelines, the LM4HPC framework is built on top of a
+range of components from different levels of the machine learning
+software stack, with Hugging Face-compatible APIs. However, the
+framework currently is still relying on existing general LLM for
+HPC tasks which is suboptimal.
+3 DESIGN OF HPC-GPT
+In this section, we describe in detail the design of HPC-GPT.
+3.1 HPC-GPT Overview
+Figure 1 illustrates an overview of the proposed HPC-GPT
+framework, which can be divided into four main stages: HPC domain data collection, training, evaluation, and deployment. In the
+HPC domain data collection stage, we develop a data collection
+method that automatically gathers the necessary training data for
+two specific HPC applications. This data curation process ensures
+that the model is trained on relevant and domain-specific information. Moving on to the training stage, we employ supervised
+fine-tuning on the open-source LLM using the generated instruction
+data. Fine-tuning helps the model adapt to the intricacies of HPCrelated tasks and enhances its performance in the targeted domain.
+In the evaluation stage, we rigorously assess the well-trained HPCGPT model’s capabilities on a public data race detection dataset.
+This evaluation process validates the model’s effectiveness and performance in real-world scenarios. Finally, after successful training
+and evaluation, we deploy the HPC-GPT model to a web server,
+making it readily available for HPC scientists and researchers to
+utilize in their work.
+3.2 Automatic Data Collection with LLM
+1 " The HPC knowledge is :
+3 { unsupervised knowledge data }
+5 According to the information above , please help me
+generate { number } questions .
+7 Here are the requirements :
+8 1. Try not to repeat the verb for each question to
+maximize diversity .
+9 2. Make sure the output is less than 50 words .
+10 3. The questions can be asked under many conditions .
+11 4. Do not generate the same or similar questions as
+generated before .
+13 Now , please generate the instructions following the above
+requirements . "
+Listing 1: Instruction Generation Prompt
+Instruction Generation: In this stage, we leverage the capabilities of the existing LLM, GPT-4, to generate domain-specific
+
+[TABLE page=3 index=1]
+Columns: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple | Unnamed: 0 | related tasks and enhances its performance in the targeted domain.
+Row 1: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: domains, including natural language processing, visualization, and | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: In the evaluation stage, we rigorously assess the well-trained HPCRow 2: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: so on. However, applying them for analyzing and optimizing HPC | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: GPT model’s capabilities on a public data race detection dataset.
+Row 3: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: tasks is still challenging due to the lack of HPC-specific support. To | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: This evaluation process validates the model’s effectiveness and perRow 4: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: address this challenge, LM4HPC [12] represents the first attempt | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: formance in real-world scenarios. Finally, after successful training
+Row 5: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: to adapt LLMs to the HPC domain. This is achieved by creating the | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: and evaluation, we deploy the HPC-GPT model to a web server,
+Row 6: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: LM4HPC framework to facilitate research into HPC analyses and | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: making it readily available for HPC scientists and researchers to
+Row 7: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: optimizations using LMs. Tailored for supporting HPC datasets, AI | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: utilize in their work.
+Row 8: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: models, and pipelines, the LM4HPC framework is built on top of a | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.:
+Row 9: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: range of components from different levels of the machine learning | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: 3.2 Automatic Data Collection with LLM
+Row 10: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: software stack, with Hugging Face-compatible APIs. However, the | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.:
+Row 11: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: framework currently is still relying on existing general LLM for | Unnamed: 0: 1.0 | related tasks and enhances its performance in the targeted domain.: "The HPC knowledge is:
+Row 12: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: | Unnamed: 0: 2.0 | related tasks and enhances its performance in the targeted domain.:
+Row 13: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: HPC tasks which is suboptimal. | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.:
+Row 14: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: | Unnamed: 0: 3.0 | related tasks and enhances its performance in the targeted domain.: {unsupervised knowledge data}
+Row 15: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: | Unnamed: 0: 4.0 | related tasks and enhances its performance in the targeted domain.:
+Row 16: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: | Unnamed: 0: 5.0 | related tasks and enhances its performance in the targeted domain.: According to the information above , please help me
+Row 17: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: 3 DESIGN OF HPC-GPT | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.:
+Row 18: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: generate {number} questions.
+Row 19: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: In this section, we describe in detail the design of HPC-GPT. | Unnamed: 0: 6.0 | related tasks and enhances its performance in the targeted domain.:
+Row 20: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: | Unnamed: 0: 7.0 | related tasks and enhances its performance in the targeted domain.: Here are the requirements:
+Row 21: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: | Unnamed: 0: 8.0 | related tasks and enhances its performance in the targeted domain.: 1. Try not to repeat the verb for each question to
+Row 22: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: 3.1 HPC-GPT Overview | Unnamed: 0: | related tasks and enhances its performance in the targeted domain.: maximize diversity.
+Row 23: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: | Unnamed: 0: 9.0 | related tasks and enhances its performance in the targeted domain.: 2. Make sure the output is less than 50 words.
+Row 24: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: Figure 1 illustrates an overview of the proposed HPC-GPT | Unnamed: 0: 10.0 | related tasks and enhances its performance in the targeted domain.: 3. The questions can be asked under many conditions.
+Row 25: LLMs, such as GPT-4 and LLaMA, have beenwidely used inmultiple: framework, which can be divided into four main stages: HPC do- | Unnamed: 0: 11.0 | related tasks and enhances its performance in the targeted domain.: 4. Do not generate the same or similar questions as
+[/TABLE]
+
+[PAGE 4]
+SC-W 2023, November 12–17, 2023, Denver, CO, USA
+Xianzhong Ding, Le Chen, Murali Emani, Chunhua Liao, Pei-Hung Lin,
+Tristan Vanderbruggen, Zhen Xie, and Alberto E. Cerpa, Wan Du
+Atask called "Defect Detection" along with the corresponding dataset name and programming language used. The dataset used for this task is called "Devign," and the programming language employed is C.
+TaskDataset NameLanguageDefect DetectionDevigncCode RepairBugs2FixJava
+Figure 2: Transformation of unsupervised structured data.
+instructions based on unsupervised text, encompassing both unstructured and structured HPC data. The unsupervised text serves
+as the input and includes a wide range of HPC-related knowledge
+data. To tailor the instructions for specific HPC tasks, we design
+instruction prompts with relevant requirements, as depicted in Listing 1. These prompts guide GPT-4 to respond with instructions that
+align with the provided text data. The generated instructions serve
+as guidance for the subsequent stages of the process.
+The unsupervised knowledge data within the prompt consists
+of sequential text. Unstructured knowledge data, such as websites
+and conference papers, can be directly used after undergoing necessary cleaning processes. On the other hand, structured data, like
+tables, needs to be converted into unstructured textual data before
+it becomes usable. As illustrated in Figure 2, this conversion can
+be achieved through slot-filling using templates or by concatenating each data entry with its corresponding attribute name. These
+steps ensure that structured data is transformed into a format that
+can be effectively utilized by the language model for instruction
+generation and fine-tuning.
+Answer Generation: In this stage, the language model is tasked
+with generating answers to the instruction questions based on the
+corresponding unsupervised HPC knowledge. The process can be
+expressed as 𝐴 = 𝑃 (𝐾, 𝑄), where 𝐾, 𝑄, and 𝐴 represent unsupervised knowledge, instruction question, and answer, respectively.
+Similar to the previous stage, the prompt for generating answers
+is provided, as shown in Listing 2. Using the instruction questions
+and the associated unsupervised knowledge, the language model is
+prompted to produce accurate and contextually relevant answers.
+This step enhances the model’s understanding of the provided
+knowledge and strengthens its ability to respond effectively to the
+instruction questions.
+1 " The HPC knowledge is :
+3 { unsupervised knowledge data }.
+5 Please answer the following question based on the above
+knowledge :
+6 { the generated instruction }
+8 Here are the requirements :
+9 1. Try not to repeat the verb for each answer to maximize
+diversity .
+10 2. Make sure the output is less than 50 words .
+11 3. The questions can be asked under many conditions .
+12 4. Make sure the answer is more than 10 words .
+13 5. Make sure the answer can be obtained from the
+information provided .
+14 6. Do not generate the same or similar answers as
+generated before .
+15 7. There are three fields for your generation : { "
+instruction " : < question > , " Input " : " " , " output " : <
+answer > }.
+17 Now , please generate the data in JSON format following
+the above requirements . "
+Listing 2: Instruction-Answer Generation Prompt
+Filtering and Pruning: Although we explicitly instruct the
+model with the prompt in Listing 2 to not generate the same or similar instructions and answers as generated before, we still observe
+that the model produces instruction data that violates these rules.
+Additionally, the generated instances of instructions also exhibit
+cases where they do not adhere to the required format and become
+unparseable. Therefore, it is necessary to further filter out these
+problematic examples. To mitigate these issues, we implement a
+postprocessing step to filter out inappropriate responses and correct
+any formatting errors. This involves developing heuristics and rulebased methods to identify and remove instances that violate the
+instructed constraints. By applying these filters, we ensure that the
+generated text adheres to the predefined guidelines and maintains
+the desired level of correctness.
+3.3 Training Pipeline
+There are two stages in the training pipeline: pretraining and supervised fine-tuning.
+3.4 Pretraining
+When training LLM for HPC domain, the base model provides
+foundational language understanding, enabling quicker adaptation to the new domain’s nuances. It offers transferable linguistic
+knowledge and reduces data requirements. The base model’s broad
+comprehension aids in fine-tuning while retaining the ability to
+generate accurate responses beyond the specific domain. We select
+LLaMA [44] and LLaMA 2 [44] as base models for pretraining. The
+reason is two-fold. Firstly, the LLaMA series are open-source and
+free to conduct research, in contrast to the commercial nature of
+the GPT series. Secondly, LLaMA outperforms other models, like
+GPT-3, in efficiency and resource utilization. LLaMA series is a
+collection of multi-lingual base models with parameters ranging
+from 7 billion to 70 billion. Here, We adopt the 13B version for both
+LLaMA and LLaMA 2 models, ensuring training accessibility and
+achieving superior performance.
+3.5 Supervised Fine-tuning
+Although LLMs exhibit remarkable performance in general domains, their lack of domain-specific knowledge results in suboptimal performance in HPC fields that require specialized expertise.
+The HPC field’s inherent nature necessitates models to possess
+comprehensive knowledge bases for relevant queries. Supervised
+fine-tuning has proven to be effective in tuning LLM for different
+tasks [40, 47]. Supervised fine-tuning helps the models perform
+satisfactorily under zero-shot scenarios with the cost of sufficient
+
+[TABLE page=4 index=1]
+Columns: Task Dataset Name | Language | 12 | 4. Make | sure | the | answer is | more | Unnamed: 0 | than 10 words. | Unnamed: 1 | Unnamed: 2 | Unnamed: 3
+Row 1: Task Dataset Name: | Language: | 12: 13.0 | 4. Make: 5. Make | sure: sure | the: the | answer is: answer can | more: be | Unnamed: 0: | than 10 words.: obtained from | Unnamed: 1: the | Unnamed: 2: | Unnamed: 3:
+Row 2: Task Dataset Name: Defect Detection Devign | Language: c | 12: | 4. Make: | sure: information | the: | answer is: provided. | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 3: Task Dataset Name: | Language: | 12: 14.0 | 4. Make: 6. Do | sure: not generate | the: | answer is: the same | more: or | Unnamed: 0: | than 10 words.: similar answers | Unnamed: 1: | Unnamed: 2: as | Unnamed: 3:
+Row 4: Task Dataset Name: Code Repair Bugs2Fix | Language: Java | 12: | 4. Make: | sure: generated | the: before. | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 5: Task Dataset Name: | Language: | 12: 15.0 | 4. Make: 7. There | sure: are | the: three | answer is: fields for | more: | Unnamed: 0: | than 10 words.: your generation: | Unnamed: 1: | Unnamed: 2: {" | Unnamed: 3:
+Row 6: Task Dataset Name: | Language: | 12: | 4. Make: | sure: instruction": | the: | answer is: <question >, | more: | Unnamed: 0: | than 10 words.: "Input":"", "output": | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: <
+Row 7: Task Dataset Name: | Language: | 12: | 4. Make: | sure: answer > | the: }. | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 8: Task Dataset Name: A task called "Defect Detection" along with the corresponding | Language: | 12: 16.0 | 4. Make: | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 9: Task Dataset Name: dataset name and programming language used. The dataset | Language: | 12: 17.0 | 4. Make: Now , | sure: please | the: generate | answer is: the data | more: | Unnamed: 0: | than 10 words.: in JSON format | Unnamed: 1: following | Unnamed: 2: | Unnamed: 3:
+Row 10: Task Dataset Name: requirements."used for this task is called "Devign," and the programming | Language: | 12: | 4. Make: | sure: the above | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 11: Task Dataset Name: language employed is C. | Language: | 12: | 4. Make: | sure: Listing 2: Instruction-Answer Generation Prompt | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 12: Task Dataset Name: | Language: | 12: | 4. Make: Filtering and Pruning: Although we explicitly instruct the | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 13: Task Dataset Name: Figure 2: Transformation of unsupervised structured data. | Language: | 12: | 4. Make: model with the prompt in Listing 2 to not generate the same or sim- | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 14: Task Dataset Name: | Language: | 12: | 4. Make: ilar instructions and answers as generated before, we still observe | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 15: Task Dataset Name: | Language: | 12: | 4. Make: that the model produces instruction data that violates these rules. | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 16: Task Dataset Name: instructions based on unsupervised text, encompassing both un- | Language: | 12: | 4. Make: Additionally, the generated instances of instructions also exhibit | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 17: Task Dataset Name: structured and structured HPC data. The unsupervised text serves | Language: | 12: | 4. Make: cases where they do not adhere to the required format and become | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 18: Task Dataset Name: as the input and includes a wide range of HPC-related knowledge | Language: | 12: | 4. Make: unparseable. Therefore, it is necessary to further filter out these | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 19: Task Dataset Name: data. To tailor the instructions for specific HPC tasks, we design | Language: | 12: | 4. Make: problematic examples. To mitigate these issues, we implement a | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 20: Task Dataset Name: instruction prompts with relevant requirements, as depicted in List- | Language: | 12: | 4. Make: postprocessing step to filter out inappropriate responses and correct | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 21: Task Dataset Name: ing 1. These prompts guide GPT-4 to respond with instructions that | Language: | 12: | 4. Make: any formatting errors. This involves developing heuristics and rule- | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 22: Task Dataset Name: align with the provided text data. The generated instructions serve | Language: | 12: | 4. Make: based methods to identify and remove instances that violate the | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 23: Task Dataset Name: as guidance for the subsequent stages of the process. | Language: | 12: | 4. Make: instructed constraints. By applying these filters, we ensure that the | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 24: Task Dataset Name: The unsupervised knowledge datawithin the prompt consists | Language: | 12: | 4. Make: generated text adheres to the predefined guidelines and maintains | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 25: Task Dataset Name: of sequential text. Unstructured knowledge data, such as websites | Language: | 12: | 4. Make: the desired level of correctness. | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 26: Task Dataset Name: and conference papers, can be directly used after undergoing nec- | Language: | 12: | 4. Make: | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 27: Task Dataset Name: essary cleaning processes. On the other hand, structured data, like | Language: | 12: | 4. Make: 3.3 | sure: Training Pipeline | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 28: Task Dataset Name: tables, needs to be converted into unstructured textual data before | Language: | 12: | 4. Make: | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 29: Task Dataset Name: | Language: | 12: | 4. Make: There are two stages in the training pipeline: pretraining and su- | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 30: Task Dataset Name: it becomes usable. As illustrated in Figure 2, this conversion can | Language: | 12: | 4. Make: | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 31: Task Dataset Name: | Language: | 12: | 4. Make: pervised fine-tuning. | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 32: Task Dataset Name: be achieved through slot-filling using templates or by concatenat- | Language: | 12: | 4. Make: | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 33: Task Dataset Name: ing each data entry with its corresponding attribute name. These | Language: | 12: | 4. Make: | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 34: Task Dataset Name: | Language: | 12: | 4. Make: 3.4 | sure: Pretraining | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 35: Task Dataset Name: steps ensure that structured data is transformed into a format that | Language: | 12: | 4. Make: | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 36: Task Dataset Name: can be effectively utilized by the language model for instruction | Language: | 12: | 4. Make: When training LLM for HPC domain, the base model provides | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 37: Task Dataset Name: generation and fine-tuning. | Language: | 12: | 4. Make: foundational language understanding, enabling quicker adapta- | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 38: Task Dataset Name: Answer Generation: In this stage, the language model is tasked | Language: | 12: | 4. Make: tion to the new domain’s nuances. It offers transferable linguistic | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 39: Task Dataset Name: with generating answers to the instruction questions based on the | Language: | 12: | 4. Make: knowledge and reduces data requirements. The base model’s broad | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 40: Task Dataset Name: corresponding unsupervised HPC knowledge. The process can be | Language: | 12: | 4. Make: comprehension aids in fine-tuning while retaining the ability to | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 41: Task Dataset Name: expressed as generate accurate responses beyond the specific domain. We selectA = P K, Q ( ), where K Q , , and | Language: Arepresent unsuper- | 12: | 4. Make: | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 42: Task Dataset Name: vised knowledge, instruction question, and answer, respectively. | Language: | 12: | 4. Make: LLaMA [44] and LLaMA 2 [44] as base models for pretraining. The | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 43: Task Dataset Name: Similar to the previous stage, the prompt for generating answers | Language: | 12: | 4. Make: reason is two-fold. Firstly, the LLaMA series are open-source and | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 44: Task Dataset Name: is provided, as shown in Listing 2. Using the instruction questions | Language: | 12: | 4. Make: free to conduct research, in contrast to the commercial nature of | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 45: Task Dataset Name: and the associated unsupervised knowledge, the language model is | Language: | 12: | 4. Make: the GPT series. Secondly, LLaMA outperforms other models, like | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 46: Task Dataset Name: prompted to produce accurate and contextually relevant answers. | Language: | 12: | 4. Make: GPT-3, in efficiency and resource utilization. LLaMA series is a | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 47: Task Dataset Name: This step enhances the model’s understanding of the provided | Language: | 12: | 4. Make: collection of multi-lingual base models with parameters ranging | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+Row 48: Task Dataset Name: knowledge and strengthens its ability to respond effectively to the | Language: | 12: | 4. Make: from 7 billion to 70 billion. Here, We adopt the 13B version for both | sure: | the: | answer is: | more: | Unnamed: 0: | than 10 words.: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3:
+[/TABLE]
+
+[PAGE 5]
+HPC-GPT: Integrating Large Language Model for High-Performance Computing SC-W 2023, November 12–17, 2023, Denver, CO, USA
+annotated instructions. Inspired by the automatic construction of
+the instruction along with the instances (inputs and outputs) [46],
+we generate our instruction data based on the above HPC knowledge with the proposed method in Section 3.2. Table 1 shows the
+supervised fine-tuning data examples for 2 HPC tasks. The data
+instance has an instruction that describes the tasks in natural language. In HPC-based tasks, we consider the instructions and input
+are the same and leave the input null value.
+4 EXPERIMENT
+4.1 Experiments Setting
+Our experimental setup takes place on a DGX A100 node within
+the ThetaGPU server, equipped with eight NVIDIA A100 Tensor
+Core GPUs and two AMD Rome CPUs, providing 320 GB GPU
+memory. For training HPC-GPT, we allocate 12 hours with 200
+training epochs and set the learning rate to 2e-5. To optimize the
+process, we utilize a training and evaluation batch size of 16. To
+efficiently fine-tune HPC-GPT, we leverage fp16 precision to reduce memory requirements. Furthermore, we apply the LoRA [27]
+technique, known as low-rank adaptation, to reduce the number of
+trainable parameters. Additionally, we employ the PEFT [33] technique, which stands for parameter-efficient fine-tuning, to further
+enhance the performance of the pre-trained models.
+4.2 HPC Unstructured and Structured Data
+We collect the HPC raw data from GitHub, papers, and websites.
+For the PLP task, the unstructured data is from more than 40 papers
+related to PLP tasks, such as paper [23], and the structured data is
+from tables in the paper (e.g., [38]) and GitHub (e.g., [5]). For the
+MLPerf task, the unstructured data is from papers related to ML
+performance such as paper [ 42], and the structured data is from
+tables such as the results in the website [2]. We feed the raw data
+to LLM using the methods in Section 3.2 to collect the instruction
+data.
+4.3 Two HPC Tasks
+1. Managing AI Models and Datasets has two subtasks: 1) PLP
+task and 2) MLPerf task. PLP task refers to leveraging machine
+learning techniques to understand and analyze programming languages in a human-readable manner. A large number of different
+ML models and datasets are published each year related to different
+kinds of PLP tasks such as code generation [ 32], clone detection
+[32], source-to-source translation [30], defect correction [9], code
+documentation [28] and so on. It is difficult for people, especially
+newcomers, to identify representative ones to get started. Different
+model architectures are used to solve different types of PLP tasks,
+ranging from program understanding to code generation. It is a
+daunting job for people to pick the right architectures for a given
+task. The goal of this task is to facilitate the reuse of datasets and
+models related to PLP tasks, so researchers or developers can easily
+create customized ML pipelines to solve a given task. MLPerf [42]
+is a standardized benchmark designed to evaluate and compare
+the inference performance of machine learning models and frameworks. The benchmark includes different types of models and uses
+cases. Participants in the MLPerf benchmark must run their inference engines on a predefined set of models and datasets, following
+specified guidelines for hardware and software configurations. The
+goal of MLPerf task is to help the participants know the current
+exact system (e.g., 16-nodes-SPR-pytorch), processor (e.g., Intel(R)
+Xeon(R) Platinum 8462Y+), accelerator (e.g, NVIDIA H100-SXM580GB), and software (e.g., PyTorch NVIDIA Release 23.04) that can
+facilitate them to build similar ML models and datasets efficiently.
+2. Data Race Detection is a critical task in HPC. It is aimed at
+finding data race bugs in multithreaded programs such as those
+using OpenMP. In general, a data race occurs when two or more
+threads perform conflicting accesses (with at least one access being
+a write) to a shared variable without any synchronization among
+the threads. In this task, we cover two programming languages
+(such as C/C++ and Fortran) using OpenMP. The goal of this task
+is to detect if there is a data race problem given the code snippet.
+4.4 Baselines
+HPC-GPT comprises two versions: HPC-GPT (L1) and HPC-GPT
+(L2), each integrating the respective base models, LLaMa and LLaMa
+2. In order to demonstrate the superior performance of HPC-GPT,
+we conduct a comparative analysis with different baseline methods.
+Task 1: Managing AI Models and Datasets
+• ChatGPT is the state of the art of commercial large language
+model, we use GPT-4 as its model engine with superior performance.
+• HPC Ontology [ 34] is a unified ontology for managing AI
+models and datasets for HPC.
+Task 2: Data Race Detection
+• LLOV [8] is a fast, lightweight, language agnostic, and static
+data race checker for OpenMP programs based on the LLVM
+compiler framework.
+• Intel Inspector [ 29] is a dynamic analysis tool that detects
+threading and memory errors in C, C++ and Fortran codes.
+It supersedes Intel’s Thread Checker tool, with added memory error checking. Supported thread errors include race
+conditions and deadlocks.
+• ROMP [25] is a tool for detecting data races in executions
+of scalable parallel applications that employ OpenMP for
+node-level parallelism.
+• Thread Sanitizer [43] is a runtime data race detector developed by Google. ThreadSanitizer is now part of the LLVM
+and GCC compilers to enable data race detection for C++,
+Fortran and Go code.
+• GPT-3.5 and GPT-4 are standard commercial LLM developed by OpenAI. GPT-4 with 1.7 trillion parameters is the
+latest and most advanced version of GPT compared with
+GPT-3 with 175 billion parameters.
+• LLaMA [44] and LLaMA 2 [ 45] are standard open-source
+LLM developed by Meta. LLaMA 2 was trained on 40% more
+data than LLaMA. We use 13B versions for LLaMA and
+LLaMA 2 due to the tradeoff between performance and training costs.
+4.5 Metrics
+To evaluate HPC-GPT, we calculate counts of True Positive (TP),
+False Positive (FP), True Negative (TN), and False Negatives (FN)
+based on tool results and ground truth. We use five standard metrics:
+
+[TABLE page=5 index=1]
+Columns: guage. In HPC-based tasks, we consider the instructions and input | 2. Data Race Detection is a critical task in HPC. It is aimed at
+Row 1: guage. In HPC-based tasks, we consider the instructions and input: are the same and leave the input null value. | 2. Data Race Detection is a critical task in HPC. It is aimed at: finding data race bugs in multithreaded programs such as those
+Row 2: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: using OpenMP. In general, a data race occurs when two or more
+Row 3: guage. In HPC-based tasks, we consider the instructions and input: 4 EXPERIMENT | 2. Data Race Detection is a critical task in HPC. It is aimed at: threads perform conflicting accesses (with at least one access being
+Row 4: guage. In HPC-based tasks, we consider the instructions and input: 4.1 Experiments Setting | 2. Data Race Detection is a critical task in HPC. It is aimed at: a write) to a shared variable without any synchronization among
+Row 5: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: the threads. In this task, we cover two programming languages
+Row 6: guage. In HPC-based tasks, we consider the instructions and input: Our experimental setup takes place on a DGX A100 node within | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 7: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: (such as C/C++ and Fortran) using OpenMP. The goal of this task
+Row 8: guage. In HPC-based tasks, we consider the instructions and input: the ThetaGPU server, equipped with eight NVIDIA A100 Tensor | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 9: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: is to detect if there is a data race problem given the code snippet.
+Row 10: guage. In HPC-based tasks, we consider the instructions and input: Core GPUs and two AMD Rome CPUs, providing 320 GB GPU | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 11: guage. In HPC-based tasks, we consider the instructions and input: memory. For training HPC-GPT, we allocate 12 hours with 200 | 2. Data Race Detection is a critical task in HPC. It is aimed at: 4.4 Baselines
+Row 12: guage. In HPC-based tasks, we consider the instructions and input: training epochs and set the learning rate to 2e-5. To optimize the | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 13: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: HPC-GPT comprises two versions: HPC-GPT (L1) and HPC-GPT
+Row 14: guage. In HPC-based tasks, we consider the instructions and input: process, we utilize a training and evaluation batch size of 16. To | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 15: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: (L2), each integrating the respective base models, LLaMa and LLaMa
+Row 16: guage. In HPC-based tasks, we consider the instructions and input: efficiently fine-tune HPC-GPT, we leverage fp16 precision to re- | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 17: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: 2. In order to demonstrate the superior performance of HPC-GPT,
+Row 18: guage. In HPC-based tasks, we consider the instructions and input: duce memory requirements. Furthermore, we apply the LoRA [27] | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 19: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: we conduct a comparative analysis with different baseline methods.
+Row 20: guage. In HPC-based tasks, we consider the instructions and input: technique, known as low-rank adaptation, to reduce the number of | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 21: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: Task 1: Managing AI Models and Datasets
+Row 22: guage. In HPC-based tasks, we consider the instructions and input: trainable parameters. Additionally, we employ the PEFT [33] tech- | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 23: guage. In HPC-based tasks, we consider the instructions and input: nique, which stands for parameter-efficient fine-tuning, to further | 2. Data Race Detection is a critical task in HPC. It is aimed at: • ChatGPT is the state of the art of commercial large language
+Row 24: guage. In HPC-based tasks, we consider the instructions and input: enhance the performance of the pre-trained models. | 2. Data Race Detection is a critical task in HPC. It is aimed at: model, we use GPT-4 as its model engine with superior perRow 25: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: formance.
+Row 26: guage. In HPC-based tasks, we consider the instructions and input: 4.2 HPC Unstructured and Structured Data | 2. Data Race Detection is a critical task in HPC. It is aimed at: • HPC Ontology [34] is a unified ontology for managing AI
+Row 27: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: models and datasets for HPC.
+Row 28: guage. In HPC-based tasks, we consider the instructions and input: We collect the HPC raw data from GitHub, papers, and websites. | 2. Data Race Detection is a critical task in HPC. It is aimed at:
+Row 29: guage. In HPC-based tasks, we consider the instructions and input: For the PLP task, the unstructured data is from more than 40 papers | 2. Data Race Detection is a critical task in HPC. It is aimed at: Task 2: Data Race Detection
+Row 30: guage. In HPC-based tasks, we consider the instructions and input: related to PLP tasks, such as paper [23], and the structured data is | 2. Data Race Detection is a critical task in HPC. It is aimed at: • LLOV [8] is a fast, lightweight, language agnostic, and static
+Row 31: guage. In HPC-based tasks, we consider the instructions and input: from tables in the paper (e.g., [38]) and GitHub (e.g., [5]). For the | 2. Data Race Detection is a critical task in HPC. It is aimed at: data race checker for OpenMP programs based on the LLVM
+Row 32: guage. In HPC-based tasks, we consider the instructions and input: MLPerf task, the unstructured data is from papers related to ML | 2. Data Race Detection is a critical task in HPC. It is aimed at: compiler framework.
+Row 33: guage. In HPC-based tasks, we consider the instructions and input: performance such as paper [42], and the structured data is from | 2. Data Race Detection is a critical task in HPC. It is aimed at: • Intel Inspector [29] is a dynamic analysis tool that detects
+Row 34: guage. In HPC-based tasks, we consider the instructions and input: tables such as the results in the website [2]. We feed the raw data | 2. Data Race Detection is a critical task in HPC. It is aimed at: threading and memory errors in C, C++ and Fortran codes.
+Row 35: guage. In HPC-based tasks, we consider the instructions and input: to LLM using the methods in Section 3.2 to collect the instruction | 2. Data Race Detection is a critical task in HPC. It is aimed at: It supersedes Intel’s Thread Checker tool, with added memRow 36: guage. In HPC-based tasks, we consider the instructions and input: data. | 2. Data Race Detection is a critical task in HPC. It is aimed at: ory error checking. Supported thread errors include race
+Row 37: guage. In HPC-based tasks, we consider the instructions and input: | 2. Data Race Detection is a critical task in HPC. It is aimed at: conditions and deadlocks.
+Row 38: guage. In HPC-based tasks, we consider the instructions and input: 4.3 Two HPC Tasks | 2. Data Race Detection is a critical task in HPC. It is aimed at: • ROMP [25] is a tool for detecting data races in executions
+Row 39: guage. In HPC-based tasks, we consider the instructions and input: 1. Managing AI Models and Datasets has two subtasks: 1) PLP | 2. Data Race Detection is a critical task in HPC. It is aimed at: of scalable parallel applications that employ OpenMP for
+Row 40: guage. In HPC-based tasks, we consider the instructions and input: task and 2) MLPerf task. PLP task refers to leveraging machine | 2. Data Race Detection is a critical task in HPC. It is aimed at: node-level parallelism.
+Row 41: guage. In HPC-based tasks, we consider the instructions and input: learning techniques to understand and analyze programming lan- | 2. Data Race Detection is a critical task in HPC. It is aimed at: • Thread Sanitizer [43] is a runtime data race detector develRow 42: guage. In HPC-based tasks, we consider the instructions and input: guages in a human-readable manner. A large number of different | 2. Data Race Detection is a critical task in HPC. It is aimed at: oped by Google. ThreadSanitizer is now part of the LLVM
+Row 43: guage. In HPC-based tasks, we consider the instructions and input: ML models and datasets are published each year related to different | 2. Data Race Detection is a critical task in HPC. It is aimed at: and GCC compilers to enable data race detection for C++,
+Row 44: guage. In HPC-based tasks, we consider the instructions and input: kinds of PLP tasks such as code generation [32], clone detection | 2. Data Race Detection is a critical task in HPC. It is aimed at: Fortran and Go code.
+Row 45: guage. In HPC-based tasks, we consider the instructions and input: [32], source-to-source translation [30], defect correction [9], code | 2. Data Race Detection is a critical task in HPC. It is aimed at: • GPT-3.5 and GPT-4 are standard commercial LLM develRow 46: guage. In HPC-based tasks, we consider the instructions and input: documentation [28] and so on. It is difficult for people, especially | 2. Data Race Detection is a critical task in HPC. It is aimed at: oped by OpenAI. GPT-4 with 1.7 trillion parameters is the
+[/TABLE]
+
+[PAGE 6]
+SC-W 2023, November 12–17, 2023, Denver, CO, USA
+Xianzhong Ding, Le Chen, Murali Emani, Chunhua Liao, Pei-Hung Lin,
+Tristan Vanderbruggen, Zhen Xie, and Alberto E. Cerpa, Wan Du
+Table 1: Instance with An Instruction
+Task1: Model and datasets for HPC
+"instruction": "What kind of dataset can be used if the language is C/C++ and the baseline is CodeBERT?",
+"input":"",
+"output": "The POJ-104 dataset can be used for clone detection tasks if the language is C/C++ and the baseline is CodeBERT. "
+Task 2: Data Race Detection
+"instruction": "Given the code snippet: “‘c\n#pragma omp parallel for\nfor (i = 1; i <n; i++)\n y[i] = x[i] + y[i - 1];\n“‘,
+help me detect if adding pragma will cause a data race problem? Answer ’yes’ if it causes a data race problem
+and ’no’ if it will not cause a data race problem. ",
+"input":"",
+"output": "yes"
+Table 2: Dataset Information for Task 1
+Subtasks Category Number Percentage
+PLP
+Performance Modeling 44 7.30%
+Algorithm Classification 41 6.80%
+Defect detection 47 7.79%
+Clone detection 45 7.46%
+Code Completion 39 6.47%
+Compiler Analyses 37 6.14%
+Code Repair 48 7.96%
+Code Translation 41 6.80%
+Cloze Testing 48 7.96%
+Text-to-Code Generation 58 9.62%
+Code Summarization 48 7.96%
+Document Translation 52 8.62%
+Code Search 55 9.12%
+MLPerf
+Submitter 324 17.80%
+System 386 21.21%
+Processor 347 19.07%
+Accelerator 362 19.89%
+Software 401 22.03%
+Recall, Specificity, Precision, Accuracy, and F1 score to evaluate
+the quality of tools. We also report tool support rate (TSR), which
+is the ratio of how many test files are supported by a tool. The F1
+score is a measure combining both precision and recall. It provides
+a single metric that weights precision and recall in a balanced way,
+requiring both to have higher values for the F1-score value to rise.
+The reported adjusted F1 score, F1 score multiplied by the TSR, can
+show the true ability of a tool.
+4.6 Instruction Datasets for HPC
+We have collected a total of 5.86k instruction data for two HPC
+applications. The dataset details for task 1 and task 2 are presented
+in Table 2 and Table 3, respectively. In Table 2, we focus on task 1:
+Managing AI models and datasets for PLP tasks and MLPerf tasks.
+There are 13 categories in PLP tasks covering various programming
+language processing subtasks, such as clone detection and code
+repair. The percentage range for these categories is 6.14% to 9.62%.
+Additionally, there are 5 categories dedicated to MLPerf tasks, such
+as the system and software, with a percentage range of 17.80% to
+22.03%. In Table 3, the data race detection task has two main categories: "code snippet with data races" and "code snippet without
+data races. " We have summarized 7 common data race types for
+both C/C++ and Fortran, including "missing data sharing" and "Unresolvable dependencies. " Additionally, we have identified 7 types
+of data without data races, such as "Single thread execution" and
+"Use of synchronization. " The percentage range for these categories
+is 5.96% to 8.17% for C/C++ and 6.15% to 8.25% for Fortran.
+Overall, we have ensured that the number of different categories is balanced for various subtasks. This approach prevents
+one category from dominating and allows the LLM to maintain
+a well-rounded knowledge base for each task. This diverse and
+comprehensive dataset collection is crucial in fine-tuning the LLM
+effectively and preparing it to tackle a wide array of HPC-specific
+challenges with improved accuracy and performance.
+4.7 Preliminary Results
+4.7.1 Managing AI models and Datasets. This section presents
+some use cases using HPC-GPT for providing the dataset and model
+information and answering questions.
+1) PLP Task. The AI models and dataset are fundamental information for PLP tasks [11, 13, 14]. We use natural language to describe
+the code translation-related questions in [23].
+1 Question : " What kind of dataset can be used for code
+translation tasks if the source language is Java and
+the target language is C #? "
+3 Answer ( GPT -4) : " For code translation tasks from Java to
+C # , you would need a dataset that consists of pairs
+of Java code and their corresponding equivalent C #
+code . "
+5 Answer ( HPC - Ontology ) : " CodeTrans dataset "
+7 Answer ( HPC - GPT ( L2 ) ) : " The CodeTrans dataset can be used
+for code translation tasks if the source language
+is Java and the target language is C #. "
+Listing 3: PLP Task Example
+2) MLPerf Task. The system, processor, and software-related
+details are important for MLPerf tasks. We use natural language to
+describe the MLPerf-related questions in [2].
+1 Question : " What is the System if the Accelerator used is
+NVIDIA H100 - SXM5 -80 GB and the Software used is MXNet
+NVIDIA Release 23.04? "
+
+[TABLE page=6 index=1]
+Columns: Task1: Model and datasets for HPC
+Row 1: Task1: Model and datasets for HPC: "instruction": "What kind of dataset can be used if the language is C/C++ and the baseline is CodeBERT?",
+Row 2: Task1: Model and datasets for HPC: "input":"",
+Row 3: Task1: Model and datasets for HPC: "output": "The POJ-104 dataset can be used for clone detection tasks if the language is C/C++ and the baseline is CodeBERT."
+Row 4: Task1: Model and datasets for HPC: Task 2: Data Race Detection
+Row 5: Task1: Model and datasets for HPC: "instruction": "Given the code snippet: “‘c\n#pragma omp parallel for\nfor (i = 1; i <n; i++)\n y[i] = x[i] + y[i - 1];\n“‘,
+Row 6: Task1: Model and datasets for HPC: help me detect if adding pragma will cause a data race problem? Answer ’yes’ if it causes a data race problem
+Row 7: Task1: Model and datasets for HPC: and ’no’ if it will not cause a data race problem.",
+Row 8: Task1: Model and datasets for HPC: "input":"",
+Row 9: Task1: Model and datasets for HPC: "output": "yes"
+[/TABLE]
+
+[TABLE page=6 index=2]
+Columns: Subtasks | Category | Number | Percentage | of data without data races, such as "Single thread execution" and
+Row 1: Subtasks: | Category: Performance Modeling | Number: 44.0 | Percentage: 7.30% | of data without data races, such as "Single thread execution" and: "Use of synchronization." The percentage range for these categories
+Row 2: Subtasks: | Category: Algorithm Classification | Number: 41.0 | Percentage: 6.80% | of data without data races, such as "Single thread execution" and: is 5.96% to 8.17% for C/C++ and 6.15% to 8.25% for Fortran.
+Row 3: Subtasks: | Category: Defect detection | Number: 47.0 | Percentage: 7.79% | of data without data races, such as "Single thread execution" and:
+Row 4: Subtasks: | Category: | Number: | Percentage: | of data without data races, such as "Single thread execution" and: Overall, we have ensured that the number of different cateRow 5: Subtasks: | Category: Clone detection | Number: 45.0 | Percentage: 7.46% | of data without data races, such as "Single thread execution" and:
+Row 6: Subtasks: | Category: | Number: | Percentage: | of data without data races, such as "Single thread execution" and: gories is balanced for various subtasks. This approach prevents
+Row 7: Subtasks: | Category: Code Completion | Number: 39.0 | Percentage: 6.47% | of data without data races, such as "Single thread execution" and:
+Row 8: Subtasks: | Category: | Number: | Percentage: | of data without data races, such as "Single thread execution" and: one category from dominating and allows the LLM to maintain
+Row 9: Subtasks: | Category: Compiler Analyses | Number: 37.0 | Percentage: 6.14% | of data without data races, such as "Single thread execution" and:
+Row 10: Subtasks: PLP | Category: Code Repair | Number: 48.0 | Percentage: 7.96% | of data without data races, such as "Single thread execution" and: a well-rounded knowledge base for each task. This diverse and
+Row 11: Subtasks: | Category: Code Translation | Number: 41.0 | Percentage: 6.80% | of data without data races, such as "Single thread execution" and: comprehensive dataset collection is crucial in fine-tuning the LLM
+Row 12: Subtasks: | Category: Cloze Testing | Number: 48.0 | Percentage: 7.96% | of data without data races, such as "Single thread execution" and: effectively and preparing it to tackle a wide array of HPC-specific
+Row 13: Subtasks: | Category: Text-to-Code Generation | Number: 58.0 | Percentage: 9.62% | of data without data races, such as "Single thread execution" and: challenges with improved accuracy and performance.
+Row 14: Subtasks: | Category: Code Summarization | Number: 48.0 | Percentage: 7.96% | of data without data races, such as "Single thread execution" and:
+Row 15: Subtasks: | Category: Document Translation | Number: 52.0 | Percentage: 8.62% | of data without data races, such as "Single thread execution" and:
+Row 16: Subtasks: | Category: | Number: | Percentage: | of data without data races, such as "Single thread execution" and: 4.7 Preliminary Results
+Row 17: Subtasks: | Category: Code Search | Number: 55.0 | Percentage: 9.12% | of data without data races, such as "Single thread execution" and:
+Row 18: Subtasks: | Category: Submitter | Number: 324.0 | Percentage: 17.80% | of data without data races, such as "Single thread execution" and: 4.7.1 Managing AI models and Datasets. This section presents
+Row 19: Subtasks: | Category: System | Number: 386.0 | Percentage: 21.21% | of data without data races, such as "Single thread execution" and: some use cases using HPC-GPT for providing the dataset and model
+Row 20: Subtasks: MLPerf | Category: Processor | Number: 347.0 | Percentage: 19.07% | of data without data races, such as "Single thread execution" and: information and answering questions.
+Row 21: Subtasks: | Category: Accelerator | Number: 362.0 | Percentage: 19.89% | of data without data races, such as "Single thread execution" and: 1) PLP Task. The AI models and dataset are fundamental informaRow 22: Subtasks: | Category: Software | Number: 401.0 | Percentage: 22.03% | of data without data races, such as "Single thread execution" and:
+[/TABLE]
+
+[PAGE 7]
+HPC-GPT: Integrating Large Language Model for High-Performance Computing SC-W 2023, November 12–17, 2023, Denver, CO, USA
+Table 3: Dataset Information for Task 2
+Subtasks Metric
+Category
+Code snippet with data races Code snippet without data races
+Unresolvable dependencies
+Missing data sharing clauses
+Missing synchronization
+SIMD data races
+Accelerator data races
+Undefined behavior
+Numerical kernel data races
+Single thread execution
+Use of data sharing clauses
+Use of synchronization
+Use of SIMD directives
+Use of accelerator directives
+Use of special language features
+Numerical kernels
+C/C++ Number 132 129 130 124 110 128 133 133 105 144 119 118 126 131
+Percentage 7.49% 7.32% 7.38% 7.04% 6.24% 7.26% 7.55% 7.55% 5.96% 8.17% 6.75% 6.70% 7.15% 7.43%
+Fortran Number 125 103 117 122 101 109 111 98 126 105 130 97 108 124
+Percentage 7.93% 6.54% 7.42% 7.74% 6.41% 6.91% 7.04% 6.21% 8.00% 6.66% 8.25% 6.15% 6.85% 7.86%
+Table 4: Data Race Detection Tool and Compiler Version
+Tools Version Compiler
+ThreadSanitizer 10.0.0 Clang/LLVM 10.0.0
+Intel Inspector 2021.1 Intel Compiler 2021.3.0
+ROMP 20ac93c GCC/gfortran 7.4.0
+LLOV N/A Clang/LLVM 6.0.1
+3 Answer ( GPT -4) : " As of my last update in September 2021 ,
+the NVIDIA H100 - SXM5 -80 GB is a data center GPU
+designed for high - performance computing and deep
+learning workloads . "
+5 Answer ( HPC - Ontology ) : " dgxh100_n64 "
+7 Answer ( HPC - GPT ( L2 ) ) : " If the Accelerator used is NVIDIA
+H100 - SXM5 -80 GB and the Software used is MXNet
+NVIDIA Release 23.04 , the System is dgxh100_n64 . "
+Listing 4: MLPerf Task Example
+Results. The results for the PLP task and MLPerf task are shown
+in Listing 3 and 4 respectively. Upon analyzing the outputs, it is
+evident that HPC-GPT demonstrates its superiority in handling
+these tasks compared to GPT-4. In the PLP task, when the user asks,
+"What kind of dataset can be used for code translation tasks if the
+source language is Java and the target language is C#?", HPC-GPT is
+capable of providing an exact answer with the "CodeTrans dataset, "
+while GPT-4 merely repeats the question due to its lack of relevant
+knowledge. Similarly, in the MLPerf task, when the user presents
+a system-related question such as, "What is the System if the Accelerator used is NVIDIA H100 - SXM5 - 80 GB and the Software
+used is MXNet NVIDIA Release 23.04?", HPC-GPT promptly offers
+a specific answer, "dgxh100_n64, " demonstrating its understanding
+of the question. Conversely, ChatGPT’s response includes a general introduction of the Accelerator but fails to provide the correct
+answer, indicating its lack of relevant knowledge regarding the
+MLPerf task.
+To address this limitation, HPC-Ontology can also deliver accurate answers by leveraging SPARQL query language. However, it
+requires manual effort to write SPARQL queries for different questions and answers, making it less scalable. HPC-GPT overcomes this
+challenge by effectively translating human language into embeddings, enabling it to process all the information and provide relevant
+answers to various queries. In both tasks, HPC-GPT demonstrates
+its versatility in handling different conditions and benefits users
+by allowing them to express their questions freely while receiving
+accurate and related answers.
+4.7.2 Data Race Detection. In this section, we present the evaluation results of HPC-GPT on DataRaceBench V1.4.0 [15, 35] with 177
+C/C++ test programs and 166 Fortran test programs. Among these,
+88 C/C++ and 84 Fortran test cases exhibit data races, while 89
+C/C++ and 82 Fortran test cases are free from data races. We utilize
+the metrics defined in Section 4.5 to assess the performance of data
+race detection tools (LLOV, Intel Inspector, ROMP, and Thread Sanitizer) and LLM-based methods (GPT-3.5, GPT-4, LLaMa, LLaMa2,
+HPC-GPT (L1) and HPC-GPT (L2)). The compiler version is shown
+in Table 4. The results are summarized in Table 5, where the best
+result for each metric is highlighted in bold. In C/C++ language,
+Thread Sanitizer excels in Adjusted F1 (0.8679), specificity (0.9888),
+precision (0.9857), and accuracy (0.8826). Remarkably, HPC-GPT
+(L2) secures second place in accuracy (0.8037), Adjusted F1 (0.8072),
+and Recall (0.8171). For Fortran, Thread Sanitizer shines with the
+best results in specificity (1.0), precision (1.0), and accuracy (0.8863).
+HPC-GPT (L2) leads in Recall (0.8433) and Adjusted F1 (0.8333).
+Compared with LLM-based methods, both HPC-GPT (L1) and
+HPC-GPT (L2) demonstrate notable improvements over LLaMa,
+LLaMa 2, GPT-3.5, GPT-4 across five key metrics (recall, specificity,
+precision, accuracy, and adjusted F1). In C/C++ language, HPCGPT (L2) achieves improvements of 36.11%, 34.84%, 26.33%, 11.1%,
+and 3.85% compared with LLaMa, LLaMa 2, GPT-3.5, GPT-4, and
+HPC-GPT (L1). For Fortran, HPC-GPT (L2) attains enhancements
+of 31.89%, 35.23%, 21.34%, 15.79%, and 7.28% over LLaMa, LLaMa 2,
+GPT-3.5, GPT-4, and HPC-GPT (L1). Notably, all LLM-based methods share the same TSR due to an 8k token constraint, limiting
+input length. For C/C++, TSR is lower than existing tools, with
+14 test cases exceeding 8k tokens. Conversely, Fortran’s TSR for
+LLM-based methods is 1.0, surpassing existing tools.
+
+[TABLE page=7 index=1]
+Columns: Unnamed: 0 | Unnamed: 1 | Unnamed: 2 | Unnamed: 3 | Unnamed: 4 | Unnamed: 5 | Category | Unnamed: 6 | Unnamed: 7 | Unnamed: 8
+Row 1: Unnamed: 0: Subtasks | Unnamed: 1: Metric | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: Code snippet with data races | Unnamed: 5: | Category: | Unnamed: 6: Code snippet without data races | Unnamed: 7: | Unnamed: 8:
+Row 2: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Category: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Unresolvable de
+Row 3: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Category: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Missing data sh
+Row 4: Unnamed: 0: | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Category: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8: Missing synchr
+Row 5: Unnamed: 0: | Unnamed: 1: Number | Unnamed: 2: 132 | Unnamed: 3: 129 | Unnamed: 4: 130 124 110 128 | Unnamed: 5: | Category: 133 133 | Unnamed: 6: 105 144 119 118 126 | Unnamed: 7: 131 | Unnamed: 8:
+Row 6: Unnamed: 0: C/C++ | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Category: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+Row 7: Unnamed: 0: | Unnamed: 1: Percentage | Unnamed: 2: 7.49% | Unnamed: 3: 7.32% | Unnamed: 4: 7.38% 7.04% 6.24% 7.26% | Unnamed: 5: | Category: 7.55% 7.55% | Unnamed: 6: 5.96% 8.17% 6.75% 6.70% 7.15% | Unnamed: 7: 7.43% | Unnamed: 8: SIMD data races
+Row 8: Unnamed: 0: | Unnamed: 1: Number | Unnamed: 2: 125 | Unnamed: 3: 103 | Unnamed: 4: 117 122 101 109 | Unnamed: 5: | Category: 111 98 | Unnamed: 6: 126 105 130 97 108 | Unnamed: 7: 124 | Unnamed: 8:
+Row 9: Unnamed: 0: Fortran | Unnamed: 1: | Unnamed: 2: | Unnamed: 3: | Unnamed: 4: | Unnamed: 5: | Category: | Unnamed: 6: | Unnamed: 7: | Unnamed: 8:
+Row 10: Unnamed: 0: | Unnamed: 1: Percentage | Unnamed: 2: 7.93% | Unnamed: 3: 6.54% | Unnamed: 4: 7.42% 7.74% 6.41% 6.91% | Unnamed: 5: | Category: 7.04% 6.21% | Unnamed: 6: 8.00% 6.66% 8.25% 6.15% 6.85% | Unnamed: 7: 7.86% | Unnamed: 8:
+[/TABLE]
+
+[TABLE page=7 index=2]
+Columns: Tools | Version | Compiler | challenge by effectively translating human language into embedRow 1: Tools: ThreadSanitizer | Version: 10.0.0 | Compiler: Clang/LLVM 10.0.0 | challenge by effectively translating human language into embed-: dings, enabling it to process all the information and provide relevantNumerical kernel data races
+Row 2: Tools: Intel Inspector | Version: 2021.1 | Compiler: Intel Compiler 2021.3.0 | challenge by effectively translating human language into embed-: answers to various queries. In both tasks, HPC-GPT demonstrates
+Row 3: Tools: ROMP | Version: 20ac93c | Compiler: GCC/gfortran 7.4.0 | challenge by effectively translating human language into embed-: its versatility in handling different conditions and benefits users
+Row 4: Tools: | Version: | Compiler: | challenge by effectively translating human language into embed-: Single thread execution
+Row 5: Tools: LLOV | Version: N/A | Compiler: Clang/LLVM 6.0.1 | challenge by effectively translating human language into embed-: by allowing them to express their questions freely while receiving
+[/TABLE]
+
+[PAGE 8]
+SC-W 2023, November 12–17, 2023, Denver, CO, USA
+Xianzhong Ding, Le Chen, Murali Emani, Chunhua Liao, Pei-Hung Lin,
+Tristan Vanderbruggen, Zhen Xie, and Alberto E. Cerpa, Wan Du
+Table 5: Results of Individual Data Race Detection Tools and LLM-Based methods.
+Tool Language TP FP TN FN Recall Specificity Precision Accuracy TSR Adjusted F1
+LLOV
+C/C++
+58 9 78 29 0.6666 0.8965 0.8656 0.7816 0.9613 0.7532
+Intel Inspector 76 41 46 10 0.837 0.5287 0.6495 0.7052 0.9558 0.7487
+ROMP 63 12 65 18 0.775 0.8333 0.8266 0.8037 0.8729 0.8000
+Thread Sanitizer 69 1 89 20 0.7752 0.9888 0.9857 0.8826 0.9889 0.8679
+GPT-3.5 52 36 45 30 0.6341 0.5555 0.5909 0.5951 0.9209 0.6117
+GPT-4 65 31 50 17 0.7926 0.6172 0.6770 0.7055 0.9209 0.73033
+LLaMa 65 61 20 17 0.7926 0.2469 0.5158 0.52147 0.9209 0.625
+LLaMa2 71 66 15 11 0.8658 0.1851 0.51824 0.5276 0.9209 0.6484
+HPC-GPT (L1) 64 20 61 18 0.7804 0.7530 0.7619 0.7668 0.9209 0.7710
+HPC-GPT (L2) 67 17 64 15 0.8171 0.7901 0.7976 0.8037 0.9209 0.8072
+LLOV
+Fortran
+40 11 70 36 0.5263 0.8641 0.7843 0.7006 0.9457 0.6299
+Intel Inspector 66 11 65 17 0.7951 0.8552 0.8571 0.8238 0.9464 0.825
+ROMP 57 10 54 20 0.7402 0.8437 0.8507 0.7872 0.8392 0.7916
+Thread Sanitizer 52 0 65 15 0.7761 1.0 1.0 0.8863 0.7857 0.8739
+GPT-3.5 54 31 50 31 0.6352 0.6172 0.6352 0.6265 1.0 0.6352
+GPT-4 67 37 44 18 0.7882 0.5432 0.6442 0.6687 1.0 0.7089
+LLaMa 63 55 26 22 0.7411 0.3209 0.5338 0.5361 1.0 0.6206
+LLaMa2 59 63 18 26 0.6941 0.2222 0.4836 0.4638 1.0 0.5700
+HPC-GPT (L1) 66 20 61 19 0.7764 0.7530 0.7674 0.7650 1.0 0.7719
+HPC-GPT (L2) 70 15 68 13 0.8433 0.8192 0.8235 0.8313 1.0 0.8333
+5 CHALLENGES AND POSSIBLE SOLUTIONS
+The Token Length of Existing LLMs: The limitation of LLMbased methods in detecting data races that exceed the 8k token limit
+poses a significant challenge in practical applications. When dealing
+with real-world software projects, data races may involve extensive
+sections of code that surpass the token limit. As a consequence,
+LLM-based methods fail to process such data race instances, leading
+to incomplete and potentially inaccurate results. To address this
+limitation, One approach is to investigate ways to extend the token
+limit of LLM models, allowing them to handle longer code snippets effectively. This involves optimizing the model architecture
+or leveraging advanced hardware configurations. Another avenue
+for improvement involves devising a pre-processing or partitioning
+mechanism to break down large code snippets into smaller, manageable segments that fit within the token limit. This way, LLM-based
+methods can analyze each segment individually and then combine
+the results to detect data races across the entire codebase.
+How to update HPC-GPT with Latest Data: Updating HPCGPT with the latest data poses a challenge due to the continuous
+release of datasets and models. Several strategies can be employed
+for effective updates. Initially, new data can be periodically gathered to retrain the entire HPC-GPT alongside existing data. Another
+method involves creating a checkpoint of the current model version
+and then resuming training using the newly acquired data. Another
+approach leverages the LangChain framework [1], wherein HPCGPT integrates new data seamlessly. The Longchain APIs enable the
+storage of text within semantic vector stores. This integration process entails the division of text into chunks, followed by embedding
+and matching prompts with the most relevant vector chunks. Consequently, this enhances the context of responses while adhering
+to token limitations.
+6 CONCLUSION
+This paper proposes HPC-GPT, a large language model specifically designed for the HPC domain. We explore the capabilities of
+this model in addressing two common tasks in HPC and demonstrate its excellent performance. In the first task, concerning model
+and dataset selection for HPC, HPC-GPT exhibits the ability to retrieve and extract HPC-related datasets and models based on human
+expressions. It efficiently handles multiple conditions, providing
+valuable support for researchers in the HPC field. Additionally,
+we evaluate HPC-GPT’s performance in data-race detection in an
+OpenMP program, a critical concern in parallel computing. Our experiments demonstrate that HPC-GPT achieves good performance
+compared to existing data-race detectors.
+ACKNOWLEDGMENTS
+This research was funded in part by and used resources at the Argonne Leadership Computing Facility, which is a DOE Office of Science User Facility supported under Contract DE-AC02-06CH11357.
+This work is also prepared by LLNL under Contract DE-AC5207NA27344 (LLNL-CONF-853156) and supported by the U.S. Department of Energy, Office of Science, Advanced Scientific Computing
+Research.
+REFERENCES
+[1] 2023. LangChain: Next Generation Language Processing. https://langchain.com/
+Accessed: 2023-05-15.
+[2] 2023. MLPerf Training v3.0 Results. https://docs.google.com/spreadsheets/d/
+1bF4buOnEPQcwoqlaSeX4HxKx8jVRR0xHcOT_CaAL5Mk/pubhtml?gid=0&
+single=false&widget=false&headers=false&chrome=true
+[3] 2023. OpenAI. ChatGPT. https://openai.com/blog/chatgpt/ Accessed: 2023-02-08.
+[4] 2023. OpenAI Codex. https://openai.com/blog/openai-codex Accessed: 2023-03.
+[5] 2023. Structed Data of PLP tasks. https://github.com/microsoft/CodeXGLUE
+Accessed: 2023-06-15.
+
+[TABLE page=8 index=1]
+Columns: Tool | Language | TP | FP | TN | FN | Recall | Specificity | Precision | Accuracy | TSR | Adjusted F1
+Row 1: Tool: LLOV | Language: | TP: 58.0 | FP: 9.0 | TN: 78.0 | FN: 29.0 | Recall: 0.6666 | Specificity: 0.8965 | Precision: 0.8656 | Accuracy: 0.7816 | TSR: 0.9613 | Adjusted F1: 0.7532
+Row 2: Tool: Intel Inspector | Language: | TP: 76.0 | FP: 41.0 | TN: 46.0 | FN: 10.0 | Recall: 0.837 | Specificity: 0.5287 | Precision: 0.6495 | Accuracy: 0.7052 | TSR: 0.9558 | Adjusted F1: 0.7487
+Row 3: Tool: ROMP | Language: | TP: 63.0 | FP: 12.0 | TN: 65.0 | FN: 18.0 | Recall: 0.775 | Specificity: 0.8333 | Precision: 0.8266 | Accuracy: 0.8037 | TSR: 0.8729 | Adjusted F1: 0.8
+Row 4: Tool: Thread Sanitizer | Language: | TP: 69.0 | FP: 1.0 | TN: 89.0 | FN: 20.0 | Recall: 0.7752 | Specificity: 0.9888 | Precision: 0.9857 | Accuracy: 0.8826 | TSR: 0.9889 | Adjusted F1: 0.8679
+Row 5: Tool: GPT-3.5 | Language: | TP: 52.0 | FP: 36.0 | TN: 45.0 | FN: 30.0 | Recall: 0.6341 | Specificity: 0.5555 | Precision: 0.5909 | Accuracy: 0.5951 | TSR: 0.9209 | Adjusted F1: 0.6117
+Row 6: Tool: | Language: C/C++ | TP: | FP: | TN: | FN: | Recall: | Specificity: | Precision: | Accuracy: | TSR: | Adjusted F1:
+Row 7: Tool: GPT-4 | Language: | TP: 65.0 | FP: 31.0 | TN: 50.0 | FN: 17.0 | Recall: 0.7926 | Specificity: 0.6172 | Precision: 0.677 | Accuracy: 0.7055 | TSR: 0.9209 | Adjusted F1: 0.73033
+Row 8: Tool: LLaMa | Language: | TP: 65.0 | FP: 61.0 | TN: 20.0 | FN: 17.0 | Recall: 0.7926 | Specificity: 0.2469 | Precision: 0.5158 | Accuracy: 0.52147 | TSR: 0.9209 | Adjusted F1: 0.625
+Row 9: Tool: LLaMa2 | Language: | TP: 71.0 | FP: 66.0 | TN: 15.0 | FN: 11.0 | Recall: 0.8658 | Specificity: 0.1851 | Precision: 0.51824 | Accuracy: 0.5276 | TSR: 0.9209 | Adjusted F1: 0.6484
+Row 10: Tool: HPC-GPT (L1) | Language: | TP: 64.0 | FP: 20.0 | TN: 61.0 | FN: 18.0 | Recall: 0.7804 | Specificity: 0.753 | Precision: 0.7619 | Accuracy: 0.7668 | TSR: 0.9209 | Adjusted F1: 0.771
+Row 11: Tool: HPC-GPT (L2) | Language: | TP: 67.0 | FP: 17.0 | TN: 64.0 | FN: 15.0 | Recall: 0.8171 | Specificity: 0.7901 | Precision: 0.7976 | Accuracy: 0.8037 | TSR: 0.9209 | Adjusted F1: 0.8072
+Row 12: Tool: LLOV | Language: | TP: 40.0 | FP: 11.0 | TN: 70.0 | FN: 36.0 | Recall: 0.5263 | Specificity: 0.8641 | Precision: 0.7843 | Accuracy: 0.7006 | TSR: 0.9457 | Adjusted F1: 0.6299
+Row 13: Tool: Intel Inspector | Language: | TP: 66.0 | FP: 11.0 | TN: 65.0 | FN: 17.0 | Recall: 0.7951 | Specificity: 0.8552 | Precision: 0.8571 | Accuracy: 0.8238 | TSR: 0.9464 | Adjusted F1: 0.825
+Row 14: Tool: ROMP | Language: | TP: 57.0 | FP: 10.0 | TN: 54.0 | FN: 20.0 | Recall: 0.7402 | Specificity: 0.8437 | Precision: 0.8507 | Accuracy: 0.7872 | TSR: 0.8392 | Adjusted F1: 0.7916
+Row 15: Tool: Thread Sanitizer | Language: | TP: 52.0 | FP: 0.0 | TN: 65.0 | FN: 15.0 | Recall: 0.7761 | Specificity: 1.0 | Precision: 1.0 | Accuracy: 0.8863 | TSR: 0.7857 | Adjusted F1: 0.8739
+Row 16: Tool: GPT-3.5 | Language: | TP: 54.0 | FP: 31.0 | TN: 50.0 | FN: 31.0 | Recall: 0.6352 | Specificity: 0.6172 | Precision: 0.6352 | Accuracy: 0.6265 | TSR: 1.0 | Adjusted F1: 0.6352
+Row 17: Tool: | Language: Fortran | TP: | FP: | TN: | FN: | Recall: | Specificity: | Precision: | Accuracy: | TSR: | Adjusted F1:
+Row 18: Tool: GPT-4 | Language: | TP: 67.0 | FP: 37.0 | TN: 44.0 | FN: 18.0 | Recall: 0.7882 | Specificity: 0.5432 | Precision: 0.6442 | Accuracy: 0.6687 | TSR: 1.0 | Adjusted F1: 0.7089
+Row 19: Tool: LLaMa | Language: | TP: 63.0 | FP: 55.0 | TN: 26.0 | FN: 22.0 | Recall: 0.7411 | Specificity: 0.3209 | Precision: 0.5338 | Accuracy: 0.5361 | TSR: 1.0 | Adjusted F1: 0.6206
+Row 20: Tool: LLaMa2 | Language: | TP: 59.0 | FP: 63.0 | TN: 18.0 | FN: 26.0 | Recall: 0.6941 | Specificity: 0.2222 | Precision: 0.4836 | Accuracy: 0.4638 | TSR: 1.0 | Adjusted F1: 0.57
+Row 21: Tool: HPC-GPT (L1) | Language: | TP: 66.0 | FP: 20.0 | TN: 61.0 | FN: 19.0 | Recall: 0.7764 | Specificity: 0.753 | Precision: 0.7674 | Accuracy: 0.765 | TSR: 1.0 | Adjusted F1: 0.7719
+Row 22: Tool: HPC-GPT (L2) | Language: | TP: 70.0 | FP: 15.0 | TN: 68.0 | FN: 13.0 | Recall: 0.8433 | Specificity: 0.8192 | Precision: 0.8235 | Accuracy: 0.8313 | TSR: 1.0 | Adjusted F1: 0.8333
+[/TABLE]
+
+[PAGE 9]
+HPC-GPT: Integrating Large Language Model for High-Performance Computing SC-W 2023, November 12–17, 2023, Denver, CO, USA
+[6] Zhiyu An, Xianzhong Ding, Arya Rathee, and Wan Du. 2023. CLUE: Safe
+Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In
+ACM BuildSys.
+[7] Stephen H Bach, Victor Sanh, Zheng-Xin Yong, Albert Webson, Colin Raffel, Nihal V Nayak, Abheesht Sharma, Taewoon Kim, M Saiful Bari, Thibault Fevry, et al.
+2022. Promptsource: An integrated development environment and repository for
+natural language prompts. arXiv preprint arXiv:2202.01279 (2022).
+[8] Utpal Bora, Santanu Das, Pankaj Kukreja, Saurabh Joshi, Ramakrishna Upadrasta,
+and Sanjay Rajopadhye. 2020. Llov: A fast static data-race checker for openmp
+programs. ACM Transactions on Architecture and Code Optimization (TACO) 17, 4
+(2020), 1–26.
+[9] Jakob Božič, Domen Tabernik, and Danijel Skočaj. 2021. Mixed supervision for
+surface-defect detection: From weakly to fully supervised learning. Computers in
+Industry 129 (2021), 103459.
+[10] Sébastien Bubeck, Varun Chandrasekaran, Ronen Eldan, Johannes Gehrke, Eric
+Horvitz, Ece Kamar, Peter Lee, Yin Tat Lee, Yuanzhi Li, Scott Lundberg, et al. 2023.
+Sparks of artificial general intelligence: Early experiments with gpt-4. arXiv
+preprint arXiv:2303.12712 (2023).
+[11] Le Chen, Xianzhong Ding, Murali Emani, Tristan Vanderbruggen, Pei-hung Lin,
+and Chuanhua Liao. 2023. Data Race Detection Using Large Language Models.
+arXiv preprint arXiv:2308.07505 (2023).
+[12] Le Chen, Pei-Hung Lin, Tristan Vanderbruggen, Chunhua Liao, Murali Emani,
+and Bronis de Supinski. 2023. LM4HPC: Towards Effective Language Model Application in High-Performance Computing. InInternational Workshop on OpenMP.
+Springer, 18–33.
+[13] Le Chen, Quazi Ishtiaque Mahmud, and Ali Jannesari. 2022. Multi-view learning
+for parallelism discovery of sequential programs. In 2022 IEEE International
+Parallel and Distributed Processing Symposium Workshops (IPDPSW) . IEEE, 295–
+303.
+[14] Le Chen, Quazi Ishtiaque Mahmud, Hung Phan, Nesreen Ahmed, and Ali Jannesari. 2023. Learning to Parallelize with OpenMP by Augmented Heterogeneous
+AST Representation. Proceedings of Machine Learning and Systems 5 (2023).
+[15] Le Chen, Wenhao Wu, Stephen F Siegel, Pei-Hung Lin, and Chunhua Liao. 2023.
+DataRaceBench V1. 4.1 and DataRaceBench-ML V0. 1: Benchmark Suites for Data
+Race Detection. arXiv preprint arXiv:2308.08473 (2023).
+[16] Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira
+Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman,
+et al. 2021. Evaluating large language models trained on code. arXiv preprint
+arXiv:2107.03374 (2021).
+[17] Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav
+Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, Charles Sutton, Sebastian Gehrmann, et al. 2022. Palm: Scaling language modeling with pathways.
+arXiv preprint arXiv:2204.02311 (2022).
+[18] Xianzhong Ding, Le Chen, Murali Emani, Chunhua Liao, Pei-Hung Lin, Tristan
+Vanderbruggen, Zhen Xie, Alberto E. Cerpa, and Wan Du. 2023. HPC-GPT: Integrating Large Language Model for High-Performance Computing. In Workshops
+of The International Conference on High Performance Computing, Network, Storage,
+and Analysis (SC-W 2023).
+[19] Xianzhong Ding and Wan Du. 2022. Drlic: Deep reinforcement learning for
+irrigation control. In 2022 21st ACM/IEEE International Conference on Information
+Processing in Sensor Networks (IPSN) . IEEE, 41–53.
+[20] Xianzhong Ding and Wan Du. 2022. Smart irrigation control using deep reinforcement learning. In 2022 21st ACM/IEEE International Conference on Information
+Processing in Sensor Networks (IPSN) . IEEE, 539–540.
+[21] Xianzhong Ding, Wan Du, and Alberto Cerpa. 2019. OCTOPUS: Deep reinforcement learning for holistic smart building control. In Proceedings of the 6th
+ACM international conference on systems for energy-efficient buildings, cities, and
+transportation. 326–335.
+[22] Xianzhong Ding, Wan Du, and Alberto E Cerpa. 2020. Mb2c: Model-based deep
+reinforcement learning for multi-zone building control. In Proceedings of the 7th
+ACM international conference on systems for energy-efficient buildings, cities, and
+transportation. 50–59.
+[23] Patrick Flynn, Tristan Vanderbruggen, Chunhua Liao, Pei-Hung Lin, Murali
+Emani, and Xipeng Shen. 2022. Finding reusable machine learning components to build programming language processing pipelines. arXiv preprint
+arXiv:2208.05596 (2022).
+[24] William F Godoy, Pedro Valero-Lara, Keita Teranishi, Prasanna Balaprakash, and
+Jeffrey S Vetter. 2023. Evaluation of OpenAI Codex for HPC Parallel Programming
+Models Kernel Generation. arXiv preprint arXiv:2306.15121 (2023).
+[25] Yizi Gu and John Mellor-Crummey. 2018. Dynamic data race detection for
+OpenMP programs. In SC18: International Conference for High Performance Computing, Networking, Storage and Analysis . IEEE, 767–778.
+[26] Jeremy Howard and Sebastian Ruder. 2018. Universal language model fine-tuning
+for text classification. arXiv preprint arXiv:1801.06146 (2018).
+[27] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean
+Wang, Lu Wang, and Weizhu Chen. 2021. Lora: Low-rank adaptation of large
+language models. arXiv preprint arXiv:2106.09685 (2021).
+[28] Hamel Husain, Ho-Hsiang Wu, Tiferet Gazit, Miltiadis Allamanis, and Marc
+Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic
+code search. arXiv preprint arXiv:1909.09436 (2019).
+[29] Intel Inspector. 2017. Intel Inspector 2017. https://software.intel.com/en-us/intelinspector-xe.
+[30] Marie-Anne Lachaux, Baptiste Roziere, Lowik Chanussot, and Guillaume Lample.
+2020. Unsupervised translation of programming languages. arXiv preprint
+arXiv:2006.03511 (2020).
+[31] Guillaume Lample and Alexis Conneau. 2019. Cross-lingual language model
+pretraining. arXiv preprint arXiv:1901.07291 (2019).
+[32] Yujia Li, David Choi, Junyoung Chung, Nate Kushman, Julian Schrittwieser, Rémi
+Leblond, Tom Eccles, James Keeling, Felix Gimeno, Agustin Dal Lago, et al. 2022.
+Competition-level code generation with alphacode. Science 378, 6624 (2022),
+1092–1097.
+[33] Baohao Liao, Yan Meng, and Christof Monz. 2023. Parameter-Efficient FineTuning without Introducing New Latency.arXiv preprint arXiv:2305.16742 (2023).
+[34] Chunhua Liao, Pei-Hung Lin, Gaurav Verma, Tristan Vanderbruggen, Murali
+Emani, Zifan Nan, and Xipeng Shen. 2021. Hpc ontology: Towards a unified
+ontology for managing training datasets and ai models for high-performance
+computing. In 2021 IEEE/ACM Workshop on Machine Learning in High Performance
+Computing Environments (MLHPC). IEEE, 69–80.
+[35] Pei-Hung Lin and Chunhua Liao. 2021. High-precision evaluation of both static
+and dynamic tools using dataracebench. In 2021 IEEE/ACM 5th International
+Workshop on Software Correctness for HPC Applications (Correctness) . IEEE, 1–8.
+[36] Jie Liu, Bogdan Nicolae, and Dong Li. 2022. Lobster: Load Balance-Aware I/O for
+Distributed DNN Training. In Proceedings of the 51st International Conference on
+Parallel Processing. 1–11.
+[37] Jie Liu, Bogdan Nicolae, Dong Li, Justin M Wozniak, Tekin Bicer, Zhengchun Liu,
+and Ian Foster. 2022. Large Scale Caching and Streaming of Training Data for
+Online Deep Learning. In Proceedings of the 12th Workshop on AI and Scientific
+Computing at Scale using Flexible Computing Infrastructures . 19–26.
+[38] Shuai Lu, Daya Guo, Shuo Ren, Junjie Huang, Alexey Svyatkovskiy, Ambrosio Blanco, Colin Clement, Dawn Drain, Daxin Jiang, Duyu Tang, et al . 2021.
+Codexglue: A machine learning benchmark dataset for code understanding and
+generation. arXiv preprint arXiv:2102.04664 (2021).
+[39] Boris Motik, Peter F Patel-Schneider, Bijan Parsia, Conrad Bock, Achille Fokoue,
+Peter Haase, Rinke Hoekstra, Ian Horrocks, Alan Ruttenberg, Uli Sattler, et al.
+2009. OWL 2 web ontology language: Structural specification and functional-style
+syntax. W3C recommendation 27, 65 (2009), 159.
+[40] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela
+Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. 2022.
+Training language models to follow instructions with human feedback. Advances
+in Neural Information Processing Systems 35 (2022), 27730–27744.
+[41] Hamid Rajabi, Xianzhong Ding, Wan Du, and Alberto Cerpa. 2023. TODOS:
+Thermal sensOr Data-driven Occupancy Estimation System for Smart Buildings.
+In Proceedings of the 10th ACM international conference on systems for energyefficient buildings, cities, and transportation.
+[42] Vijay Janapa Reddi, Christine Cheng, David Kanter, Peter Mattson, Guenther
+Schmuelling, Carole-Jean Wu, Brian Anderson, Maximilien Breughe, Mark
+Charlebois, William Chou, et al . 2020. Mlperf inference benchmark. In 2020
+ACM/IEEE 47th Annual International Symposium on Computer Architecture (ISCA).
+IEEE, 446–459.
+[43] Konstantin Serebryany and Timur Iskhodzhanov. 2009. ThreadSanitizer: data race
+detection in practice. In Proceedings of the workshop on binary instrumentation
+and applications. 62–71.
+[44] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne
+Lachaux, Timothée Lacroix, Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+Azhar, et al. 2023. Llama: Open and efficient foundation language models. arXiv
+preprint arXiv:2302.13971 (2023).
+[45] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, et al. 2023. Llama 2: Open Foundation and Fine-Tuned Chat Models. arXiv
+preprint arXiv:2307.09288 (2023).
+[46] Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu, Noah A Smith, Daniel
+Khashabi, and Hannaneh Hajishirzi. 2022. Self-instruct: Aligning language model
+with self generated instructions. arXiv preprint arXiv:2212.10560 (2022).
+[47] Jason Wei, Maarten Bosma, Vincent Y Zhao, Kelvin Guu, Adams Wei Yu, Brian
+Lester, Nan Du, Andrew M Dai, and Quoc V Le. 2021. Finetuned language models
+are zero-shot learners. arXiv preprint arXiv:2109.01652 (2021).
+[48] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi,
+Quoc V Le, Denny Zhou, et al. 2022. Chain-of-thought prompting elicits reasoning
+in large language models. Advances in Neural Information Processing Systems 35
+(2022), 24824–24837.
+[49] Yiben Yang, Chaitanya Malaviya, Jared Fernandez, Swabha Swayamdipta, Ronan Le Bras, Ji-Ping Wang, Chandra Bhagavatula, Yejin Choi, and Doug Downey.
+2020. Generative data augmentation for commonsense reasoning. arXiv preprint
+arXiv:2004.11546 (2020).
+
+[TABLE page=9 index=1]
+Columns: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic
+Row 1: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: ACM BuildSys. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: code search. arXiv preprint arXiv:1909.09436 (2019).
+Row 2: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [7] Stephen H Bach, Victor Sanh, Zheng-Xin Yong, Albert Webson, Colin Raffel, Ni- | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [29] Intel Inspector. 2017. Intel Inspector 2017. https://software.intel.com/en-us/intelRow 3: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: hal V Nayak, Abheesht Sharma, Taewoon Kim, M Saiful Bari, Thibault Fevry, et al. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: inspector-xe.
+Row 4: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: 2022. Promptsource: An integrated development environment and repository for | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [30] Marie-Anne Lachaux, Baptiste Roziere, Lowik Chanussot, and Guillaume Lample.
+Row 5: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: natural language prompts. arXiv preprint arXiv:2202.01279 (2022). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: 2020. Unsupervised translation of programming languages. arXiv preprint
+Row 6: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [8] Utpal Bora, Santanu Das, Pankaj Kukreja, Saurabh Joshi, Ramakrishna Upadrasta, | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: arXiv:2006.03511 (2020).
+Row 7: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: and Sanjay Rajopadhye. 2020. Llov: A fast static data-race checker for openmp | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [31] Guillaume Lample and Alexis Conneau. 2019. Cross-lingual language model
+Row 8: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: programs. ACM Transactions on Architecture and Code Optimization (TACO) 17, 4 | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: pretraining. arXiv preprint arXiv:1901.07291 (2019).
+Row 9: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: (2020), 1–26. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [32] Yujia Li, David Choi, Junyoung Chung, Nate Kushman, Julian Schrittwieser, Rémi
+Row 10: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [9] Jakob Božič, Domen Tabernik, and Danijel Skočaj. 2021. Mixed supervision for | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Leblond, Tom Eccles, James Keeling, Felix Gimeno, Agustin Dal Lago, et al. 2022.
+Row 11: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: surface-defect detection: From weakly to fully supervised learning. Computers in | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Competition-level code generation with alphacode. Science 378, 6624 (2022),
+Row 12: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Industry 129 (2021), 103459. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: 1092–1097.
+Row 13: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [10] Sébastien Bubeck, Varun Chandrasekaran, Ronen Eldan, Johannes Gehrke, Eric | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [33] Baohao Liao, Yan Meng, and Christof Monz. 2023. Parameter-Efficient FineRow 14: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Horvitz, Ece Kamar, Peter Lee, Yin Tat Lee, Yuanzhi Li, Scott Lundberg, et al. 2023. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Tuning without Introducing New Latency. arXiv preprint arXiv:2305.16742 (2023).
+Row 15: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Sparks of artificial general intelligence: Early experiments with gpt-4. arXiv | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [34] Chunhua Liao, Pei-Hung Lin, Gaurav Verma, Tristan Vanderbruggen, Murali
+Row 16: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: preprint arXiv:2303.12712 (2023). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Emani, Zifan Nan, and Xipeng Shen. 2021. Hpc ontology: Towards a unified
+Row 17: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [11] Le Chen, Xianzhong Ding, Murali Emani, Tristan Vanderbruggen, Pei-hung Lin, | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: ontology for managing training datasets and ai models for high-performance
+Row 18: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: and Chuanhua Liao. 2023. Data Race Detection Using Large Language Models. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: computing. In 2021 IEEE/ACMWorkshop onMachine Learning in High Performance
+Row 19: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: arXiv preprint arXiv:2308.07505 (2023). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Computing Environments (MLHPC). IEEE, 69–80.
+Row 20: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [12] Le Chen, Pei-Hung Lin, Tristan Vanderbruggen, Chunhua Liao, Murali Emani, | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [35] Pei-Hung Lin and Chunhua Liao. 2021. High-precision evaluation of both static
+Row 21: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: and Bronis de Supinski. 2023. LM4HPC: Towards Effective Language Model Ap- | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: and dynamic tools using dataracebench. In 2021 IEEE/ACM 5th International
+Row 22: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: plication in High-Performance Computing. In International Workshop on OpenMP. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Workshop on Software Correctness for HPC Applications (Correctness). IEEE, 1–8.
+Row 23: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Springer, 18–33. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [36] Jie Liu, Bogdan Nicolae, and Dong Li. 2022. Lobster: Load Balance-Aware I/O for
+Row 24: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [13] Le Chen, Quazi Ishtiaque Mahmud, and Ali Jannesari. 2022. Multi-view learning | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Distributed DNN Training. In Proceedings of the 51st International Conference on
+Row 25: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: for parallelism discovery of sequential programs. In 2022 IEEE International | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Parallel Processing. 1–11.
+Row 26: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Parallel and Distributed Processing Symposium Workshops (IPDPSW). IEEE, 295– | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [37] Jie Liu, Bogdan Nicolae, Dong Li, Justin M Wozniak, Tekin Bicer, Zhengchun Liu,
+Row 27: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: 303. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: and Ian Foster. 2022. Large Scale Caching and Streaming of Training Data for
+Row 28: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [14] Le Chen, Quazi Ishtiaque Mahmud, Hung Phan, Nesreen Ahmed, and Ali Jan- | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Online Deep Learning. In Proceedings of the 12th Workshop on AI and Scientific
+Row 29: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: nesari. 2023. Learning to Parallelize with OpenMP by Augmented Heterogeneous | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Computing at Scale using Flexible Computing Infrastructures. 19–26.
+Row 30: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: AST Representation. Proceedings of Machine Learning and Systems 5 (2023). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [38] Shuai Lu, Daya Guo, Shuo Ren, Junjie Huang, Alexey Svyatkovskiy, AmbroRow 31: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [15] Le Chen, Wenhao Wu, Stephen F Siegel, Pei-Hung Lin, and Chunhua Liao. 2023. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: sio Blanco, Colin Clement, Dawn Drain, Daxin Jiang, Duyu Tang, et al. 2021.
+Row 32: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: DataRaceBench V1. 4.1 and DataRaceBench-ML V0. 1: Benchmark Suites for Data | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Codexglue: A machine learning benchmark dataset for code understanding and
+Row 33: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Race Detection. arXiv preprint arXiv:2308.08473 (2023). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: generation. arXiv preprint arXiv:2102.04664 (2021).
+Row 34: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [16] Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [39] Boris Motik, Peter F Patel-Schneider, Bijan Parsia, Conrad Bock, Achille Fokoue,
+Row 35: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Peter Haase, Rinke Hoekstra, Ian Horrocks, Alan Ruttenberg, Uli Sattler, et al.
+Row 36: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: et al. 2021. Evaluating large language models trained on code. arXiv preprint | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: 2009. OWL 2web ontology language: Structural specification and functional-style
+Row 37: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: arXiv:2107.03374 (2021). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: syntax. W3C recommendation 27, 65 (2009), 159.
+Row 38: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [17] Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [40] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela
+Row 39: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, Charles Sutton, Se- | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. 2022.
+Row 40: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: bastian Gehrmann, et al. 2022. Palm: Scaling language modeling with pathways. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Training language models to follow instructions with human feedback. Advances
+Row 41: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: arXiv preprint arXiv:2204.02311 (2022). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: in Neural Information Processing Systems 35 (2022), 27730–27744.
+Row 42: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [18] Xianzhong Ding, Le Chen, Murali Emani, Chunhua Liao, Pei-Hung Lin, Tristan | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [41] Hamid Rajabi, Xianzhong Ding, Wan Du, and Alberto Cerpa. 2023. TODOS:
+Row 43: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Vanderbruggen, Zhen Xie, Alberto E. Cerpa, and Wan Du. 2023. HPC-GPT: Inte- | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Thermal sensOr Data-driven Occupancy Estimation System for Smart Buildings.
+Row 44: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: grating Large Language Model for High-Performance Computing. In Workshops | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: In Proceedings of the 10th ACM international conference on systems for energyRow 45: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: of The International Conference on High Performance Computing, Network, Storage, | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: efficient buildings, cities, and transportation.
+Row 46: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: and Analysis (SC-W 2023). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [42] Vijay Janapa Reddi, Christine Cheng, David Kanter, Peter Mattson, Guenther
+Row 47: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [19] Xianzhong Ding and Wan Du. 2022. Drlic: Deep reinforcement learning for | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Schmuelling, Carole-Jean Wu, Brian Anderson, Maximilien Breughe, Mark
+Row 48: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: irrigation control. In 2022 21st ACM/IEEE International Conference on Information | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Charlebois, William Chou, et al. 2020. Mlperf inference benchmark. In 2020
+Row 49: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Processing in Sensor Networks (IPSN). IEEE, 41–53. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: ACM/IEEE 47th Annual International Symposium on Computer Architecture (ISCA).
+Row 50: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [20] Xianzhong Ding andWan Du. 2022. Smart irrigation control using deep reinforce- | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: IEEE, 446–459.
+Row 51: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: ment learning. In 2022 21st ACM/IEEE International Conference on Information | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [43] Konstantin Serebryany and Timur Iskhodzhanov. 2009. ThreadSanitizer: data race
+Row 52: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Processing in Sensor Networks (IPSN). IEEE, 539–540. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: detection in practice. In Proceedings of the workshop on binary instrumentation
+Row 53: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [21] Xianzhong Ding, Wan Du, and Alberto Cerpa. 2019. OCTOPUS: Deep rein- | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: and applications. 62–71.
+Row 54: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: forcement learning for holistic smart building control. In Proceedings of the 6th | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [44] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne
+Row 55: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: ACM international conference on systems for energy-efficient buildings, cities, and | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Lachaux, Timothée Lacroix, Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+Row 56: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: transportation. 326–335. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Azhar, et al. 2023. Llama: Open and efficient foundation language models. arXiv
+Row 57: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [22] Xianzhong Ding, Wan Du, and Alberto E Cerpa. 2020. Mb2c: Model-based deep | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: preprint arXiv:2302.13971 (2023).
+Row 58: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: reinforcement learning for multi-zone building control. In Proceedings of the 7th | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [45] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, YasRow 59: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: ACM international conference on systems for energy-efficient buildings, cities, and | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: mine Babaei, Nikolay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti BhosRow 60: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: transportation. 50–59. | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: ale, et al. 2023. Llama 2: Open Foundation and Fine-Tuned Chat Models. arXiv
+Row 61: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [23] Patrick Flynn, Tristan Vanderbruggen, Chunhua Liao, Pei-Hung Lin, Murali | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: preprint arXiv:2307.09288 (2023).
+Row 62: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Emani, and Xipeng Shen. 2022. Finding reusable machine learning compo- | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [46] Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu, Noah A Smith, Daniel
+Row 63: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: nents to build programming language processing pipelines. arXiv preprint | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Khashabi, and Hannaneh Hajishirzi. 2022. Self-instruct: Aligning language model
+Row 64: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: arXiv:2208.05596 (2022). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: with self generated instructions. arXiv preprint arXiv:2212.10560 (2022).
+Row 65: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [24] William F Godoy, Pedro Valero-Lara, Keita Teranishi, Prasanna Balaprakash, and | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [47] Jason Wei, Maarten Bosma, Vincent Y Zhao, Kelvin Guu, Adams Wei Yu, Brian
+Row 66: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Jeffrey S Vetter. 2023. Evaluation of OpenAI Codex for HPC Parallel Programming | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Lester, Nan Du, Andrew MDai, and Quoc V Le. 2021. Finetuned language models
+Row 67: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: Models Kernel Generation. arXiv preprint arXiv:2306.15121 (2023). | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: are zero-shot learners. arXiv preprint arXiv:2109.01652 (2021).
+Row 68: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: [25] Yizi Gu and John Mellor-Crummey. 2018. Dynamic data race detection for | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: [48] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi,
+Row 69: Model-Based RL HVAC Control Using Epistemic Uncertainty Estimation. In: OpenMP programs. In SC18: International Conference for High Performance Com- | Brockschmidt. 2019. Codesearchnet challenge: Evaluating the state of semantic: Quoc V Le, Denny Zhou, et al. 2022. Chain-of-thought prompting elicits reasoning
+[/TABLE]
